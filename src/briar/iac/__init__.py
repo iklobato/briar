@@ -1,16 +1,12 @@
-"""Infrastructure-as-code: declarative reconcilers + scaffolding.
+"""IaC: scaffold + config-file loader (post-API removal).
 
-Public surface:
-- `ConfigFile`     — parsed bundle from a JSON config
-- `reconcile()`    — plan or apply
-- `destroy_all()`  — reverse-dependency teardown
-- `TEMPLATES`      — registry of scaffold templates
-"""
+Reconcilers and the reconcile/destroy engine were removed when the
+CLI dropped its API surface. ConfigFile parsing stays — useful for
+templating and inspection."""
 
 from __future__ import annotations
 
 from briar.iac.config_file import ConfigFile
-from briar.iac.engine import destroy_all, reconcile
 from briar.iac.reference_map import ReferenceMap
 from briar.iac.scaffold import TEMPLATES, ScaffoldTemplate
 
@@ -19,6 +15,4 @@ __all__ = [
     "ReferenceMap",
     "TEMPLATES",
     "ScaffoldTemplate",
-    "destroy_all",
-    "reconcile",
 ]

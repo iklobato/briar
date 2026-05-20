@@ -1,11 +1,5 @@
 """`briar extract` — run one or more knowledge extractors, write the
-result to the chosen storage backend.
-
-Two backends ship today (see `briar.storage`):
-    file       — local `./knowledge/<company>.md` (zero deps)
-    briar-api  — `Source(kind="static")` row in the workspace,
-                 visible to server-side agents on every task
-"""
+result to a local markdown file."""
 
 from __future__ import annotations
 
@@ -18,7 +12,6 @@ from briar.errors import CliError
 from briar.extract import EXTRACTORS
 from briar.extract.base import ExtractedSection
 from briar.extract.composer import render_json, render_markdown
-from briar.http import ApiClient
 from briar.storage import KNOWLEDGE_STORE_NAMES, make_store
 
 
@@ -26,7 +19,7 @@ class CommandExtract(Command):
     name = "extract"
     help = (
         "Mine the live state of GitHub / AWS / etc. into a markdown "
-        "knowledge blob, then store it locally or in the workspace."
+        "knowledge blob written to local disk."
     )
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
@@ -46,10 +39,7 @@ class CommandExtract(Command):
         )
         parser.add_argument(
             "--blob-name", default=None,
-            help=(
-                "Storage blob name (default: knowledge:<company>). Used by "
-                "all stores; for `file` it maps to a path under --root."
-            ),
+            help="Storage blob name (default: knowledge:<company>)",
         )
         parser.add_argument(
             "--root", default="./knowledge",
@@ -59,11 +49,10 @@ class CommandExtract(Command):
             "--out-json", default=None,
             help="Optional parallel JSON output path (local file only)",
         )
-        # Let every extractor contribute its own flags.
         for ext in EXTRACTORS.values():
             ext.add_arguments(parser)
 
-    def run(self, client: ApiClient, args: argparse.Namespace) -> int:
+    def run(self, args: argparse.Namespace) -> int:
         selected = args.include or list(EXTRACTORS.keys())
 
         sections: List[ExtractedSection] = []
@@ -87,9 +76,7 @@ class CommandExtract(Command):
         md = render_markdown(company=args.company, sections=sections)
         blob_name = args.blob_name or f"knowledge:{args.company}"
 
-        store = make_store(
-            args.storage, client=client, file_root=Path(args.root),
-        )
+        store = make_store(args.storage, file_root=Path(args.root))
         ref = store.put(blob_name, md, category="knowledge")
         print(
             f"\nwrote blob '{ref.name}' "

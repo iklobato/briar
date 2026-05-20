@@ -1,12 +1,12 @@
-"""Pagination + payload-shape helpers.
+"""Payload-shape helpers used by the formatters.
 
-DRF returns `{count, next, previous, results}` for list endpoints and
-plain JSON otherwise. These helpers shield callers from the variance
-without using `isinstance`."""
+The HTTP/API layer that produced these shapes is gone, but extractors
+and formatters still need to normalise list-vs-object payloads without
+`isinstance`."""
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 
 def items_of(page: Any) -> List[Dict[str, Any]]:
@@ -22,25 +22,10 @@ def items_of(page: Any) -> List[Dict[str, Any]]:
     return []
 
 
-def next_of(page: Any) -> Optional[str]:
-    if type(page) is dict:
-        return page.get("next") or None
-    return None
-
-
-def to_relative(url: str, api_base: str) -> str:
-    """DRF `next` is a full URL; strip the api_base so the client
-    can re-issue against its own host."""
-    prefix = api_base.rstrip("/")
-    if url.startswith(prefix):
-        return url[len(prefix):]
-    return url
-
-
 def looks_like_list(payload: Any) -> bool:
-    """`True` for both `[…]` and `{"results": [...]}` shapes."""
     if type(payload) is list:
         return True
     if type(payload) is dict:
-        return "results" in payload
+        results = payload.get("results")
+        return type(results) is list
     return False

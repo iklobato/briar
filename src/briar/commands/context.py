@@ -1,36 +1,26 @@
-"""`briar context` — CRUD over named workspace blobs.
+"""`briar context` — CRUD over local markdown knowledge blobs.
 
 A blob holds arbitrary markdown — extracted knowledge, accumulated
 memory, codified lessons, ad-hoc notes — keyed by `category:name`.
-Backed by the pluggable `KnowledgeStore` Strategy (file or briar-api).
-
-Examples:
-    briar context put knowledge:acme --from-file knowledge/acme.md
-    briar context put memory:reviewer-iklobato --content "focuses on typing"
-    briar context list --store briar-api --prefix lessons:
-    briar context get knowledge:acme --store briar-api
-    briar context categories --store briar-api
-"""
+Backed by the local file `KnowledgeStore`."""
 
 from __future__ import annotations
 
 import argparse
 import sys
 from pathlib import Path
-from typing import Callable, Dict, List
+from typing import Callable, Dict
 
 from briar.commands.base import Command, confirm
 from briar.errors import CliError
 from briar.formatting import render
-from briar.http import ApiClient
 from briar.storage import KNOWLEDGE_STORE_NAMES, KnowledgeRef, make_store
 
 
-Handler = Callable[[ApiClient, argparse.Namespace], int]
+Handler = Callable[[argparse.Namespace], int]
 
 
 def _read_content(args: argparse.Namespace) -> str:
-    """Pick content from --content, --from-file, or stdin (in that order)."""
     namespace = vars(args)
     inline = namespace.get("content")
     if inline is not None:
@@ -48,13 +38,9 @@ def _read_content(args: argparse.Namespace) -> str:
 
 class ContextCommand(Command):
     name = "context"
-    help = (
-        "Store and read named workspace blobs (knowledge / memory / "
-        "lessons / context). Backed by the pluggable KnowledgeStore."
-    )
+    help = "Store and read named local markdown blobs."
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        # Shared --store flag — every subcommand picks the backend
         parser.add_argument(
             "--store", default="file",
             choices=list(KNOWLEDGE_STORE_NAMES),
@@ -62,12 +48,11 @@ class ContextCommand(Command):
         )
         parser.add_argument(
             "--root", default="./knowledge",
-            help="Local file root (only used when --store=file)",
+            help="Local file root",
         )
 
         sub = parser.add_subparsers(dest="op", required=True)
 
-        # put
         put = sub.add_parser("put", help="create or update a blob")
         put.add_argument("blob_name", help="e.g. knowledge:acme")
         put.add_argument("--content", help="inline content (or '-' for stdin)")
@@ -77,26 +62,22 @@ class ContextCommand(Command):
             help="explicit category (default: derived from blob_name prefix)",
         )
 
-        # get
         gp = sub.add_parser("get", help="print the markdown body to stdout")
         gp.add_argument("blob_name")
 
-        # list
         lst = sub.add_parser("list", help="list stored blobs")
         lst.add_argument(
             "--prefix", default="",
             help="filter to names starting with this prefix",
         )
 
-        # delete
         de = sub.add_parser("delete", help="remove a blob")
         de.add_argument("blob_name")
         de.add_argument("--yes", action="store_true")
 
-        # categories
         sub.add_parser("categories", help="print distinct category prefixes")
 
-    def run(self, client: ApiClient, args: argparse.Namespace) -> int:
+    def run(self, args: argparse.Namespace) -> int:
         handlers: Dict[str, Handler] = {
             "put": self._put,
             "get": self._get,
@@ -104,24 +85,13 @@ class ContextCommand(Command):
             "delete": self._delete,
             "categories": self._categories,
         }
-        return handlers[args.op](client, args)
+        return handlers[args.op](args)
 
-    # ---- handlers --------------------------------------------------------
+    def _store(self, args: argparse.Namespace):
+        return make_store(args.store, file_root=Path(args.root))
 
-    def _store_for(
-        self,
-        client: ApiClient,
-        args: argparse.Namespace,
-    ):
-        return make_store(
-            args.store,
-            client=client,
-            file_root=Path(args.root),
-        )
-
-    def _put(self, client: ApiClient, args: argparse.Namespace) -> int:
-        store = self._store_for(client, args)
-        ref = store.put(
+    def _put(self, args: argparse.Namespace) -> int:
+        ref = self._store(args).put(
             args.blob_name,
             _read_content(args),
             category=args.category,
@@ -129,9 +99,8 @@ class ContextCommand(Command):
         render(_ref_to_dict(ref), args.format)
         return 0
 
-    def _get(self, client: ApiClient, args: argparse.Namespace) -> int:
-        store = self._store_for(client, args)
-        body = store.get(args.blob_name)
+    def _get(self, args: argparse.Namespace) -> int:
+        body = self._store(args).get(args.blob_name)
         if body is None:
             raise CliError(f"blob not found: {args.blob_name}")
         sys.stdout.write(body)
@@ -139,29 +108,26 @@ class ContextCommand(Command):
             sys.stdout.write("\n")
         return 0
 
-    def _list(self, client: ApiClient, args: argparse.Namespace) -> int:
-        store = self._store_for(client, args)
-        refs = store.list(prefix=args.prefix)
+    def _list(self, args: argparse.Namespace) -> int:
+        refs = self._store(args).list(prefix=args.prefix)
         items = [_ref_to_dict(r) for r in refs]
         render(items, args.format, ["name", "category", "byte_count", "updated_at"])
         return 0
 
-    def _delete(self, client: ApiClient, args: argparse.Namespace) -> int:
-        store = self._store_for(client, args)
+    def _delete(self, args: argparse.Namespace) -> int:
         ok = bool(args.yes) or confirm(
             f"Delete blob {args.blob_name} from store {args.store}? [y/N] "
         )
         if not ok:
             print("aborted")
             return 1
-        removed = store.delete(args.blob_name)
+        removed = self._store(args).delete(args.blob_name)
         print(f"{'deleted' if removed else 'not found'} {args.blob_name}")
         return 0
 
-    def _categories(self, client: ApiClient, args: argparse.Namespace) -> int:
-        store = self._store_for(client, args)
+    def _categories(self, args: argparse.Namespace) -> int:
         seen: Dict[str, int] = {}
-        for ref in store.list():
+        for ref in self._store(args).list():
             seen[ref.category] = seen.get(ref.category, 0) + 1
         items = [
             {"category": cat or "(none)", "blob_count": n}

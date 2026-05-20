@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import argparse
 
-from briar.http import ApiClient
-
 
 class Command:
     """Implementation contract for every CLI verb.
@@ -25,11 +23,7 @@ class Command:
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Default: no extra arguments."""
 
-    def run(
-        self,
-        client: ApiClient,
-        args: argparse.Namespace,
-    ) -> int:
+    def run(self, args: argparse.Namespace) -> int:
         raise NotImplementedError
 
 

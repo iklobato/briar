@@ -1,11 +1,8 @@
 """Top-level entry point.
 
-Pre-extracts global flags (--api-base / --workspace / --profile /
---format) from argv before argparse sees them, so a flag in either
-position (`briar --format yaml agents list` or
-`briar agents list --format yaml`) lands at argparse's required
-"before the subcommand" slot. This is the cleanest way to work around
-argparse's subparser constraint.
+Pre-extracts global flags (--format) from argv before argparse sees
+them, so a flag in either position lands at argparse's required
+"before the subcommand" slot.
 """
 
 from __future__ import annotations
@@ -15,20 +12,11 @@ import sys
 from typing import Dict, List, Optional, Tuple
 
 from briar.commands import build_registry
-from briar.credentials import CredentialsStore
 from briar.errors import CliError
 from briar.formatting import FORMATTERS
-from briar.http import ApiClient
-from briar.profile import (
-    config_path_for,
-    migrate_legacy_config_if_present,
-    resolve_profile,
-)
 
 
-_GLOBAL_FLAGS_WITH_VALUE = frozenset({
-    "--api-base", "--workspace", "--profile", "--format",
-})
+_GLOBAL_FLAGS_WITH_VALUE = frozenset({"--format"})
 
 
 def _extract_global_flags(argv: List[str]) -> Tuple[Dict[str, str], List[str]]:
@@ -64,25 +52,12 @@ def _extract_global_flags(argv: List[str]) -> Tuple[Dict[str, str], List[str]]:
 def _build_parser(commands: Dict[str, "object"]) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="briar",
-        description="Terminal client for the Briar API.",
+        description="Local extraction + scaffolding tool. No remote calls to Briar.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--api-base", help="override the API base URL for this call",
-    )
-    parser.add_argument(
-        "--workspace", dest="workspace_override",
-        help="override the pinned workspace id for this call only",
-    )
-    parser.add_argument(
-        "--profile", help="config profile to use (also $BRIAR_PROFILE)",
-    )
-    parser.add_argument(
         "--format", choices=list(FORMATTERS.keys()), default="table",
-        help=(
-            "output format (default: table for lists, "
-            "json for single records)"
-        ),
+        help="output format (default: table for lists, json for single records)",
     )
 
     sub = parser.add_subparsers(
@@ -95,8 +70,6 @@ def _build_parser(commands: Dict[str, "object"]) -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    migrate_legacy_config_if_present()
-
     raw_argv = list(argv) if argv is not None else sys.argv[1:]
     try:
         globals_kv, remaining = _extract_global_flags(raw_argv)
@@ -114,19 +87,8 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     args = parser.parse_args(normalised)
 
-    profile = resolve_profile(args.profile)
-    store = CredentialsStore(config_path_for(profile), profile)
-    if args.api_base:
-        store.creds.api_base = args.api_base
-    if args.workspace_override:
-        # Per-call overrides are intentionally NOT persisted; flip
-        # the default via `briar workspace use` or `briar config set`.
-        store.creds.workspace = args.workspace_override
-
-    client = ApiClient(store)
-
     try:
-        return commands[args.command].run(client, args)
+        return commands[args.command].run(args)
     except CliError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

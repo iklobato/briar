@@ -135,64 +135,10 @@ class SourceGithubFiltersTests(unittest.TestCase):
             self.assertNotIn(k, src["config"])
 
 
-# ---------------------------------------------------------------------------
-# Runbook YAML schema — typed Pydantic fields round-trip
-# ---------------------------------------------------------------------------
-
-class RunbookYamlFiltersTests(unittest.TestCase):
-    def test_github_filters_in_schema(self) -> None:
-        import tempfile
-        from pathlib import Path
-        from briar.iac.runbook import load_runbook_file
-
-        yaml = """
-version: 1
-companies:
-  acme:
-    profile: acme
-    runbooks:
-      - template: implementation
-        prefix: x
-        owner: o
-        repo: r
-        sources:
-          - kind: github
-            authors_allow: ["alice"]
-            authors_block: ["dependabot[bot]"]
-            assignees_allow: ["bob"]
-        trigger:
-          kind: schedule_cron
-"""
-        f = tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False)
-        f.write(yaml)
-        f.close()
-        rb = load_runbook_file(Path(f.name))
-        src = rb.companies["acme"].runbooks[0].sources[0]
-        self.assertEqual(src.authors_allow, ["alice"])
-        self.assertEqual(src.authors_block, ["dependabot[bot]"])
-        self.assertEqual(src.assignees_allow, ["bob"])
-
-
-# ---------------------------------------------------------------------------
-# Runbook executor — does the YAML field land in the Namespace?
-# ---------------------------------------------------------------------------
-
-class RunbookExecutorFlattenTests(unittest.TestCase):
-    def test_github_filters_flatten_into_namespace(self) -> None:
-        from briar.iac.runbook.executor import _apply_github_source
-        from briar.iac.runbook.models import GithubSourceEntry
-
-        spec = GithubSourceEntry(
-            kind="github",
-            authors_allow=["alice", "bob"],
-            authors_block=["bot"],
-        )
-        ns = argparse.Namespace()
-        _apply_github_source(spec, ns)
-        self.assertEqual(ns.github_authors_allow, ["alice", "bob"])
-        self.assertEqual(ns.github_authors_block, ["bot"])
-        # assignee fields not set on the spec — shouldn't appear on ns
-        self.assertFalse(hasattr(ns, "github_assignees_allow"))
+# The "runbook YAML schema" + "runbook executor flatten" tests were
+# removed in the API-removal cut — both poked at fields (RunbookEntry,
+# SourceEntry, _apply_github_source) that no longer exist now that the
+# runbook schema is extract-only.
 
 
 if __name__ == "__main__":
