@@ -46,17 +46,6 @@ CREATE INDEX IF NOT EXISTS briar_knowledge_history_blob_at_idx
     ON briar_knowledge_history (blob_name, snapshot_at DESC);
 """
 
-_DDL_ROLE = """
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'briar_kb') THEN
-        CREATE ROLE briar_kb LOGIN PASSWORD %(password)s;
-    ELSE
-        ALTER ROLE briar_kb WITH LOGIN PASSWORD %(password)s;
-    END IF;
-END $$;
-"""
-
 _DDL_GRANTS = """
 GRANT SELECT, INSERT, UPDATE, DELETE ON briar_knowledge          TO briar_kb;
 GRANT SELECT, INSERT, UPDATE, DELETE ON briar_knowledge_history  TO briar_kb;
@@ -195,7 +184,11 @@ class StorePostgres(KnowledgeStore):
             log.info("bootstrap: creating tables + indexes (idempotent)")
             cur.execute(_DDL_TABLES)
             log.info("bootstrap: ensuring role briar_kb exists with the supplied password")
-            cur.execute(_DDL_ROLE, {"password": briar_kb_password})
+            cur.execute("SELECT 1 FROM pg_roles WHERE rolname = 'briar_kb'")
+            if cur.fetchone() is None:
+                cur.execute("CREATE ROLE briar_kb LOGIN PASSWORD %s", (briar_kb_password,))
+            else:
+                cur.execute("ALTER ROLE briar_kb WITH LOGIN PASSWORD %s", (briar_kb_password,))
             log.info("bootstrap: granting scoped DML on briar_knowledge[_history]")
             cur.execute(_DDL_GRANTS)
         log.info("bootstrap: done")
