@@ -1,0 +1,138 @@
+{
+  "version": 1,
+  "llm_models": [
+    {
+      "key": "impl-model",
+      "name": "impl-claude-sonnet-4-6",
+      "provider_key": "anthropic",
+      "display_name": "claude-sonnet-4-6",
+      "default_params": {
+        "temperature": 0.2
+      }
+    }
+  ],
+  "sources": [
+    {
+      "key": "impl-issues",
+      "name": "impl-issues",
+      "kind": "github",
+      "config": {
+        "owner": "your-org",
+        "repo": "your-repo",
+        "include": "open"
+      },
+      "credential_binding": {
+        "kind": "oauth_connection",
+        "provider": "github"
+      }
+    }
+  ],
+  "tools": [
+    {
+      "key": "impl-gh-comment",
+      "name": "impl-gh-comment",
+      "description": "Post a comment on a GitHub issue/PR",
+      "implementation_ref": "tools_github.post_comment",
+      "side_effect": "mutate",
+      "credential_binding": {
+        "kind": "oauth_connection",
+        "provider": "github"
+      }
+    },
+    {
+      "key": "impl-gh-open-pr",
+      "name": "impl-gh-open-pr",
+      "description": "Open a draft pull request",
+      "implementation_ref": "tools_github.open_pr",
+      "side_effect": "mutate",
+      "credential_binding": {
+        "kind": "oauth_connection",
+        "provider": "github"
+      }
+    }
+  ],
+  "agents": [
+    {
+      "key": "impl-engineer",
+      "name": "impl-engineer",
+      "role": "Engineering agent",
+      "goal": "Implement the requested change and open a draft PR.",
+      "backstory": "You implement changes for your-org/your-repo. You read the issue, propose a plan, commit code, and open a draft PR.",
+      "llm_model_key": "impl-model",
+      "tool_keys": [
+        "impl-gh-comment",
+        "impl-gh-open-pr"
+      ],
+      "source_keys": [
+        "impl-issues"
+      ],
+      "max_iter": 8
+    }
+  ],
+  "workflows": [
+    {
+      "key": "impl-workflow",
+      "name": "impl-workflow",
+      "description": "Issue-to-PR pipeline for your-org/your-repo",
+      "graph": {
+        "process": "sequential",
+        "entry": "plan",
+        "nodes": [
+          {
+            "id": "plan",
+            "kind": "agent",
+            "agent_key": "impl-engineer",
+            "prompt": "Read the issue and produce a concrete plan.",
+            "next": "approve"
+          },
+          {
+            "id": "approve",
+            "kind": "human_checkpoint",
+            "prompt": "Approve the plan before implementation begins.",
+            "branches": {
+              "approve": "implement",
+              "reject": "comment"
+            }
+          },
+          {
+            "id": "implement",
+            "kind": "agent",
+            "agent_key": "impl-engineer",
+            "prompt": "Implement the approved plan. Commit and open a draft PR.",
+            "next": null
+          },
+          {
+            "id": "comment",
+            "kind": "agent",
+            "agent_key": "impl-engineer",
+            "prompt": "Post a comment explaining why the plan was rejected.",
+            "next": null
+          }
+        ]
+      }
+    }
+  ],
+  "triggers": [
+    {
+      "key": "impl-trigger",
+      "name": "impl-trigger",
+      "kind": "github_webhook",
+      "workflow_key": "impl-workflow",
+      "filter_rules": {
+        "events": [
+          "issues.opened",
+          "issues.labeled"
+        ],
+        "labels_any": [
+          "briar"
+        ]
+      },
+      "payload_to_context_mapping": {
+        "issue_number": "$.issue.number",
+        "issue_title": "$.issue.title",
+        "issue_body": "$.issue.body"
+      },
+      "is_enabled": true
+    }
+  ]
+}

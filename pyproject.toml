@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "briar-cli"
+version = "1.1.0"
+description = "Terminal client for the Briar agent-orchestration API."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "Briar" }]
+keywords = ["briar", "cli", "agents", "workflow"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development",
+]
+dependencies = [
+    "httpx>=0.27,<1",      # HTTP client — replaces urllib boilerplate
+    "pydantic>=2.5,<3",    # config-file validation with locator-aware errors
+    "PyYAML>=6.0,<7",      # YAML emit/parse (replaces a hand-rolled emitter)
+    "rich>=13,<14",        # pretty tables; auto-degrades on non-TTY pipes
+    "boto3>=1.34,<2",      # AWS extractor (lazy-imported by aws_infra only)
+]
+
+[project.optional-dependencies]
+test = []  # tests run on stdlib `unittest discover`
+
+[project.scripts]
+briar = "briar.cli:main"
+
+[project.urls]
+"Homepage" = "https://usebriar.com"
+"Source" = "https://github.com/iklobato/usebriar-landing"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/briar"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/", "README.md", "examples/", "tests/", "pyproject.toml"]
