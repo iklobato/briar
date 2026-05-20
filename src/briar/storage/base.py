@@ -56,3 +56,18 @@ class KnowledgeStore(ABC):
     @abstractmethod
     def delete(self, blob_name: str) -> bool:
         """Return True if a row was removed, False if no such name."""
+
+    def fingerprint(self, blob_name: str) -> str:
+        """Hex MD5 of the stored content, or `""` when the blob is missing.
+
+        Default implementation reads the full content and hashes it. Backends
+        that can compute the digest server-side (e.g. Postgres `md5(content)`)
+        should override for efficiency. The skipping caller uses this to avoid
+        rewriting unchanged blobs — comparing fingerprints is cheap, comparing
+        full content is not."""
+        import hashlib
+
+        content = self.get(blob_name)
+        if not content:
+            return ""
+        return hashlib.md5(content.encode("utf-8")).hexdigest()

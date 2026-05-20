@@ -12,7 +12,7 @@ import os
 import shutil
 import subprocess
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import httpx
 
@@ -20,6 +20,14 @@ from briar.errors import CliError
 
 
 log = logging.getLogger(__name__)
+
+
+# Process-local ETag cache for GitHub's conditional-GET protocol. Maps a
+# canonical (path, accept-header) tuple to (etag, cached_payload). Per
+# GitHub's docs, a 304 response does NOT consume rate-limit quota — so
+# every cache hit is a free hourly-quota credit. Reset on process restart;
+# that's fine, the next call re-warms.
+_ETAG_CACHE: Dict[Tuple[str, str], Tuple[str, Any]] = {}
 
 
 class GithubApi:
@@ -51,17 +59,38 @@ class GithubApi:
 
     @classmethod
     def get_json(cls, path: str, token: str = "") -> Any:
-        """Single GET against api.github.com."""
+        """Single GET against api.github.com.
+
+        Uses an in-process ETag cache: a previously-seen path is fetched
+        with `If-None-Match: <last-etag>` and GitHub returns 304 (not
+        modified) when the content hasn't changed. 304 responses don't
+        consume rate-limit quota, so cache hits are effectively free.
+        """
         tok = cls._require_token(token)
         url = f"{cls.BASE}{path}"
-        log.debug("gh GET path=%s", path)
+        cache_key = (path, cls.HEADERS["Accept"])
+        cached = _ETAG_CACHE.get(cache_key)
+        headers = cls._headers(tok)
+        if cached is not None:
+            headers["If-None-Match"] = cached[0]
+            log.debug("gh GET conditional path=%s etag=%s", path, cached[0])
+        else:
+            log.debug("gh GET path=%s", path)
         started = time.perf_counter()
         try:
-            response = httpx.get(url, headers=cls._headers(tok), timeout=30.0)
+            response = httpx.get(url, headers=headers, timeout=30.0)
         except httpx.HTTPError:
             log.exception("gh GET network error path=%s", path)
             raise
         elapsed_ms = int((time.perf_counter() - started) * 1000)
+        if response.status_code == 304 and cached is not None:
+            log.info(
+                "gh GET 304-cache-hit path=%s elapsed_ms=%d ratelimit_remaining=%s",
+                path,
+                elapsed_ms,
+                response.headers.get("x-ratelimit-remaining", "?"),
+            )
+            return cached[1]
         if not response.is_success:
             log.error(
                 "gh GET non-2xx path=%s status=%s elapsed_ms=%d ratelimit_remaining=%s body_preview=%r",
@@ -72,8 +101,18 @@ class GithubApi:
                 response.text[:200],
             )
             response.raise_for_status()
-        log.debug("gh GET ok path=%s elapsed_ms=%d", path, elapsed_ms)
-        return response.json()
+        payload = response.json()
+        new_etag = response.headers.get("etag", "")
+        if new_etag:
+            _ETAG_CACHE[cache_key] = (new_etag, payload)
+        log.debug(
+            "gh GET ok path=%s elapsed_ms=%d etag=%s ratelimit_remaining=%s",
+            path,
+            elapsed_ms,
+            new_etag or "(none)",
+            response.headers.get("x-ratelimit-remaining", "?"),
+        )
+        return payload
 
     @classmethod
     def get_paginated(cls, path: str, per_page: int = 100, max_pages: int = 50, token: str = "") -> List[Dict[str, Any]]:

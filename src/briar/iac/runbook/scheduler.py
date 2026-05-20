@@ -13,10 +13,12 @@ Pattern grammar (case-insensitive):
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import threading
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 from typing import List
 
@@ -95,7 +97,13 @@ class RunbookScheduler:
         self._stop_event = threading.Event()
 
     def register_all(self) -> List[RegisteredJob]:
-        """Walk YAMLs + register one job per (company, task)."""
+        """Walk YAMLs + register one job per (company, task).
+
+        After each job is registered the library sets `job.next_run`
+        to ``now + interval``. We then subtract a deterministic
+        per-(company, task) offset within the interval so multiple
+        companies don't all fire on the exact same minute — avoids
+        burst-rate-limit hits against shared upstreams like GitHub."""
         from briar.iac.runbook import load_runbook_file
         from briar.iac.runbook.executor import RunbookSchedules
 
@@ -105,8 +113,41 @@ class RunbookScheduler:
                 for entry in RunbookSchedules.for_company(company):
                     job = EveryParser.parse(entry.every)
                     job.do(self._make_callable(path, company_name, entry.task))
+                    self._apply_stagger(job, company_name, entry.task)
                     self._jobs.append(RegisteredJob(company_name, entry.task, entry.every, job))
         return list(self._jobs)
+
+    @staticmethod
+    def _apply_stagger(job: schedule.Job, company: str, task: str) -> None:
+        """Rebase the job's next_run so two (company, task) pairs with the
+        same cadence don't fire in lockstep. The offset is bounded by the
+        cadence (a 1-hour job staggers 0–59 minutes; a 4-hour job staggers
+        0–239 minutes) and deterministic per (company, task) — restarts
+        produce the same offset. We do NOT shift jobs whose cadence is
+        already pinned via `.at("HH:MM")` because the user explicitly
+        wanted that wall-clock anchor."""
+        if job.next_run is None or job.at_time is not None:
+            return
+        unit = job.unit or ""
+        if unit not in {"minutes", "hours", "days", "weeks"}:
+            return
+        interval = timedelta(**{unit: job.interval})
+        cadence_seconds = int(interval.total_seconds())
+        if cadence_seconds < 60:
+            return
+        seed = f"{company}:{task}".encode("utf-8")
+        digest = int(hashlib.sha1(seed).hexdigest(), 16)
+        offset_seconds = digest % cadence_seconds
+        delta = timedelta(seconds=offset_seconds) - interval
+        job.next_run = job.next_run + delta
+        log.debug(
+            "stagger: company=%s task=%s cadence_s=%d offset_s=%d next_run=%s",
+            company,
+            task,
+            cadence_seconds,
+            offset_seconds,
+            job.next_run,
+        )
 
     def _make_callable(self, yaml_path: Path, company: str, task: str):
         """Return a no-arg closure suitable for `schedule.Job.do(...)`."""

@@ -128,6 +128,16 @@ class StorePostgres(KnowledgeStore):
             return ""
         return str(row[0])
 
+    def fingerprint(self, blob_name: str) -> str:
+        """Server-side md5 so we don't drag the whole blob across the wire
+        just to compare. Postgres ships `md5()` in core."""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT md5(content) FROM briar_knowledge WHERE blob_name = %s", (blob_name,))
+            row = cur.fetchone()
+        if row is None:
+            return ""
+        return str(row[0])
+
     def list(self, prefix: str = "") -> List[KnowledgeRef]:
         with self._connect() as conn, conn.cursor() as cur:
             if prefix:
