@@ -100,6 +100,12 @@
   .kn-sections th { color: var(--dim); font-weight: 500; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.04em; }
   .kn-sections td.num, .kn-sections th.num { text-align: right; font-variant-numeric: tabular-nums; }
   .kn-sections tr td:first-child { color: var(--fg); }
+  .cal-aggregates { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
+  .cal-aggregates .pill { font-size: 0.78rem; padding: 0.15rem 0.6rem; }
+  .cal-fire-status.warn { color: var(--warn); }
+  .gh-cache-hits { margin-top: 0.6rem; font-size: 0.75rem; }
+  .gh-cache-hits summary { color: var(--dim); cursor: pointer; padding: 0.25rem 0; }
+  .gh-cache-hits table { margin-top: 0.4rem; }
 </style>
 </head>
 <body>
@@ -207,6 +213,12 @@
   <p class="cal-window">
     window <code>{{ schedule_calendar.window_start }}</code> → <code>{{ schedule_calendar.window_end }}</code> · now <code>{{ schedule_calendar.now }}</code>
   </p>
+  <div class="cal-aggregates">
+    <span class="pill good">✓ {{ schedule_calendar.write_count }} wrote</span>
+    <span class="pill warn">↻ {{ schedule_calendar.skip_count }} skipped</span>
+    {% if schedule_calendar.fail_count %}<span class="pill bad">✗ {{ schedule_calendar.fail_count }} failed</span>{% else %}<span class="pill">✗ 0 failed</span>{% endif %}
+    <span class="pill">skip-rate {{ schedule_calendar.skip_pct }}%</span>
+  </div>
   <div class="cal-grid">
     {% for b in schedule_calendar.buckets %}
     <div class="cal-row {% if b.is_now %}cal-now{% elif b.is_past %}cal-past{% else %}cal-future{% endif %}">
@@ -217,12 +229,13 @@
       <div class="cal-fires">
         {% if b.is_now %}<span class="cal-now-marker">↳ now</span>{% endif %}
         {% for f in b.fires %}
-          <span class="cal-fire cal-fire-{{ f.kind }} cal-status-{{ f.status }}" title="{{ f.company }} / {{ f.task }} at {{ f.when }} ({{ f.kind }}{% if f.bytes %} · {{ f.bytes }} bytes{% endif %})">
+          <span class="cal-fire cal-fire-{{ f.kind }} cal-status-{{ f.status }}" title="{{ f.company }} / {{ f.task }} at {{ f.when }} — {{ f.status or f.kind }}{% if f.bytes %} · {{ f.bytes }} bytes{% endif %}{% if f.elapsed_ms %} · {{ f.elapsed_ms }} ms{% endif %}">
             <span class="cal-fire-when">{{ f.when }}</span>
             <span class="cal-fire-company">{{ f.company }}</span>
             <span class="cal-fire-task">{{ f.task }}</span>
             {% if f.kind == "past" %}
               {% if f.status == "ok" %}<span class="cal-fire-status">✓</span>
+              {% elif f.status == "skipped" %}<span class="cal-fire-status warn">↻</span>
               {% elif f.status == "failed" %}<span class="cal-fire-status bad">✗</span>
               {% else %}<span class="cal-fire-status">·</span>{% endif %}
             {% endif %}
@@ -233,6 +246,49 @@
     </div>
     {% endfor %}
   </div>
+</section>
+
+<!-- GITHUB API QUOTA + ETAG CACHE -->
+<section>
+  <h2>github api quota <span class="count">last 24h · {{ gh_stats.total }} GETs</span></h2>
+  <div class="grid-4">
+    <div class="stat">
+      <div class="k">remaining (last)</div>
+      <div class="v big">{% if gh_stats.last_remaining >= 0 %}{{ gh_stats.last_remaining }}{% else %}—{% endif %}</div>
+      <div class="sub">authenticated quota</div>
+    </div>
+    <div class="stat">
+      <div class="k">min seen (24h)</div>
+      <div class="v big">{% if gh_stats.min_remaining >= 0 %}{{ gh_stats.min_remaining }}{% else %}—{% endif %}</div>
+      <div class="sub">closest to exhaustion</div>
+    </div>
+    <div class="stat">
+      <div class="k">cache hits (304)</div>
+      <div class="v big">{{ gh_stats.cache_hit_count }}</div>
+      <div class="sub">free per gh docs</div>
+    </div>
+    <div class="stat">
+      <div class="k">hit rate</div>
+      <div class="v big">{{ gh_stats.hit_rate_pct }}%</div>
+      <div class="sub">{{ gh_stats.ok_count }} live · {{ gh_stats.err_count }} err</div>
+    </div>
+  </div>
+  {% if gh_stats.samples %}
+  <div class="chart-wrap"><canvas id="ghQuotaChart"></canvas></div>
+  {% endif %}
+  {% if gh_stats.recent_cache_hits %}
+  <details class="gh-cache-hits">
+    <summary>recent ETag cache hits ({{ gh_stats.cache_hit_count }} total)</summary>
+    <table>
+      <thead><tr><th>at</th><th>path</th></tr></thead>
+      <tbody>
+        {% for h in gh_stats.recent_cache_hits %}
+        <tr><td>{{ h.at }}</td><td><code>{{ h.path }}</code></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </details>
+  {% endif %}
 </section>
 
 <!-- KNOWLEDGE AGGREGATES + COMPANIES -->
@@ -540,6 +596,31 @@
   // would otherwise propagate into json.dumps and 500 the entire page.
   const KNOWLEDGE = {{ knowledge.chart|default({})|tojson }};
   const CYCLES = {{ cycle_outcomes.chart|default({})|tojson }};
+  const GH_QUOTA = {{ gh_stats.chart|default({})|tojson }};
+
+  // ----- GitHub API quota over the last 24h -----
+  if (GH_QUOTA && GH_QUOTA.labels && GH_QUOTA.labels.length > 0) {
+    new Chart(document.getElementById("ghQuotaChart"), {
+      type: "line",
+      data: {
+        labels: GH_QUOTA.labels,
+        datasets: [{
+          label: "ratelimit_remaining",
+          data: GH_QUOTA.values,
+          borderColor: "#7cc4ff",
+          backgroundColor: "rgba(124,196,255,0.12)",
+          fill: true,
+          tension: 0.25,
+          pointRadius: 1,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { mode: "index", intersect: false } },
+        scales: { y: { beginAtZero: false, title: { display: true, text: "quota" } } },
+      },
+    });
+  }
 
   // ----- knowledge-file size bars -----
   if (KNOWLEDGE && KNOWLEDGE.labels && KNOWLEDGE.labels.length > 0) {

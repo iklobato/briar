@@ -430,16 +430,29 @@ class ScheduleCalendarCollector(Collector):
                     "kind": fire["kind"],
                     "status": fire.get("status", ""),
                     "bytes": fire.get("bytes", 0),
+                    "elapsed_ms": fire.get("elapsed_ms", 0),
                 }
             )
 
+        # 24h aggregates so the calendar header can advertise the
+        # dedup hit rate ("3 writes, 9 skipped, 0 failed" = smart-
+        # scheduler is paying for itself).
+        past = [f for f in all_fires if f["kind"] == "past"]
+        write_count = sum(1 for f in past if f.get("status") == "ok")
+        skip_count = sum(1 for f in past if f.get("status") == "skipped")
+        fail_count = sum(1 for f in past if f.get("status") == "failed")
+        skip_pct = round(100 * skip_count / max(1, write_count + skip_count + fail_count), 1)
         return {
             "window_start": window_start.strftime("%Y-%m-%d %H:%M UTC"),
             "window_end": (window_end - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M UTC"),
             "now": now.strftime("%Y-%m-%d %H:%M:%S UTC"),
             "buckets": buckets,
-            "past_count": sum(1 for f in all_fires if f["kind"] == "past"),
+            "past_count": len(past),
             "future_count": sum(1 for f in all_fires if f["kind"] == "future"),
+            "write_count": write_count,
+            "skip_count": skip_count,
+            "fail_count": fail_count,
+            "skip_pct": skip_pct,
         }
 
     def _past_fires(self, window_start: datetime, now: datetime) -> List[Dict[str, Any]]:
@@ -476,6 +489,13 @@ class ScheduleCalendarCollector(Collector):
                     continue
                 rec = pending.pop(key)
                 status_raw = result_m.group("status").strip()
+                skipped_m = re.search(r"skipped\s*\(unchanged,\s*(\d+)\s*bytes", status_raw)
+                if skipped_m:
+                    # Smart-scheduler dedup hit — output md5 matched the
+                    # previously-stored blob so no Postgres write happened.
+                    rec["status"] = "skipped"
+                    rec["bytes"] = int(skipped_m.group(1))
+                    continue
                 bytes_m = re.search(r"wrote\s+(\d+)\s+bytes", status_raw)
                 if bytes_m:
                     rec["status"] = "ok"
@@ -576,6 +596,131 @@ class ScheduleCalendarCollector(Collector):
             return datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
         except ValueError:
             return None
+
+
+class GhStatsCollector(Collector):
+    """GitHub API quota + ETag-cache hit count, mined from the
+    `briar.extract._gh` log lines.
+
+    Every `gh GET ok` log carries `ratelimit_remaining=N` so we can
+    track quota burn over time without making an extra `/rate_limit`
+    call. Every `gh GET 304-cache-hit` is a confirmed ETag-cache hit
+    (i.e. a request that did NOT count against quota per GitHub's
+    docs). The two together visualise the smart-scheduler payoff."""
+
+    name = "gh_stats"
+
+    _OK_RE = re.compile(
+        r"^(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})Z\s+"
+        r"\[INFO[^\]]*\]\s+briar\.extract\._gh:.*?"
+        r"gh\s+GET\s+ok\s+path=(?P<path>\S+).*?"
+        r"ratelimit_remaining=(?P<rem>\d+)"
+    )
+    _CACHE_HIT_RE = re.compile(
+        r"^(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})Z\s+"
+        r"\[INFO[^\]]*\]\s+briar\.extract\._gh:.*?"
+        r"gh\s+GET\s+304-cache-hit\s+path=(?P<path>\S+).*?"
+        r"ratelimit_remaining=(?P<rem>\S+)"
+    )
+    _ERR_RE = re.compile(
+        r"^(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})Z\s+" r"\[ERROR[^\]]*\]\s+briar\.extract\._gh:.*?gh\s+GET\s+non-2xx\s+path=(?P<path>\S+)"
+    )
+
+    def __init__(self, log_path: Path) -> None:
+        self._log = log_path
+
+    def collect(self) -> Dict[str, Any]:
+        from datetime import timedelta
+
+        if not self._log.exists():
+            return self._empty()
+        with self._log.open("rb") as fh:
+            fh.seek(0, 2)
+            size = fh.tell()
+            fh.seek(max(0, size - 512_000))
+            text = fh.read().decode("utf-8", errors="replace")
+
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        window_start = now - timedelta(hours=24)
+        ok_count = 0
+        cache_hit_count = 0
+        err_count = 0
+        samples: List[Dict[str, Any]] = []
+        last_remaining = -1
+        min_remaining = -1
+        recent_paths: List[Dict[str, Any]] = []  # last 12 cache-hits
+
+        for line in text.splitlines():
+            ok_m = self._OK_RE.search(line)
+            if ok_m:
+                when = ScheduleCalendarCollector._parse_log_ts(ok_m.group("ts"))
+                if when is None or when < window_start:
+                    continue
+                remaining = int(ok_m.group("rem"))
+                ok_count += 1
+                last_remaining = remaining
+                if min_remaining < 0 or remaining < min_remaining:
+                    min_remaining = remaining
+                samples.append({"at": when.strftime("%H:%M"), "remaining": remaining})
+                continue
+            hit_m = self._CACHE_HIT_RE.search(line)
+            if hit_m:
+                when = ScheduleCalendarCollector._parse_log_ts(hit_m.group("ts"))
+                if when is None or when < window_start:
+                    continue
+                cache_hit_count += 1
+                rem_raw = hit_m.group("rem")
+                if rem_raw.isdigit():
+                    last_remaining = int(rem_raw)
+                recent_paths.append(
+                    {
+                        "at": when.strftime("%H:%M"),
+                        "path": hit_m.group("path")[:80],
+                    }
+                )
+                continue
+            err_m = self._ERR_RE.search(line)
+            if err_m:
+                when = ScheduleCalendarCollector._parse_log_ts(err_m.group("ts"))
+                if when is None or when < window_start:
+                    continue
+                err_count += 1
+
+        total = ok_count + cache_hit_count + err_count
+        hit_rate = round(100 * cache_hit_count / max(1, total), 1)
+        # Keep the sparkline tight — 60 samples is plenty at one-per-minute.
+        samples = samples[-60:]
+        recent_paths = recent_paths[-12:]
+        return {
+            "ok_count": ok_count,
+            "cache_hit_count": cache_hit_count,
+            "err_count": err_count,
+            "total": total,
+            "hit_rate_pct": hit_rate,
+            "last_remaining": last_remaining,
+            "min_remaining": min_remaining,
+            "samples": samples,
+            "recent_cache_hits": list(reversed(recent_paths)),
+            "chart": {
+                "labels": [s["at"] for s in samples],
+                "values": [s["remaining"] for s in samples],
+            },
+        }
+
+    @staticmethod
+    def _empty() -> Dict[str, Any]:
+        return {
+            "ok_count": 0,
+            "cache_hit_count": 0,
+            "err_count": 0,
+            "total": 0,
+            "hit_rate_pct": 0.0,
+            "last_remaining": -1,
+            "min_remaining": -1,
+            "samples": [],
+            "recent_cache_hits": [],
+            "chart": {"labels": [], "values": []},
+        }
 
 
 class SchedulerProcessCollector(Collector):
@@ -1075,6 +1220,7 @@ class CollectorRegistry:
                 examples_dir=paths.examples_dir,
                 log_path=paths.log_path,
             ),
+            GhStatsCollector(log_path=paths.log_path),
             SchedulerProcessCollector(),
             ScheduleLogCollector(log_path=paths.log_path),
             CycleOutcomeCollector(log_path=paths.log_path),
