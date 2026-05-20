@@ -12,6 +12,7 @@ Each extractor knows whether it can run in the current environment
 from __future__ import annotations
 
 import argparse
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Dict, List, Optional
 
@@ -35,7 +36,7 @@ class ExtractedSection:
     subsections: List["ExtractedSection"] = field(default_factory=list)
 
 
-class KnowledgeExtractor:
+class KnowledgeExtractor(ABC):
     """Strategy contract. Subclasses set the four class attributes +
     implement `extract`."""
 
@@ -45,7 +46,7 @@ class KnowledgeExtractor:
     requires_aws: ClassVar[bool] = False
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        """Subclasses contribute their own CLI flags."""
+        """Subclasses contribute their own CLI flags. Default: no-op."""
 
     def is_available(self, args: argparse.Namespace) -> bool:
         """Return False to skip this extractor in the current env (e.g.
@@ -53,8 +54,8 @@ class KnowledgeExtractor:
         a one-line skip notice rather than raising."""
         return True
 
+    @abstractmethod
     def extract(self, args: argparse.Namespace) -> Optional[ExtractedSection]:
         """Pull data and return one section. Return `None` to silently
         omit (useful when the extractor is enabled but had nothing to
         report — e.g. a repo with zero merged PRs)."""
-        raise NotImplementedError

@@ -13,10 +13,11 @@ can't open a PR, regardless of what the LLM "wants" to do."""
 
 from __future__ import annotations
 
+from abc import ABC
 from typing import Any, ClassVar, Dict, Iterable, List
 
 
-class AgentArchetype:
+class AgentArchetype(ABC):
     name: ClassVar[str] = ""
     description: ClassVar[str] = ""
 

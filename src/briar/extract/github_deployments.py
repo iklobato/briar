@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from typing import Any, Dict, List, Optional
 
-from briar.extract._gh import auth_token, get_json, get_paginated
+from briar.extract._gh import GithubApi
 from briar.extract.base import ExtractedSection, KnowledgeExtractor
 
 
@@ -21,7 +21,7 @@ class ExtractGithubDeployments(KnowledgeExtractor):
         )
 
     def is_available(self, args: argparse.Namespace) -> bool:
-        return bool(args.deploy_repo) and bool(auth_token())
+        return bool(args.deploy_repo) and bool(GithubApi.auth_token())
 
     def extract(self, args: argparse.Namespace) -> Optional[ExtractedSection]:
         subsections = [self._scan_repo(repo) for repo in args.deploy_repo]
@@ -32,7 +32,7 @@ class ExtractGithubDeployments(KnowledgeExtractor):
         )
 
     def _scan_repo(self, repo: str) -> ExtractedSection:
-        env_envelope = get_json(f"/repos/{repo}/environments")
+        env_envelope = GithubApi.get_json(f"/repos/{repo}/environments")
         envs = (
             env_envelope.get("environments", [])
             if type(env_envelope) is dict else []
@@ -46,7 +46,7 @@ class ExtractGithubDeployments(KnowledgeExtractor):
             for e in envs
         ]
 
-        deployments = get_paginated(
+        deployments = GithubApi.get_paginated(
             f"/repos/{repo}/deployments", max_pages=1, per_page=20,
         )
         recent_deploys = [
@@ -60,7 +60,7 @@ class ExtractGithubDeployments(KnowledgeExtractor):
             for d in deployments[:10]
         ]
 
-        runs_envelope = get_json(f"/repos/{repo}/actions/runs?per_page=10")
+        runs_envelope = GithubApi.get_json(f"/repos/{repo}/actions/runs?per_page=10")
         runs = (
             runs_envelope.get("workflow_runs", [])
             if type(runs_envelope) is dict else []

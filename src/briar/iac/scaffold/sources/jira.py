@@ -4,8 +4,7 @@ Family: `tracker`. Reads issues from one or more Jira projects.
 Brings action tools: `jira.comment`, `jira.transition`, `jira.update_issue`.
 
 Auth: Atlassian OAuth connection by default, or a stored Atlassian PAT
-via `--jira-secret-id`. The two flags mirror the github family's
-`--auth-mode` / `--github-secret-id` semantics."""
+via `--jira-secret-id`."""
 
 from __future__ import annotations
 
@@ -15,23 +14,17 @@ from typing import Any, Dict, List
 from briar.iac.scaffold.sources.base import SourceTemplate
 
 
-def _jira_auth(args: argparse.Namespace) -> Dict[str, Any]:
-    secret_id = getattr(args, "jira_secret_id", None)
-    if secret_id:
-        return {"credentials_ref": secret_id, "credential_binding": None}
-    # Default: OAuth connection to atlassian.
-    return {
-        "credentials_ref": None,
-        "credential_binding": {
-            "kind": "oauth_connection", "provider": "atlassian",
-        },
-    }
-
-
 class SourceJira(SourceTemplate):
     kind = "jira"
     family = "tracker"
     default_provider_for_oauth = "atlassian"
+
+    _FILTER_FIELDS = (
+        ("authors_allow",   "jira_authors_allow"),
+        ("authors_block",   "jira_authors_block"),
+        ("assignees_allow", "jira_assignees_allow"),
+        ("assignees_block", "jira_assignees_block"),
+    )
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
@@ -46,8 +39,6 @@ class SourceJira(SourceTemplate):
             "--jira-secret-id",
             help="Secret UUID holding an Atlassian PAT (skip OAuth)",
         )
-        # User-filter flags (mirror the GitHub side). Identifiers are
-        # whatever your Jira tenant accepts — accountId or email.
         parser.add_argument(
             "--jira-authors-allow", action="append", default=[],
             help="reporter allowlist (repeatable; folds into JQL)",
@@ -70,21 +61,16 @@ class SourceJira(SourceTemplate):
         args: argparse.Namespace,
         key_prefix: str,
     ) -> Dict[str, Any]:
+        ns = vars(args)
         config: Dict[str, Any] = {"include": "open"}
-        projects = getattr(args, "jira_project", []) or []
+        projects = ns.get("jira_project") or []
         if projects:
             config["projects"] = projects
-        jql = getattr(args, "jira_jql", None)
+        jql = ns.get("jira_jql")
         if jql:
             config["jql"] = jql
-        # User filters — connector folds these into the JQL it issues.
-        for field, attr in (
-            ("authors_allow",   "jira_authors_allow"),
-            ("authors_block",   "jira_authors_block"),
-            ("assignees_allow", "jira_assignees_allow"),
-            ("assignees_block", "jira_assignees_block"),
-        ):
-            values = list(getattr(args, attr, None) or [])
+        for field, attr in self._FILTER_FIELDS:
+            values = list(ns.get(attr) or [])
             if values:
                 config[field] = values
 
@@ -93,7 +79,7 @@ class SourceJira(SourceTemplate):
             "name": f"{key_prefix}-jira",
             "kind": "jira",
             "config": config,
-            **_jira_auth(args),
+            **self._auth(args),
         }
 
     def build_tools(
@@ -101,7 +87,7 @@ class SourceJira(SourceTemplate):
         args: argparse.Namespace,
         key_prefix: str,
     ) -> List[Dict[str, Any]]:
-        auth = _jira_auth(args)
+        auth = self._auth(args)
         return [
             {
                 "key": f"{key_prefix}-jira-comment",
@@ -128,3 +114,16 @@ class SourceJira(SourceTemplate):
                 **auth,
             },
         ]
+
+    @staticmethod
+    def _auth(args: argparse.Namespace) -> Dict[str, Any]:
+        ns = vars(args)
+        secret_id = ns.get("jira_secret_id")
+        if secret_id:
+            return {"credentials_ref": secret_id, "credential_binding": None}
+        return {
+            "credentials_ref": None,
+            "credential_binding": {
+                "kind": "oauth_connection", "provider": "atlassian",
+            },
+        }

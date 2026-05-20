@@ -78,10 +78,10 @@ class ExtractPrArchaeologyTests(unittest.TestCase):
             },
         ]
         with mock.patch(
-            "briar.extract.pr_archaeology.get_paginated",
+            "briar.extract._gh.GithubApi.get_paginated",
             return_value=fake_prs,
         ), mock.patch(
-            "briar.extract.pr_archaeology.auth_token",
+            "briar.extract._gh.GithubApi.auth_token",
             return_value="fake-token",
         ):
             args = argparse.Namespace(pr_repo=["o/r"], pr_max=10)
@@ -178,10 +178,10 @@ class ExtractCodebaseConventionsTests(unittest.TestCase):
         ext = EXTRACTORS["codebase-conventions"]
         py_text = "[tool.pytest.ini_options]\n[tool.ruff]\n[tool.alembic]\n"
         with mock.patch(
-            "briar.extract.codebase_conventions._read_repo_file",
+            "briar.extract.codebase_conventions.ExtractCodebaseConventions._read_repo_file",
             side_effect=lambda r, p: py_text if p == "pyproject.toml" else None,
         ), mock.patch(
-            "briar.extract.codebase_conventions.auth_token",
+            "briar.extract._gh.GithubApi.auth_token",
             return_value="t",
         ):
             args = argparse.Namespace(conventions_repo=["o/r"])
@@ -225,7 +225,7 @@ companies:
         f.write(yaml)
         f.close()
         with mock.patch(
-            "briar.extract.pr_archaeology.get_paginated",
+            "briar.extract._gh.GithubApi.get_paginated",
             return_value=[{
                 "merged_at": "2026-05-10T00:00:00Z",
                 "created_at": "2026-05-09T22:00:00Z",
@@ -233,7 +233,7 @@ companies:
                 "requested_reviewers": [],
             }],
         ), mock.patch(
-            "briar.extract.pr_archaeology.auth_token",
+            "briar.extract._gh.GithubApi.auth_token",
             return_value="fake",
         ):
             rb = load_runbook_file(Path(f.name))

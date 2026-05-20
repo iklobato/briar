@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 from typing import Any, List, Optional
 
+from briar.formatting.base import Formatter
 
-class FormatJson:
+
+class FormatJson(Formatter):
     name = "json"
 
     def render(

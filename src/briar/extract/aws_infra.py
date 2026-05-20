@@ -17,28 +17,29 @@ from briar.extract.aws_services import AWS_SERVICE_GATHERERS
 from briar.extract.base import ExtractedSection, KnowledgeExtractor
 
 
-def _build_session(args: argparse.Namespace, boto3):
-    """Build a boto3.Session, preferring per-company env vars over the
-    profile name. The env-var path is what runs on the headless
-    scheduler droplet, where the local AWS profile doesn't exist."""
-    profile = getattr(args, "aws_extract_profile", None) or ""
-    # YAML's --aws-extract-region is the source of truth; env override
-    # only applies when the YAML left it unset (it has a default, so
-    # in practice the YAML always wins).
-    region = args.aws_extract_region
-    key_id = CredEnv.AWS_KEY_ID.read(profile) if profile else None
-    secret = CredEnv.AWS_SECRET.read(profile) if profile else None
-    if key_id and secret:
+class _BotoSessionBuilder:
+    """Build a `boto3.Session`, preferring per-company env vars over
+    the local AWS profile name. The env-var path is what runs on the
+    headless scheduler droplet, where no local AWS profile exists."""
+
+    @classmethod
+    def build(cls, args: argparse.Namespace, boto3):
+        ns = vars(args)
+        profile = ns.get("aws_extract_profile") or ""
+        region = args.aws_extract_region
+        key_id = CredEnv.AWS_KEY_ID.read(profile) if profile else None
+        secret = CredEnv.AWS_SECRET.read(profile) if profile else None
+        if key_id and secret:
+            return boto3.Session(
+                aws_access_key_id=key_id,
+                aws_secret_access_key=secret,
+                aws_session_token=CredEnv.AWS_SESSION.read(profile),
+                region_name=region,
+            )
         return boto3.Session(
-            aws_access_key_id=key_id,
-            aws_secret_access_key=secret,
-            aws_session_token=CredEnv.AWS_SESSION.read(profile),
+            profile_name=profile or None,
             region_name=region,
         )
-    return boto3.Session(
-        profile_name=profile or None,
-        region_name=region,
-    )
 
 
 class ExtractAwsInfra(KnowledgeExtractor):
@@ -73,7 +74,7 @@ class ExtractAwsInfra(KnowledgeExtractor):
         # don't run this extractor.
         import boto3
 
-        session = _build_session(args, boto3)
+        session = _BotoSessionBuilder.build(args, boto3)
 
         try:
             acct = session.client("sts").get_caller_identity().get("Account", "?")

@@ -52,9 +52,18 @@ class ConfigFile:
             spec = ConfigSpec.model_validate(data)
         except ValidationError as exc:
             raise ConfigError(
-                f"{path}: invalid config\n{_pretty_errors(exc)}"
+                f"{path}: invalid config\n{cls._pretty_errors(exc)}"
             ) from exc
         return cls(spec)
+
+    @staticmethod
+    def _pretty_errors(exc: ValidationError) -> str:
+        """One line per error: `path.to.field: message`."""
+        lines = []
+        for err in exc.errors():
+            location = ".".join(str(part) for part in err["loc"])
+            lines.append(f"  {location}: {err['msg']}")
+        return "\n".join(lines)
 
     def section(self, kind: str) -> List[Dict[str, Any]]:
         """Return a section as a list of dicts.
@@ -78,42 +87,32 @@ class ConfigFile:
     # `cfg.agents` etc. directly. The lists returned here are the typed
     # spec objects; section() returns plain dicts for reconcilers.
 
-    def _attr_list(self, name: str) -> List[Any]:
-        return list(getattr(self._spec, name))
-
     @property
     def llm_providers(self) -> List[Any]:
-        return self._attr_list("llm_providers")
+        return list(self._spec.llm_providers)
 
     @property
     def llm_models(self) -> List[Any]:
-        return self._attr_list("llm_models")
+        return list(self._spec.llm_models)
 
     @property
     def sources(self) -> List[Any]:
-        return self._attr_list("sources")
+        return list(self._spec.sources)
 
     @property
     def tools(self) -> List[Any]:
-        return self._attr_list("tools")
+        return list(self._spec.tools)
 
     @property
     def agents(self) -> List[Any]:
-        return self._attr_list("agents")
+        return list(self._spec.agents)
 
     @property
     def workflows(self) -> List[Any]:
-        return self._attr_list("workflows")
+        return list(self._spec.workflows)
 
     @property
     def triggers(self) -> List[Any]:
-        return self._attr_list("triggers")
+        return list(self._spec.triggers)
 
 
-def _pretty_errors(exc: ValidationError) -> str:
-    """One line per error: `path.to.field: message`."""
-    lines = []
-    for err in exc.errors():
-        location = ".".join(str(part) for part in err["loc"])
-        lines.append(f"  {location}: {err['msg']}")
-    return "\n".join(lines)

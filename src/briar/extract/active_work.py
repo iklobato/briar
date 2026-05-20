@@ -8,7 +8,7 @@ from __future__ import annotations
 import argparse
 from typing import Any, Dict, List, Optional
 
-from briar.extract._gh import auth_token, get_paginated
+from briar.extract._gh import GithubApi
 from briar.extract._user_filter import (
     add_user_filter_arguments,
     apply_user_filter,
@@ -32,7 +32,7 @@ class ExtractActiveWork(KnowledgeExtractor):
         add_user_filter_arguments(parser, prefix="active")
 
     def is_available(self, args: argparse.Namespace) -> bool:
-        return bool(args.active_repo) and bool(auth_token())
+        return bool(args.active_repo) and bool(GithubApi.auth_token())
 
     def extract(self, args: argparse.Namespace) -> Optional[ExtractedSection]:
         sections = [self._scan_repo(repo, args) for repo in args.active_repo]
@@ -51,7 +51,7 @@ class ExtractActiveWork(KnowledgeExtractor):
         repo: str,
         args: argparse.Namespace,
     ) -> ExtractedSection:
-        prs = get_paginated(
+        prs = GithubApi.get_paginated(
             f"/repos/{repo}/pulls?state=open&sort=updated&direction=desc",
             max_pages=2,
         )

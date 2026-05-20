@@ -6,17 +6,12 @@ import csv
 import sys
 from typing import Any, Dict, List, Optional
 
-from briar.formatting.columns import cell, infer_columns
-from briar.pagination import items_of, looks_like_list
+from briar.formatting.base import Formatter
+from briar.formatting.table import FormatTable
+from briar.pagination import Payload
 
 
-def _singleton(payload: Any) -> Dict[str, Any]:
-    if type(payload) is dict:
-        return payload
-    return {"value": payload}
-
-
-class FormatCsv:
+class FormatCsv(Formatter):
     name = "csv"
 
     def render(
@@ -25,16 +20,22 @@ class FormatCsv:
         columns: Optional[List[str]] = None,
     ) -> None:
         items = (
-            items_of(payload) if looks_like_list(payload)
-            else [_singleton(payload)]
+            Payload.items_of(payload) if Payload.looks_like_list(payload)
+            else [self._singleton(payload)]
         )
-        cols = columns or infer_columns(items)
+        cols = columns or FormatTable._infer_columns(items)
         writer = csv.writer(sys.stdout)
         writer.writerow(cols)
         for it in items:
             row = (
-                [cell(it.get(c)) for c in cols]
+                [FormatTable._cell(it.get(c)) for c in cols]
                 if type(it) is dict
                 else [str(it)]
             )
             writer.writerow(row)
+
+    @staticmethod
+    def _singleton(payload: Any) -> Dict[str, Any]:
+        if type(payload) is dict:
+            return payload
+        return {"value": payload}

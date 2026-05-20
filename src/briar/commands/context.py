@@ -20,22 +20,6 @@ from briar.storage import KNOWLEDGE_STORE_NAMES, KnowledgeRef, make_store
 Handler = Callable[[argparse.Namespace], int]
 
 
-def _read_content(args: argparse.Namespace) -> str:
-    namespace = vars(args)
-    inline = namespace.get("content")
-    if inline is not None:
-        return inline if inline != "-" else sys.stdin.read()
-    file_path = namespace.get("from_file")
-    if file_path:
-        return Path(file_path).read_text()
-    if sys.stdin.isatty():
-        raise CliError(
-            "no content provided — pass --content '<text>', "
-            "--from-file <path>, or pipe in via stdin"
-        )
-    return sys.stdin.read()
-
-
 class ContextCommand(Command):
     name = "context"
     help = "Store and read named local markdown blobs."
@@ -87,16 +71,42 @@ class ContextCommand(Command):
         }
         return handlers[args.op](args)
 
+    @staticmethod
+    def _read_content(args: argparse.Namespace) -> str:
+        ns = vars(args)
+        inline = ns.get("content")
+        if inline is not None:
+            return inline if inline != "-" else sys.stdin.read()
+        file_path = ns.get("from_file")
+        if file_path:
+            return Path(file_path).read_text()
+        if sys.stdin.isatty():
+            raise CliError(
+                "no content provided — pass --content '<text>', "
+                "--from-file <path>, or pipe in via stdin"
+            )
+        return sys.stdin.read()
+
+    @staticmethod
+    def _ref_to_dict(ref: KnowledgeRef) -> dict:
+        return {
+            "name": ref.name,
+            "category": ref.category,
+            "byte_count": ref.byte_count,
+            "updated_at": ref.updated_at,
+            **ref.extra,
+        }
+
     def _store(self, args: argparse.Namespace):
         return make_store(args.store, file_root=Path(args.root))
 
     def _put(self, args: argparse.Namespace) -> int:
         ref = self._store(args).put(
             args.blob_name,
-            _read_content(args),
+            self._read_content(args),
             category=args.category,
         )
-        render(_ref_to_dict(ref), args.format)
+        render(self._ref_to_dict(ref), args.format)
         return 0
 
     def _get(self, args: argparse.Namespace) -> int:
@@ -110,7 +120,7 @@ class ContextCommand(Command):
 
     def _list(self, args: argparse.Namespace) -> int:
         refs = self._store(args).list(prefix=args.prefix)
-        items = [_ref_to_dict(r) for r in refs]
+        items = [self._ref_to_dict(r) for r in refs]
         render(items, args.format, ["name", "category", "byte_count", "updated_at"])
         return 0
 
@@ -135,13 +145,3 @@ class ContextCommand(Command):
         ]
         render(items, args.format, ["category", "blob_count"])
         return 0
-
-
-def _ref_to_dict(ref: KnowledgeRef) -> dict:
-    return {
-        "name": ref.name,
-        "category": ref.category,
-        "byte_count": ref.byte_count,
-        "updated_at": ref.updated_at,
-        **ref.extra,
-    }

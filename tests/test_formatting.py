@@ -13,8 +13,13 @@ from unittest import mock
 import yaml
 
 from briar.formatting import FORMATTERS, render_object
-from briar.formatting.columns import cell, infer_columns
-from briar.formatting.yaml import to_yaml
+from briar.formatting.table import FormatTable
+from briar.formatting.yaml import FormatYaml
+
+
+cell = FormatTable._cell
+infer_columns = FormatTable._infer_columns
+to_yaml = FormatYaml.to_yaml
 
 
 class CellTests(unittest.TestCase):

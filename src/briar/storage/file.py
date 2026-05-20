@@ -11,10 +11,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Optional
 
-from briar.storage.base import KnowledgeRef, KnowledgeStore, category_of
+from briar.storage.base import KnowledgeRef, KnowledgeStore
 
 
-class StoreFile:
+class StoreFile(KnowledgeStore):
     name = "file"
 
     def __init__(self, root: Path) -> None:
@@ -65,7 +65,7 @@ class StoreFile:
         path.write_text(content)
         return KnowledgeRef(
             name=blob_name,
-            category=category or category_of(blob_name),
+            category=category or KnowledgeRef.category_of(blob_name),
             byte_count=len(content),
             updated_at="",
             extra={"path": str(path)},
@@ -86,7 +86,7 @@ class StoreFile:
             stat = path.stat()
             out.append(KnowledgeRef(
                 name=blob_name,
-                category=category_of(blob_name),
+                category=KnowledgeRef.category_of(blob_name),
                 byte_count=stat.st_size,
                 updated_at=str(stat.st_mtime),
                 extra={"path": str(path)},

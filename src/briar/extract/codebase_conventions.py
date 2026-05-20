@@ -12,30 +12,30 @@ import argparse
 import base64
 from typing import Any, Dict, List, Optional
 
-from briar.extract._gh import auth_token, get_json
+from briar.extract._gh import GithubApi
 from briar.extract.base import ExtractedSection, KnowledgeExtractor
 from briar.extract.language_detectors import LANGUAGE_DETECTORS, FileReader
 
 
-def _read_repo_file(repo: str, path: str) -> Optional[str]:
-    """Pull a file via the GitHub Contents API; None on 404 / non-file."""
-    try:
-        resp = get_json(f"/repos/{repo}/contents/{path}")
-    except Exception:  # noqa: BLE001 — 404 is the common case
-        return None
-    if type(resp) is not dict or resp.get("type") != "file":
-        return None
-    raw = resp.get("content") or ""
-    encoding = resp.get("encoding") or "base64"
-    if encoding != "base64":
-        return raw
-    try:
-        return base64.b64decode(raw).decode("utf-8", errors="replace")
-    except Exception:  # noqa: BLE001
-        return None
-
-
 class ExtractCodebaseConventions(KnowledgeExtractor):
+    @staticmethod
+    def _read_repo_file(repo: str, path: str) -> Optional[str]:
+        """Pull a file via the GitHub Contents API; None on 404 / non-file."""
+        try:
+            resp = GithubApi.get_json(f"/repos/{repo}/contents/{path}")
+        except Exception:  # noqa: BLE001 — 404 is the common case
+            return None
+        if type(resp) is not dict or resp.get("type") != "file":
+            return None
+        raw = resp.get("content") or ""
+        encoding = resp.get("encoding") or "base64"
+        if encoding != "base64":
+            return raw
+        try:
+            return base64.b64decode(raw).decode("utf-8", errors="replace")
+        except Exception:  # noqa: BLE001
+            return None
+
     name = "codebase-conventions"
     description = "language, test runner, linter, migration tool per repo"
     requires_github = True
@@ -47,11 +47,11 @@ class ExtractCodebaseConventions(KnowledgeExtractor):
         )
 
     def is_available(self, args: argparse.Namespace) -> bool:
-        return bool(args.conventions_repo) and bool(auth_token())
+        return bool(args.conventions_repo) and bool(GithubApi.auth_token())
 
     def extract(self, args: argparse.Namespace) -> Optional[ExtractedSection]:
         subsections = [
-            self._inspect_repo(repo, _read_repo_file)
+            self._inspect_repo(repo, self._read_repo_file)
             for repo in args.conventions_repo
         ]
         return ExtractedSection(
