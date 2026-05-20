@@ -77,30 +77,58 @@ class CompaniesCollector(Collector):
 
 
 class KnowledgeCollector(Collector):
-    """List every stored knowledge blob — via the configured
-    `KnowledgeStore`, so the dashboard works on any backend (file
-    locally, Postgres in production)."""
+    """Per-blob detail: section breakdown, mined signals, fingerprint,
+    age, token estimate. The dashboard uses this to make each knowledge
+    file legible at a glance instead of just a byte count."""
 
     name = "knowledge"
+
+    # Rough chars-per-token ratio for the GPT-family tokenisers. We use 4
+    # as a stable approximation — close enough to surface "this blob
+    # would cost ~500 tokens to read" magnitudes without bundling tiktoken.
+    _CHARS_PER_TOKEN = 4
+
+    # Mined signal patterns. Each one pulls a typed integer out of the
+    # standard extractor markdown so the dashboard can render concrete
+    # counts ("open PRs: 25") next to the path.
+    _SIGNALS = (
+        ("merged_prs", re.compile(r"merged PR sample:\s*\*\*(\d+)\*\*")),
+        ("open_prs", re.compile(r"—\s*(\d+)\s+open PR\(s\)")),
+        ("rds_instances", re.compile(r"RDS\s+\((\d+)\s+instance")),
+        ("sqs_queues", re.compile(r"SQS\s+\((\d+)\s+queue")),
+        ("log_groups", re.compile(r"CloudWatch Logs.*?of\s+(\d+)\)?")),
+        ("repos_covered", re.compile(r"###\s+([A-Za-z0-9_\-]+/[A-Za-z0-9_\-]+)")),
+    )
 
     def __init__(self, store) -> None:  # KnowledgeStore — typed in storage/base
         self._store = store
 
     def collect(self) -> Dict[str, Any]:
-        from briar.storage.base import KnowledgeStore  # noqa: F401 — type-only
-
         rows: List[Dict[str, Any]] = []
+        now = datetime.now(timezone.utc)
         for ref in self._store.list():
             content = self._store.get(ref.name)
+            sections_detail = self._split_sections(content)
+            signals, repos = self._mine_signals(content)
             head = "\n".join(content.splitlines()[:3])
-            section_count = sum(1 for line in content.splitlines() if line.startswith("## "))
+            fingerprint = ""
+            try:
+                fingerprint = self._store.fingerprint(ref.name) or ""
+            except Exception:  # noqa: BLE001
+                log.exception("knowledge-collect: fingerprint failed for %s", ref.name)
             rows.append(
                 {
                     "path": ref.name,
                     "byte_count": ref.byte_count,
                     "modified": ref.updated_at or "",
+                    "age_human": self._age_human(ref.updated_at, now),
                     "head": head,
-                    "sections": section_count,
+                    "sections": len(sections_detail),
+                    "sections_detail": sections_detail,
+                    "token_estimate": ref.byte_count // self._CHARS_PER_TOKEN,
+                    "fingerprint": fingerprint[:8],
+                    "signals": signals,
+                    "repos_covered": sorted(repos),
                 }
             )
         return {
@@ -111,6 +139,81 @@ class KnowledgeCollector(Collector):
                 "values": [r["byte_count"] for r in rows],
             },
         }
+
+    @staticmethod
+    def _split_sections(text: str) -> List[Dict[str, Any]]:
+        """Walk the markdown and emit one entry per `## ` heading with its
+        byte count, line count, and number of `- ` bullets — exactly what
+        the dashboard needs to surface 'this section grew from 200 to 8000
+        bytes' to a human eye."""
+        sections: List[Dict[str, Any]] = []
+        current_title = ""
+        current_lines: List[str] = []
+
+        def flush() -> None:
+            if not current_title:
+                return
+            body = "\n".join(current_lines)
+            bullets = sum(1 for line in current_lines if line.lstrip().startswith("- "))
+            sections.append(
+                {
+                    "title": current_title,
+                    "body_bytes": len(body),
+                    "line_count": len(current_lines),
+                    "bullet_count": bullets,
+                }
+            )
+
+        for line in text.splitlines():
+            if line.startswith("## "):
+                flush()
+                current_title = line[3:].strip()
+                current_lines = []
+                continue
+            current_lines.append(line)
+        flush()
+        return sections
+
+    @classmethod
+    def _mine_signals(cls, text: str) -> tuple:
+        """Pull typed numbers and the repo list out of the standard
+        extractor markdown. Returns `(signals_dict, repos_set)`."""
+        signals: Dict[str, int] = {}
+        repos: set = set()
+        for key, pattern in cls._SIGNALS:
+            if key == "repos_covered":
+                for m in pattern.finditer(text):
+                    repos.add(m.group(1))
+                continue
+            total = 0
+            for m in pattern.finditer(text):
+                total += int(m.group(1))
+            if total:
+                signals[key] = total
+        return signals, repos
+
+    @staticmethod
+    def _age_human(updated_at_iso: str, now: datetime) -> str:
+        """Render the gap between `now` and the blob's last-modified time
+        in a human chunk ('3m ago', '4h ago', '2d ago'). Falls back to
+        empty when the timestamp is missing or unparseable."""
+        if not updated_at_iso:
+            return ""
+        try:
+            ts = datetime.fromisoformat(updated_at_iso)
+        except ValueError:
+            return ""
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        delta = now - ts
+        seconds = int(delta.total_seconds())
+        if seconds < 60:
+            return f"{seconds}s ago"
+        if seconds < 3600:
+            return f"{seconds // 60}m ago"
+        if seconds < 86400:
+            return f"{seconds // 3600}h ago"
+        return f"{seconds // 86400}d ago"
 
 
 class KnowledgeAggregatesCollector(Collector):

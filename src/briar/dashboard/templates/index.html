@@ -86,6 +86,20 @@
   .cal-fire-future .cal-fire-task { color: var(--c3); }
   .cal-fire-past.cal-status-failed { border-color: var(--bad); }
   .cal-fire-past.cal-status-running { border-color: var(--warn); }
+  .kn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 0.75rem; }
+  .kn-card { background: #0a0c10; border: 1px solid var(--border); border-radius: 4px; padding: 0.75rem 0.85rem; display: flex; flex-direction: column; gap: 0.5rem; }
+  .kn-card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
+  .kn-path { color: var(--accent); font-size: 0.85rem; }
+  .kn-fingerprint { color: var(--dim); font-size: 0.7rem; font-family: ui-monospace, SFMono-Regular, monospace; }
+  .kn-meta { display: flex; flex-wrap: wrap; gap: 0.6rem 1rem; font-size: 0.72rem; color: var(--dim); }
+  .kn-meta strong { color: var(--fg); font-weight: 600; }
+  .kn-signals { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+  .kn-signals .pill { color: var(--fg); }
+  .kn-sections { font-size: 0.72rem; }
+  .kn-sections th, .kn-sections td { padding: 0.18rem 0.4rem; }
+  .kn-sections th { color: var(--dim); font-weight: 500; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  .kn-sections td.num, .kn-sections th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .kn-sections tr td:first-child { color: var(--fg); }
 </style>
 </head>
 <body>
@@ -255,35 +269,62 @@
 </section>
 
 <!-- KNOWLEDGE FILES + CHART -->
-<div class="grid-2">
-  <section>
-    <h2>knowledge files <span class="count">{{ knowledge.rows|length }}</span></h2>
-    {% if knowledge.missing %}
-      <p class="empty">root {{ knowledge.root }} does not exist yet — run a sweep</p>
-    {% elif not knowledge.rows %}
-      <p class="empty">no markdown files under {{ knowledge.root }}</p>
-    {% else %}
-      <table>
-        <thead><tr><th>path</th><th>bytes</th><th>sections</th><th>modified</th></tr></thead>
-        <tbody>
-          {% for r in knowledge.rows %}
-          <tr>
-            <td><code>{{ r.path }}</code></td>
-            <td>{{ r.byte_count }}</td>
-            <td>{{ r.sections }}</td>
-            <td>{{ r.modified }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    {% endif %}
-  </section>
+<section>
+  <h2>knowledge files <span class="count">{{ knowledge.rows|length }} via {{ knowledge.root }}</span></h2>
+  {% if knowledge.missing %}
+    <p class="empty">root {{ knowledge.root }} does not exist yet — run a sweep</p>
+  {% elif not knowledge.rows %}
+    <p class="empty">no markdown files under {{ knowledge.root }}</p>
+  {% else %}
+    <div class="kn-grid">
+      {% for r in knowledge.rows %}
+      <div class="kn-card">
+        <div class="kn-card-head">
+          <code class="kn-path">{{ r.path }}</code>
+          <span class="kn-fingerprint" title="md5 of content (first 8 chars)">#{{ r.fingerprint or "????????" }}</span>
+        </div>
+        <div class="kn-meta">
+          <span><strong>{{ r.byte_count }}</strong> bytes</span>
+          <span>~<strong>{{ r.token_estimate }}</strong> tokens</span>
+          <span><strong>{{ r.sections }}</strong> sections</span>
+          {% if r.age_human %}<span>{{ r.age_human }}</span>{% endif %}
+        </div>
+        {% if r.signals or r.repos_covered %}
+        <div class="kn-signals">
+          {% if r.signals.merged_prs %}<span class="pill good">{{ r.signals.merged_prs }} merged PRs</span>{% endif %}
+          {% if r.signals.open_prs %}<span class="pill warn">{{ r.signals.open_prs }} open PRs</span>{% endif %}
+          {% if r.signals.rds_instances %}<span class="pill">{{ r.signals.rds_instances }} RDS</span>{% endif %}
+          {% if r.signals.sqs_queues %}<span class="pill">{{ r.signals.sqs_queues }} SQS</span>{% endif %}
+          {% if r.signals.log_groups %}<span class="pill">{{ r.signals.log_groups }} log groups</span>{% endif %}
+          {% for repo in r.repos_covered[:6] %}<span class="pill">{{ repo }}</span>{% endfor %}
+          {% if r.repos_covered|length > 6 %}<span class="pill">+{{ r.repos_covered|length - 6 }} more</span>{% endif %}
+        </div>
+        {% endif %}
+        {% if r.sections_detail %}
+        <table class="kn-sections">
+          <thead><tr><th>section</th><th class="num">bytes</th><th class="num">lines</th><th class="num">bullets</th></tr></thead>
+          <tbody>
+            {% for s in r.sections_detail %}
+            <tr>
+              <td>{{ s.title }}</td>
+              <td class="num">{{ s.body_bytes }}</td>
+              <td class="num">{{ s.line_count }}</td>
+              <td class="num">{{ s.bullet_count }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+</section>
 
-  <section>
-    <h2>knowledge file sizes</h2>
-    <div class="chart-wrap tall"><canvas id="knowledgeChart"></canvas></div>
-  </section>
-</div>
+<section>
+  <h2>knowledge file sizes</h2>
+  <div class="chart-wrap tall"><canvas id="knowledgeChart"></canvas></div>
+</section>
 
 <!-- CYCLE OUTCOMES + CHART -->
 <section>
