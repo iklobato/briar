@@ -161,11 +161,11 @@ class LanguageDetectorTests(unittest.TestCase):
         self.assertEqual(result["linter"], "ruff")
         self.assertEqual(result["migrations"], "alembic")
 
-    def test_python_detector_missing_manifest_returns_none(self) -> None:
+    def test_python_detector_missing_manifest_returns_empty(self) -> None:
         from briar.extract.language_detectors.python import DetectPython
 
         det = DetectPython()
-        self.assertIsNone(det.detect("o/r", lambda r, p: None))
+        self.assertEqual(det.detect("o/r", lambda r, p: ""), {})
 
     def test_node_detector_typescript_promotion(self) -> None:
         from briar.extract.language_detectors.node import DetectNode

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, Optional, Tuple
+from typing import Dict, Tuple
 
 from briar.extract.language_detectors.base import FileReader, LanguageDetector
 
@@ -22,10 +22,10 @@ class DetectPython(LanguageDetector):
         self,
         repo: str,
         reader: FileReader,
-    ) -> Optional[Dict[str, str]]:
+    ) -> Dict[str, str]:
         text = reader(repo, self.manifest)
-        if text is None:
-            return None
+        if not text:
+            return {}
         findings: Dict[str, str] = {"language": "python"}
         if "pytest" in text:
             findings["test_runner"] = "pytest"
