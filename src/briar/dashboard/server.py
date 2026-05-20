@@ -6,6 +6,7 @@ other method falls through to `http.server`'s 501 default. Routes:
 
 from __future__ import annotations
 
+import logging
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -19,6 +20,7 @@ from briar.dashboard.collectors import Collector, CollectorRegistry
 
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
+log = logging.getLogger(__name__)
 
 
 class DashboardServer:
@@ -40,10 +42,8 @@ class DashboardServer:
         self.started_at = time.time()
 
     def set_collectors(self, collectors: List[Collector]) -> None:
-        """Inject the collector list after construction (the self-
-        collector needs to read `self.started_at` etc. before being
-        appended, so the registry builds the list using server state)."""
         self._collectors = collectors
+        log.debug("dashboard collectors set: %d registered", len(collectors))
 
     # ---- live counters used by the self-collector ---------------------
 
@@ -56,11 +56,20 @@ class DashboardServer:
     # ---- main entry points --------------------------------------------
 
     def render_index(self) -> str:
-        """Run every collector and render the template."""
+        """Run every collector and render the template. Each collector
+        failure is caught and logged with a traceback; the page renders
+        without that section rather than 500ing."""
         started = time.monotonic()
-        context = CollectorRegistry.collect_all(self._collectors)
+        context = {}
+        for c in self._collectors:
+            try:
+                context[c.name] = c.collect()
+            except Exception:  # noqa: BLE001
+                log.exception("collector %s.collect() raised; section will render empty", c.name)
+                context[c.name] = {"_error": "collector failed; see scheduler.log"}
         html = self._env.get_template("index.html").render(**context)
         self._last_render_ms = (time.monotonic() - started) * 1000
+        log.debug("render: %d collectors, %.1f ms, %d bytes", len(self._collectors), self._last_render_ms, len(html))
         return html
 
     def increment_requests(self) -> None:
@@ -70,11 +79,11 @@ class DashboardServer:
     def serve(self) -> None:
         handler_cls = _build_handler(self)
         httpd = ThreadingHTTPServer((self._host, self._port), handler_cls)
-        print(f"dashboard listening on http://{self._host}:{self._port}")
+        log.info("dashboard listening on http://%s:%d", self._host, self._port)
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
-            print("\nshutting down")
+            log.warning("dashboard shutting down (KeyboardInterrupt)")
             httpd.shutdown()
 
 
@@ -92,9 +101,14 @@ def _build_handler(dashboard: DashboardServer):
             }
             handler = handlers.get(self.path.split("?", 1)[0])
             if handler is None:
+                log.info("404 %s %s from %s", self.command, self.path, self.address_string())
                 self._respond(HTTPStatus.NOT_FOUND, "not found", "text/plain")
                 return
-            handler()
+            try:
+                handler()
+            except Exception:  # noqa: BLE001
+                log.exception("handler crashed for %s %s", self.command, self.path)
+                self._respond(HTTPStatus.INTERNAL_SERVER_ERROR, "internal error\n", "text/plain")
 
         def do_HEAD(self) -> None:  # noqa: N802
             self._head_only = True
@@ -124,6 +138,6 @@ def _build_handler(dashboard: DashboardServer):
                 self.wfile.write(encoded)
 
         def log_message(self, fmt: str, *args) -> None:
-            print(f"{self.address_string()} {self.command} {self.path} " f"{args[1] if len(args) > 1 else ''}".strip())
+            log.info("%s %s %s", self.address_string(), self.command, self.path)
 
     return _Handler

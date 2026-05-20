@@ -7,6 +7,7 @@ consumes."""
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shutil
@@ -20,6 +21,9 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, ClassVar, Dict, List, Tuple
 
 import yaml
+
+
+log = logging.getLogger(__name__)
 
 
 class Collector(ABC):
@@ -203,6 +207,7 @@ class SchedulesCollector(Collector):
             try:
                 runbook = load_runbook_file(path)
             except Exception as exc:  # noqa: BLE001
+                log.exception("schedules-collector: failed to load %s", path.name)
                 rows.append(
                     {
                         "file": path.name,

@@ -9,6 +9,7 @@ Subcommands:
 from __future__ import annotations
 
 import argparse
+import logging
 from pathlib import Path
 
 from briar.commands.base import Command
@@ -19,6 +20,9 @@ from briar.iac.runbook import (
     extract_runbook,
     load_runbook_file,
 )
+
+
+log = logging.getLogger(__name__)
 
 
 class CommandRunbook(Command):
@@ -83,14 +87,15 @@ class CommandRunbook(Command):
             return 0
         exit_code = 0
         for path in files:
+            log.info("sweep: processing %s", path.name)
             print(f"--- {path.name} ---")
             try:
                 runbook = load_runbook_file(path)
                 rows = extract_runbook(runbook)
                 items = [{"company": r.company, "task": r.task, "status": r.status, "output": r.output} for r in rows]
                 render(items, args.format, ["company", "task", "status", "output"])
-            except Exception as exc:  # noqa: BLE001
-                print(f"FAILED {path.name}: {exc}")
+            except Exception:  # noqa: BLE001
+                log.exception("sweep: %s failed", path.name)
                 exit_code = 1
         return exit_code
 
@@ -100,6 +105,6 @@ class CommandRunbook(Command):
             raise CliError(f"serve: {directory} is not a directory")
         scheduler = RunbookScheduler(directory)
         for entry in scheduler.register_all():
-            print(f"  registered  {entry.company:20s} {entry.task:18s} every {entry.every}")
+            log.info("registered company=%s task=%s every=%r", entry.company, entry.task, entry.every)
         scheduler.run_forever(args.tick)
         return 0

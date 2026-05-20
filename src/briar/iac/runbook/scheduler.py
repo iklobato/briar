@@ -13,6 +13,7 @@ Pattern grammar (case-insensitive):
 
 from __future__ import annotations
 
+import logging
 import re
 import threading
 from dataclasses import dataclass
@@ -22,6 +23,9 @@ from typing import List
 import schedule
 
 from briar.errors import ConfigError
+
+
+log = logging.getLogger(__name__)
 
 
 _WEEKDAYS = {"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
@@ -110,14 +114,15 @@ class RunbookScheduler:
         def _job() -> None:
             from briar.iac.runbook import extract_runbook, load_runbook_file
 
-            print(f"[scheduler] task={task} company={company} fire")
+            log.info("fire task=%s company=%s yaml=%s", task, company, yaml_path.name)
             try:
                 runbook = load_runbook_file(yaml_path)
                 rows = extract_runbook(runbook, task)
                 for row in rows:
-                    print(f"[scheduler] {row.company} {row.task}: {row.status} -> {row.output}")
-            except Exception as exc:  # noqa: BLE001 — must not abort the loop
-                print(f"[scheduler] task={task} company={company} FAILED: {exc}")
+                    log.info("result task=%s company=%s status=%s output=%s", row.task, row.company, row.status, row.output)
+            except Exception:  # noqa: BLE001 — must not abort the loop
+                # logger.exception() includes the full traceback in the log.
+                log.exception("FAILED task=%s company=%s yaml=%s", task, company, yaml_path.name)
 
         return _job
 
@@ -126,10 +131,16 @@ class RunbookScheduler:
 
     def run_forever(self, tick_seconds: float = 1.0) -> None:
         """Block + dispatch jobs until `stop()` or KeyboardInterrupt."""
-        print(f"[scheduler] registered {len(self._jobs)} job(s); entering run loop (Ctrl-C to stop)")
+        log.info("scheduler starting: %d job(s), tick=%.1fs (Ctrl-C to stop)", len(self._jobs), tick_seconds)
+        for entry in self._jobs:
+            log.debug("scheduled job: company=%s task=%s every=%r next_run=%s", entry.company, entry.task, entry.every, entry.job.next_run)
         while not self._stop_event.is_set():
-            schedule.run_pending()
+            try:
+                schedule.run_pending()
+            except Exception:  # noqa: BLE001 — survive a misbehaving job
+                log.exception("schedule.run_pending() raised; loop continues")
             self._stop_event.wait(tick_seconds)
+        log.info("scheduler stopped (stop_event set)")
 
     def stop(self) -> None:
         self._stop_event.set()
