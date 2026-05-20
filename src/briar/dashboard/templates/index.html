@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>briar scheduler — {{ system.hostname }}</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --fg: #e6e6e6;
+    --dim: #8b97a7;
+    --accent: #7cc4ff;
+    --panel: #181c24;
+    --border: #262b35;
+    --good: #5ad683;
+    --warn: #d6a35a;
+    --bad: #d65a5a;
+  }
+  body { background: var(--bg); color: var(--fg); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: 0; padding: 2rem; line-height: 1.5; }
+  header { margin-bottom: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; }
+  header h1 { margin: 0 0 0.4rem; font-size: 1.4rem; font-weight: 600; }
+  header .meta { color: var(--dim); font-size: 0.85rem; }
+  section { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 1rem 1.25rem; margin-bottom: 1.25rem; }
+  section h2 { margin: 0 0 0.75rem; font-size: 1rem; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
+  section h2 .count { float: right; color: var(--dim); font-weight: 400; font-size: 0.85rem; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th, td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--dim); font-weight: 500; }
+  tr:last-child td { border-bottom: none; }
+  code, pre { background: #0a0c10; border: 1px solid var(--border); border-radius: 4px; padding: 0 0.3rem; font-size: 0.8rem; }
+  pre { padding: 0.75rem; white-space: pre-wrap; word-break: break-word; overflow-x: auto; }
+  .pill { display: inline-block; padding: 0.05rem 0.5rem; border: 1px solid var(--border); border-radius: 999px; font-size: 0.75rem; margin-right: 0.25rem; color: var(--dim); }
+  .pill.good { color: var(--good); border-color: var(--good); }
+  .pill.warn { color: var(--warn); border-color: var(--warn); }
+  .pill.bad  { color: var(--bad);  border-color: var(--bad);  }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; }
+  .stat { background: #0a0c10; border: 1px solid var(--border); border-radius: 4px; padding: 0.5rem 0.75rem; }
+  .stat .k { color: var(--dim); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .stat .v { font-size: 1.05rem; margin-top: 0.2rem; }
+  .empty { color: var(--dim); font-style: italic; }
+  footer { margin-top: 2rem; color: var(--dim); font-size: 0.75rem; text-align: center; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>briar scheduler · <span style="color: var(--accent);">{{ system.hostname }}</span></h1>
+  <div class="meta">read-only dashboard · rendered {{ system.now }} · uptime {{ system.uptime }}</div>
+</header>
+
+<section>
+  <h2>system</h2>
+  <div class="grid4">
+    <div class="stat"><div class="k">disk total</div><div class="v">{{ system.disk_total_gb }} GB</div></div>
+    <div class="stat"><div class="k">disk used</div><div class="v">{{ system.disk_used_gb }} GB ({{ system.disk_used_pct }}%)</div></div>
+    <div class="stat"><div class="k">disk free</div><div class="v">{{ system.disk_free_gb }} GB</div></div>
+    <div class="stat"><div class="k">uptime</div><div class="v">{{ system.uptime }}</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>schedulers <span class="count">{{ cron.entries|length if cron.present else 0 }} cron entries</span></h2>
+  {% if not cron.present %}
+    <p class="empty">no cron file at {{ cron.path }}</p>
+  {% else %}
+    <table>
+      <thead><tr><th>schedule (UTC)</th><th>user</th><th>command</th></tr></thead>
+      <tbody>
+        {% for e in cron.entries %}
+        <tr><td><code>{{ e.schedule }}</code></td><td>{{ e.user }}</td><td><code>{{ e.command }}</code></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</section>
+
+<section>
+  <h2>companies <span class="count">{{ companies.count }} row(s)</span></h2>
+  {% if not companies.rows %}
+    <p class="empty">no companies declared</p>
+  {% else %}
+    <table>
+      <thead>
+        <tr><th>file</th><th>company</th><th>profile</th><th>extractors</th><th>knowledge file</th></tr>
+      </thead>
+      <tbody>
+        {% for r in companies.rows %}
+        <tr>
+          <td><code>{{ r.file }}</code></td>
+          <td><strong>{{ r.company }}</strong></td>
+          <td>{{ r.profile }}</td>
+          <td>{% for x in r.extractors %}<span class="pill">{{ x }}</span>{% endfor %}</td>
+          <td><code>{{ r.knowledge_file }}</code></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</section>
+
+<section>
+  <h2>knowledge files <span class="count">{{ knowledge.rows|length }} file(s)</span></h2>
+  {% if knowledge.missing %}
+    <p class="empty">root {{ knowledge.root }} does not exist yet — run a sweep</p>
+  {% elif not knowledge.rows %}
+    <p class="empty">no markdown files under {{ knowledge.root }}</p>
+  {% else %}
+    <table>
+      <thead><tr><th>path</th><th>bytes</th><th>modified</th><th>head</th></tr></thead>
+      <tbody>
+        {% for r in knowledge.rows %}
+        <tr>
+          <td><code>{{ r.path }}</code></td>
+          <td>{{ r.byte_count }}</td>
+          <td>{{ r.modified }}</td>
+          <td><pre>{{ r.head }}</pre></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</section>
+
+<div class="grid2">
+  <section>
+    <h2>extractors <span class="count">{{ extractors.count }}</span></h2>
+    <table>
+      <thead><tr><th>name</th><th>needs</th><th>description</th></tr></thead>
+      <tbody>
+        {% for r in extractors.rows %}
+        <tr>
+          <td><strong>{{ r.name }}</strong></td>
+          <td>
+            {% if r.requires_github %}<span class="pill">github</span>{% endif %}
+            {% if r.requires_aws %}<span class="pill">aws</span>{% endif %}
+          </td>
+          <td>{{ r.description }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>source templates <span class="count">{{ source_templates.count }}</span></h2>
+    <table>
+      <thead><tr><th>kind</th><th>family</th></tr></thead>
+      <tbody>
+        {% for r in source_templates.rows %}
+        <tr><td><strong>{{ r.kind }}</strong></td><td>{{ r.family }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+</div>
+
+<div class="grid2">
+  <section>
+    <h2>trigger templates <span class="count">{{ trigger_templates.count }}</span></h2>
+    <table>
+      <thead><tr><th>kind</th><th>description</th></tr></thead>
+      <tbody>
+        {% for r in trigger_templates.rows %}
+        <tr><td><strong>{{ r.kind }}</strong></td><td>{{ r.description }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>storage backends</h2>
+    <table>
+      <thead><tr><th>name</th></tr></thead>
+      <tbody>
+        {% for r in storage_backends.rows %}
+        <tr><td><strong>{{ r.name }}</strong></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+</div>
+
+<section>
+  <h2>recent activity
+    <span class="count">{{ scheduler_log.lines|length }} line(s) · {{ scheduler_log.byte_count if scheduler_log.present else 0 }} bytes</span>
+  </h2>
+  {% if not scheduler_log.present %}
+    <p class="empty">no log at {{ scheduler_log.path }}</p>
+  {% else %}
+    {% if scheduler_log.last_cycle %}
+      <p>last cycle marker: <code>{{ scheduler_log.last_cycle }}</code></p>
+    {% endif %}
+    <pre>{% for line in scheduler_log.lines %}{{ line }}
+{% endfor %}</pre>
+  {% endif %}
+</section>
+
+<footer>briar-cli dashboard · read-only · GET-only HTTP</footer>
+
+</body>
+</html>

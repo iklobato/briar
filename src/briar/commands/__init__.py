@@ -10,6 +10,7 @@ from typing import Dict, List, Type
 
 from briar.commands.base import Command, confirm
 from briar.commands.context import ContextCommand
+from briar.commands.dashboard import CommandDashboard
 from briar.commands.extract import CommandExtract
 from briar.commands.iac import CommandScaffold
 from briar.commands.runbook import CommandRunbook
@@ -22,7 +23,7 @@ class CommandRegistry:
 
     COMMANDS: List[Type[Command]] = [
         CommandExtract, CommandRunbook, CommandScaffold,
-        ContextCommand, CommandVersion,
+        ContextCommand, CommandDashboard, CommandVersion,
     ]
 
     @classmethod
