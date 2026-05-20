@@ -61,6 +61,31 @@
   @media (max-width: 600px) {
     .grid-2, .grid-3, .grid-4, .grid-6 { grid-template-columns: 1fr; }
   }
+  .cal-window { color: var(--dim); font-size: 0.75rem; margin: -0.25rem 0 0.6rem; }
+  .cal-grid { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+  .cal-row { display: grid; grid-template-columns: 7.5rem 1fr; border-bottom: 1px solid var(--border); min-height: 1.6rem; align-items: stretch; }
+  .cal-row:last-child { border-bottom: none; }
+  .cal-row.cal-past .cal-hour { background: #0a0c10; color: var(--dim); }
+  .cal-row.cal-future .cal-hour { background: #11141b; color: var(--fg); }
+  .cal-row.cal-now { background: rgba(124, 196, 255, 0.07); }
+  .cal-row.cal-now .cal-hour { background: var(--accent); color: #0b0d12; font-weight: 600; }
+  .cal-hour { padding: 0.25rem 0.6rem; border-right: 1px solid var(--border); font-size: 0.72rem; display: flex; flex-direction: column; justify-content: center; }
+  .cal-hour-time { font-weight: 600; }
+  .cal-hour-date { color: var(--dim); font-size: 0.65rem; margin-top: 0.05rem; }
+  .cal-row.cal-now .cal-hour-date { color: #0b0d12; opacity: 0.8; }
+  .cal-fires { padding: 0.2rem 0.5rem; display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
+  .cal-empty { color: var(--border); font-size: 0.7rem; }
+  .cal-now-marker { color: var(--accent); font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+  .cal-fire { display: inline-flex; align-items: baseline; gap: 0.3rem; background: #0a0c10; border: 1px solid var(--border); border-radius: 3px; padding: 0.1rem 0.4rem; font-size: 0.7rem; }
+  .cal-fire-when { color: var(--dim); font-variant-numeric: tabular-nums; }
+  .cal-fire-company { color: var(--fg); font-weight: 600; }
+  .cal-fire-task { color: var(--accent); }
+  .cal-fire-status { font-weight: 700; color: var(--good); }
+  .cal-fire-status.bad { color: var(--bad); }
+  .cal-fire-future { border-color: var(--c3); }
+  .cal-fire-future .cal-fire-task { color: var(--c3); }
+  .cal-fire-past.cal-status-failed { border-color: var(--bad); }
+  .cal-fire-past.cal-status-running { border-color: var(--warn); }
 </style>
 </head>
 <body>
@@ -161,6 +186,40 @@
     {% endif %}
   </section>
 </div>
+
+<!-- SCHEDULE CALENDAR (past 24h + next 24h) -->
+<section class="cal">
+  <h2>calendar <span class="count">past 24h ({{ schedule_calendar.past_count }}) · next 24h ({{ schedule_calendar.future_count }})</span></h2>
+  <p class="cal-window">
+    window <code>{{ schedule_calendar.window_start }}</code> → <code>{{ schedule_calendar.window_end }}</code> · now <code>{{ schedule_calendar.now }}</code>
+  </p>
+  <div class="cal-grid">
+    {% for b in schedule_calendar.buckets %}
+    <div class="cal-row {% if b.is_now %}cal-now{% elif b.is_past %}cal-past{% else %}cal-future{% endif %}">
+      <div class="cal-hour">
+        <div class="cal-hour-time">{{ b.hour_short }}</div>
+        <div class="cal-hour-date">{{ b.date_label }}</div>
+      </div>
+      <div class="cal-fires">
+        {% if b.is_now %}<span class="cal-now-marker">↳ now</span>{% endif %}
+        {% for f in b.fires %}
+          <span class="cal-fire cal-fire-{{ f.kind }} cal-status-{{ f.status }}" title="{{ f.company }} / {{ f.task }} at {{ f.when }} ({{ f.kind }}{% if f.bytes %} · {{ f.bytes }} bytes{% endif %})">
+            <span class="cal-fire-when">{{ f.when }}</span>
+            <span class="cal-fire-company">{{ f.company }}</span>
+            <span class="cal-fire-task">{{ f.task }}</span>
+            {% if f.kind == "past" %}
+              {% if f.status == "ok" %}<span class="cal-fire-status">✓</span>
+              {% elif f.status == "failed" %}<span class="cal-fire-status bad">✗</span>
+              {% else %}<span class="cal-fire-status">·</span>{% endif %}
+            {% endif %}
+          </span>
+        {% endfor %}
+        {% if not b.fires and not b.is_now %}<span class="cal-empty">—</span>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
 
 <!-- KNOWLEDGE AGGREGATES + COMPANIES -->
 <section>

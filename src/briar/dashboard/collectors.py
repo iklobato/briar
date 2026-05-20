@@ -239,6 +239,242 @@ def _noop() -> None:
     pass
 
 
+class ScheduleCalendarCollector(Collector):
+    """48-hour calendar of scheduler fires: past 24h (from the log) +
+    next 24h (computed from each schedule by simulating the job).
+
+    Output shape — designed for direct iteration in the template:
+        {
+            "window_start": "2026-05-19 22:00 UTC",  # now - 24h, hour-floored
+            "window_end":   "2026-05-21 22:00 UTC",  # now + 24h, hour-ceil
+            "now":          "2026-05-20 22:14 UTC",
+            "buckets": [                              # 48 rows, oldest first
+                {
+                    "hour":   "2026-05-20 18:00 UTC",
+                    "is_now": False,                  # true on the hour containing `now`
+                    "is_past": True,                  # bucket's hour < now's hour
+                    "fires":  [                       # one entry per fire in this hour
+                        {"company":"acme", "task":"prfix",
+                         "when":"2026-05-20 18:10 UTC", "kind":"past",
+                         "status":"ok", "bytes":3727},
+                    ],
+                },
+                ...
+            ],
+        }
+    """
+
+    name = "schedule_calendar"
+
+    _LOG_FIRE_RE = re.compile(
+        r"^(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})Z\s+\[[^\]]*\]\s+"
+        r"briar\.iac\.runbook\.scheduler:\s+"
+        r"fire\s+task=(?P<task>\S+)\s+company=(?P<company>\S+)"
+    )
+    _LOG_RESULT_RE = re.compile(
+        r"^(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})Z\s+\[[^\]]*\]\s+"
+        r"briar\.iac\.runbook\.scheduler:\s+"
+        r"result\s+task=(?P<task>\S+)\s+company=(?P<company>\S+)\s+"
+        r"status=(?P<status>.*?)$"
+    )
+
+    def __init__(self, examples_dir: Path, log_path: Path) -> None:
+        self._dir = examples_dir
+        self._log = log_path
+
+    def collect(self) -> Dict[str, Any]:
+        from datetime import timedelta
+
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        now_hour = now.replace(minute=0, second=0)
+        window_start = now_hour - timedelta(hours=24)
+        window_end = now_hour + timedelta(hours=25)  # 24 future hours INCLUSIVE
+
+        past_fires = self._past_fires(window_start, now)
+        future_fires = self._future_fires(now, window_end)
+
+        all_fires = past_fires + future_fires
+        all_fires.sort(key=lambda f: f["when_dt"])
+
+        buckets: List[Dict[str, Any]] = []
+        cursor = window_start
+        bucket_idx: Dict[str, int] = {}
+        while cursor < window_end:
+            key = cursor.strftime("%Y-%m-%dT%H")
+            bucket_idx[key] = len(buckets)
+            buckets.append(
+                {
+                    "hour": cursor.strftime("%Y-%m-%d %H:%M UTC"),
+                    "hour_short": cursor.strftime("%H:%M"),
+                    "date_label": cursor.strftime("%a %d %b"),
+                    "is_now": cursor == now_hour,
+                    "is_past": cursor < now_hour,
+                    "fires": [],
+                }
+            )
+            cursor = cursor + timedelta(hours=1)
+
+        for fire in all_fires:
+            key = fire["when_dt"].strftime("%Y-%m-%dT%H")
+            slot = bucket_idx.get(key)
+            if slot is None:
+                continue
+            buckets[slot]["fires"].append(
+                {
+                    "company": fire["company"],
+                    "task": fire["task"],
+                    "when": fire["when_dt"].strftime("%H:%M"),
+                    "kind": fire["kind"],
+                    "status": fire.get("status", ""),
+                    "bytes": fire.get("bytes", 0),
+                }
+            )
+
+        return {
+            "window_start": window_start.strftime("%Y-%m-%d %H:%M UTC"),
+            "window_end": (window_end - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M UTC"),
+            "now": now.strftime("%Y-%m-%d %H:%M:%S UTC"),
+            "buckets": buckets,
+            "past_count": sum(1 for f in all_fires if f["kind"] == "past"),
+            "future_count": sum(1 for f in all_fires if f["kind"] == "future"),
+        }
+
+    def _past_fires(self, window_start: datetime, now: datetime) -> List[Dict[str, Any]]:
+        """Tail the scheduler log and pair fire/result lines."""
+        if not self._log.exists():
+            return []
+        with self._log.open("rb") as fh:
+            fh.seek(0, 2)
+            size = fh.tell()
+            fh.seek(max(0, size - 256_000))
+            chunk = fh.read().decode("utf-8", errors="replace")
+        fires: List[Dict[str, Any]] = []
+        pending: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        for line in chunk.splitlines():
+            fire_m = self._LOG_FIRE_RE.search(line)
+            if fire_m:
+                when = self._parse_log_ts(fire_m.group("ts"))
+                if when is None or when < window_start or when > now:
+                    continue
+                rec: Dict[str, Any] = {
+                    "company": fire_m.group("company"),
+                    "task": fire_m.group("task"),
+                    "when_dt": when,
+                    "kind": "past",
+                    "status": "running",
+                }
+                fires.append(rec)
+                pending[(rec["company"], rec["task"])] = rec
+                continue
+            result_m = self._LOG_RESULT_RE.search(line)
+            if result_m:
+                key = (result_m.group("company"), result_m.group("task"))
+                if key not in pending:
+                    continue
+                rec = pending.pop(key)
+                status_raw = result_m.group("status").strip()
+                bytes_m = re.search(r"wrote\s+(\d+)\s+bytes", status_raw)
+                if bytes_m:
+                    rec["status"] = "ok"
+                    rec["bytes"] = int(bytes_m.group(1))
+                    continue
+                if "failed" in status_raw.lower() or "error" in status_raw.lower():
+                    rec["status"] = "failed"
+                    continue
+                rec["status"] = "done"
+        return fires
+
+    def _future_fires(self, now: datetime, window_end: datetime) -> List[Dict[str, Any]]:
+        """Simulate each schedule forward to enumerate fires inside the window."""
+        import schedule as schedule_mod
+        from briar.iac.runbook import (
+            EveryParser,
+            RunbookSchedules,
+            load_runbook_file,
+        )
+
+        out: List[Dict[str, Any]] = []
+        for path in sorted(self._dir.glob("*.yaml")):
+            try:
+                runbook = load_runbook_file(path)
+            except Exception:  # noqa: BLE001
+                log.exception("calendar: failed to load %s", path.name)
+                continue
+            for company_name, company in runbook.companies.items():
+                for entry in RunbookSchedules.for_company(company):
+                    out.extend(
+                        self._project_one(
+                            company_name,
+                            entry,
+                            now,
+                            window_end,
+                            EveryParser,
+                            schedule_mod,
+                        )
+                    )
+        return out
+
+    @staticmethod
+    def _project_one(
+        company: str,
+        entry: Any,
+        now: datetime,
+        window_end: datetime,
+        parser: Any,
+        schedule_mod: Any,
+    ) -> List[Dict[str, Any]]:
+        """For a single (company, task) schedule, project future fires by
+        starting from job.next_run (the schedule library's correct
+        first-run computation) and then walking forward by `job.period`
+        because schedule._schedule_next_run rebases on now() each call
+        rather than advancing from the previous next_run. Caps at 32
+        fires to bound runtime."""
+        from datetime import timedelta
+
+        local = schedule_mod.Scheduler()
+        job = parser.parse(entry.every, scheduler=local)
+        job.do(_noop)
+        run_at = job.next_run
+        if run_at is None:
+            return []
+        if run_at.tzinfo is None:
+            run_at = run_at.replace(tzinfo=timezone.utc)
+        # Build the step interval from the job's declared cadence
+        # (`schedule.Job` exposes `interval` + `unit`, e.g. (4, "hours")
+        # or (1, "days"), but no public `period` attribute).
+        unit_to_kwarg = {
+            "seconds": "seconds",
+            "minutes": "minutes",
+            "hours": "hours",
+            "days": "days",
+            "weeks": "weeks",
+        }
+        kwarg = unit_to_kwarg.get(job.unit or "")
+        step = timedelta(**{kwarg: job.interval}) if kwarg else timedelta(hours=1)
+        out: List[Dict[str, Any]] = []
+        for _ in range(32):
+            if run_at >= window_end:
+                break
+            if run_at > now:
+                out.append(
+                    {
+                        "company": company,
+                        "task": entry.task,
+                        "when_dt": run_at,
+                        "kind": "future",
+                    }
+                )
+            run_at = run_at + step
+        return out
+
+    @staticmethod
+    def _parse_log_ts(ts: str) -> Any:
+        try:
+            return datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
+
+
 class SchedulerProcessCollector(Collector):
     """Is `briar runbook serve` running?"""
 
@@ -732,6 +968,10 @@ class CollectorRegistry:
             SystemCollector(disk_path=paths.disk_path),
             GitDeployCollector(repo_path=paths.repo_path),
             SchedulesCollector(examples_dir=paths.examples_dir),
+            ScheduleCalendarCollector(
+                examples_dir=paths.examples_dir,
+                log_path=paths.log_path,
+            ),
             SchedulerProcessCollector(),
             ScheduleLogCollector(log_path=paths.log_path),
             CycleOutcomeCollector(log_path=paths.log_path),
