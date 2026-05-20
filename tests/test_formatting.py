@@ -105,8 +105,7 @@ class FormatterRegistryTests(unittest.TestCase):
             FORMATTERS["quiet"].render(
                 [{"id": "row-1"}, {"id": "row-2"}],
             )
-        self.assertEqual(buf.getvalue().strip().splitlines(),
-                         ["row-1", "row-2"])
+        self.assertEqual(buf.getvalue().strip().splitlines(), ["row-1", "row-2"])
 
     def test_csv_emits_header_and_rows(self) -> None:
         buf = io.StringIO()
@@ -115,9 +114,7 @@ class FormatterRegistryTests(unittest.TestCase):
                 [{"id": "a", "name": "x"}, {"id": "b", "name": "y"}],
                 ["id", "name"],
             )
-        lines = [
-            line for line in buf.getvalue().splitlines() if line
-        ]
+        lines = [line for line in buf.getvalue().splitlines() if line]
         self.assertEqual(lines[0], "id,name")
         self.assertEqual(lines[1], "a,x")
         self.assertEqual(lines[2], "b,y")

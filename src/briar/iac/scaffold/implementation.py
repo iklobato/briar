@@ -32,9 +32,7 @@ from briar.iac.scaffold.base import ScaffoldTemplate
 
 class ScaffoldImplementation(ScaffoldTemplate):
     name = "implementation"
-    description = (
-        "Issue → plan → approve → implement / open PR (configurable)"
-    )
+    description = "Issue → plan → approve → implement / open PR (configurable)"
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("--owner", required=True, help="GitHub org/user")

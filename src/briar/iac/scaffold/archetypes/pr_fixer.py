@@ -10,9 +10,7 @@ class ArchetypePrFixer(AgentArchetype):
     description = "address unresolved review comments with follow-up commits"
 
     role = "PR fix engineer"
-    goal = (
-        "Address each unresolved review comment with a minimal, correct fix."
-    )
+    goal = "Address each unresolved review comment with a minimal, correct fix."
     backstory_template = (
         "You triage open review comments on PRs in {target}. For each "
         "unresolved thread, decide the smallest correct fix, push a "

@@ -19,8 +19,11 @@ from briar.extract.language_detectors import LANGUAGE_DETECTORS
 class RegistryTests(unittest.TestCase):
     def test_all_extractors_registered(self) -> None:
         for name in (
-            "pr-archaeology", "aws-infra", "active-work",
-            "github-deployments", "codebase-conventions",
+            "pr-archaeology",
+            "aws-infra",
+            "active-work",
+            "github-deployments",
+            "codebase-conventions",
         ):
             self.assertIn(name, EXTRACTORS)
 
@@ -40,7 +43,8 @@ class ComposerTests(unittest.TestCase):
             sections=[
                 ExtractedSection(title="One", body="hello"),
                 ExtractedSection(
-                    title="Two", body="",
+                    title="Two",
+                    body="",
                     subsections=[ExtractedSection(title="Sub", body="x")],
                 ),
             ],
@@ -51,6 +55,7 @@ class ComposerTests(unittest.TestCase):
 
     def test_json_carries_structure(self) -> None:
         import json
+
         out = render_json(
             company="acme",
             sections=[ExtractedSection(title="One", body="hi", data={"k": 1})],
@@ -77,12 +82,15 @@ class ExtractPrArchaeologyTests(unittest.TestCase):
                 "requested_reviewers": [],
             },
         ]
-        with mock.patch(
-            "briar.extract._gh.GithubApi.get_paginated",
-            return_value=fake_prs,
-        ), mock.patch(
-            "briar.extract._gh.GithubApi.auth_token",
-            return_value="fake-token",
+        with (
+            mock.patch(
+                "briar.extract._gh.GithubApi.get_paginated",
+                return_value=fake_prs,
+            ),
+            mock.patch(
+                "briar.extract._gh.GithubApi.auth_token",
+                return_value="fake-token",
+            ),
         ):
             args = argparse.Namespace(pr_repo=["o/r"], pr_max=10)
             section = ext.extract(args)
@@ -98,9 +106,7 @@ class ExtractAwsInfraTests(unittest.TestCase):
         ext = EXTRACTORS["aws-infra"]
         with mock.patch("boto3.Session") as session_cls:
             instance = session_cls.return_value
-            instance.client.return_value.get_caller_identity.side_effect = (
-                RuntimeError("boom")
-            )
+            instance.client.return_value.get_caller_identity.side_effect = RuntimeError("boom")
             args = argparse.Namespace(
                 aws_extract_profile=None,
                 aws_extract_region="us-east-1",
@@ -127,14 +133,16 @@ class AwsServiceGathererTests(unittest.TestCase):
         gatherer = AWS_SERVICE_GATHERERS["rds"]
         session = mock.MagicMock()
         session.client.return_value.describe_db_instances.return_value = {
-            "DBInstances": [{
-                "DBInstanceIdentifier": "db-1",
-                "Engine": "postgres",
-                "EngineVersion": "15",
-                "DBInstanceClass": "db.t3.medium",
-                "AllocatedStorage": 32,
-                "MultiAZ": True,
-            }],
+            "DBInstances": [
+                {
+                    "DBInstanceIdentifier": "db-1",
+                    "Engine": "postgres",
+                    "EngineVersion": "15",
+                    "DBInstanceClass": "db.t3.medium",
+                    "AllocatedStorage": 32,
+                    "MultiAZ": True,
+                }
+            ],
         }
         section = gatherer.gather(session)
         self.assertIn("db-1", section.body)
@@ -144,6 +152,7 @@ class AwsServiceGathererTests(unittest.TestCase):
 class LanguageDetectorTests(unittest.TestCase):
     def test_python_detector(self) -> None:
         from briar.extract.language_detectors.python import DetectPython
+
         det = DetectPython()
         text = "[tool.pytest.ini_options]\n[tool.ruff]\n[tool.alembic]\n"
         result = det.detect("o/r", lambda r, p: text if p == det.manifest else None)
@@ -154,11 +163,13 @@ class LanguageDetectorTests(unittest.TestCase):
 
     def test_python_detector_missing_manifest_returns_none(self) -> None:
         from briar.extract.language_detectors.python import DetectPython
+
         det = DetectPython()
         self.assertIsNone(det.detect("o/r", lambda r, p: None))
 
     def test_node_detector_typescript_promotion(self) -> None:
         from briar.extract.language_detectors.node import DetectNode
+
         det = DetectNode()
         text = '{"dependencies": {"typescript": "*", "vitest": "*"}}'
         result = det.detect("o/r", lambda r, p: text)
@@ -167,6 +178,7 @@ class LanguageDetectorTests(unittest.TestCase):
 
     def test_go_detector(self) -> None:
         from briar.extract.language_detectors.go import DetectGo
+
         det = DetectGo()
         result = det.detect("o/r", lambda r, p: "module example.com/x\n")
         self.assertEqual(result["language"], "go")
@@ -177,12 +189,15 @@ class ExtractCodebaseConventionsTests(unittest.TestCase):
     def test_orchestrator_uses_python_detector(self) -> None:
         ext = EXTRACTORS["codebase-conventions"]
         py_text = "[tool.pytest.ini_options]\n[tool.ruff]\n[tool.alembic]\n"
-        with mock.patch(
-            "briar.extract.codebase_conventions.ExtractCodebaseConventions._read_repo_file",
-            side_effect=lambda r, p: py_text if p == "pyproject.toml" else None,
-        ), mock.patch(
-            "briar.extract._gh.GithubApi.auth_token",
-            return_value="t",
+        with (
+            mock.patch(
+                "briar.extract.codebase_conventions.ExtractCodebaseConventions._read_repo_file",
+                side_effect=lambda r, p: py_text if p == "pyproject.toml" else None,
+            ),
+            mock.patch(
+                "briar.extract._gh.GithubApi.auth_token",
+                return_value="t",
+            ),
         ):
             args = argparse.Namespace(conventions_repo=["o/r"])
             section = ext.extract(args)
@@ -224,17 +239,22 @@ companies:
         f = tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False)
         f.write(yaml)
         f.close()
-        with mock.patch(
-            "briar.extract._gh.GithubApi.get_paginated",
-            return_value=[{
-                "merged_at": "2026-05-10T00:00:00Z",
-                "created_at": "2026-05-09T22:00:00Z",
-                "user": {"login": "u"},
-                "requested_reviewers": [],
-            }],
-        ), mock.patch(
-            "briar.extract._gh.GithubApi.auth_token",
-            return_value="fake",
+        with (
+            mock.patch(
+                "briar.extract._gh.GithubApi.get_paginated",
+                return_value=[
+                    {
+                        "merged_at": "2026-05-10T00:00:00Z",
+                        "created_at": "2026-05-09T22:00:00Z",
+                        "user": {"login": "u"},
+                        "requested_reviewers": [],
+                    }
+                ],
+            ),
+            mock.patch(
+                "briar.extract._gh.GithubApi.auth_token",
+                return_value="fake",
+            ),
         ):
             rb = load_runbook_file(Path(f.name))
             with tempfile.TemporaryDirectory() as td:

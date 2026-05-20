@@ -17,12 +17,16 @@ class CommandScaffold(Command):
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         sub = parser.add_subparsers(
-            dest="template", required=True, metavar="TEMPLATE",
+            dest="template",
+            required=True,
+            metavar="TEMPLATE",
         )
         for name, tmpl in TEMPLATES.items():
             tp = sub.add_parser(name, help=tmpl.description)
             tp.add_argument(
-                "--out", "-o", default="-",
+                "--out",
+                "-o",
+                default="-",
                 help="output path (default: stdout)",
             )
             tmpl.add_arguments(tp)

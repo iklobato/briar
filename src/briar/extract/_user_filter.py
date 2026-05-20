@@ -21,19 +21,27 @@ class UserFilter:
     def add_arguments(parser: argparse.ArgumentParser, *, prefix: str) -> None:
         """Register `--<prefix>-{authors,assignees}-{allow,block}` flags."""
         parser.add_argument(
-            f"--{prefix}-authors-allow", action="append", default=[],
+            f"--{prefix}-authors-allow",
+            action="append",
+            default=[],
             help="only include items whose author is in this list (repeatable)",
         )
         parser.add_argument(
-            f"--{prefix}-authors-block", action="append", default=[],
+            f"--{prefix}-authors-block",
+            action="append",
+            default=[],
             help="exclude items whose author is in this list (repeatable)",
         )
         parser.add_argument(
-            f"--{prefix}-assignees-allow", action="append", default=[],
+            f"--{prefix}-assignees-allow",
+            action="append",
+            default=[],
             help="only include items whose assignee is in this list (repeatable)",
         )
         parser.add_argument(
-            f"--{prefix}-assignees-block", action="append", default=[],
+            f"--{prefix}-assignees-block",
+            action="append",
+            default=[],
             help="exclude items whose assignee is in this list (repeatable)",
         )
 
@@ -52,18 +60,21 @@ class UserFilter:
         assignees_allow = list(ns.get(f"{prefix}_assignees_allow") or [])
         assignees_block = list(ns.get(f"{prefix}_assignees_block") or [])
 
-        no_filters = not any((
-            authors_allow, authors_block, assignees_allow, assignees_block,
-        ))
+        no_filters = not any(
+            (
+                authors_allow,
+                authors_block,
+                assignees_allow,
+                assignees_block,
+            )
+        )
         if no_filters:
             return items
 
         out: List[dict] = []
         for item in items:
             author = cls._login_of(item.get("user"))
-            assignees = cls._logins_of(item.get("assignees")) or [
-                cls._login_of(item.get("assignee"))
-            ]
+            assignees = cls._logins_of(item.get("assignees")) or [cls._login_of(item.get("assignee"))]
             if not cls._matches([author], authors_allow, authors_block):
                 continue
             if not cls._matches(assignees, assignees_allow, assignees_block):

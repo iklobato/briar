@@ -2,42 +2,43 @@
 
 An extractor pulls data from one source family (GitHub, AWS, the local
 checkout, …) and emits an `ExtractedSection`. The composer concatenates
-sections into a single per-company markdown blob the agents use as
-context on every run.
+sections into a single per-company markdown blob agents read.
 
-Each extractor knows whether it can run in the current environment
-(`is_available()`) and what fields it needs from the YAML / CLI flags.
-"""
+Empty sections are represented by `ExtractedSection(title="")` — the
+composer skips them — instead of `Optional[ExtractedSection]`."""
 
 from __future__ import annotations
 
 import argparse
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List
 
 
 @dataclass
 class ExtractedSection:
     """One section of the final markdown bundle.
 
-    The composer renders this as:
-        ## <title>
-        <body>
-        (followed by optional sub-sections)
-    """
+    `title=""` is the "no data" sentinel — composer/orchestrator skip
+    sections whose title is empty, so callers never need a None check."""
 
-    title: str
+    title: str = ""
     body: str = ""
-    # Structured payload mirroring the markdown — useful for JSON output
-    # mode and for downstream programmatic consumers.
     data: Dict[str, Any] = field(default_factory=dict)
-    # Optional "subsections" rendered as `### <name>` under the section.
     subsections: List["ExtractedSection"] = field(default_factory=list)
+
+    @property
+    def is_empty(self) -> bool:
+        return not self.title
+
+
+# Module-level constant — `return EMPTY_SECTION` is more readable than
+# `return ExtractedSection()` at every "no data" site.
+EMPTY_SECTION = ExtractedSection()
 
 
 class KnowledgeExtractor(ABC):
-    """Strategy contract. Subclasses set the four class attributes +
+    """Strategy contract. Subclasses set the class attributes +
     implement `extract`."""
 
     name: ClassVar[str] = ""
@@ -49,13 +50,12 @@ class KnowledgeExtractor(ABC):
         """Subclasses contribute their own CLI flags. Default: no-op."""
 
     def is_available(self, args: argparse.Namespace) -> bool:
-        """Return False to skip this extractor in the current env (e.g.
-        no AWS profile set, no GITHUB_TOKEN, etc.). The composer prints
-        a one-line skip notice rather than raising."""
+        """Return False to skip this extractor in the current env (no
+        AWS profile, no GITHUB_TOKEN, etc.). The composer logs a skip
+        notice instead of raising."""
         return True
 
     @abstractmethod
-    def extract(self, args: argparse.Namespace) -> Optional[ExtractedSection]:
-        """Pull data and return one section. Return `None` to silently
-        omit (useful when the extractor is enabled but had nothing to
-        report — e.g. a repo with zero merged PRs)."""
+    def extract(self, args: argparse.Namespace) -> ExtractedSection:
+        """Pull data + return one section. Use `EMPTY_SECTION` when
+        the extractor had nothing to report — the composer skips it."""

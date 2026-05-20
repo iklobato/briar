@@ -17,38 +17,30 @@ from briar.storage import KNOWLEDGE_STORE_NAMES, make_store
 
 class CommandExtract(Command):
     name = "extract"
-    help = (
-        "Mine the live state of GitHub / AWS / etc. into a markdown "
-        "knowledge blob written to local disk."
-    )
+    help = "Mine the live state of GitHub / AWS / etc. into a markdown " "knowledge blob written to local disk."
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
-            "--company", required=True,
+            "--company",
+            required=True,
             help="Company name (drives the markdown title + blob name)",
         )
         parser.add_argument(
-            "--include", action="append", default=[],
+            "--include",
+            action="append",
+            default=[],
             choices=sorted(EXTRACTORS.keys()),
             help="Which extractor(s) to run (repeatable; default: all available)",
         )
         parser.add_argument(
-            "--storage", default="file",
+            "--storage",
+            default="file",
             choices=list(KNOWLEDGE_STORE_NAMES),
             help="Where to write the result (default: file)",
         )
-        parser.add_argument(
-            "--blob-name", default=None,
-            help="Storage blob name (default: knowledge:<company>)",
-        )
-        parser.add_argument(
-            "--root", default="./knowledge",
-            help="Local file root (only used when --storage=file)",
-        )
-        parser.add_argument(
-            "--out-json", default=None,
-            help="Optional parallel JSON output path (local file only)",
-        )
+        parser.add_argument("--blob-name", default="", help="Storage blob name (default: knowledge:<company>)")
+        parser.add_argument("--root", default="./knowledge", help="Local file root (only used when --storage=file)")
+        parser.add_argument("--out-json", default="", help="Parallel JSON output path (empty = skip)")
         for ext in EXTRACTORS.values():
             ext.add_arguments(parser)
 
@@ -63,33 +55,25 @@ class CommandExtract(Command):
                 continue
             print(f"  running {name} ...")
             section = ext.extract(args)
-            if section is not None:
-                sections.append(section)
-            else:
+            if section.is_empty:
                 print(f"  {name}: no data")
+                continue
+            sections.append(section)
 
         if not sections:
-            raise CliError(
-                "nothing extracted — every enabled extractor returned empty"
-            )
+            raise CliError("nothing extracted — every enabled extractor returned empty")
 
         md = render_markdown(company=args.company, sections=sections)
         blob_name = args.blob_name or f"knowledge:{args.company}"
 
         store = make_store(args.storage, file_root=Path(args.root))
         ref = store.put(blob_name, md, category="knowledge")
-        print(
-            f"\nwrote blob '{ref.name}' "
-            f"({ref.byte_count} bytes, {len(sections)} sections) "
-            f"via store={args.storage}"
-        )
+        print(f"\nwrote blob '{ref.name}' " f"({ref.byte_count} bytes, {len(sections)} sections) " f"via store={args.storage}")
 
         if args.out_json:
             json_path = Path(args.out_json)
             json_path.parent.mkdir(parents=True, exist_ok=True)
-            json_path.write_text(
-                render_json(company=args.company, sections=sections)
-            )
+            json_path.write_text(render_json(company=args.company, sections=sections))
             print(f"wrote {json_path}")
 
         return 0

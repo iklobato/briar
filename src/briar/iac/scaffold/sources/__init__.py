@@ -15,7 +15,8 @@ from briar.iac.scaffold.sources.jira import SourceJira
 
 
 SOURCE_TEMPLATES: Dict[str, SourceTemplate] = {
-    t.kind: t for t in (
+    t.kind: t
+    for t in (
         SourceGithub(),
         SourceJira(),
         SourceAws(),

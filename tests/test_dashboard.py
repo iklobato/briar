@@ -127,7 +127,8 @@ class SchedulesCollectorTests(unittest.TestCase):
         self.assertEqual(by_task["extractors"]["every"], "day at 03:17")
         self.assertEqual(by_task["prfix"]["every"], "hour")
         self.assertEqual(
-            by_task["extractors"]["extractors"], ["pr-archaeology"],
+            by_task["extractors"]["extractors"],
+            ["pr-archaeology"],
         )
         # next_fire must render even when extract list is empty.
         self.assertTrue(by_task["prfix"]["next_fire"])
@@ -172,15 +173,15 @@ class GitDeployCollectorTests(unittest.TestCase):
     def test_real_repo_reads_short_sha(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             import subprocess
+
             subprocess.run(["git", "init", "-q", "-b", "main", td], check=True)
             (Path(td) / "a.txt").write_text("x")
             subprocess.run(
-                ["git", "-C", td, "-c", "user.email=t@t", "-c", "user.name=t",
-                 "add", "."], check=True,
+                ["git", "-C", td, "-c", "user.email=t@t", "-c", "user.name=t", "add", "."],
+                check=True,
             )
             subprocess.run(
-                ["git", "-C", td, "-c", "user.email=t@t", "-c", "user.name=t",
-                 "commit", "-q", "-m", "init"],
+                ["git", "-C", td, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init"],
                 check=True,
             )
             result = GitDeployCollector(repo_path=Path(td)).collect()
@@ -238,15 +239,22 @@ class FullRenderTests(unittest.TestCase):
     def test_render_includes_every_section_and_chart_canvas(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
-            ex = base / "examples"; ex.mkdir()
+            ex = base / "examples"
+            ex.mkdir()
             (ex / "acme.yaml").write_text(_RUNBOOK_YAML)
-            kn = base / "knowledge"; kn.mkdir()
+            kn = base / "knowledge"
+            kn.mkdir()
             (kn / "acme.md").write_text(_KNOWLEDGE_SAMPLE)
-            cron = base / "cron"; cron.write_text(_CRON_FILE)
-            log = base / "log"; log.write_text(_LOG_LINES)
-            secrets = base / "secrets.env"; secrets.write_text("X=y\n")
+            cron = base / "cron"
+            cron.write_text(_CRON_FILE)
+            log = base / "log"
+            log.write_text(_LOG_LINES)
+            secrets = base / "secrets.env"
+            secrets.write_text("X=y\n")
 
-            collectors = CollectorRegistry.for_paths(
+            from briar.dashboard.collectors import DashboardPaths, DashboardSelf
+
+            paths = DashboardPaths(
                 examples_dir=ex,
                 knowledge_dir=kn,
                 log_path=log,
@@ -254,17 +262,21 @@ class FullRenderTests(unittest.TestCase):
                 repo_path=base,
                 secrets_path=secrets,
                 du_paths=[base],
-                process_started_at=0.0,
+            )
+            dash = DashboardSelf(
+                started_at=0.0,
                 request_count_fn=lambda: 7,
                 last_render_ms_fn=lambda: 42.0,
             )
-            html = DashboardServer(collectors=collectors).render_index()
+            server = DashboardServer()
+            server.set_collectors(CollectorRegistry.from_paths(paths, dash))
+            html = server.render_index()
 
         for needle in (
             "<title>briar scheduler",
             "at a glance",
-            "<canvas id=\"knowledgeChart\"",
-            "<canvas id=\"cycleChart\"",
+            '<canvas id="knowledgeChart"',
+            '<canvas id="cycleChart"',
             "<h2>connectivity",
             "<h2>schedulers",
             "<h2>aggregated extraction",

@@ -10,7 +10,7 @@ from briar.extract.language_detectors.base import FileReader, LanguageDetector
 # (needle, value, case_insensitive) — walked in order; first match wins.
 _MIGRATION_PATTERNS: Tuple[Tuple[str, str, bool], ...] = (
     ("alembic", "alembic", False),
-    ("django",  "django",  True),
+    ("django", "django", True),
 )
 
 

@@ -20,7 +20,8 @@ class ShapeTriage(WorkflowShape):
             "entry": "triage",
             "nodes": [
                 {
-                    "id": "triage", "kind": "agent",
+                    "id": "triage",
+                    "kind": "agent",
                     "agent_key": agent_key,
                     "prompt": (
                         "Categorize each item from the gathered sources. "

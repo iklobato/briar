@@ -24,14 +24,8 @@ _TEMPLATES_DIR = Path(__file__).parent / "templates"
 class DashboardServer:
     """Renders one Jinja page; tracks per-process self-stats."""
 
-    def __init__(
-        self,
-        collectors: List[Collector],
-        *,
-        host: str = "0.0.0.0",
-        port: int = 8080,
-    ) -> None:
-        self._collectors = collectors
+    def __init__(self, host: str = "0.0.0.0", port: int = 8080) -> None:
+        self._collectors: List[Collector] = []
         self._host = host
         self._port = port
         self._env = Environment(
@@ -44,6 +38,12 @@ class DashboardServer:
         self._request_count = 0
         self._last_render_ms = 0.0
         self.started_at = time.time()
+
+    def set_collectors(self, collectors: List[Collector]) -> None:
+        """Inject the collector list after construction (the self-
+        collector needs to read `self.started_at` etc. before being
+        appended, so the registry builds the list using server state)."""
+        self._collectors = collectors
 
     # ---- live counters used by the self-collector ---------------------
 
@@ -124,9 +124,6 @@ def _build_handler(dashboard: DashboardServer):
                 self.wfile.write(encoded)
 
         def log_message(self, fmt: str, *args) -> None:
-            print(
-                f"{self.address_string()} {self.command} {self.path} "
-                f"{args[1] if len(args) > 1 else ''}".strip()
-            )
+            print(f"{self.address_string()} {self.command} {self.path} " f"{args[1] if len(args) > 1 else ''}".strip())
 
     return _Handler

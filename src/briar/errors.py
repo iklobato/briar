@@ -34,9 +34,7 @@ class ApiError(CliError):
         self.body = body
         self.method = method
         self.path = path
-        super().__init__(
-            f"{method} {path} → HTTP {status}: {self._short_body(body)}"
-        )
+        super().__init__(f"{method} {path} → HTTP {status}: {self._short_body(body)}")
 
     @staticmethod
     def _short_body(body: Any) -> str:
@@ -45,9 +43,6 @@ class ApiError(CliError):
         if type(body) is str:
             stripped = body.lstrip()
             if stripped[:9].lower() in {"<!doctype", "<html lan"} or stripped.startswith("<!DOCTYPE"):
-                return (
-                    "(server returned HTML — likely an unhandled backend "
-                    "exception; check api logs)"
-                )
+                return "(server returned HTML — likely an unhandled backend " "exception; check api logs)"
             return body[:300]
         return json.dumps(body, default=str)[:300]

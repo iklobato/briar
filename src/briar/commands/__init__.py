@@ -22,8 +22,12 @@ class CommandRegistry:
     state, no mutation after import time."""
 
     COMMANDS: List[Type[Command]] = [
-        CommandExtract, CommandRunbook, CommandScaffold,
-        ContextCommand, CommandDashboard, CommandVersion,
+        CommandExtract,
+        CommandRunbook,
+        CommandScaffold,
+        ContextCommand,
+        CommandDashboard,
+        CommandVersion,
     ]
 
     @classmethod

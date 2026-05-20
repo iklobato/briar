@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List
 
 from pydantic import ValidationError
 
@@ -51,9 +51,7 @@ class ConfigFile:
         try:
             spec = ConfigSpec.model_validate(data)
         except ValidationError as exc:
-            raise ConfigError(
-                f"{path}: invalid config\n{cls._pretty_errors(exc)}"
-            ) from exc
+            raise ConfigError(f"{path}: invalid config\n{cls._pretty_errors(exc)}") from exc
         return cls(spec)
 
     @staticmethod
@@ -69,14 +67,14 @@ class ConfigFile:
         """Return a section as a list of dicts.
 
         Dict dispatch — adding a new section type is one entry."""
-        getters = {
-            "llm_providers": lambda: self._spec.llm_providers,
-            "llm_models":    lambda: self._spec.llm_models,
-            "sources":       lambda: self._spec.sources,
-            "tools":         lambda: self._spec.tools,
-            "agents":        lambda: self._spec.agents,
-            "workflows":     lambda: self._spec.workflows,
-            "triggers":      lambda: self._spec.triggers,
+        getters: Dict[str, "Callable[[], List[Any]]"] = {
+            "llm_providers": lambda: list(self._spec.llm_providers),
+            "llm_models": lambda: list(self._spec.llm_models),
+            "sources": lambda: list(self._spec.sources),
+            "tools": lambda: list(self._spec.tools),
+            "agents": lambda: list(self._spec.agents),
+            "workflows": lambda: list(self._spec.workflows),
+            "triggers": lambda: list(self._spec.triggers),
         }
         getter = getters.get(kind)
         if getter is None:
@@ -114,5 +112,3 @@ class ConfigFile:
     @property
     def triggers(self) -> List[Any]:
         return list(self._spec.triggers)
-
-

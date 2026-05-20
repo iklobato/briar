@@ -33,7 +33,9 @@ class GithubApi:
         if shutil.which("gh"):
             proc = subprocess.run(
                 ["gh", "auth", "token"],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             if proc.returncode == 0 and proc.stdout.strip():
                 return proc.stdout.strip()
@@ -44,10 +46,7 @@ class GithubApi:
     def _require_token(cls, token: Optional[str]) -> str:
         tok = token or cls.auth_token()
         if not tok:
-            raise CliError(
-                "GitHub credentials missing — install `gh` + `gh auth login`, "
-                "or set $GITHUB_TOKEN."
-            )
+            raise CliError("GitHub credentials missing — install `gh` + `gh auth login`, " "or set $GITHUB_TOKEN.")
         return tok
 
     @classmethod

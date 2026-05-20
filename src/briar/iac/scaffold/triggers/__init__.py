@@ -12,7 +12,8 @@ from briar.iac.scaffold.triggers.schedule_cron import TriggerScheduleCron
 
 
 TRIGGER_TEMPLATES: Dict[str, TriggerTemplate] = {
-    t.kind: t for t in (
+    t.kind: t
+    for t in (
         TriggerGithubWebhook(),
         TriggerScheduleCron(),
         TriggerManual(),

@@ -15,9 +15,7 @@ from briar.iac.scaffold.implementation import ScaffoldImplementation
 from briar.iac.scaffold.pr_fixes import ScaffoldPrFixes
 
 
-TEMPLATES: Dict[str, ScaffoldTemplate] = {
-    t.name: t for t in (ScaffoldImplementation(), ScaffoldPrFixes())
-}
+TEMPLATES: Dict[str, ScaffoldTemplate] = {t.name: t for t in (ScaffoldImplementation(), ScaffoldPrFixes())}
 
 
 __all__ = ["ScaffoldTemplate", "TEMPLATES"]

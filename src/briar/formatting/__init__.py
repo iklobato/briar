@@ -5,7 +5,7 @@ Adding a new format = one `Formatter` subclass + one entry in
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from briar.formatting.base import Formatter
 from briar.formatting.csv import FormatCsv
@@ -21,9 +21,9 @@ class FormatterRegistry:
 
     FORMATTERS: Dict[str, Formatter] = {
         "table": FormatTable(),
-        "json":  FormatJson(),
-        "yaml":  FormatYaml(),
-        "csv":   FormatCsv(),
+        "json": FormatJson(),
+        "yaml": FormatYaml(),
+        "csv": FormatCsv(),
         "quiet": FormatQuiet(),
     }
 
@@ -40,7 +40,7 @@ class FormatterRegistry:
         cls,
         payload: Any,
         format_name: str,
-        columns: Optional[List[str]] = None,
+        columns: List[str] = [],
     ) -> None:
         cls.get(format_name).render(payload, columns)
 

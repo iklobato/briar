@@ -22,19 +22,27 @@ class SourceGithub(SourceTemplate):
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
-            "--github-authors-allow", action="append", default=[],
+            "--github-authors-allow",
+            action="append",
+            default=[],
             help="only include issues whose creator is in this list (repeatable)",
         )
         parser.add_argument(
-            "--github-authors-block", action="append", default=[],
+            "--github-authors-block",
+            action="append",
+            default=[],
             help="exclude issues whose creator is in this list (repeatable)",
         )
         parser.add_argument(
-            "--github-assignees-allow", action="append", default=[],
+            "--github-assignees-allow",
+            action="append",
+            default=[],
             help="only include issues with an assignee in this list (repeatable)",
         )
         parser.add_argument(
-            "--github-assignees-block", action="append", default=[],
+            "--github-assignees-block",
+            action="append",
+            default=[],
             help="exclude issues with an assignee in this list (repeatable)",
         )
 
@@ -100,15 +108,13 @@ class SourceGithub(SourceTemplate):
         if mode == "pat":
             secret_id = ns.get("github_secret_id")
             if not secret_id:
-                raise SystemExit(
-                    "--source github with --auth-mode pat requires "
-                    "--github-secret-id <secret-uuid>"
-                )
+                raise SystemExit("--source github with --auth-mode pat requires " "--github-secret-id <secret-uuid>")
             return {"credentials_ref": secret_id, "credential_binding": None}
         return {
             "credentials_ref": None,
             "credential_binding": {
-                "kind": "oauth_connection", "provider": "github",
+                "kind": "oauth_connection",
+                "provider": "github",
             },
         }
 
@@ -116,8 +122,8 @@ class SourceGithub(SourceTemplate):
     def _user_filters(args: argparse.Namespace) -> Dict[str, List[str]]:
         ns = vars(args)
         return {
-            "authors_allow":   list(ns.get("github_authors_allow") or []),
-            "authors_block":   list(ns.get("github_authors_block") or []),
+            "authors_allow": list(ns.get("github_authors_allow") or []),
+            "authors_block": list(ns.get("github_authors_block") or []),
             "assignees_allow": list(ns.get("github_assignees_allow") or []),
             "assignees_block": list(ns.get("github_assignees_block") or []),
         }

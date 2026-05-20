@@ -26,12 +26,14 @@ class ContextCommand(Command):
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
-            "--store", default="file",
+            "--store",
+            default="file",
             choices=list(KNOWLEDGE_STORE_NAMES),
             help="Knowledge store backend (default: file)",
         )
         parser.add_argument(
-            "--root", default="./knowledge",
+            "--root",
+            default="./knowledge",
             help="Local file root",
         )
 
@@ -42,7 +44,8 @@ class ContextCommand(Command):
         put.add_argument("--content", help="inline content (or '-' for stdin)")
         put.add_argument("--from-file", help="read content from this path")
         put.add_argument(
-            "--category", default="",
+            "--category",
+            default="",
             help="explicit category (default: derived from blob_name prefix)",
         )
 
@@ -51,7 +54,8 @@ class ContextCommand(Command):
 
         lst = sub.add_parser("list", help="list stored blobs")
         lst.add_argument(
-            "--prefix", default="",
+            "--prefix",
+            default="",
             help="filter to names starting with this prefix",
         )
 
@@ -81,10 +85,7 @@ class ContextCommand(Command):
         if file_path:
             return Path(file_path).read_text()
         if sys.stdin.isatty():
-            raise CliError(
-                "no content provided — pass --content '<text>', "
-                "--from-file <path>, or pipe in via stdin"
-            )
+            raise CliError("no content provided — pass --content '<text>', " "--from-file <path>, or pipe in via stdin")
         return sys.stdin.read()
 
     @staticmethod
@@ -111,7 +112,7 @@ class ContextCommand(Command):
 
     def _get(self, args: argparse.Namespace) -> int:
         body = self._store(args).get(args.blob_name)
-        if body is None:
+        if not body:
             raise CliError(f"blob not found: {args.blob_name}")
         sys.stdout.write(body)
         if not body.endswith("\n"):
@@ -125,9 +126,7 @@ class ContextCommand(Command):
         return 0
 
     def _delete(self, args: argparse.Namespace) -> int:
-        ok = bool(args.yes) or confirm(
-            f"Delete blob {args.blob_name} from store {args.store}? [y/N] "
-        )
+        ok = bool(args.yes) or confirm(f"Delete blob {args.blob_name} from store {args.store}? [y/N] ")
         if not ok:
             print("aborted")
             return 1
@@ -139,9 +138,6 @@ class ContextCommand(Command):
         seen: Dict[str, int] = {}
         for ref in self._store(args).list():
             seen[ref.category] = seen.get(ref.category, 0) + 1
-        items = [
-            {"category": cat or "(none)", "blob_count": n}
-            for cat, n in sorted(seen.items())
-        ]
+        items = [{"category": cat or "(none)", "blob_count": n} for cat, n in sorted(seen.items())]
         render(items, args.format, ["category", "blob_count"])
         return 0

@@ -35,6 +35,7 @@ class CommandRunbook(Command):
         ex.add_argument("file")
         ex.add_argument(
             "--task",
+            default="",
             help="run only the schedule whose `task:` matches this name",
         )
 
@@ -46,12 +47,13 @@ class CommandRunbook(Command):
 
         sv = sub.add_parser(
             "serve",
-            help="long-running scheduler — registers every (company, task) "
-                 "and runs the schedule loop forever",
+            help="long-running scheduler — registers every (company, task) " "and runs the schedule loop forever",
         )
         sv.add_argument("directory")
         sv.add_argument(
-            "--tick", type=float, default=1.0,
+            "--tick",
+            type=float,
+            default=1.0,
             help="seconds between schedule.run_pending() ticks (default: 1)",
         )
 
@@ -66,11 +68,8 @@ class CommandRunbook(Command):
 
     def _extract(self, args: argparse.Namespace) -> int:
         runbook = load_runbook_file(Path(args.file))
-        rows = extract_runbook(runbook, task=args.task)
-        items = [
-            {"company": c, "task": t, "status": s, "output": o}
-            for c, t, s, o in rows
-        ]
+        rows = extract_runbook(runbook, args.task)
+        items = [{"company": r.company, "task": r.task, "status": r.status, "output": r.output} for r in rows]
         render(items, args.format, ["company", "task", "status", "output"])
         return 0
 
@@ -88,10 +87,7 @@ class CommandRunbook(Command):
             try:
                 runbook = load_runbook_file(path)
                 rows = extract_runbook(runbook)
-                items = [
-                    {"company": c, "task": t, "status": s, "output": o}
-                    for c, t, s, o in rows
-                ]
+                items = [{"company": r.company, "task": r.task, "status": r.status, "output": r.output} for r in rows]
                 render(items, args.format, ["company", "task", "status", "output"])
             except Exception as exc:  # noqa: BLE001
                 print(f"FAILED {path.name}: {exc}")
@@ -103,8 +99,7 @@ class CommandRunbook(Command):
         if not directory.is_dir():
             raise CliError(f"serve: {directory} is not a directory")
         scheduler = RunbookScheduler(directory)
-        registered = scheduler.register_all()
-        for company, task, every in registered:
-            print(f"  registered  {company:20s} {task:18s} every {every}")
-        scheduler.run_forever(tick_seconds=args.tick)
+        for entry in scheduler.register_all():
+            print(f"  registered  {entry.company:20s} {entry.task:18s} every {entry.every}")
+        scheduler.run_forever(args.tick)
         return 0

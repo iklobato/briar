@@ -15,7 +15,8 @@ from briar.iac.scaffold.archetypes.triager import ArchetypeTriager
 
 
 ARCHETYPES: Dict[str, AgentArchetype] = {
-    a.name: a for a in (
+    a.name: a
+    for a in (
         ArchetypeEngineer(),
         ArchetypePrFixer(),
         ArchetypeTriager(),

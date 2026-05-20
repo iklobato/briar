@@ -10,7 +10,7 @@ Every actual API call lives in its own `aws_services/<svc>.py` module
 from __future__ import annotations
 
 import argparse
-from typing import List, Optional
+from typing import List
 
 from briar.env_vars import CredEnv
 from briar.extract.aws_services import AWS_SERVICE_GATHERERS
@@ -53,11 +53,14 @@ class ExtractAwsInfra(KnowledgeExtractor):
             help="Local AWS profile name (falls back to default boto3 chain)",
         )
         parser.add_argument(
-            "--aws-extract-region", default="us-east-1",
+            "--aws-extract-region",
+            default="us-east-1",
             help="AWS region to inspect (default: us-east-1)",
         )
         parser.add_argument(
-            "--aws-extract-service", action="append", default=[],
+            "--aws-extract-service",
+            action="append",
+            default=[],
             choices=sorted(AWS_SERVICE_GATHERERS.keys()),
             help="Which AWS services to include (repeatable; default: all)",
         )
@@ -65,11 +68,12 @@ class ExtractAwsInfra(KnowledgeExtractor):
     def is_available(self, args: argparse.Namespace) -> bool:
         try:
             import boto3  # noqa: F401
+
             return True
         except ImportError:
             return False
 
-    def extract(self, args: argparse.Namespace) -> Optional[ExtractedSection]:
+    def extract(self, args: argparse.Namespace) -> ExtractedSection:
         # Lazy import — keeps boto3 off the import path for users who
         # don't run this extractor.
         import boto3
@@ -97,14 +101,11 @@ class ExtractAwsInfra(KnowledgeExtractor):
                     title=svc_name.upper(),
                     body=f"_skipped — {exc}_",
                 )
-            if section is not None:
+            if not section.is_empty:
                 subsections.append(section)
 
         return ExtractedSection(
-            title=(
-                f"AWS infrastructure — account {acct}, "
-                f"region {args.aws_extract_region}"
-            ),
+            title=(f"AWS infrastructure — account {acct}, " f"region {args.aws_extract_region}"),
             body="Live resource inventory at extract time.",
             subsections=subsections,
         )

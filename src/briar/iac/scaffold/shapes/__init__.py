@@ -29,7 +29,8 @@ from briar.iac.scaffold.shapes.triage import ShapeTriage
 
 
 WORKFLOW_SHAPES: Dict[str, WorkflowShape] = {
-    s.name: s for s in (
+    s.name: s
+    for s in (
         ShapePlanApproveAct(),
         ShapeOneShot(),
         ShapeTriage(),

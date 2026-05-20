@@ -20,15 +20,17 @@ class SourceJira(SourceTemplate):
     default_provider_for_oauth = "atlassian"
 
     _FILTER_FIELDS = (
-        ("authors_allow",   "jira_authors_allow"),
-        ("authors_block",   "jira_authors_block"),
+        ("authors_allow", "jira_authors_allow"),
+        ("authors_block", "jira_authors_block"),
         ("assignees_allow", "jira_assignees_allow"),
         ("assignees_block", "jira_assignees_block"),
     )
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
-            "--jira-project", action="append", default=[],
+            "--jira-project",
+            action="append",
+            default=[],
             help="Jira project key to include (repeatable; defaults to all)",
         )
         parser.add_argument(
@@ -40,19 +42,27 @@ class SourceJira(SourceTemplate):
             help="Secret UUID holding an Atlassian PAT (skip OAuth)",
         )
         parser.add_argument(
-            "--jira-authors-allow", action="append", default=[],
+            "--jira-authors-allow",
+            action="append",
+            default=[],
             help="reporter allowlist (repeatable; folds into JQL)",
         )
         parser.add_argument(
-            "--jira-authors-block", action="append", default=[],
+            "--jira-authors-block",
+            action="append",
+            default=[],
             help="reporter blocklist (repeatable; folds into JQL)",
         )
         parser.add_argument(
-            "--jira-assignees-allow", action="append", default=[],
+            "--jira-assignees-allow",
+            action="append",
+            default=[],
             help="assignee allowlist (repeatable; folds into JQL)",
         )
         parser.add_argument(
-            "--jira-assignees-block", action="append", default=[],
+            "--jira-assignees-block",
+            action="append",
+            default=[],
             help="assignee blocklist (repeatable; folds into JQL)",
         )
 
@@ -124,6 +134,7 @@ class SourceJira(SourceTemplate):
         return {
             "credentials_ref": None,
             "credential_binding": {
-                "kind": "oauth_connection", "provider": "atlassian",
+                "kind": "oauth_connection",
+                "provider": "atlassian",
             },
         }

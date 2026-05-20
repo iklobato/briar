@@ -10,7 +10,7 @@ registry — no edit of the orchestrator required."""
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar, Optional
+from typing import Any, ClassVar
 
 from briar.extract.base import ExtractedSection
 
@@ -21,5 +21,5 @@ class AwsServiceGatherer(ABC):
     name: ClassVar[str] = ""
 
     @abstractmethod
-    def gather(self, session: Any) -> Optional[ExtractedSection]:
+    def gather(self, session: Any) -> ExtractedSection:
         """Call this service's APIs through `session` and emit a section."""

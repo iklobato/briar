@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from briar.iac.scaffold.triggers.base import TriggerTemplate
 
@@ -14,7 +14,8 @@ class TriggerScheduleCron(TriggerTemplate):
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
-            "--schedule", default="0 * * * *",
+            "--schedule",
+            default="0 * * * *",
             help="cron expression (default: '0 * * * *' = top of every hour)",
         )
 
@@ -23,7 +24,7 @@ class TriggerScheduleCron(TriggerTemplate):
         args: argparse.Namespace,
         key_prefix: str,
         workflow_key: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         return {
             "key": f"{key_prefix}-cron",
             "name": f"{key_prefix}-cron",

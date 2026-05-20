@@ -17,10 +17,7 @@ from briar.iac.scaffold.shapes.base import WorkflowShape
 
 class ShapePlanApproveAct(WorkflowShape):
     name = "plan-approve-act"
-    description = (
-        "agent plans → human approves → branch routes to "
-        "act (or comment on reject)"
-    )
+    description = "agent plans → human approves → branch routes to " "act (or comment on reject)"
 
     def build_graph(self, agent_key: str) -> Dict[str, Any]:
         return {
@@ -28,7 +25,8 @@ class ShapePlanApproveAct(WorkflowShape):
             "entry": "plan",
             "nodes": [
                 {
-                    "id": "plan", "kind": "agent",
+                    "id": "plan",
+                    "kind": "agent",
                     "agent_key": agent_key,
                     "prompt": (
                         "Read the gathered context and produce a concrete "
@@ -38,19 +36,22 @@ class ShapePlanApproveAct(WorkflowShape):
                     "next": "approve",
                 },
                 {
-                    "id": "approve", "kind": "human_checkpoint",
+                    "id": "approve",
+                    "kind": "human_checkpoint",
                     "prompt": "Approve the plan before implementation begins.",
                     "next": "choose",
                 },
                 {
-                    "id": "choose", "kind": "branch",
+                    "id": "choose",
+                    "kind": "branch",
                     "branches": {
                         "approve": "implement",
                         "reject": "comment",
                     },
                 },
                 {
-                    "id": "implement", "kind": "agent",
+                    "id": "implement",
+                    "kind": "agent",
                     "agent_key": agent_key,
                     "prompt": (
                         "The plan was approved. Implement it now using "
@@ -63,7 +64,8 @@ class ShapePlanApproveAct(WorkflowShape):
                     "next": None,
                 },
                 {
-                    "id": "comment", "kind": "agent",
+                    "id": "comment",
+                    "kind": "agent",
                     "agent_key": agent_key,
                     "prompt": (
                         "The plan was rejected. Post a single comment on "

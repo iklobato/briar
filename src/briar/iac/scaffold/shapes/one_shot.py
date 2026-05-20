@@ -22,12 +22,10 @@ class ShapeOneShot(WorkflowShape):
             "entry": "run",
             "nodes": [
                 {
-                    "id": "run", "kind": "agent",
+                    "id": "run",
+                    "kind": "agent",
                     "agent_key": agent_key,
-                    "prompt": (
-                        "Read the gathered context and take the appropriate "
-                        "actions using your bound tools."
-                    ),
+                    "prompt": ("Read the gathered context and take the appropriate " "actions using your bound tools."),
                     "next": None,
                 },
             ],

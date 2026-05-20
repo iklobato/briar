@@ -18,17 +18,19 @@ from briar.extract._user_filter import (
 # ---------------------------------------------------------------------------
 
 _ITEMS = [
-    {"user": {"login": "alice"},     "assignees": [{"login": "alice"}]},
-    {"user": {"login": "bob"},       "assignees": []},
+    {"user": {"login": "alice"}, "assignees": [{"login": "alice"}]},
+    {"user": {"login": "bob"}, "assignees": []},
     {"user": {"login": "bot[bot]"}, "assignees": [{"login": "carol"}]},
-    {"user": {"login": "carol"},     "assignees": [{"login": "alice"}]},
+    {"user": {"login": "carol"}, "assignees": [{"login": "alice"}]},
 ]
 
 
 def _ns(**kw) -> argparse.Namespace:
     base = {
-        "pr_authors_allow":   [], "pr_authors_block":   [],
-        "pr_assignees_allow": [], "pr_assignees_block": [],
+        "pr_authors_allow": [],
+        "pr_authors_block": [],
+        "pr_assignees_allow": [],
+        "pr_assignees_block": [],
     }
     base.update(kw)
     ns = argparse.Namespace()
@@ -43,13 +45,17 @@ class ApplyUserFilterTests(unittest.TestCase):
 
     def test_authors_allow_intersects(self) -> None:
         kept = apply_user_filter(
-            _ITEMS, _ns(pr_authors_allow=["alice", "bob"]), prefix="pr",
+            _ITEMS,
+            _ns(pr_authors_allow=["alice", "bob"]),
+            prefix="pr",
         )
         self.assertEqual({i["user"]["login"] for i in kept}, {"alice", "bob"})
 
     def test_authors_block_subtracts(self) -> None:
         kept = apply_user_filter(
-            _ITEMS, _ns(pr_authors_block=["bot[bot]"]), prefix="pr",
+            _ITEMS,
+            _ns(pr_authors_block=["bot[bot]"]),
+            prefix="pr",
         )
         self.assertNotIn("bot[bot]", {i["user"]["login"] for i in kept})
 
@@ -68,24 +74,32 @@ class ApplyUserFilterTests(unittest.TestCase):
     def test_assignees_filter(self) -> None:
         # only items with assignee=alice
         kept = apply_user_filter(
-            _ITEMS, _ns(pr_assignees_allow=["alice"]), prefix="pr",
+            _ITEMS,
+            _ns(pr_assignees_allow=["alice"]),
+            prefix="pr",
         )
         # alice→[alice]   ✓
         # bob→[]          ✗
         # bot→[carol]     ✗
         # carol→[alice]   ✓
         self.assertEqual(
-            {i["user"]["login"] for i in kept}, {"alice", "carol"},
+            {i["user"]["login"] for i in kept},
+            {"alice", "carol"},
         )
 
     def test_argparse_wiring(self) -> None:
         parser = argparse.ArgumentParser()
         add_user_filter_arguments(parser, prefix="pr")
-        ns = parser.parse_args([
-            "--pr-authors-allow", "alice",
-            "--pr-authors-allow", "bob",
-            "--pr-authors-block", "bot[bot]",
-        ])
+        ns = parser.parse_args(
+            [
+                "--pr-authors-allow",
+                "alice",
+                "--pr-authors-allow",
+                "bob",
+                "--pr-authors-block",
+                "bot[bot]",
+            ]
+        )
         self.assertEqual(ns.pr_authors_allow, ["alice", "bob"])
         self.assertEqual(ns.pr_authors_block, ["bot[bot]"])
         self.assertEqual(ns.pr_assignees_allow, [])
@@ -95,9 +109,11 @@ class ApplyUserFilterTests(unittest.TestCase):
 # Source template — does the GitHub source emit the filters?
 # ---------------------------------------------------------------------------
 
+
 class SourceGithubFiltersTests(unittest.TestCase):
     def test_filters_appear_in_source_config(self) -> None:
         from briar.iac.scaffold.sources.github import SourceGithub
+
         ns = argparse.Namespace(
             owner="iklobato",
             repo="lightapi",
@@ -116,6 +132,7 @@ class SourceGithubFiltersTests(unittest.TestCase):
 
     def test_no_filters_emits_clean_config(self) -> None:
         from briar.iac.scaffold.sources.github import SourceGithub
+
         ns = argparse.Namespace(
             owner="iklobato",
             repo="lightapi",
@@ -129,8 +146,10 @@ class SourceGithubFiltersTests(unittest.TestCase):
         src = SourceGithub().build_source(ns, key_prefix="t")
         # No user-filter keys at all when everything is empty.
         for k in (
-            "authors_allow", "authors_block",
-            "assignees_allow", "assignees_block",
+            "authors_allow",
+            "authors_block",
+            "assignees_allow",
+            "assignees_block",
         ):
             self.assertNotIn(k, src["config"])
 

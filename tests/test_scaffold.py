@@ -16,15 +16,26 @@ def _ns(**kwargs) -> argparse.Namespace:
     ns = argparse.Namespace()
     # Sensible defaults so individual tests only override what they care about.
     defaults = {
-        "owner": "iklobato", "repo": "lightapi", "prefix": "test",
-        "source": ["github"], "archetype": "engineer",
-        "shape": "plan-approve-act", "trigger_kind": "github_webhook",
-        "llm_provider_key": "anthropic", "model": "claude-sonnet-4-6",
-        "auth_mode": "oauth", "github_secret_id": None,
-        "jira_project": [], "jira_jql": None, "jira_secret_id": None,
-        "aws_role_arn": None, "aws_external_id": None,
-        "aws_region": "us-east-1", "aws_services": [],
-        "webhook_events": [], "webhook_labels": ["briar"],
+        "owner": "iklobato",
+        "repo": "lightapi",
+        "prefix": "test",
+        "source": ["github"],
+        "archetype": "engineer",
+        "shape": "plan-approve-act",
+        "trigger_kind": "github_webhook",
+        "llm_provider_key": "anthropic",
+        "model": "claude-sonnet-4-6",
+        "auth_mode": "oauth",
+        "github_secret_id": None,
+        "jira_project": [],
+        "jira_jql": None,
+        "jira_secret_id": None,
+        "aws_role_arn": None,
+        "aws_external_id": None,
+        "aws_region": "us-east-1",
+        "aws_services": [],
+        "webhook_events": [],
+        "webhook_labels": ["briar"],
         "schedule": "0 * * * *",
     }
     defaults.update(kwargs)
@@ -37,8 +48,7 @@ class ImplementationTemplateTests(unittest.TestCase):
     def test_default_github_oauth(self) -> None:
         tmpl = TEMPLATES["implementation"]
         bundle = tmpl.build(_ns())
-        for section in ("llm_models", "sources", "tools",
-                        "agents", "workflows", "triggers"):
+        for section in ("llm_models", "sources", "tools", "agents", "workflows", "triggers"):
             self.assertIn(section, bundle)
         # Agent references one source + the github tool family.
         agent = bundle["agents"][0]
@@ -75,11 +85,9 @@ class ImplementationTemplateTests(unittest.TestCase):
 
     def test_cron_trigger(self) -> None:
         tmpl = TEMPLATES["implementation"]
-        bundle = tmpl.build(_ns(trigger_kind="schedule_cron",
-                                schedule="*/15 * * * *"))
+        bundle = tmpl.build(_ns(trigger_kind="schedule_cron", schedule="*/15 * * * *"))
         self.assertEqual(bundle["triggers"][0]["kind"], "schedule")
-        self.assertEqual(bundle["triggers"][0]["schedule_cron"],
-                         "*/15 * * * *")
+        self.assertEqual(bundle["triggers"][0]["schedule_cron"], "*/15 * * * *")
 
     def test_manual_trigger_emits_no_trigger_row(self) -> None:
         tmpl = TEMPLATES["implementation"]

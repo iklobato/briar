@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from briar.extract._gh import GithubApi
 from briar.extract.base import ExtractedSection, KnowledgeExtractor
@@ -16,14 +16,16 @@ class ExtractGithubDeployments(KnowledgeExtractor):
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
-            "--deploy-repo", action="append", default=[],
+            "--deploy-repo",
+            action="append",
+            default=[],
             help="GitHub repo to scan for deployments. Repeatable.",
         )
 
     def is_available(self, args: argparse.Namespace) -> bool:
         return bool(args.deploy_repo) and bool(GithubApi.auth_token())
 
-    def extract(self, args: argparse.Namespace) -> Optional[ExtractedSection]:
+    def extract(self, args: argparse.Namespace) -> ExtractedSection:
         subsections = [self._scan_repo(repo) for repo in args.deploy_repo]
         return ExtractedSection(
             title=f"GitHub deployments — {len(subsections)} repo(s)",
@@ -33,10 +35,7 @@ class ExtractGithubDeployments(KnowledgeExtractor):
 
     def _scan_repo(self, repo: str) -> ExtractedSection:
         env_envelope = GithubApi.get_json(f"/repos/{repo}/environments")
-        envs = (
-            env_envelope.get("environments", [])
-            if type(env_envelope) is dict else []
-        )
+        envs = env_envelope.get("environments", []) if type(env_envelope) is dict else []
         env_rows: List[Dict[str, Any]] = [
             {
                 "name": e.get("name"),
@@ -47,7 +46,9 @@ class ExtractGithubDeployments(KnowledgeExtractor):
         ]
 
         deployments = GithubApi.get_paginated(
-            f"/repos/{repo}/deployments", max_pages=1, per_page=20,
+            f"/repos/{repo}/deployments",
+            max_pages=1,
+            per_page=20,
         )
         recent_deploys = [
             {
@@ -61,10 +62,7 @@ class ExtractGithubDeployments(KnowledgeExtractor):
         ]
 
         runs_envelope = GithubApi.get_json(f"/repos/{repo}/actions/runs?per_page=10")
-        runs = (
-            runs_envelope.get("workflow_runs", [])
-            if type(runs_envelope) is dict else []
-        )
+        runs = runs_envelope.get("workflow_runs", []) if type(runs_envelope) is dict else []
         ci_rows = [
             {
                 "name": r.get("name"),
@@ -80,23 +78,15 @@ class ExtractGithubDeployments(KnowledgeExtractor):
         if env_rows:
             body_parts.append("**Environments:**")
             for r in env_rows:
-                body_parts.append(
-                    f"- {r['name']}  protection_rules={r['protection_rules']}"
-                )
+                body_parts.append(f"- {r['name']}  protection_rules={r['protection_rules']}")
         if recent_deploys:
             body_parts.append("\n**Recent deployments:**")
             for d in recent_deploys:
-                body_parts.append(
-                    f"- {d['env']}  sha={d['sha']}  by={d['creator']}  "
-                    f"at={d['created_at']}"
-                )
+                body_parts.append(f"- {d['env']}  sha={d['sha']}  by={d['creator']}  " f"at={d['created_at']}")
         if ci_rows:
             body_parts.append("\n**Recent CI runs:**")
             for c in ci_rows:
-                body_parts.append(
-                    f"- {c['name']}  status={c['status']}  "
-                    f"conclusion={c['conclusion']}  branch={c['head_branch']}"
-                )
+                body_parts.append(f"- {c['name']}  status={c['status']}  " f"conclusion={c['conclusion']}  branch={c['head_branch']}")
         return ExtractedSection(
             title=repo,
             body="\n".join(body_parts) if body_parts else "_no deployments_",

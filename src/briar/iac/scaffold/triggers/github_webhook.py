@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from briar.iac.scaffold.triggers.base import TriggerTemplate
 
@@ -14,11 +14,15 @@ class TriggerGithubWebhook(TriggerTemplate):
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
-            "--webhook-events", action="append", default=[],
+            "--webhook-events",
+            action="append",
+            default=[],
             help="Github event names (default: issues.opened, issues.labeled)",
         )
         parser.add_argument(
-            "--webhook-labels", action="append", default=["briar"],
+            "--webhook-labels",
+            action="append",
+            default=["briar"],
             help="Restrict to issues with any of these labels (default: briar)",
         )
 
@@ -27,7 +31,7 @@ class TriggerGithubWebhook(TriggerTemplate):
         args: argparse.Namespace,
         key_prefix: str,
         workflow_key: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         events = args.webhook_events or ["issues.opened", "issues.labeled"]
         return {
             "key": f"{key_prefix}-trigger",

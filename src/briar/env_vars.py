@@ -15,14 +15,13 @@ from __future__ import annotations
 
 import os
 from enum import Enum
-from typing import Optional
 
 
 class CredEnv(str, Enum):
-    AWS_KEY_ID  = "AWS_{c}_ACCESS_KEY_ID"
-    AWS_SECRET  = "AWS_{c}_SECRET_ACCESS_KEY"
+    AWS_KEY_ID = "AWS_{c}_ACCESS_KEY_ID"
+    AWS_SECRET = "AWS_{c}_SECRET_ACCESS_KEY"
     AWS_SESSION = "AWS_{c}_SESSION_TOKEN"
-    AWS_REGION  = "AWS_{c}_REGION"
+    AWS_REGION = "AWS_{c}_REGION"
 
     GITHUB_TOKEN = "GITHUB_TOKEN"
 
@@ -33,6 +32,8 @@ class CredEnv(str, Enum):
         normalised = company.upper().replace("-", "_")
         return self.value.format(c=normalised)
 
-    def read(self, company: str = "") -> Optional[str]:
+    def read(self, company: str = "") -> str:
+        """Return the env-var value, or `""` when unset. Callers should
+        check truthiness (`if env.read("foo"):`) rather than identity."""
         key = self.for_company(company) if "{c}" in self.value else self.value
-        return os.environ.get(key) or None
+        return os.environ.get(key, "")

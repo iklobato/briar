@@ -25,9 +25,7 @@ from briar.iac.scaffold.base import ScaffoldTemplate
 
 class ScaffoldPrFixes(ScaffoldTemplate):
     name = "pr-fixes"
-    description = (
-        "Read PR review comments, push fixes, reply (no human gate)."
-    )
+    description = "Read PR review comments, push fixes, reply (no human gate)."
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("--owner", required=True)

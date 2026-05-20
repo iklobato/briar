@@ -30,8 +30,4 @@ class ReferenceMap:
             return uuid
         if self._lenient:
             return f"(unresolved:{kind}.{key})"
-        raise ConfigError(
-            f"reference to {kind}.{key} could not be resolved — "
-            f"is it declared in the config or already present in the "
-            f"workspace?"
-        )
+        raise ConfigError(f"reference to {kind}.{key} could not be resolved — " f"is it declared in the config or already present in the " f"workspace?")

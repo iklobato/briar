@@ -17,7 +17,8 @@ from briar.extract.pr_archaeology import ExtractPrArchaeology
 
 
 EXTRACTORS: Dict[str, KnowledgeExtractor] = {
-    e.name: e for e in (
+    e.name: e
+    for e in (
         ExtractPrArchaeology(),
         ExtractAwsInfra(),
         ExtractActiveWork(),

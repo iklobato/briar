@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from rich.box import SIMPLE
 from rich.console import Console
@@ -18,7 +18,13 @@ from briar.pagination import Payload
 
 
 _PREFERRED_COLUMNS = (
-    "id", "name", "title", "status", "kind", "scope", "created_at",
+    "id",
+    "name",
+    "title",
+    "status",
+    "kind",
+    "scope",
+    "created_at",
 )
 
 
@@ -28,7 +34,7 @@ class FormatTable(Formatter):
     def render(
         self,
         payload: Any,
-        columns: Optional[List[str]] = None,
+        columns: List[str] = [],
     ) -> None:
         if not Payload.looks_like_list(payload):
             # Single-record fallback — JSON is more useful than a one-row
@@ -86,10 +92,6 @@ class FormatTable(Formatter):
         for c in columns:
             table.add_column(c, overflow="fold")
         for it in items:
-            row = (
-                [self._cell(it.get(c)) for c in columns]
-                if type(it) is dict
-                else [str(it)]
-            )
+            row = [self._cell(it.get(c)) for c in columns] if type(it) is dict else [str(it)]
             table.add_row(*row)
         console.print(table)

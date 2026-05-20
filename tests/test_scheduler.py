@@ -80,7 +80,7 @@ class RunbookSchedulerTests(unittest.TestCase):
             scheduler = RunbookScheduler(Path(td))
             registered = scheduler.register_all()
         self.assertEqual(len(registered), 2)
-        tasks = {r[1] for r in registered}
+        tasks = {r.task for r in registered}
         self.assertEqual(tasks, {"extractors", "prfix"})
 
 

@@ -28,13 +28,19 @@ class ScaffoldComposer:
 
         source_templates = cls._resolved_sources(args.source)
         archetype: AgentArchetype = cls._resolved(
-            args.archetype, ARCHETYPES, "archetype",
+            args.archetype,
+            ARCHETYPES,
+            "archetype",
         )
         shape: WorkflowShape = cls._resolved(
-            args.shape, WORKFLOW_SHAPES, "shape",
+            args.shape,
+            WORKFLOW_SHAPES,
+            "shape",
         )
         trigger_template: TriggerTemplate = cls._resolved(
-            args.trigger_kind, TRIGGER_TEMPLATES, "trigger_kind",
+            args.trigger_kind,
+            TRIGGER_TEMPLATES,
+            "trigger_kind",
         )
 
         sources_block: List[Dict[str, Any]] = []
@@ -60,10 +66,7 @@ class ScaffoldComposer:
         }
 
         workflow_graph = shape.build_graph(agent_key)
-        workflow_graph["nodes"] = [
-            cls._append_source_context(node, [s["name"] for s in sources_block])
-            for node in workflow_graph["nodes"]
-        ]
+        workflow_graph["nodes"] = [cls._append_source_context(node, [s["name"] for s in sources_block]) for node in workflow_graph["nodes"]]
 
         workflow: Dict[str, Any] = {
             "key": f"{prefix}-workflow",
@@ -74,13 +77,15 @@ class ScaffoldComposer:
 
         bundle: Dict[str, Any] = {
             "version": 1,
-            "llm_models": [{
-                "key": f"{prefix}-model",
-                "name": args.model,
-                "provider_key": args.llm_provider_key,
-                "display_name": args.model,
-                "default_params": {"temperature": 0.2},
-            }],
+            "llm_models": [
+                {
+                    "key": f"{prefix}-model",
+                    "name": args.model,
+                    "provider_key": args.llm_provider_key,
+                    "display_name": args.model,
+                    "default_params": {"temperature": 0.2},
+                }
+            ],
             "sources": sources_block,
             "tools": tools_block,
             "agents": [agent],
@@ -88,9 +93,11 @@ class ScaffoldComposer:
         }
 
         trigger_dict = trigger_template.build_trigger(
-            args, prefix, workflow_key=f"{prefix}-workflow",
+            args,
+            prefix,
+            workflow_key=f"{prefix}-workflow",
         )
-        if trigger_dict is not None:
+        if trigger_dict:
             bundle["triggers"] = [trigger_dict]
         return bundle
 
@@ -124,14 +131,8 @@ class ScaffoldComposer:
         the actual fetched payload at run time."""
         if node.get("kind") != "agent" or not source_names:
             return node
-        placeholders = "\n".join(
-            f"## Source `{name}`\n{{source_{name}}}"
-            for name in source_names
-        )
-        enriched_prompt = (
-            f"{node.get('prompt', '').rstrip()}\n\n"
-            f"--- gathered sources ---\n\n{placeholders}\n"
-        )
+        placeholders = "\n".join(f"## Source `{name}`\n{{source_{name}}}" for name in source_names)
+        enriched_prompt = f"{node.get('prompt', '').rstrip()}\n\n" f"--- gathered sources ---\n\n{placeholders}\n"
         out = dict(node)
         out["prompt"] = enriched_prompt
         return out
@@ -143,38 +144,46 @@ class ScaffoldArgs:
     @staticmethod
     def add_common(parser: argparse.ArgumentParser) -> None:
         """Top-level flags every scaffold template shares."""
-        parser.add_argument("--prefix", required=True,
-                            help="prefix prepended to every resource name")
+        parser.add_argument("--prefix", required=True, help="prefix prepended to every resource name")
         parser.add_argument(
-            "--source", action="append", default=[],
+            "--source",
+            action="append",
+            default=[],
             choices=sorted(SOURCE_TEMPLATES.keys()),
             help="Source kind(s) to gather context from. Repeat for multiple.",
         )
         parser.add_argument(
-            "--archetype", default="engineer",
+            "--archetype",
+            default="engineer",
             choices=sorted(ARCHETYPES.keys()),
             help="Agent role + tool filter (default: engineer)",
         )
         parser.add_argument(
-            "--shape", default="plan-approve-act",
+            "--shape",
+            default="plan-approve-act",
             choices=sorted(WORKFLOW_SHAPES.keys()),
             help="Workflow graph shape (default: plan-approve-act)",
         )
         parser.add_argument(
-            "--trigger-kind", default="github_webhook",
+            "--trigger-kind",
+            default="github_webhook",
             choices=sorted(TRIGGER_TEMPLATES.keys()),
             help="What kind of trigger creates tasks for this workflow",
         )
         parser.add_argument(
-            "--llm-provider-key", default="anthropic",
+            "--llm-provider-key",
+            default="anthropic",
             help="LLMProvider config key",
         )
         parser.add_argument(
-            "--model", default="claude-sonnet-4-6",
+            "--model",
+            default="claude-sonnet-4-6",
             help="LLM model id passed to LiteLLM as `<provider>/<model>`",
         )
         parser.add_argument(
-            "--auth-mode", default="oauth", choices=["oauth", "pat"],
+            "--auth-mode",
+            default="oauth",
+            choices=["oauth", "pat"],
             help="GitHub auth mode (oauth handshake or stored PAT)",
         )
         parser.add_argument(

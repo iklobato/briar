@@ -17,7 +17,8 @@ from briar.extract.aws_services.sqs import GatherSqs
 
 
 AWS_SERVICE_GATHERERS: Dict[str, AwsServiceGatherer] = {
-    g.name: g for g in (
+    g.name: g
+    for g in (
         GatherEcs(),
         GatherRds(),
         GatherLambda(),

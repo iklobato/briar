@@ -29,11 +29,14 @@ class SourceAws(SourceTemplate):
             help="External-id required by the trust policy on --aws-role-arn",
         )
         parser.add_argument(
-            "--aws-region", default="us-east-1",
+            "--aws-region",
+            default="us-east-1",
             help="Default AWS region for resource queries",
         )
         parser.add_argument(
-            "--aws-services", action="append", default=[],
+            "--aws-services",
+            action="append",
+            default=[],
             help="Which AWS services to gather (ec2, s3, iam, logs, …)",
         )
 
@@ -62,4 +65,5 @@ class SourceAws(SourceTemplate):
             "credentials_ref": None,
             "credential_binding": binding,
         }
+
     # build_tools inherits the empty default — AWS is read-only here.

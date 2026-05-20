@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from briar.formatting.base import Formatter
 from briar.pagination import Payload
@@ -14,12 +14,9 @@ class FormatQuiet(Formatter):
     def render(
         self,
         payload: Any,
-        columns: Optional[List[str]] = None,
+        columns: List[str] = [],
     ) -> None:
-        items = (
-            Payload.items_of(payload) if Payload.looks_like_list(payload)
-            else [self._to_dict(payload)]
-        )
+        items = Payload.items_of(payload) if Payload.looks_like_list(payload) else [self._to_dict(payload)]
         for it in items:
             row_id = it.get("id") if type(it) is dict else ""
             if row_id:
