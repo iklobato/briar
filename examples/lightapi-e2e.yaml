@@ -18,7 +18,7 @@ companies:
               pr_max: 25
 
       - task: implementation
-        every: "4 hours"
+        every: "12 hours"
         extract:
           - name: codebase-conventions
             args:
@@ -28,7 +28,7 @@ companies:
               deploy_repo: [iklobato/lightapi]
 
       - task: prfix
-        every: "hour"
+        every: "4 hours"
         extract:
           - name: active-work
             args:

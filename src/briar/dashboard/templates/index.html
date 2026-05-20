@@ -494,8 +494,11 @@
   Chart.defaults.font.family = "ui-monospace, SFMono-Regular, Menlo, monospace";
 
   // ----- payload (JSON, server-rendered) -----
-  const KNOWLEDGE = {{ knowledge.chart|tojson }};
-  const CYCLES = {{ cycle_outcomes.chart|tojson }};
+  // `default({})` keeps the page rendering when a collector failed and
+  // its dict carries `_error` instead of `chart` — Jinja's Undefined
+  // would otherwise propagate into json.dumps and 500 the entire page.
+  const KNOWLEDGE = {{ knowledge.chart|default({})|tojson }};
+  const CYCLES = {{ cycle_outcomes.chart|default({})|tojson }};
 
   // ----- knowledge-file size bars -----
   if (KNOWLEDGE && KNOWLEDGE.labels && KNOWLEDGE.labels.length > 0) {
