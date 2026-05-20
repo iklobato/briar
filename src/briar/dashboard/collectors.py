@@ -612,13 +612,13 @@ class GhStatsCollector(Collector):
 
     _OK_RE = re.compile(
         r"^(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})Z\s+"
-        r"\[INFO[^\]]*\]\s+briar\.extract\._gh:.*?"
-        r"gh\s+GET\s+ok\s+path=(?P<path>\S+).*?"
+        r"\[(?:INFO|DEBUG)[^\]]*\]\s+briar\.extract\._gh:.*?"
+        r"gh\s+(?:GET|PAGINATED)\s+ok\s+path=(?P<path>\S+).*?"
         r"ratelimit_remaining=(?P<rem>\d+)"
     )
     _CACHE_HIT_RE = re.compile(
         r"^(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})Z\s+"
-        r"\[INFO[^\]]*\]\s+briar\.extract\._gh:.*?"
+        r"\[(?:INFO|DEBUG)[^\]]*\]\s+briar\.extract\._gh:.*?"
         r"gh\s+GET\s+304-cache-hit\s+path=(?P<path>\S+).*?"
         r"ratelimit_remaining=(?P<rem>\S+)"
     )

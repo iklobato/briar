@@ -124,6 +124,7 @@ class GithubApi:
         visited = 0
         started = time.perf_counter()
         log.debug("gh PAGINATED start path=%s per_page=%d max_pages=%d", path, per_page, max_pages)
+        last_remaining = "?"
         with httpx.Client(timeout=30.0, follow_redirects=True) as client:
             while url and visited < max_pages:
                 try:
@@ -141,13 +142,25 @@ class GithubApi:
                         resp.text[:200],
                     )
                     resp.raise_for_status()
+                last_remaining = resp.headers.get("x-ratelimit-remaining", last_remaining)
                 page_data = resp.json()
                 if type(page_data) is list:
                     pages.extend(page_data)
                 url = cls._next_link(resp.headers.get("Link", ""))
                 visited += 1
         elapsed_ms = int((time.perf_counter() - started) * 1000)
-        log.debug("gh PAGINATED ok path=%s pages=%d rows=%d elapsed_ms=%d", path, visited, len(pages), elapsed_ms)
+        # INFO not DEBUG so the dashboard's GhStatsCollector can read it
+        # without flipping every install into verbose mode. Quota is
+        # numeric; we surface it as `ratelimit_remaining=N` to share the
+        # same parsing regex as get_json.
+        log.info(
+            "gh PAGINATED ok path=%s pages=%d rows=%d elapsed_ms=%d ratelimit_remaining=%s",
+            path,
+            visited,
+            len(pages),
+            elapsed_ms,
+            last_remaining,
+        )
         if visited >= max_pages and url:
             log.warning("gh PAGINATED truncated path=%s hit_max_pages=%d (more pages exist)", path, max_pages)
         return pages
