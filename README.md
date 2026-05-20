@@ -1,34 +1,47 @@
-# briar — local extraction + scaffolding CLI
+# briar — local extraction + scheduling CLI
 
 Python CLI that mines live state from external systems (GitHub, AWS, …),
-emits per-company markdown knowledge files, and generates JSON config
-bundles that you paste into the Briar web UI.
+schedules per-company / per-task knowledge extraction in-process, and
+ships a read-only HTML dashboard so you can watch it run.
 
 ```text
 $ briar version
 briar-cli 1.1.0
+
+$ briar --help
+extract   — run extractors against external sources
+runbook   — multi-company knowledge extraction; long-lived scheduler
+scaffold  — generate JSON config templates (e.g. for downstream tools)
+context   — read/write local markdown knowledge blobs
+dashboard — serve a read-only HTML dashboard summarising the droplet
+version   — print client version
 ```
 
-**This tool does not talk to `api.usebriar.com`.** It used to (~20 CRUD
-subcommands + login/JWT plumbing) but was stripped in v2.0 — backend
-resources are managed from the web UI now. The CLI's surviving job is
-the part that benefits from being local: pulling data from external
-services, transforming it into agent context, and rendering reusable
-config templates.
+**This is a standalone client tool.** There is no `api.usebriar.com`
+service, no `app.usebriar.com` web app, no login, no profiles, no
+remote workspace. Every command runs against local files + the
+external APIs (GitHub, AWS) that the extractors talk to directly.
 
 ---
 
 ## What it does
 
 - **Five extractors** that mine live state into a per-company markdown
-  blob agents use as context: PR archaeology, AWS infra, active work,
-  GitHub deployments, codebase conventions.
-- **Runbook YAML** — drive every extractor across every company in one
-  declarative file.
+  knowledge blob: PR archaeology, AWS infra, active work, GitHub
+  deployments, codebase conventions.
+- **In-process scheduler** (`briar runbook serve`) that runs each
+  `(company, task)` pair on its own cron-equivalent schedule, using
+  the [`schedule`](https://schedule.readthedocs.io/) library — no
+  system cron, no separate scheduler binary.
 - **Scaffold templates** that emit JSON config bundles (implementation,
-  pr-fixes) for the Briar web UI to consume.
-- **Local knowledge store** — file-backed CRUD over named markdown
-  blobs (`category:identifier` keys).
+  pr-fixes) for human consumption — each agent persona declares which
+  extractor outputs it consumes so the prompts are extractor-aware.
+- **Read-only HTML dashboard** with 22 sections: at-a-glance system
+  tiles, per-task schedule + next-fire, knowledge-file inventory,
+  connectivity probes, plugin registries, recent activity log tail,
+  Chart.js visualisations.
+- **File-backed knowledge store** — markdown blobs keyed by
+  `category:identifier`, suitable for `cat`, `grep`, `diff`.
 
 ---
 
@@ -41,26 +54,31 @@ briar version
 ```
 
 Requires **Python 3.10+**. Runtime deps in `pyproject.toml`: `httpx`,
-`pydantic>=2`, `PyYAML`, `rich`. `boto3` is lazy-imported — installs
-but only loaded when you run `extract --include aws-infra`.
+`pydantic>=2`, `PyYAML`, `rich`, `jinja2`, `schedule`, `pytz`. `boto3`
+is lazy-imported — installs but only loaded when you run
+`extract --include aws-infra`.
 
-No login, no profiles, no `~/.briar/` directory. The five commands all
-work against local files + external APIs (GitHub, AWS) directly.
+Dev extras (`pip install -e ".[dev]"`): `black`, `mypy`.
 
 ---
 
 ## Commands
 
 ```
-extract   — run extractors against external sources (GitHub/AWS)
-runbook   — multi-company knowledge extraction from a YAML file
-scaffold  — generate JSON config bundles for the web UI
-context   — read/write local markdown blobs
-version   — print client version
+extract    — run extractors against external sources (GitHub, AWS)
+runbook    — multi-company orchestration; long-lived scheduler
+scaffold   — generate JSON config bundles
+context    — read/write local markdown blobs
+dashboard  — serve the read-only HTML dashboard
+version    — print client version
 ```
 
-Global flag: `--format {table,json,yaml,csv,quiet}` (default: `table`
-for lists, `json` for single records).
+Global flags:
+- `--format {table,json,yaml,csv,quiet}` — output formatter (default: table)
+- `--verbose` / `-v` — DEBUG-level logging (also `BRIAR_VERBOSE=1`)
+
+Set `BRIAR_LIB_DEBUG=1` to additionally surface noisy third-party
+loggers (httpx, boto3, …) — useful when debugging wire traffic.
 
 ---
 
@@ -69,12 +87,12 @@ for lists, `json` for single records).
 | `--include` name | What it mines | Auth |
 |---|---|---|
 | `pr-archaeology` | merged-PR patterns, median time-to-merge, top reviewers | `gh auth token` or `$GITHUB_TOKEN` |
-| `aws-infra` | ECS, RDS, Lambda, SQS, CloudWatch (top 10 by size) | local AWS profile or env-var credentials |
-| `active-work` | open PRs across the configured repos | GitHub PAT |
+| `aws-infra` | ECS, RDS, Lambda, SQS, CloudWatch (top 10 log groups by size) | local AWS profile or per-company env-var credentials |
+| `active-work` | open PRs across configured repos | GitHub PAT |
 | `github-deployments` | environments, recent deployments, CI runs | GitHub PAT |
 | `codebase-conventions` | per-repo language / test runner / linter / migration tool | GitHub PAT |
 
-One-shot:
+One-shot run:
 
 ```bash
 briar extract --company acme \
@@ -84,44 +102,27 @@ briar extract --company acme \
     --root ./knowledge
 ```
 
-`--include` is repeatable; omit to run *every* extractor that's
-available in the current env. Output goes to `./knowledge/<company>.md`.
+Author/assignee filters: `--pr-authors-allow`, `--pr-authors-block`,
+`--pr-assignees-allow`, `--pr-assignees-block` (and `--active-*`
+equivalents). Composition: `allow ∩ ¬block`.
 
-### Author / assignee filters
+### Per-company env-var credentials
 
-Both PR-archaeology and active-work accept `--pr-authors-allow`,
-`--pr-authors-block`, `--pr-assignees-allow`, `--pr-assignees-block`
-(and the same with `--active-` prefix). Composition: `allow ∩ ¬block`.
+`briar.env_vars.CredEnv` translates `(extractor, company)` into env
+var names (`{c}` = company name uppercased, hyphens → underscores):
 
-```bash
-briar extract --company demo --include active-work \
-    --active-repo acme-co/acme-app \
-    --active-authors-allow iklobato \
-    --active-authors-block 'dependabot[bot]'
-```
-
-### Credential resolution
-
-Per-company env vars are read by the extractors via `briar.env_vars.CredEnv`.
-The `{c}` placeholder substitutes the uppercased, underscore-normalised
-company name (`widget-co` → `WIDGET_CO`).
-
-| Env var template | Used by |
+| Template | Used by |
 |---|---|
-| `AWS_{c}_ACCESS_KEY_ID` / `SECRET_ACCESS_KEY` / `SESSION_TOKEN` | `aws-infra` (per-company, overrides local AWS profile) |
-| `GITHUB_TOKEN` | every GitHub extractor (single workspace-wide PAT) |
+| `AWS_{c}_ACCESS_KEY_ID` / `SECRET_ACCESS_KEY` / `SESSION_TOKEN` | `aws-infra` (per-company AWS credentials) |
+| `GITHUB_TOKEN` | every GitHub extractor (workspace-wide PAT) |
 | `JIRA_{c}_EMAIL` / `_TOKEN` | reserved for a future Jira extractor |
 
 `aws-infra` falls back to the local `~/.aws/credentials` profile when
-env vars are unset — that's what local dev uses. The droplet runs
-entirely off env vars (see "Deployment" below).
+env vars are unset. The droplet runs purely off env vars.
 
 ---
 
-## Runbook YAML
-
-One file drives every extractor across every company. Pure local
-extraction — nothing in this YAML reaches a Briar API.
+## Runbook YAML — multi-company, per-task schedules
 
 ```yaml
 # examples/acme.yaml
@@ -132,47 +133,66 @@ companies:
       store: file
       name: ./knowledge/acme.md
 
-    extract:
-      - name: pr-archaeology
-        args:
-          pr_repo:
-            - acme-co/acme-app
-            - acme-co/acme-platform
-          pr_max: 30
-      - name: active-work
-        args:
-          active_repo: [acme-co/acme-app]
-      - name: github-deployments
-        args:
-          deploy_repo: [acme-co/acme-app]
-      - name: codebase-conventions
-        args:
-          conventions_repo: [acme-co/acme-app]
-      - name: aws-infra
-        args:
-          aws_extract_profile: acme
-          aws_extract_region: us-east-2
-          aws_extract_service: [ecs, lambda, logs, rds, sqs]
+    schedules:
+      - task: extractors                # heavy, slow
+        every: "day at 03:17"
+        extract:
+          - name: pr-archaeology
+            args: {pr_repo: [acme-co/acme-app], pr_max: 30}
+          - name: aws-infra
+            args: {aws_extract_profile: acme, aws_extract_region: us-east-2,
+                   aws_extract_service: [ecs, lambda, logs, rds, sqs]}
+
+      - task: implementation            # repo-shape
+        every: "4 hours"
+        extract:
+          - name: codebase-conventions
+            args: {conventions_repo: [acme-co/acme-app]}
+          - name: github-deployments
+            args: {deploy_repo: [acme-co/acme-app]}
+
+      - task: prfix                     # hot
+        every: "hour"
+        extract:
+          - name: active-work
+            args: {active_repo: [acme-co/acme-app]}
 ```
 
-Commands:
+**`every:` DSL** (parsed by `EveryParser` into a `schedule.Job`):
+
+- `"minute"`, `"N minutes"`
+- `"hour"`, `"N hours"`, `"hour at :MM"`
+- `"day"`, `"N days"`, `"day at HH:MM"`
+- `"monday at HH:MM"` (and every other weekday)
+
+### Commands
 
 ```bash
-briar runbook extract examples/acme.yaml     # one company
-briar runbook sweep   examples/                # every *.yaml in a folder
+# one-shot — run every schedule once and exit
+briar runbook extract examples/acme.yaml
+
+# one-shot — run only one task
+briar runbook extract examples/acme.yaml --task prfix
+
+# one-shot — every YAML in a directory
+briar runbook sweep examples/
+
+# long-lived scheduler — registers all (company, task) jobs and runs forever
+briar runbook serve examples/
 ```
 
-`sweep` is what the scheduler droplet runs nightly — it iterates the
-directory, extracts per company, and keeps going past per-file
-failures (cron must not abort mid-loop).
+`serve` is what runs persistently on the droplet (see "Deployment").
+Each scheduled job invokes the equivalent of
+`briar runbook extract <yaml> --task <name>` at the configured
+cadence.
 
 ---
 
-## Scaffold — JSON for the web UI
+## Scaffold — JSON for downstream tools
 
 `briar scaffold` emits a JSON bundle describing the agent / workflow /
-sources / tools / trigger you want. You paste it into the web UI; the
-CLI never POSTs it anywhere.
+sources / tools / trigger you want. The CLI does not POST it anywhere
+— consumers paste it into whatever downstream system needs the shape.
 
 ```bash
 briar scaffold implementation \
@@ -185,9 +205,9 @@ briar scaffold implementation \
     --out acme-impl.json
 ```
 
-### Two top-level templates
+### Templates
 
-| Template | What it builds |
+| Template | Shape |
 |---|---|
 | `implementation` | source → agent → workflow(`plan → human_checkpoint → implement / comment`) → trigger |
 | `pr-fixes` | source → agent → one-shot workflow → trigger (no human gate) |
@@ -196,14 +216,44 @@ briar scaffold implementation \
 
 | Axis | Flag | Built-in kinds |
 |---|---|---|
-| **Sources** | `--source <kind>` (repeatable) | `github`, `jira`, `aws` |
-| **Trigger** | `--trigger-kind <kind>` | `github_webhook`, `schedule_cron`, `manual` |
-| **Workflow shape** | `--shape <name>` | `plan-approve-act`, `one-shot`, `triage` |
-| **Agent archetype** | `--archetype <name>` | `engineer`, `pr-fixer`, `triager` |
+| Sources | `--source <kind>` (repeatable) | `github`, `jira`, `aws` |
+| Trigger | `--trigger-kind <kind>` | `github_webhook`, `schedule_cron`, `manual` |
+| Workflow shape | `--shape <name>` | `plan-approve-act`, `one-shot`, `triage` |
+| Agent archetype | `--archetype <name>` | `engineer`, `pr-fixer`, `triager` |
 
-Adding a new kind = one file in the relevant folder under
-`src/briar/iac/scaffold/` + one entry in the package `__init__.py`'s
-registry. No edits elsewhere.
+### Archetype `consumes` — extractor-aware prompts
+
+Each archetype declares which extractor outputs it reads, in order.
+The generated `system_prompt` and node prompts reference these by
+name so the agent knows which knowledge sections drive each decision.
+
+| Archetype | Consumes (read order) | Tool filter |
+|---|---|---|
+| `engineer` | `codebase-conventions → active-work → pr-archaeology → github-deployments → aws-infra` | every tool |
+| `pr-fixer` | `active-work → pr-archaeology → codebase-conventions` | `commit`, `comment_on_issue`, `open_pr` |
+| `triager` | `codebase-conventions → github-deployments → pr-archaeology → active-work` | `comment_on_issue`, `add_labels`, `comment` |
+
+Adding a new kind in any axis = one file in the relevant folder under
+`src/briar/iac/scaffold/` + one entry in the registry. No edits
+elsewhere.
+
+---
+
+## Dashboard
+
+```bash
+briar dashboard --host 0.0.0.0 --port 8080 \
+    --examples ./examples --knowledge ./knowledge --repo-path .
+```
+
+Read-only Jinja-rendered HTML page with 22 sections covering deploy
+state, schedules, knowledge files, plugin registries, system stats,
+connectivity probes, secrets inventory (names + lengths only — never
+values), and a tailing log panel. Chart.js for the disk/memory/load
+visualisations + per-cycle stacked bars.
+
+GET-only by construction — POST/PUT/DELETE return 501. Safe to expose
+publicly behind a basic firewall (see "Deployment").
 
 ---
 
@@ -228,47 +278,59 @@ each blob to `./knowledge/<category>/<identifier>.md`.
 
 ---
 
-## Deployment — DigitalOcean droplet scheduler
+## Deployment — DigitalOcean droplet
 
-The CLI is deployed to a small DO droplet that runs `briar runbook
-sweep` nightly. Source-of-truth is the private GitHub repo
-`iklobato/briar-cli`; the droplet is a `git clone` of `main`.
+The reference deployment is a single $4/mo DO droplet running two
+long-lived `briar` processes (scheduler + dashboard). Source-of-truth
+is the private GitHub repo `iklobato/briar-cli`.
 
 ### One-line deploy
 
 ```bash
-git push && ssh root@203.0.113.11 \
+git push && ssh root@<droplet> \
     'cd /opt/briar-scheduler && git pull --ff-only && .venv/bin/pip install -e . --quiet'
 ```
-
-(Optional zsh alias: `alias briar-deploy="git push && …"` — full form
-in commit history.)
 
 ### Droplet layout
 
 | Path | Purpose |
 |---|---|
 | `/opt/briar-scheduler/` | git clone of `iklobato/briar-cli`, `git status` clean |
-| `/opt/briar-scheduler/.venv/` | python venv (gitignored, survives `git pull`) |
-| `/opt/briar-scheduler/examples/` | live company YAMLs (`lightapi-e2e.yaml`, `widgets.yaml`, `acme.yaml`) |
-| `/etc/briar/secrets.env` | mode 600, root-owned. Holds `GITHUB_TOKEN` + per-company `AWS_*_KEY_ID` / `SECRET` / `SESSION` |
-| `/etc/cron.d/briar-scheduler` | nightly entry at `17 3 * * * UTC` — sources `secrets.env`, runs `briar runbook sweep examples/` |
-| `/var/log/briar/scheduler.log` | append-only log |
+| `/opt/briar-scheduler/.venv/` | venv (gitignored, survives `git pull`) |
+| `/opt/briar-scheduler/examples/` | runbook YAMLs (one per company) |
+| `/etc/briar/secrets.env` | mode 600, root-owned. `GITHUB_TOKEN` + per-company `AWS_*_KEY_ID` / `SECRET` / `SESSION` |
+| `/var/log/briar/scheduler.log` | `briar runbook serve` log (append-only) |
+| `/var/log/briar/dashboard.log` | `briar dashboard` log |
 
-### Cron entry
+### Persistent processes
 
+```bash
+# scheduler: registers every (company, task) and runs the schedule loop
+PYTHONUNBUFFERED=1 nohup .venv/bin/briar runbook serve examples/ \
+    > /var/log/briar/scheduler.log 2>&1 < /dev/null &
+
+# dashboard: serves the read-only HTML page on port 8080
+PYTHONUNBUFFERED=1 nohup .venv/bin/briar dashboard \
+    --host 0.0.0.0 --port 8080 \
+    --examples examples --knowledge knowledge --repo-path . \
+    > /var/log/briar/dashboard.log 2>&1 < /dev/null &
 ```
-SHELL=/bin/sh
-PATH=/opt/briar-scheduler/.venv/bin:/usr/bin:/bin
-17 3 * * * root set -a; . /etc/briar/secrets.env; set +a; \
-    cd /opt/briar-scheduler && briar runbook sweep examples/ \
-    >> /var/log/briar/scheduler.log 2>&1
-```
 
-### Refreshing secrets from the laptop
+(`PYTHONUNBUFFERED=1` ensures `nohup`'d Python flushes log lines
+without buffering. A systemd unit would normally take care of this —
+see `Caveats`.)
 
-`secrets.env` holds short-lived AWS STS triplets (`acme` profile is
-SSO-vended). When the SSO session ages out, re-push from the laptop:
+### Firewall
+
+DO cloud firewall: inbound TCP/22 from operator IPs only; TCP/8080
+from `0.0.0.0/0` for the dashboard; outbound all (so the scheduler
+can reach GitHub + AWS).
+
+### Refreshing secrets
+
+`secrets.env` holds short-lived AWS STS triplets (the SSO-vended ones
+expire on the local SSO session timeout). When the session ages out,
+re-push from your laptop:
 
 ```bash
 { for c in widget-co acme; do
@@ -277,61 +339,83 @@ SSO-vended). When the SSO session ages out, re-push from the laptop:
       | sed -E "s/^AWS_/AWS_${c^^}_/; s/-/_/g"
   done
   echo "GITHUB_TOKEN=$(gh auth token)"
-} | ssh root@203.0.113.11 \
+} | ssh root@<droplet> \
     'cat > /etc/briar/secrets.env && chmod 600 /etc/briar/secrets.env'
 ```
-
-### Firewall
-
-Cloud firewall `briar-scheduler` allows inbound SSH (port 22) only
-from the operator's home IPv4 + IPv6. Egress: all (so the cron can
-reach GitHub + AWS).
 
 ### Rollback
 
 ```bash
-ssh root@203.0.113.11 'cd /opt/briar-scheduler && git log --oneline -5'
-ssh root@203.0.113.11 'cd /opt/briar-scheduler && git reset --hard <previous-sha>'
+ssh root@<droplet> 'cd /opt/briar-scheduler && git log --oneline -5'
+ssh root@<droplet> 'cd /opt/briar-scheduler && git reset --hard <previous-sha>'
 ```
+
+### Caveats
+
+- The two long-lived processes are nohup-detached, not under systemd.
+  A reboot loses them. Adding a systemd unit is a 20-line change if
+  you need that.
+
+---
+
+## Logging
+
+Stdlib `logging` everywhere. Default level is INFO. Format:
+
+```
+2026-05-20T16:15:12Z [INFO   ] briar.iac.runbook.scheduler: fire task=prfix company=lightapi yaml=lightapi-e2e.yaml
+```
+
+Every broad-except site in the codebase calls `log.exception(...)` so
+unforeseen errors print full tracebacks to the log without crashing
+the scheduler or 500-ing the dashboard.
+
+- `--verbose` (or `BRIAR_VERBOSE=1`) → DEBUG-level briar logs.
+- `BRIAR_LIB_DEBUG=1` → DEBUG on httpx / httpcore / boto3 / schedule.
 
 ---
 
 ## Layered architecture
 
 Every plugin family is a Strategy + Registry. Bases are `abc.ABC`
-with `@abstractmethod`; missing methods surface at construct time.
+with `@abstractmethod` so missing methods surface at construct time.
 
 ```
 src/briar/
-├── cli.py                      argparse driver (Cli class)
+├── cli.py                      argparse driver + logging bootstrap
+├── logging.py                  one-place log config
 ├── env_vars.py                 CredEnv — every env var the CLI reads
 ├── pagination.py               Payload — payload-shape introspection
-├── commands/                   5 commands: extract, runbook, scaffold, context, version
+├── commands/                   6 commands; CommandRegistry build()
 │   └── base.py                 Command (ABC) + .confirm() static
 ├── formatting/                 5 formatters (ABC Formatter)
-│   ├── table.py                FormatTable (default)
-│   ├── json.py                 FormatJson
-│   ├── yaml.py                 FormatYaml
-│   ├── csv.py                  FormatCsv
-│   └── quiet.py                FormatQuiet
-├── storage/                    KnowledgeStore (ABC) + StoreFile (only backend)
+│   ├── table.py / json.py / yaml.py / csv.py / quiet.py
+│   └── FormatterRegistry
+├── storage/                    KnowledgeStore (ABC) + StoreFile
 ├── extract/                    5 extractors (ABC KnowledgeExtractor)
 │   ├── _gh.py                  GithubApi (static-only)
 │   ├── _user_filter.py         UserFilter (author/assignee allow-block)
-│   ├── composer.py             KnowledgeComposer (markdown + JSON renderers)
+│   ├── composer.py             KnowledgeComposer (markdown + JSON)
 │   ├── aws_services/           5 service gatherers (ABC AwsServiceGatherer)
 │   └── language_detectors/     3 detectors (ABC LanguageDetector)
+├── dashboard/                  read-only HTTP server + 22 collectors
+│   ├── server.py               DashboardServer
+│   ├── collectors.py           Collector (ABC) + 22 concretes
+│   └── templates/index.html    Jinja2 + Chart.js
 └── iac/
     ├── config_file.py          ConfigFile — Pydantic-backed JSON config
     ├── models.py               ConfigSpec (the IaC schema)
     ├── scaffold/
-    │   ├── _composer.py        ScaffoldComposer + ScaffoldArgs (classmethods)
-    │   ├── sources/            SourceGithub / SourceJira / SourceAws (ABC SourceTemplate)
-    │   ├── triggers/           TriggerGithubWebhook / TriggerScheduleCron / TriggerManual
-    │   ├── shapes/             ShapePlanApproveAct / ShapeOneShot / ShapeTriage
-    │   ├── archetypes/         ArchetypeEngineer / ArchetypePrFixer / ArchetypeTriager
+    │   ├── _composer.py        ScaffoldComposer + ScaffoldArgs
+    │   ├── sources/            SourceGithub / SourceJira / SourceAws
+    │   ├── triggers/           TriggerGithubWebhook / ScheduleCron / Manual
+    │   ├── shapes/             ShapePlanApproveAct / OneShot / Triage
+    │   ├── archetypes/         ArchetypeEngineer / PrFixer / Triager
     │   └── implementation.py + pr_fixes.py
-    └── runbook/                RunbookLoader + RunbookExtractor
+    └── runbook/
+        ├── models.py           RunbookFile, CompanyEntry, ScheduleEntry
+        ├── executor.py         RunbookLoader, RunbookExtractor, RunbookSchedules
+        └── scheduler.py        EveryParser + RunbookScheduler
 ```
 
 **Naming convention:** folder = verb scope (`extract/`, `commands/`);
@@ -339,7 +423,7 @@ file = kind only (`github.py`, `python.py`); class = `<Verb><Kind>`
 (`SourceGithub`, `DetectPython`, `ExtractAwsInfra`). Bases keep their
 domain-role names (`KnowledgeExtractor`, `Formatter`, `KnowledgeStore`).
 
-Adding any new kind = one file in the relevant folder + one entry in
+Adding a new kind = one file in the relevant folder + one entry in
 the registry. No edits to the orchestrator.
 
 ### Style rules
@@ -348,10 +432,14 @@ the registry. No edits to the orchestrator.
   attribute access for known fields.
 - No `elif` / `else` → early returns + dict dispatch.
 - No `isinstance` → `type(x) is …` for narrow checks.
+- **No `Optional[...]`** — empty defaults (`""`, `[]`, `{}`) + truthy
+  checks. The only `Optional` references left in the codebase are
+  docstrings explaining the convention.
 - Validation belongs in Pydantic models, not inline.
 - Free functions live inside a class as classmethods/statics. The
   only module-level function in `src/` is `cli.main` (entry-point
   shim required by `pyproject.toml`).
+- Line length 160. `black` enforces; `mypy` enforces no-`Optional`.
 
 ---
 
@@ -359,33 +447,42 @@ the registry. No edits to the orchestrator.
 
 ```bash
 .venv/bin/python -m unittest discover -s tests
+.venv/bin/mypy
+.venv/bin/black --check src/ tests/
 ```
 
-52 tests cover formatters, extractors (with mocked HTTP), AWS service
+75 tests cover formatters, extractors (with mocked HTTP), AWS service
 gatherers, scaffold composition, runbook YAML parsing, language
-detection, storage, and the user-filter logic. No live network or
-disk side-effects in the suite.
+detection, storage, user-filter logic, the EveryParser DSL,
+RunbookScheduler registration, and every dashboard collector + the
+full Jinja render. No live network or disk side-effects in the suite.
 
 ---
 
 ## Files on disk after a local run
 
 ```text
-./knowledge/<company>.md         per-company markdown bundle
-./knowledge/<category>/<id>.md   blobs put via `briar context put`
+./knowledge/<company>.md            per-company markdown bundle
+./knowledge/<company>.<task>.md     per-task fragment (non-default tasks)
+./knowledge/<category>/<id>.md      blobs put via `briar context put`
 ```
-
-The droplet writes the same files under `/opt/briar-scheduler/knowledge/`.
 
 ---
 
 ## History
 
 - **v1.0** — full Briar API client + IaC reconciler (20 commands).
-- **v1.1** — pluggable storage backends (`file` + `briar-api`).
+- **v1.1** — pluggable storage backends.
 - **v2.0** — stripped the API surface entirely. Tool became
-  extract-only; deleted ~26 modules + ~36 net source files. Cron on
-  the droplet stopped needing JWTs.
-- **v2.1** — SOLID refactor: ABC bases enforce contracts; every loose
-  helper folded into a class (only `cli.main` remains as a free
-  function).
+  extract + scaffold only.
+- **v2.1** — SOLID refactor: ABC bases enforce contracts; every
+  loose helper folded into a class.
+- **v2.2** — read-only dashboard (Jinja + Chart.js, 22 sections).
+- **v2.3** — per-(company, task) schedules; in-process `schedule`
+  library replaces cron.
+- **v2.4** — archetype `consumes` lists; sharpened prompts; persona
+  `{target}` substitution everywhere.
+- **v2.5** — `black` + `mypy` (line-length 160); dropped every
+  `Optional[...]`; long signatures folded into dataclasses;
+  multi-type returns named; stdlib `logging` with stack traces on
+  every broad-except site.
