@@ -37,29 +37,52 @@ class CommandDashboard(Command):
         )
         parser.add_argument(
             "--log-file", default="/var/log/briar/scheduler.log",
-            help="path to the scheduler log (default: /var/log/briar/scheduler.log)",
+            help="path to the scheduler log",
         )
         parser.add_argument(
             "--disk-path", default="/",
-            help="filesystem path used for disk-usage stats (default: /)",
+            help="filesystem path used for disk-usage stats",
+        )
+        parser.add_argument(
+            "--repo-path", default=".",
+            help="path of the deployed git checkout (for SHA/branch read-out)",
+        )
+        parser.add_argument(
+            "--secrets-file", default="/etc/briar/secrets.env",
+            help="path to secrets.env — names+lengths only, never values",
+        )
+        parser.add_argument(
+            "--du-path", action="append", default=[],
+            help="directory whose size to report (repeatable)",
         )
         parser.add_argument(
             "--once", action="store_true",
-            help="render once to stdout and exit (for ad-hoc / curl-less testing)",
+            help="render once to stdout and exit",
         )
 
     def run(self, args: argparse.Namespace) -> int:
-        collectors = CollectorRegistry.for_paths(
+        # Build the server first so the self-collector can read its
+        # live counters.
+        server = DashboardServer(
+            collectors=[],  # populated below
+            host=args.host,
+            port=args.port,
+        )
+        du_paths = [Path(p) for p in (
+            args.du_path or [args.repo_path, args.knowledge, "/var/log/briar"]
+        )]
+        server._collectors = CollectorRegistry.for_paths(  # noqa: SLF001
             examples_dir=Path(args.examples),
             knowledge_dir=Path(args.knowledge),
             cron_path=Path(args.cron_file),
             log_path=Path(args.log_file),
             disk_path=Path(args.disk_path),
-        )
-        server = DashboardServer(
-            collectors=collectors,
-            host=args.host,
-            port=args.port,
+            repo_path=Path(args.repo_path),
+            secrets_path=Path(args.secrets_file),
+            du_paths=du_paths,
+            process_started_at=server.started_at,
+            request_count_fn=server.request_count,
+            last_render_ms_fn=server.last_render_ms,
         )
         if args.once:
             print(server.render_index())

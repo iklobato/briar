@@ -1,15 +1,17 @@
 """HTTP server wrapper — stdlib http.server + Jinja2.
 
-Read-only by construction: only GET is registered. Any other method
-returns 405. The single rendered route is `/`; `/healthz` is the only
-other path (for liveness checks)."""
+Read-only by construction: only GET (and HEAD) is registered. Any
+other method falls through to `http.server`'s 501 default. Routes:
+`/` renders the page, `/healthz` returns "ok"."""
 
 from __future__ import annotations
 
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import List, Optional
+from threading import Lock
+from typing import List
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -20,10 +22,7 @@ _TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 
 class DashboardServer:
-    """Single-use HTTP server that renders one Jinja page.
-
-    Hold collectors + the Jinja environment as instance state; the
-    request handler reads them via the server attribute set in `serve`."""
+    """Renders one Jinja page; tracks per-process self-stats."""
 
     def __init__(
         self,
@@ -41,12 +40,32 @@ class DashboardServer:
             trim_blocks=True,
             lstrip_blocks=True,
         )
+        self._req_lock = Lock()
+        self._request_count = 0
+        self._last_render_ms = 0.0
+        self.started_at = time.time()
+
+    # ---- live counters used by the self-collector ---------------------
+
+    def request_count(self) -> int:
+        return self._request_count
+
+    def last_render_ms(self) -> float:
+        return self._last_render_ms
+
+    # ---- main entry points --------------------------------------------
 
     def render_index(self) -> str:
-        """Run every collector and render the template. Public so tests
-        can call it without spinning up HTTP."""
+        """Run every collector and render the template."""
+        started = time.monotonic()
         context = CollectorRegistry.collect_all(self._collectors)
-        return self._env.get_template("index.html").render(**context)
+        html = self._env.get_template("index.html").render(**context)
+        self._last_render_ms = (time.monotonic() - started) * 1000
+        return html
+
+    def increment_requests(self) -> None:
+        with self._req_lock:
+            self._request_count += 1
 
     def serve(self) -> None:
         handler_cls = _build_handler(self)
@@ -63,9 +82,10 @@ def _build_handler(dashboard: DashboardServer):
     """Closure that gives the request class a reference to the server."""
 
     class _Handler(BaseHTTPRequestHandler):
-        server_version = "briar-dashboard/1.0"
+        server_version = "briar-dashboard/2.0"
 
         def do_GET(self) -> None:  # noqa: N802 — http.server interface
+            dashboard.increment_requests()
             handlers = {
                 "/": self._render_index,
                 "/healthz": self._healthz,
@@ -77,7 +97,6 @@ def _build_handler(dashboard: DashboardServer):
             handler()
 
         def do_HEAD(self) -> None:  # noqa: N802
-            # HEAD is just GET-without-body; reuse with a flag.
             self._head_only = True
             try:
                 self.do_GET()
@@ -98,13 +117,16 @@ def _build_handler(dashboard: DashboardServer):
             self.send_header("Content-Length", str(len(encoded)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "no-referrer")
             self.end_headers()
             head_only = vars(self).get("_head_only", False)
             if not head_only:
                 self.wfile.write(encoded)
 
         def log_message(self, fmt: str, *args) -> None:
-            # Quieter default log line — one line per request.
-            print(f"{self.address_string()} {self.command} {self.path} {args[1] if len(args) > 1 else ''}".strip())
+            print(
+                f"{self.address_string()} {self.command} {self.path} "
+                f"{args[1] if len(args) > 1 else ''}".strip()
+            )
 
     return _Handler
