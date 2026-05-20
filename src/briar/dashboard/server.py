@@ -138,6 +138,17 @@ def _build_handler(dashboard: DashboardServer):
                 self.wfile.write(encoded)
 
         def log_message(self, fmt: str, *args) -> None:
-            log.info("%s %s %s", self.address_string(), self.command, self.path)
+            # When the request line itself fails to parse (scanner traffic,
+            # malformed clients, raw TCP probes) the base class calls us
+            # before `self.path` or `self.command` are populated. Falling
+            # back to the formatted message means we still log a per-request
+            # line without raising AttributeError mid-`send_error`.
+            try:
+                command = self.command
+                path = self.path
+            except AttributeError:
+                log.info("%s malformed-request %s", self.address_string(), fmt % args if args else fmt)
+                return
+            log.info("%s %s %s", self.address_string(), command, path)
 
     return _Handler
