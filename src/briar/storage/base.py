@@ -71,3 +71,36 @@ class KnowledgeStore(ABC):
         if not content:
             return ""
         return hashlib.md5(content.encode("utf-8")).hexdigest()
+
+    def put_if_changed(self, blob_name: str, content: str, category: str = "") -> "PutIfChangedResult":
+        """Write `content` only when its md5 differs from the stored blob's.
+
+        Returns a structured result so callers can branch on `wrote` vs
+        `skipped` without parsing log lines. Backends that can do the
+        compare-and-set server-side (postgres) should override this for
+        a single round-trip; the default implementation reads the
+        fingerprint and conditionally calls `put`, costing whatever the
+        backend's overhead is per call.
+
+        The skip path leaves `updated_at` and history rows untouched,
+        which is the whole point — downstream readers can use the
+        unchanged `updated_at` to short-circuit reprocessing."""
+        import hashlib
+
+        new_hash = hashlib.md5(content.encode("utf-8")).hexdigest()
+        existing = self.fingerprint(blob_name)
+        if existing and existing == new_hash:
+            return PutIfChangedResult(wrote=False, byte_count=len(content), new_hash=new_hash, prev_hash=existing)
+        ref = self.put(blob_name, content, category=category)
+        return PutIfChangedResult(wrote=True, byte_count=ref.byte_count, new_hash=new_hash, prev_hash=existing, ref=ref)
+
+
+@dataclass
+class PutIfChangedResult:
+    """Outcome of `KnowledgeStore.put_if_changed`."""
+
+    wrote: bool
+    byte_count: int
+    new_hash: str
+    prev_hash: str = ""
+    ref: "KnowledgeRef" = None  # type: ignore[assignment]

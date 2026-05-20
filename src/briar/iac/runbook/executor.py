@@ -177,56 +177,46 @@ class RunbookExtractor:
 
         blob_name = binding.name if schedule.task == _DEFAULT_TASK else cls._task_blob_name(binding.name, schedule.task)
 
-        # Output-hash dedup: if the rendered markdown matches what we
-        # last wrote for this blob, skip the put entirely. Saves a
-        # Postgres write + history row, leaves `updated_at` alone so
-        # downstream agents that watch it can short-circuit. Saves
-        # tokens for everything that re-reads.
-        import hashlib
-
-        new_hash = hashlib.md5(md.encode("utf-8")).hexdigest()
+        # Single-connection compare-and-set. The store implementation
+        # compares md5 server-side (or local md5 for the file backend)
+        # and only writes when the content changed. Skip path leaves
+        # `updated_at` and history rows untouched — saves Postgres
+        # traffic, history bloat, and downstream LLM re-read tokens.
         try:
-            existing_hash = store.fingerprint(blob_name)
+            outcome = store.put_if_changed(blob_name, md, category="knowledge")
         except Exception:  # noqa: BLE001
-            log.exception("schedule-fingerprint-failed: blob=%s — falling through to write", blob_name)
-            existing_hash = ""
+            log.exception("schedule-failed: put_if_changed raised blob=%s", blob_name)
+            rows.append(ExtractRow(company_name, schedule.task, f"failed (put_if_changed raised: {blob_name})", blob_name))
+            return
 
-        if existing_hash and existing_hash == new_hash:
-            elapsed_ms = int((time.perf_counter() - wall_start) * 1000)
+        elapsed_ms = int((time.perf_counter() - wall_start) * 1000)
+        if not outcome.wrote:
             log.info(
                 "schedule-skip: output unchanged blob=%s hash=%s bytes=%d elapsed_ms=%d",
                 blob_name,
-                new_hash,
-                len(md),
+                outcome.new_hash,
+                outcome.byte_count,
                 elapsed_ms,
             )
             rows.append(
                 ExtractRow(
                     company_name,
                     schedule.task,
-                    f"skipped (unchanged, {len(md)} bytes, hash={new_hash[:8]})",
+                    f"skipped (unchanged, {outcome.byte_count} bytes, hash={outcome.new_hash[:8]})",
                     blob_name,
                 )
             )
             return
 
-        try:
-            ref = store.put(blob_name, md, category="knowledge")
-        except Exception:  # noqa: BLE001
-            log.exception("schedule-failed: store.put raised blob=%s", blob_name)
-            rows.append(ExtractRow(company_name, schedule.task, f"failed (store.put raised: {blob_name})", blob_name))
-            return
-
-        elapsed_ms = int((time.perf_counter() - wall_start) * 1000)
         log.info(
             "schedule-done: blob=%s bytes=%d hash=%s elapsed_ms=%d prev_hash=%s",
             blob_name,
-            ref.byte_count,
-            new_hash,
+            outcome.byte_count,
+            outcome.new_hash,
             elapsed_ms,
-            existing_hash or "(none)",
+            outcome.prev_hash or "(none)",
         )
-        rows.append(ExtractRow(company_name, schedule.task, f"wrote {ref.byte_count} bytes via store={binding.store}", blob_name))
+        rows.append(ExtractRow(company_name, schedule.task, f"wrote {outcome.byte_count} bytes via store={binding.store}", blob_name))
 
     @staticmethod
     def _binding_for(company: CompanyEntry, company_name: str) -> KnowledgeBinding:

@@ -138,6 +138,77 @@ class StorePostgres(KnowledgeStore):
             return ""
         return str(row[0])
 
+    def put_if_changed(self, blob_name: str, content: str, category: str = "") -> "PutIfChangedResult":
+        """Compare md5 server-side AND do the write in a single connection.
+
+        Crucial on DO managed Postgres where the user-role connection slot
+        budget is tight — opening two separate connections (fingerprint,
+        put) doubles slot pressure under burst load and can hit
+        `FATAL: remaining connection slots are reserved for roles with
+        the SUPERUSER attribute`. One transaction here means one slot
+        held for the duration of the operation. The compare-and-set is
+        also atomic, so a concurrent writer can't sneak a change in
+        between our read and our write."""
+        from briar.storage.base import PutIfChangedResult
+
+        cat = category or KnowledgeRef.category_of(blob_name)
+        company, task = _company_task_from(blob_name)
+        byte_count = len(content)
+        import hashlib
+
+        new_hash = hashlib.md5(content.encode("utf-8")).hexdigest()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT md5(content) FROM briar_knowledge WHERE blob_name = %s", (blob_name,))
+            row = cur.fetchone()
+            existing_hash = str(row[0]) if row else ""
+            if existing_hash and existing_hash == new_hash:
+                log.info(
+                    "pg-store skip: blob=%s bytes=%d hash=%s — content unchanged",
+                    blob_name,
+                    byte_count,
+                    new_hash,
+                )
+                return PutIfChangedResult(wrote=False, byte_count=byte_count, new_hash=new_hash, prev_hash=existing_hash)
+            log.info(
+                "pg-store put: blob=%s category=%s company=%s task=%s bytes=%d prev_hash=%s",
+                blob_name,
+                cat,
+                company,
+                task or "(default)",
+                byte_count,
+                existing_hash or "(none)",
+            )
+            cur.execute(
+                """
+                INSERT INTO briar_knowledge (blob_name, category, company, task, content, byte_count)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (blob_name) DO UPDATE
+                SET category   = EXCLUDED.category,
+                    company    = EXCLUDED.company,
+                    task       = EXCLUDED.task,
+                    content    = EXCLUDED.content,
+                    byte_count = EXCLUDED.byte_count,
+                    updated_at = now()
+                """,
+                (blob_name, cat, company, task, content, byte_count),
+            )
+            cur.execute(
+                """
+                INSERT INTO briar_knowledge_history (blob_name, category, content, byte_count)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (blob_name, cat, content, byte_count),
+            )
+            conn.commit()
+        ref = KnowledgeRef(
+            name=blob_name,
+            category=cat,
+            byte_count=byte_count,
+            updated_at="",
+            extra={"company": company, "task": task},
+        )
+        return PutIfChangedResult(wrote=True, byte_count=byte_count, new_hash=new_hash, prev_hash=existing_hash, ref=ref)
+
     def list(self, prefix: str = "") -> List[KnowledgeRef]:
         with self._connect() as conn, conn.cursor() as cur:
             if prefix:
@@ -181,11 +252,35 @@ class StorePostgres(KnowledgeStore):
     # ---- internals --------------------------------------------------------
 
     def _connect(self):
-        # Lazy import so the module loads even when psycopg isn't installed
-        # (e.g. file-only users running the dashboard locally).
+        """Open a connection, retrying once on transient slot exhaustion.
+
+        DO managed Postgres on the smallest tier has ~22 non-superuser
+        connection slots. When several (dashboard + scheduler + api) all
+        spike at once we hit `FATAL: remaining connection slots are
+        reserved for roles with the SUPERUSER attribute`. The error is
+        transient: a brief sleep typically lets a peer's `with` block
+        close and free a slot. Three attempts with linear back-off keep
+        the scheduler fires + dashboard renders alive without masking a
+        real outage (after 3 we propagate the original error and the
+        caller's `logger.exception` records the full traceback)."""
+        import time
+
         import psycopg
 
-        return psycopg.connect(self._dsn, autocommit=False)
+        last_exc: Exception = RuntimeError("unreachable")
+        for attempt in range(3):
+            try:
+                return psycopg.connect(self._dsn, autocommit=False)
+            except psycopg.OperationalError as exc:
+                msg = str(exc).lower()
+                transient = ("remaining connection slots" in msg) or ("too many connections" in msg) or ("connection timed out" in msg)
+                if not transient:
+                    raise
+                last_exc = exc
+                wait = 0.25 * (attempt + 1)
+                log.warning("pg-store connect transient failure (attempt %d/3): %s — retrying in %.2fs", attempt + 1, exc, wait)
+                time.sleep(wait)
+        raise last_exc
 
     # ---- one-time bootstrap (admin path) ---------------------------------
 
