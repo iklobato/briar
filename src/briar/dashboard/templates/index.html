@@ -6,7 +6,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script
   src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"
-  integrity="sha384-NTaOH3yMWZHCxe3WLJfb7+0i+SCi8U+yYZIKBdyqDoCXFvfQS9oVqgRRRyM2cZmM"
   crossorigin="anonymous"></script>
 <style>
   :root {
@@ -114,22 +113,6 @@
   </div>
 </section>
 
-<!-- CHARTS ROW: disk donut, memory donut, load bars -->
-<div class="grid-3">
-  <section>
-    <h2>disk</h2>
-    <div class="chart-wrap"><canvas id="diskChart"></canvas></div>
-  </section>
-  <section>
-    <h2>memory</h2>
-    <div class="chart-wrap"><canvas id="memChart"></canvas></div>
-  </section>
-  <section>
-    <h2>load avg</h2>
-    <div class="chart-wrap"><canvas id="loadChart"></canvas></div>
-  </section>
-</div>
-
 <!-- CONNECTIVITY + CRON -->
 <div class="grid-2">
   <section>
@@ -175,13 +158,11 @@
 
 <!-- KNOWLEDGE AGGREGATES + COMPANIES -->
 <section>
-  <h2>aggregated extraction</h2>
-  <div class="grid-6">
-    <div class="stat"><div class="k">files</div><div class="v big">{{ knowledge_aggregates.files }}</div></div>
-    <div class="stat"><div class="k">total bytes</div><div class="v big">{{ knowledge_aggregates.total_bytes }}</div></div>
+  <h2>aggregated extraction <span class="count">mined from the knowledge files</span></h2>
+  <div class="grid-4">
     <div class="stat"><div class="k">merged PRs</div><div class="v big">{{ knowledge_aggregates.merged_prs }}</div></div>
     <div class="stat"><div class="k">open PRs</div><div class="v big">{{ knowledge_aggregates.open_prs }}</div></div>
-    <div class="stat"><div class="k">rds + sqs</div><div class="v big">{{ knowledge_aggregates.rds_instances }} · {{ knowledge_aggregates.sqs_queues }}</div></div>
+    <div class="stat"><div class="k">rds · sqs</div><div class="v big">{{ knowledge_aggregates.rds_instances }} · {{ knowledge_aggregates.sqs_queues }}</div></div>
     <div class="stat"><div class="k">log groups</div><div class="v big">{{ knowledge_aggregates.log_groups }}</div></div>
   </div>
 </section>
@@ -434,64 +415,8 @@
   Chart.defaults.font.family = "ui-monospace, SFMono-Regular, Menlo, monospace";
 
   // ----- payload (JSON, server-rendered) -----
-  const DISK = {{ system|tojson }};
   const KNOWLEDGE = {{ knowledge.chart|tojson }};
   const CYCLES = {{ cycle_outcomes.chart|tojson }};
-
-  // ----- disk donut -----
-  new Chart(document.getElementById("diskChart"), {
-    type: "doughnut",
-    data: {
-      labels: ["used (GB)", "free (GB)"],
-      datasets: [{
-        data: [DISK.disk_used_gb, DISK.disk_free_gb],
-        backgroundColor: ["#d65a5a", "#5ad683"],
-        borderWidth: 0,
-      }],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      cutout: "65%",
-      plugins: { legend: { position: "bottom", labels: { padding: 8 } } },
-    },
-  });
-
-  // ----- memory donut -----
-  new Chart(document.getElementById("memChart"), {
-    type: "doughnut",
-    data: {
-      labels: ["used (MB)", "free (MB)"],
-      datasets: [{
-        data: [DISK.mem_used_mb, DISK.mem_total_mb - DISK.mem_used_mb],
-        backgroundColor: ["#d6a35a", "#7cc4ff"],
-        borderWidth: 0,
-      }],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      cutout: "65%",
-      plugins: { legend: { position: "bottom", labels: { padding: 8 } } },
-    },
-  });
-
-  // ----- load bars -----
-  new Chart(document.getElementById("loadChart"), {
-    type: "bar",
-    data: {
-      labels: ["1 min", "5 min", "15 min"],
-      datasets: [{
-        label: "load avg",
-        data: [DISK.load_1, DISK.load_5, DISK.load_15],
-        backgroundColor: "#7cc4ff",
-        borderWidth: 0,
-      }],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: true } },
-    },
-  });
 
   // ----- knowledge-file size bars -----
   if (KNOWLEDGE && KNOWLEDGE.labels && KNOWLEDGE.labels.length > 0) {

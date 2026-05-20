@@ -258,9 +258,6 @@ class FullRenderTests(unittest.TestCase):
         for needle in (
             "<title>briar scheduler",
             "at a glance",
-            "<canvas id=\"diskChart\"",
-            "<canvas id=\"memChart\"",
-            "<canvas id=\"loadChart\"",
             "<canvas id=\"knowledgeChart\"",
             "<canvas id=\"cycleChart\"",
             "<h2>connectivity",
