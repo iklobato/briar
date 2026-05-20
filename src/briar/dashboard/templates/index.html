@@ -16,12 +16,15 @@
   }
   * { box-sizing: border-box; }
   body { background: var(--bg); color: var(--fg); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: 0; padding: 1.5rem; line-height: 1.5; }
-  header { margin-bottom: 1.5rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 1rem; }
-  header h1 { margin: 0 0 0.4rem; font-size: 1.4rem; font-weight: 600; }
+  header { margin-bottom: 1.5rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1.5rem; }
+  header h1 { margin: 0 0 0.6rem; font-size: 1.4rem; font-weight: 600; }
   header h1 .host { color: var(--accent); }
-  header .meta { color: var(--dim); font-size: 0.8rem; line-height: 1.5; }
-  header .deploy { color: var(--dim); font-size: 0.75rem; text-align: right; }
-  header .deploy strong { color: var(--good); }
+  header dl { display: grid; grid-template-columns: max-content 1fr; column-gap: 0.75rem; row-gap: 0.15rem; margin: 0; font-size: 0.78rem; line-height: 1.4; }
+  header dl dt { color: var(--dim); text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.7rem; align-self: center; }
+  header dl dd { margin: 0; color: var(--fg); }
+  .hdr-deploy { background: #0a0c10; border: 1px solid var(--border); border-radius: 4px; padding: 0.6rem 0.85rem; min-width: 320px; }
+  .hdr-deploy strong { color: var(--good); }
+  .hdr-deploy code { font-size: 0.72rem; }
   section { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 1rem 1.25rem; margin-bottom: 1rem; }
   section h2 { margin: 0 0 0.75rem; font-size: 0.95rem; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 0.35rem; display: flex; justify-content: space-between; align-items: baseline; }
   section h2 .count { color: var(--dim); font-weight: 400; font-size: 0.8rem; }
@@ -63,23 +66,22 @@
 <body>
 
 <header>
-  <div>
+  <div class="hdr-left">
     <h1>briar scheduler · <span class="host">{{ system.hostname }}</span></h1>
-    <div class="meta">
-      rendered {{ system.now }} · uptime {{ system.uptime }} · {{ system.cpu_count }} cpu
-      · dashboard pid {{ dashboard_process.pid }} (up {{ dashboard_process.uptime }},
-      {{ dashboard_process.request_count }} requests served,
-      last render {{ dashboard_process.last_render_ms }} ms)
-    </div>
+    <dl class="hdr-meta">
+      <dt>rendered</dt><dd>{{ system.now }}</dd>
+      <dt>uptime</dt><dd>{{ system.uptime }} · {{ system.cpu_count }} CPU</dd>
+      <dt>dashboard</dt><dd>pid {{ dashboard_process.pid }} · up {{ dashboard_process.uptime }} · {{ dashboard_process.request_count }} req · render {{ dashboard_process.last_render_ms }} ms</dd>
+    </dl>
   </div>
   {% if deploy.present %}
-  <div class="deploy">
-    deploy <strong>{{ deploy.short_sha }}</strong>
-    <span class="pill">{{ deploy.branch }}</span><br>
-    {{ deploy.subject }}<br>
-    <em>{{ deploy.author }} · {{ deploy.committed }}</em><br>
-    <code>{{ deploy.remote }}</code>
-  </div>
+  <dl class="hdr-deploy">
+    <dt>sha</dt>      <dd><strong>{{ deploy.short_sha }}</strong> · <span class="pill">{{ deploy.branch }}</span></dd>
+    <dt>subject</dt>  <dd>{{ deploy.subject }}</dd>
+    <dt>author</dt>   <dd>{{ deploy.author }}</dd>
+    <dt>committed</dt><dd>{{ deploy.committed }}</dd>
+    <dt>remote</dt>   <dd><code>{{ deploy.remote }}</code></dd>
+  </dl>
   {% endif %}
 </header>
 
