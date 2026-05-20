@@ -369,12 +369,18 @@
   <section>
     <h2>archetypes <span class="count">{{ archetypes.rows|length }}</span></h2>
     <table>
-      <thead><tr><th>name</th><th>role</th></tr></thead>
+      <thead><tr><th>name</th><th>role · consumes · tool filter</th></tr></thead>
       <tbody>
         {% for r in archetypes.rows %}
         <tr>
           <td><strong>{{ r.name }}</strong></td>
-          <td>{{ r.role }}<br><span class="meta" style="color: var(--dim); font-size: 0.7rem;">tools: {% for t in r.tool_filter %}<span class="pill">{{ t }}</span>{% endfor %}</span></td>
+          <td>
+            {{ r.role }}<br>
+            <span class="meta" style="color: var(--dim); font-size: 0.7rem;">
+              reads: {% for x in r.consumes %}<span class="pill">{{ x }}</span>{% endfor %}<br>
+              tools: {% for t in r.tool_filter %}<span class="pill">{{ t }}</span>{% endfor %}
+            </span>
+          </td>
         </tr>
         {% endfor %}
       </tbody>

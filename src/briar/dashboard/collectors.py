@@ -484,6 +484,7 @@ class ArchetypesCollector(Collector):
                     "description": a.description,
                     "role": a.role,
                     "tool_filter": list(a.tool_filter) or ["(no filter)"],
+                    "consumes": list(a.consumes) or ["(none)"],
                 }
                 for a in ARCHETYPES.values()
             ],
