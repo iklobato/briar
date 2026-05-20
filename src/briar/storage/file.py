@@ -6,10 +6,14 @@ a name without a colon goes to ``./knowledge/<name>.md``."""
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import List
 
 from briar.storage.base import KnowledgeRef, KnowledgeStore
+
+
+log = logging.getLogger(__name__)
 
 
 class StoreFile(KnowledgeStore):
@@ -18,6 +22,7 @@ class StoreFile(KnowledgeStore):
     def __init__(self, root: Path) -> None:
         self._root = root
         self._root.mkdir(parents=True, exist_ok=True)
+        log.debug("file-store init: root=%s", self._root)
 
     def _path_for(self, blob_name: str) -> Path:
         """Three name shapes are supported:
@@ -48,7 +53,12 @@ class StoreFile(KnowledgeStore):
     def put(self, blob_name: str, content: str, category: str = "") -> KnowledgeRef:
         path = self._path_for(blob_name)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content)
+        try:
+            path.write_text(content)
+        except OSError:
+            log.exception("file-store put failed: blob=%s path=%s", blob_name, path)
+            raise
+        log.debug("file-store put: blob=%s path=%s bytes=%d", blob_name, path, len(content))
         return KnowledgeRef(
             name=blob_name,
             category=category or KnowledgeRef.category_of(blob_name),
@@ -60,7 +70,9 @@ class StoreFile(KnowledgeStore):
     def get(self, blob_name: str) -> str:
         path = self._path_for(blob_name)
         if not path.exists():
+            log.debug("file-store get miss: blob=%s path=%s", blob_name, path)
             return ""
+        log.debug("file-store get: blob=%s path=%s", blob_name, path)
         return path.read_text()
 
     def list(self, prefix: str = "") -> List[KnowledgeRef]:

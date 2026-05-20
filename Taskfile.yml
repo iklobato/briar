@@ -1,0 +1,14 @@
+version: "3"
+
+vars:
+  DROPLET: root@203.0.113.11
+  LOG_DIR: /var/log/briar
+
+tasks:
+  tail:
+    desc: "Follow scheduler + dashboard logs from the briar-scheduler droplet in real time"
+    cmds:
+      - >
+        ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=3
+        {{.DROPLET}}
+        "tail -n 80 -F {{.LOG_DIR}}/scheduler.log {{.LOG_DIR}}/dashboard.log"

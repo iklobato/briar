@@ -26,7 +26,11 @@ def configure(verbose: bool = False) -> None:
     """Configure root logger. INFO by default; `--verbose` → DEBUG.
 
     Force-reconfigures even if `logging.basicConfig` ran already, so
-    test imports + repeated CLI invocations stay deterministic."""
+    test imports + repeated CLI invocations stay deterministic.
+    Also attaches a `ContextFilter` so anything pushed onto
+    `briar.log_context.log_context` gets prepended to every record."""
+    from briar.log_context import ContextFilter
+
     level = logging.DEBUG if verbose else logging.INFO
     # `force=True` removes any pre-existing handlers so a test that
     # imported briar before configuring doesn't double-log.
@@ -39,6 +43,12 @@ def configure(verbose: bool = False) -> None:
     )
     # Always log in UTC.
     logging.Formatter.converter = time.gmtime
+    # Attach the context filter to every existing handler. New handlers
+    # added later (e.g. by tests) will not get it automatically; that is
+    # intentional — production never adds handlers after configure().
+    context_filter = ContextFilter()
+    for handler in logging.getLogger().handlers:
+        handler.addFilter(context_filter)
     # Quiet noisy third-party libs regardless of --verbose. The flag is
     # meant to turn up briar's own DEBUG output, not bury us in every
     # TLS handshake. Use BRIAR_LIB_DEBUG=1 to flip these on.

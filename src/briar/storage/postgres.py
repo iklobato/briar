@@ -81,7 +81,14 @@ class StorePostgres(KnowledgeStore):
         cat = category or KnowledgeRef.category_of(blob_name)
         company, task = _company_task_from(blob_name)
         byte_count = len(content)
-        log.debug("postgres put: blob=%s category=%s bytes=%d", blob_name, cat, byte_count)
+        log.info(
+            "pg-store put: blob=%s category=%s company=%s task=%s bytes=%d",
+            blob_name,
+            cat,
+            company,
+            task or "(default)",
+            byte_count,
+        )
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
