@@ -1,8 +1,26 @@
+# Python build artefacts
 .venv/
 __pycache__/
 *.pyc
 *.egg-info/
 build/
 dist/
+
+# Extracted knowledge (live data, not source)
 knowledge/
 final.json
+
+# Anything that looks like a secret bundle
+.env
+.env.*
+*.pem
+*.key
+secrets/
+secrets.env
+config.json
+.briar/
+
+# Editor / OS noise
+.DS_Store
+.idea/
+.vscode/
