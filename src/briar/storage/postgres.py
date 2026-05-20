@@ -179,16 +179,23 @@ class StorePostgres(KnowledgeStore):
         password), grants scoped DML on the two tables."""
         import psycopg
 
+        from psycopg import sql
+
         log.info("bootstrap: connecting via admin DSN (host redacted)")
         with psycopg.connect(admin_dsn, autocommit=True) as conn, conn.cursor() as cur:
             log.info("bootstrap: creating tables + indexes (idempotent)")
             cur.execute(_DDL_TABLES)
             log.info("bootstrap: ensuring role briar_kb exists with the supplied password")
             cur.execute("SELECT 1 FROM pg_roles WHERE rolname = 'briar_kb'")
+            # Postgres rejects parameter substitution in CREATE/ALTER ROLE
+            # — the password must be an SQL literal. `psycopg.sql.Literal`
+            # gives us safe string-escaping at compose time, no exposure to
+            # injection.
+            password_literal = sql.Literal(briar_kb_password)
             if cur.fetchone() is None:
-                cur.execute("CREATE ROLE briar_kb LOGIN PASSWORD %s", (briar_kb_password,))
+                cur.execute(sql.SQL("CREATE ROLE briar_kb LOGIN PASSWORD {}").format(password_literal))
             else:
-                cur.execute("ALTER ROLE briar_kb WITH LOGIN PASSWORD %s", (briar_kb_password,))
+                cur.execute(sql.SQL("ALTER ROLE briar_kb WITH LOGIN PASSWORD {}").format(password_literal))
             log.info("bootstrap: granting scoped DML on briar_knowledge[_history]")
             cur.execute(_DDL_GRANTS)
         log.info("bootstrap: done")
