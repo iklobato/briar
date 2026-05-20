@@ -8,12 +8,17 @@ shared registries."""
 from __future__ import annotations
 
 import argparse
+import logging
 from typing import Any, Dict, List
 
+from briar.iac.scaffold._knowledge import KnowledgeSplicer
 from briar.iac.scaffold.archetypes import ARCHETYPES, AgentArchetype
 from briar.iac.scaffold.shapes import WORKFLOW_SHAPES, WorkflowShape
 from briar.iac.scaffold.sources import SOURCE_TEMPLATES, SourceTemplate
 from briar.iac.scaffold.triggers import TRIGGER_TEMPLATES, TriggerTemplate
+
+
+log = logging.getLogger(__name__)
 
 
 class ScaffoldComposer:
@@ -53,12 +58,18 @@ class ScaffoldComposer:
 
         persona = archetype.build_persona(target)
         agent_key = f"{prefix}-{archetype.name}"
+        # If a `--company` is supplied, splice in the relevant extractor
+        # sections from the configured KnowledgeStore. The resulting
+        # `system_prompt` carries the actual mined data so downstream
+        # agent runtimes don't need to query Postgres themselves.
+        system_prompt = cls._knowledge_prologue(args, archetype)
         agent: Dict[str, Any] = {
             "key": agent_key,
             "name": agent_key,
             "role": persona["role"],
             "goal": persona["goal"],
             "backstory": persona["backstory"],
+            "system_prompt": system_prompt,
             "llm_model_key": f"{prefix}-model",
             "tool_keys": [t["key"] for t in tools_block],
             "source_keys": [s["key"] for s in sources_block],
@@ -100,6 +111,39 @@ class ScaffoldComposer:
         if trigger_dict:
             bundle["triggers"] = [trigger_dict]
         return bundle
+
+    @staticmethod
+    def _knowledge_prologue(args: argparse.Namespace, archetype: AgentArchetype) -> str:
+        """Build the system_prompt prologue from the configured store.
+
+        Skips silently when `--company` isn't supplied OR when the
+        archetype has nothing in its `consumes` list OR when the store
+        can't be reached (e.g. dev laptop without BRIAR_DATABASE_URL).
+        The agent's backstory already names every consumed extractor,
+        so the agent will still know what it ought to read — it just
+        won't have the cached content in its prompt."""
+        ns = vars(args)
+        company = (ns.get("company") or "").strip()
+        if not company or not archetype.consumes:
+            return ""
+        from briar.storage import make_store
+
+        store_name = (ns.get("knowledge_store") or "").strip()
+        if not store_name:
+            from briar.env_vars import CredEnv
+
+            store_name = "postgres" if CredEnv.BRIAR_DATABASE_URL.read() else "file"
+        try:
+            store = make_store(store_name)
+        except Exception:  # noqa: BLE001
+            log.exception("scaffold: could not open store=%s; skipping knowledge splice", store_name)
+            return ""
+        try:
+            splicer = KnowledgeSplicer(store, company)
+            return splicer.prologue(archetype)
+        except Exception:  # noqa: BLE001
+            log.exception("scaffold: knowledge splice failed for company=%s store=%s", company, store_name)
+            return ""
 
     @staticmethod
     def _resolved_sources(kinds: List[str]) -> List[SourceTemplate]:
@@ -189,6 +233,20 @@ class ScaffoldArgs:
         parser.add_argument(
             "--github-secret-id",
             help="Secret UUID holding a GitHub PAT (with --auth-mode pat)",
+        )
+        parser.add_argument(
+            "--company",
+            default="",
+            help=(
+                "Company name whose extracted knowledge to splice into the "
+                "agent's system_prompt. When omitted, the scaffold emits a "
+                "knowledge-aware persona but without any cached sections."
+            ),
+        )
+        parser.add_argument(
+            "--knowledge-store",
+            default="",
+            help=("KnowledgeStore backend to read the splice from " "(default: postgres if BRIAR_DATABASE_URL is set, else file)"),
         )
 
     @staticmethod
