@@ -28,6 +28,8 @@ class CredEnv(str, Enum):
     JIRA_EMAIL = "JIRA_{c}_EMAIL"
     JIRA_TOKEN = "JIRA_{c}_TOKEN"
 
+    BRIAR_DATABASE_URL = "BRIAR_DATABASE_URL"
+
     def for_company(self, company: str) -> str:
         normalised = company.upper().replace("-", "_")
         return self.value.format(c=normalised)

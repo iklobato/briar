@@ -84,9 +84,12 @@ class CompaniesCollectorTests(unittest.TestCase):
 
 class KnowledgeAggregatesTests(unittest.TestCase):
     def test_mines_numbers(self) -> None:
+        from briar.storage import make_store
+
         with tempfile.TemporaryDirectory() as td:
-            (Path(td) / "acme.md").write_text(_KNOWLEDGE_SAMPLE)
-            result = KnowledgeAggregatesCollector(knowledge_root=Path(td)).collect()
+            store = make_store("file", file_root=Path(td))
+            store.put("knowledge:acme", _KNOWLEDGE_SAMPLE)
+            result = KnowledgeAggregatesCollector(store=store).collect()
         self.assertEqual(result["files"], 1)
         self.assertEqual(result["merged_prs"], 42)
         self.assertEqual(result["open_prs"], 7)
@@ -253,10 +256,11 @@ class FullRenderTests(unittest.TestCase):
             secrets.write_text("X=y\n")
 
             from briar.dashboard.collectors import DashboardPaths, DashboardSelf
+            from briar.storage import make_store
 
             paths = DashboardPaths(
                 examples_dir=ex,
-                knowledge_dir=kn,
+                knowledge_store=make_store("file", file_root=kn),
                 log_path=log,
                 disk_path=base,
                 repo_path=base,

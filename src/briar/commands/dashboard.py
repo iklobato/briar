@@ -8,6 +8,8 @@ from pathlib import Path
 from briar.commands.base import Command
 from briar.dashboard.collectors import CollectorRegistry, DashboardPaths, DashboardSelf
 from briar.dashboard.server import DashboardServer
+from briar.env_vars import CredEnv
+from briar.storage import KNOWLEDGE_STORE_NAMES, make_store
 
 
 class CommandDashboard(Command):
@@ -18,7 +20,13 @@ class CommandDashboard(Command):
         parser.add_argument("--host", default="0.0.0.0", help="bind address (default: 0.0.0.0 — public)")
         parser.add_argument("--port", type=int, default=8080, help="bind port (default: 8080)")
         parser.add_argument("--examples", default="./examples", help="directory of runbook YAMLs")
-        parser.add_argument("--knowledge", default="./knowledge", help="knowledge-file root")
+        parser.add_argument(
+            "--knowledge-store",
+            default="",
+            choices=[""] + list(KNOWLEDGE_STORE_NAMES),
+            help="which KnowledgeStore to read from (default: postgres if BRIAR_DATABASE_URL is set, else file)",
+        )
+        parser.add_argument("--knowledge", default="./knowledge", help="knowledge file root (only used when --knowledge-store=file)")
         parser.add_argument("--log-file", default="/var/log/briar/scheduler.log", help="path to the scheduler log")
         parser.add_argument("--disk-path", default="/", help="filesystem path used for disk-usage stats")
         parser.add_argument("--repo-path", default=".", help="path of the deployed git checkout")
@@ -27,10 +35,13 @@ class CommandDashboard(Command):
         parser.add_argument("--once", action="store_true", help="render once to stdout and exit")
 
     def run(self, args: argparse.Namespace) -> int:
+        store_name = args.knowledge_store or ("postgres" if CredEnv.BRIAR_DATABASE_URL.read() else "file")
+        knowledge_store = make_store(store_name, file_root=Path(args.knowledge))
+
         server = DashboardServer(host=args.host, port=args.port)
         paths = DashboardPaths(
             examples_dir=Path(args.examples),
-            knowledge_dir=Path(args.knowledge),
+            knowledge_store=knowledge_store,
             log_path=Path(args.log_file),
             disk_path=Path(args.disk_path),
             repo_path=Path(args.repo_path),

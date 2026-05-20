@@ -1,16 +1,23 @@
-"""KnowledgeStore — local file backend only.
+"""KnowledgeStore — pluggable backends.
 
-Adding a new backend (sqlite, S3, …) is one file in this package + one
-entry in `KnowledgeStoreRegistry.STORES`."""
+Two backends today:
+- `file`     — local markdown files at `./knowledge/...` (laptop dev)
+- `postgres` — DO managed Postgres (production droplet); DSN comes
+               from `BRIAR_DATABASE_URL` env var
+
+Adding a new backend is one file in this package + one entry in
+`KnowledgeStoreRegistry.STORES`."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Dict, List, Type
 
+from briar.env_vars import CredEnv
 from briar.errors import CliError
 from briar.storage.base import KnowledgeRef, KnowledgeStore
 from briar.storage.file import StoreFile
+from briar.storage.postgres import StorePostgres
 
 
 _DEFAULT_FILE_ROOT = Path("./knowledge")
@@ -19,7 +26,7 @@ _DEFAULT_FILE_ROOT = Path("./knowledge")
 class KnowledgeStoreRegistry:
     """Factory for the configured backends. Static-only."""
 
-    STORES: Dict[str, Type[KnowledgeStore]] = {"file": StoreFile}
+    STORES: Dict[str, Type[KnowledgeStore]] = {"file": StoreFile, "postgres": StorePostgres}
 
     @classmethod
     def names(cls) -> List[str]:
@@ -32,6 +39,11 @@ class KnowledgeStoreRegistry:
             raise CliError(f"unknown knowledge store {name!r}; known: {', '.join(cls.names())}")
         if store_cls is StoreFile:
             return StoreFile(file_root)
+        if store_cls is StorePostgres:
+            dsn = CredEnv.BRIAR_DATABASE_URL.read()
+            if not dsn:
+                raise CliError("store 'postgres' requires the BRIAR_DATABASE_URL env var")
+            return StorePostgres(dsn)
         return store_cls()
 
 

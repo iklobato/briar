@@ -46,7 +46,7 @@ class KnowledgeBinding(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    store: Literal["file"] = "file"
+    store: Literal["file", "postgres"] = "file"
     name: str = ""
     root: str = ""
 

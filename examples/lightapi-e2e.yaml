@@ -5,8 +5,8 @@ version: 1
 companies:
   lightapi:
     knowledge:
-      store: file
-      name: ./knowledge/lightapi.md
+      store: postgres
+      name: knowledge:lightapi
 
     schedules:
       - task: extractors

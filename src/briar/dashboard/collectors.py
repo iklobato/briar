@@ -77,41 +77,35 @@ class CompaniesCollector(Collector):
 
 
 class KnowledgeCollector(Collector):
-    """List every extracted knowledge file with size + mtime."""
+    """List every stored knowledge blob — via the configured
+    `KnowledgeStore`, so the dashboard works on any backend (file
+    locally, Postgres in production)."""
 
     name = "knowledge"
 
-    def __init__(self, root: Path) -> None:
-        self._root = root
+    def __init__(self, store) -> None:  # KnowledgeStore — typed in storage/base
+        self._store = store
 
     def collect(self) -> Dict[str, Any]:
-        if not self._root.exists():
-            return {
-                "rows": [],
-                "root": str(self._root),
-                "missing": True,
-                "chart": {"labels": [], "values": []},
-            }
+        from briar.storage.base import KnowledgeStore  # noqa: F401 — type-only
+
         rows: List[Dict[str, Any]] = []
-        for path in sorted(self._root.rglob("*.md")):
-            stat = path.stat()
-            head = _safe_head(path, lines=3)
-            section_count = _count_sections(path)
+        for ref in self._store.list():
+            content = self._store.get(ref.name)
+            head = "\n".join(content.splitlines()[:3])
+            section_count = sum(1 for line in content.splitlines() if line.startswith("## "))
             rows.append(
                 {
-                    "path": str(path.relative_to(self._root)),
-                    "byte_count": stat.st_size,
-                    "modified": datetime.fromtimestamp(
-                        stat.st_mtime,
-                        tz=timezone.utc,
-                    ).strftime("%Y-%m-%d %H:%M UTC"),
+                    "path": ref.name,
+                    "byte_count": ref.byte_count,
+                    "modified": ref.updated_at or "",
                     "head": head,
                     "sections": section_count,
                 }
             )
         return {
             "rows": rows,
-            "root": str(self._root),
+            "root": self._store.name,
             "chart": {
                 "labels": [r["path"] for r in rows],
                 "values": [r["byte_count"] for r in rows],
@@ -120,7 +114,7 @@ class KnowledgeCollector(Collector):
 
 
 class KnowledgeAggregatesCollector(Collector):
-    """Mine the knowledge .md files for cross-company numbers."""
+    """Mine cross-company numbers out of the stored knowledge blobs."""
 
     name = "knowledge_aggregates"
 
@@ -130,20 +124,10 @@ class KnowledgeAggregatesCollector(Collector):
     _SQS_RE = re.compile(r"SQS\s+\((\d+)\s+queue")
     _LOG_RE = re.compile(r"CloudWatch Logs.*?of\s+(\d+)\)?")
 
-    def __init__(self, knowledge_root: Path) -> None:
-        self._root = knowledge_root
+    def __init__(self, store) -> None:  # KnowledgeStore
+        self._store = store
 
     def collect(self) -> Dict[str, Any]:
-        if not self._root.exists():
-            return {
-                "files": 0,
-                "total_bytes": 0,
-                "merged_prs": 0,
-                "open_prs": 0,
-                "rds_instances": 0,
-                "sqs_queues": 0,
-                "log_groups": 0,
-            }
         total_files = 0
         total_bytes = 0
         merged_prs = 0
@@ -151,9 +135,11 @@ class KnowledgeAggregatesCollector(Collector):
         rds = 0
         sqs = 0
         log_groups = 0
-        for path in self._root.rglob("*.md"):
+        for ref in self._store.list():
+            text = self._store.get(ref.name)
+            if not text:
+                continue
             total_files += 1
-            text = path.read_text(encoding="utf-8", errors="replace")
             total_bytes += len(text)
             for m in self._MERGED_PR_RE.finditer(text):
                 merged_prs += int(m.group(1))
@@ -714,12 +700,13 @@ class DashboardProcessCollector(Collector):
 
 @dataclass
 class DashboardPaths:
-    """Container for every filesystem path the dashboard's collectors
-    read from. Bundling them into one struct keeps the registry's
-    `from_paths` constructor at a reasonable arity."""
+    """Container for the filesystem paths + knowledge store the
+    dashboard's collectors read from. Bundling them into one struct
+    keeps the registry's `from_paths` constructor at a reasonable
+    arity."""
 
     examples_dir: Path
-    knowledge_dir: Path
+    knowledge_store: Any  # KnowledgeStore — Any avoids a cycle
     log_path: Path
     disk_path: Path
     repo_path: Path
@@ -751,8 +738,8 @@ class CollectorRegistry:
             ConnectivityCollector(),
             SecretsCollector(secrets_path=paths.secrets_path),
             CompaniesCollector(examples_dir=paths.examples_dir),
-            KnowledgeCollector(root=paths.knowledge_dir),
-            KnowledgeAggregatesCollector(knowledge_root=paths.knowledge_dir),
+            KnowledgeCollector(store=paths.knowledge_store),
+            KnowledgeAggregatesCollector(store=paths.knowledge_store),
             ExtractorsCollector(),
             SourcesCollector(),
             TriggersCollector(),
