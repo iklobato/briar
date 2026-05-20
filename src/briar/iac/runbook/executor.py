@@ -1,13 +1,14 @@
-"""Runbook executor — walks `RunbookFile` and writes a knowledge file
-per company. The API-driven apply/destroy paths were removed when the
-CLI dropped its remote-call surface."""
+"""Runbook executor — walks `RunbookFile`, runs extractors, writes the
+per-company knowledge file. Plus `RunbookCronRenderer` which emits a
+`/etc/cron.d`-shaped file with one line per (company, task) so each
+schedule fires independently."""
 
 from __future__ import annotations
 
 import argparse
 import json
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import yaml
 from pydantic import ValidationError
@@ -17,10 +18,15 @@ from briar.iac.runbook.models import (
     CompanyEntry,
     KnowledgeBinding,
     RunbookFile,
+    ScheduleEntry,
 )
 
 
-ExtractRow = Tuple[str, str, str]  # (company, status, output_path)
+ExtractRow = Tuple[str, str, str, str]  # (company, task, status, output_path)
+
+
+_DEFAULT_TASK = "extractors"
+_DEFAULT_EVERY = "day at 03:17"
 
 
 class RunbookLoader:
@@ -52,46 +58,80 @@ class RunbookLoader:
             raise ConfigError(f"invalid runbook {path}\n{exc}") from exc
 
 
-class RunbookExtractor:
-    """Walks `RunbookFile.companies` and runs each company's extractors.
+class RunbookSchedules:
+    """Static helpers that turn the YAML's old / new shapes into a
+    uniform list of `ScheduleEntry`s. Either `schedules:` (new) or a
+    bare `extract:` (legacy → one synthetic `extractors` task) is
+    accepted; both together is fine too (legacy `extract:` becomes one
+    extra task)."""
 
-    Stateless; everything flows through the classmethods so the public
-    surface stays a single `RunbookExtractor.extract(runbook)` call."""
+    @staticmethod
+    def for_company(company: CompanyEntry) -> List[ScheduleEntry]:
+        items: List[ScheduleEntry] = list(company.schedules)
+        if company.extract and not any(s.task == _DEFAULT_TASK for s in items):
+            items.append(ScheduleEntry(
+                task=_DEFAULT_TASK,
+                every=_DEFAULT_EVERY,
+                extract=list(company.extract),
+            ))
+        return items
+
+
+class RunbookExtractor:
+    """Runs the extractors. `task` is the filter — when `None`, runs
+    every schedule the company declares; when set, runs only the
+    matching task (typical cron invocation: one task per fire)."""
 
     @classmethod
-    def extract(cls, runbook_file: RunbookFile) -> List[ExtractRow]:
-        """Returns rows of (company, status, output_path).
-
-        Lazy-imports the extract subpackage so callers who never run
-        this don't pay the boto3 import cost."""
+    def extract(
+        cls,
+        runbook_file: RunbookFile,
+        *,
+        task: Optional[str] = None,
+    ) -> List[ExtractRow]:
         from briar.extract import EXTRACTORS
         from briar.extract.composer import KnowledgeComposer
         from briar.storage import make_store
 
         rows: List[ExtractRow] = []
         for company_name, company in runbook_file.companies.items():
-            if not company.extract:
-                rows.append((company_name, "skipped (no extract section)", ""))
+            schedules = RunbookSchedules.for_company(company)
+            schedules = [s for s in schedules if task is None or s.task == task]
+            if not schedules:
+                if task is None:
+                    rows.append((company_name, "-", "skipped (no schedule)", ""))
                 continue
 
             binding = cls._binding_for(company, company_name)
-            sections = cls._collect_sections(company, EXTRACTORS)
 
-            if not sections:
-                rows.append((company_name, "empty (no sections)", binding.name))
-                continue
+            for schedule in schedules:
+                sections = cls._collect_sections(schedule.extract, EXTRACTORS)
+                if not sections:
+                    rows.append((
+                        company_name, schedule.task,
+                        "empty (no sections)", binding.name,
+                    ))
+                    continue
 
-            md = KnowledgeComposer.markdown(
-                company=company_name, sections=sections,
-            )
-            file_root = Path(binding.root) if binding.root else None
-            store = make_store(binding.store, file_root=file_root)
-            ref = store.put(binding.name, md, category="knowledge")
-            rows.append((
-                company_name,
-                f"wrote {ref.byte_count} bytes via store={binding.store}",
-                binding.name,
-            ))
+                md = KnowledgeComposer.markdown(
+                    company=company_name, sections=sections,
+                )
+                file_root = Path(binding.root) if binding.root else None
+                store = make_store(binding.store, file_root=file_root)
+                # When multiple tasks write the same blob (e.g. extractors +
+                # implementation both producing parts of acme.md), suffix
+                # the blob name with the task to avoid clobbering. Default
+                # task `extractors` writes the canonical path.
+                blob_name = (
+                    binding.name if schedule.task == _DEFAULT_TASK
+                    else cls._task_blob_name(binding.name, schedule.task)
+                )
+                ref = store.put(blob_name, md, category="knowledge")
+                rows.append((
+                    company_name, schedule.task,
+                    f"wrote {ref.byte_count} bytes via store={binding.store}",
+                    blob_name,
+                ))
         return rows
 
     @staticmethod
@@ -99,8 +139,6 @@ class RunbookExtractor:
         company: CompanyEntry,
         company_name: str,
     ) -> KnowledgeBinding:
-        """Explicit `knowledge:` wins; `knowledge_file:` is the legacy
-        shortcut; otherwise default to `./knowledge/<company>.md`."""
         if company.knowledge is not None:
             return company.knowledge
         if company.knowledge_file:
@@ -110,9 +148,21 @@ class RunbookExtractor:
         )
 
     @staticmethod
-    def _collect_sections(company: CompanyEntry, registry):
+    def _task_blob_name(base_name: str, task: str) -> str:
+        """For non-default tasks, append `.<task>` before the suffix.
+
+        Examples:
+            ./knowledge/acme.md   + prfix  -> ./knowledge/acme.prfix.md
+            knowledge:acme        + prfix  -> knowledge:acme.prfix
+        """
+        if base_name.endswith(".md"):
+            return f"{base_name[:-3]}.{task}.md"
+        return f"{base_name}.{task}"
+
+    @staticmethod
+    def _collect_sections(extract_list, registry):
         sections = []
-        for entry in company.extract:
+        for entry in extract_list:
             extractor = registry.get(entry.name)
             if extractor is None:
                 continue
@@ -129,6 +179,6 @@ class RunbookExtractor:
         return sections
 
 
-# Back-compat aliases for callers and tests.
+# Back-compat aliases (used by the CLI command + tests).
 load_runbook_file = RunbookLoader.load
 extract_runbook = RunbookExtractor.extract

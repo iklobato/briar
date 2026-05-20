@@ -32,10 +32,6 @@ class CommandDashboard(Command):
             help="knowledge-file root (default: ./knowledge)",
         )
         parser.add_argument(
-            "--cron-file", default="/etc/cron.d/briar-scheduler",
-            help="path to the cron entry (default: /etc/cron.d/briar-scheduler)",
-        )
-        parser.add_argument(
             "--log-file", default="/var/log/briar/scheduler.log",
             help="path to the scheduler log",
         )
@@ -74,7 +70,6 @@ class CommandDashboard(Command):
         server._collectors = CollectorRegistry.for_paths(  # noqa: SLF001
             examples_dir=Path(args.examples),
             knowledge_dir=Path(args.knowledge),
-            cron_path=Path(args.cron_file),
             log_path=Path(args.log_file),
             disk_path=Path(args.disk_path),
             repo_path=Path(args.repo_path),

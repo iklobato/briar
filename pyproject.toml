@@ -30,6 +30,8 @@ dependencies = [
     "rich>=13,<14",        # pretty tables; auto-degrades on non-TTY pipes
     "boto3>=1.34,<2",      # AWS extractor (lazy-imported by aws_infra only)
     "jinja2>=3.1,<4",      # `briar dashboard` template engine
+    "schedule>=1.2,<2",    # in-process scheduler (replaces cron)
+    "pytz",                # `schedule`'s tz support for `at("HH:MM", tz)`
 ]
 
 [project.optional-dependencies]

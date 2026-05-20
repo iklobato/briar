@@ -14,7 +14,7 @@ import socket
 import subprocess
 import time
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, ClassVar, Dict, List, Optional, Tuple
 
@@ -161,47 +161,84 @@ class KnowledgeAggregatesCollector(Collector):
 # ---------------------------------------------------------------------------
 
 
-class CronCollector(Collector):
-    """Read /etc/cron.d/briar-scheduler entries."""
+class SchedulesCollector(Collector):
+    """Per-(company, task) schedules read from the YAMLs.
 
-    name = "cron"
+    Each row uses `EveryParser` + a private `schedule.Scheduler` so the
+    library computes the next-fire time without sharing global state."""
 
-    def __init__(self, cron_path: Path) -> None:
-        self._path = cron_path
+    name = "schedules"
 
-    def collect(self) -> Dict[str, Any]:
-        if not self._path.exists():
-            return {"present": False, "path": str(self._path), "entries": []}
-        text = self._path.read_text()
-        entries: List[Dict[str, Any]] = []
-        for line in text.splitlines():
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
-                continue
-            if "=" in stripped.split(" ", 1)[0]:
-                continue
-            parts = stripped.split(None, 6)
-            if len(parts) < 7:
-                continue
-            schedule = " ".join(parts[:5])
-            user = parts[5]
-            command = parts[6]
-            entries.append({
-                "schedule": schedule, "user": user, "command": command,
-                "next_fire": _next_cron_fire(schedule),
-            })
-        return {"present": True, "path": str(self._path), "entries": entries}
-
-
-class CronHealthCollector(Collector):
-    """systemctl is-active cron + last fire from journal (best-effort)."""
-
-    name = "cron_health"
+    def __init__(self, examples_dir: Path) -> None:
+        self._dir = examples_dir
 
     def collect(self) -> Dict[str, Any]:
-        active = _run(["systemctl", "is-active", "cron"], timeout=3) == "active"
-        enabled = _run(["systemctl", "is-enabled", "cron"], timeout=3) == "enabled"
-        return {"daemon_active": active, "daemon_enabled": enabled}
+        import schedule as schedule_mod
+        from briar.iac.runbook import (
+            EveryParser,
+            RunbookSchedules,
+            load_runbook_file,
+        )
+
+        # Private scheduler so .do() doesn't pollute the global registry.
+        local = schedule_mod.Scheduler()
+        rows: List[Dict[str, Any]] = []
+        for path in sorted(self._dir.glob("*.yaml")):
+            try:
+                runbook = load_runbook_file(path)
+            except Exception as exc:  # noqa: BLE001
+                rows.append({
+                    "file": path.name, "company": "(parse error)",
+                    "task": "-", "every": str(exc), "next_fire": "",
+                    "extractors": [], "ok": False,
+                })
+                continue
+            for company_name, company in runbook.companies.items():
+                for entry in RunbookSchedules.for_company(company):
+                    rows.append(self._row(
+                        path.name, company_name, entry, EveryParser, local,
+                    ))
+        return {"rows": rows, "count": len(rows)}
+
+    @staticmethod
+    def _row(file_name, company_name, entry, parser, scheduler):
+        job = parser.parse(entry.every, scheduler=scheduler)
+        job.do(_noop)  # binds + sets job.next_run
+        next_fire = (
+            job.next_run.strftime("%Y-%m-%d %H:%M UTC")
+            if job.next_run else ""
+        )
+        return {
+            "file": file_name,
+            "company": company_name,
+            "task": entry.task,
+            "every": entry.every,
+            "next_fire": next_fire,
+            "extractors": [e.name for e in entry.extract],
+            "ok": True,
+        }
+
+
+def _noop() -> None:
+    pass
+
+
+class SchedulerProcessCollector(Collector):
+    """Is `briar runbook serve` running?"""
+
+    name = "scheduler_process"
+
+    def collect(self) -> Dict[str, Any]:
+        out = _run(["pgrep", "-fa", "briar runbook serve"], timeout=2)
+        if not out:
+            return {"present": False, "pid": 0, "command": ""}
+        first_line = out.splitlines()[0]
+        pid_str, _, command = first_line.partition(" ")
+        return {
+            "present": True,
+            "pid": int(pid_str) if pid_str.isdigit() else 0,
+            "command": command,
+        }
 
 
 class ScheduleLogCollector(Collector):
@@ -645,7 +682,6 @@ class CollectorRegistry:
         *,
         examples_dir: Path,
         knowledge_dir: Path,
-        cron_path: Path,
         log_path: Path,
         disk_path: Path,
         repo_path: Path,
@@ -658,8 +694,8 @@ class CollectorRegistry:
         return [
             SystemCollector(disk_path=disk_path),
             GitDeployCollector(repo_path=repo_path),
-            CronCollector(cron_path=cron_path),
-            CronHealthCollector(),
+            SchedulesCollector(examples_dir=examples_dir),
+            SchedulerProcessCollector(),
             ScheduleLogCollector(log_path=log_path),
             CycleOutcomeCollector(log_path=log_path),
             ConnectivityCollector(),
@@ -794,50 +830,3 @@ def _run(cmd: List[str], *, timeout: float) -> str:
         return ""
 
 
-def _next_cron_fire(schedule: str) -> str:
-    """Approximate the next fire time for a 5-field cron expression.
-
-    Supports `*`, single ints, and ranges like `0-5`. Lists (`,`) and
-    step values (`*/5`) are honoured at the resolution we care about
-    (`0 17 * * *` and `0 * * * *` style). Returns ISO timestamp."""
-    fields = schedule.split()
-    if len(fields) != 5:
-        return ""
-    minute_set = _cron_field(fields[0], 0, 59)
-    hour_set = _cron_field(fields[1], 0, 23)
-    dom_set = _cron_field(fields[2], 1, 31)
-    month_set = _cron_field(fields[3], 1, 12)
-    dow_set = _cron_field(fields[4], 0, 6)
-    now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
-    candidate = now + timedelta(minutes=1)
-    for _ in range(60 * 24 * 366):
-        if (
-            candidate.minute in minute_set
-            and candidate.hour in hour_set
-            and candidate.day in dom_set
-            and candidate.month in month_set
-            and (candidate.weekday() + 1) % 7 in dow_set
-        ):
-            return candidate.strftime("%Y-%m-%d %H:%M UTC")
-        candidate += timedelta(minutes=1)
-    return ""
-
-
-def _cron_field(spec: str, low: int, high: int) -> set:
-    """Tiny cron-field parser. `*`, `n`, `n-m`, `a,b,c`, `*/k` supported."""
-    out: set = set()
-    for part in spec.split(","):
-        step = 1
-        body = part
-        if "/" in part:
-            body, _, step_str = part.partition("/")
-            step = int(step_str)
-        if body == "*":
-            out.update(range(low, high + 1, step))
-            continue
-        if "-" in body:
-            start_str, _, end_str = body.partition("-")
-            out.update(range(int(start_str), int(end_str) + 1, step))
-            continue
-        out.add(int(body))
-    return out

@@ -36,6 +36,24 @@ class ExtractEntry(_Strict):
     args: Dict[str, Any] = Field(default_factory=dict)
 
 
+class ScheduleEntry(_Strict):
+    """One scheduled task — a named group of extractors fired by the
+    in-process `schedule` library.
+
+    `every` is a small DSL the `EveryParser` understands:
+        "day at 03:17"     -> schedule.every().day.at("03:17", "UTC")
+        "4 hours"          -> schedule.every(4).hours
+        "hour"             -> schedule.every().hour
+        "hour at :15"      -> schedule.every().hour.at(":15")
+        "10 minutes"       -> schedule.every(10).minutes
+        "monday at 09:00"  -> schedule.every().monday.at("09:00", "UTC")
+    """
+
+    task: str
+    every: str
+    extract: List[ExtractEntry] = Field(default_factory=list)
+
+
 class KnowledgeBinding(BaseModel):
     """Where this company's knowledge blob lands on disk.
 
@@ -66,7 +84,12 @@ class CompanyEntry(BaseModel):
     knowledge_file: Optional[str] = None
     knowledge: Optional[KnowledgeBinding] = None
 
+    # Old (single-task) and new (multi-task) shapes coexist. The
+    # executor coalesces `extract` into one synthetic schedule when
+    # `schedules` is empty — preserves back-compat for the historic
+    # YAMLs without changing their behaviour.
     extract: List[ExtractEntry] = Field(default_factory=list)
+    schedules: List[ScheduleEntry] = Field(default_factory=list)
 
 
 class RunbookFile(_Strict):

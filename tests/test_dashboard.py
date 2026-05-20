@@ -14,16 +14,15 @@ from briar.dashboard.collectors import (
     CommandsCollector,
     CompaniesCollector,
     ConnectivityCollector,
-    CronCollector,
     CycleOutcomeCollector,
     GitDeployCollector,
     KnowledgeAggregatesCollector,
     KnowledgeCollector,
     LanguageDetectorsCollector,
     ScheduleLogCollector,
+    SchedulesCollector,
     SecretsCollector,
     WorkflowShapesCollector,
-    _cron_field,
     _human_bytes,
 )
 from briar.dashboard.server import DashboardServer
@@ -96,35 +95,42 @@ class KnowledgeAggregatesTests(unittest.TestCase):
         self.assertEqual(result["log_groups"], 15)
 
 
-class CronCollectorTests(unittest.TestCase):
-    def test_parses_entry_and_next_fire(self) -> None:
-        with tempfile.NamedTemporaryFile("w", suffix=".cron", delete=False) as f:
-            f.write(_CRON_FILE)
-            f.close()
-            result = CronCollector(cron_path=Path(f.name)).collect()
-        self.assertTrue(result["present"])
-        entry = result["entries"][0]
-        self.assertEqual(entry["schedule"], "17 3 * * *")
-        self.assertEqual(entry["user"], "root")
-        # next_fire should be a non-empty ISO-ish string
-        self.assertTrue(entry["next_fire"])
+_SCHEDULES_YAML = """\
+version: 1
+companies:
+  acme:
+    knowledge:
+      name: ./knowledge/acme.md
+    schedules:
+      - task: extractors
+        every: "day at 03:17"
+        extract:
+          - name: pr-archaeology
+            args:
+              pr_repo: [iklobato/lightapi]
+      - task: prfix
+        every: "hour"
+        extract:
+          - name: active-work
+            args:
+              active_repo: [iklobato/lightapi]
+"""
 
 
-class CronFieldTests(unittest.TestCase):
-    def test_star(self) -> None:
-        self.assertEqual(_cron_field("*", 0, 4), {0, 1, 2, 3, 4})
-
-    def test_int(self) -> None:
-        self.assertEqual(_cron_field("5", 0, 59), {5})
-
-    def test_range(self) -> None:
-        self.assertEqual(_cron_field("3-5", 0, 59), {3, 4, 5})
-
-    def test_step(self) -> None:
-        self.assertEqual(_cron_field("*/2", 0, 6), {0, 2, 4, 6})
-
-    def test_list(self) -> None:
-        self.assertEqual(_cron_field("1,5,7", 0, 59), {1, 5, 7})
+class SchedulesCollectorTests(unittest.TestCase):
+    def test_reads_yaml_into_per_task_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            (Path(td) / "acme.yaml").write_text(_SCHEDULES_YAML)
+            result = SchedulesCollector(examples_dir=Path(td)).collect()
+        self.assertEqual(result["count"], 2)
+        by_task = {r["task"]: r for r in result["rows"]}
+        self.assertEqual(by_task["extractors"]["every"], "day at 03:17")
+        self.assertEqual(by_task["prfix"]["every"], "hour")
+        self.assertEqual(
+            by_task["extractors"]["extractors"], ["pr-archaeology"],
+        )
+        # next_fire must render even when extract list is empty.
+        self.assertTrue(by_task["prfix"]["next_fire"])
 
 
 class CycleOutcomeTests(unittest.TestCase):
@@ -243,7 +249,6 @@ class FullRenderTests(unittest.TestCase):
             collectors = CollectorRegistry.for_paths(
                 examples_dir=ex,
                 knowledge_dir=kn,
-                cron_path=cron,
                 log_path=log,
                 disk_path=base,
                 repo_path=base,

@@ -1,67 +1,35 @@
-# End-to-end test runbook for iklobato/lightapi.
-#
-# Walks every feature: extract → knowledge file → apply → trigger → run →
-# checkpoint → PR. The implementation runbook produces a PR; the pr-fixes
-# runbook ingests review comments on it.
+# lightapi — extraction for iklobato/lightapi.
 
 version: 1
 
 companies:
   lightapi:
-    profile: lightapi
-    workspace_id: 49c8b9d7-98c6-4f73-8e62-e90e1a06db0e
-
-    defaults:
-      llm_provider_key: anthropic
-      model: claude-haiku-4-5-20251001    # haiku — cheaper and a different quota tier
-      auth_mode: pat
-      github_secret_id: 7e1ee226-d36a-4747-b8d7-39c333f462a2
-
-    # Local file knowledge — visible to system_prompt injection at apply time.
-    # (Switch `store: briar-api` + `mode: bind` once the backend deploy lands.)
     knowledge:
       store: file
       name: ./knowledge/lightapi.md
-      mode: inject
 
-    extract:
-      - name: pr-archaeology
-        args:
-          pr_repo: [iklobato/lightapi]
-          pr_max: 25
-      - name: active-work
-        args:
-          active_repo: [iklobato/lightapi]
-      - name: github-deployments
-        args:
-          deploy_repo: [iklobato/lightapi]
-      - name: codebase-conventions
-        args:
-          conventions_repo: [iklobato/lightapi]
+    schedules:
+      - task: extractors
+        every: "day at 03:17"
+        extract:
+          - name: pr-archaeology
+            args:
+              pr_repo: [iklobato/lightapi]
+              pr_max: 25
 
-    runbooks:
-      # Issue → plan → checkpoint → implement → PR
-      - template: implementation
-        prefix: lightapi-impl
-        owner: iklobato
-        repo: lightapi
-        sources:
-          - kind: github
-            # Only act on issues authored by these users, and never on bots.
-            authors_allow: ["iklobato"]
-            authors_block: ["dependabot[bot]", "github-actions[bot]"]
-        trigger:
-          kind: github_webhook
-          events: [issues.opened, issues.labeled]
-          labels: [briar]
+      - task: implementation
+        every: "4 hours"
+        extract:
+          - name: codebase-conventions
+            args:
+              conventions_repo: [iklobato/lightapi]
+          - name: github-deployments
+            args:
+              deploy_repo: [iklobato/lightapi]
 
-      # Sweep open PRs, fix unresolved review comments
-      - template: pr-fixes
-        prefix: lightapi-prfix
-        owner: iklobato
-        repo: lightapi
-        sources:
-          - kind: github
-        trigger:
-          kind: schedule_cron
-          schedule: "0 * * * *"
+      - task: prfix
+        every: "hour"
+        extract:
+          - name: active-work
+            args:
+              active_repo: [iklobato/lightapi]

@@ -105,11 +105,13 @@
       <div class="sub">{{ system.load_5 }} · {{ system.load_15 }} ({{ system.cpu_count }} cpu)</div>
     </div>
     <div class="stat">
-      <div class="k">cycles run total</div>
-      <div class="v big">{{ cycle_outcomes.total_cycles }}</div>
+      <div class="k">scheduler process</div>
+      <div class="v big">
+        {% if scheduler_process.present %}<span class="dot good"></span>up{% else %}<span class="dot bad"></span>down{% endif %}
+      </div>
       <div class="sub">
-        cron daemon
-        {% if cron_health.daemon_active %}<span class="dot good"></span>active{% else %}<span class="dot bad"></span>inactive{% endif %}
+        {% if scheduler_process.present %}pid {{ scheduler_process.pid }}{% else %}no `briar runbook serve` running{% endif %}
+        · {{ cycle_outcomes.total_cycles }} cycles to date
       </div>
     </div>
   </div>
@@ -138,18 +140,20 @@
   </section>
 
   <section>
-    <h2>schedulers <span class="count">{{ cron.entries|length if cron.present else 0 }} entries</span></h2>
-    {% if not cron.present %}
-      <p class="empty">no cron file at {{ cron.path }}</p>
+    <h2>schedulers <span class="count">{{ schedules.count }} (company, task) job(s)</span></h2>
+    {% if not schedules.rows %}
+      <p class="empty">no schedules declared in {{ schedules.dir if schedules.dir else "examples/" }}</p>
     {% else %}
       <table>
-        <thead><tr><th>schedule (UTC)</th><th>next fire</th><th>command</th></tr></thead>
+        <thead><tr><th>company</th><th>task</th><th>every</th><th>next fire (UTC)</th><th>extractors</th></tr></thead>
         <tbody>
-          {% for e in cron.entries %}
+          {% for r in schedules.rows %}
           <tr>
-            <td><code>{{ e.schedule }}</code><br><span class="pill">user: {{ e.user }}</span></td>
-            <td>{{ e.next_fire or "(unknown)" }}</td>
-            <td><code>{{ e.command[:80] }}{% if e.command|length > 80 %}…{% endif %}</code></td>
+            <td><strong>{{ r.company }}</strong></td>
+            <td><span class="pill">{{ r.task }}</span></td>
+            <td><code>{{ r.every }}</code></td>
+            <td>{{ r.next_fire or "(unknown)" }}</td>
+            <td>{% for x in r.extractors %}<span class="pill">{{ x }}</span>{% endfor %}</td>
           </tr>
           {% endfor %}
         </tbody>
