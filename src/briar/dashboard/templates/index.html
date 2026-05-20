@@ -33,7 +33,7 @@
   th { color: var(--dim); font-weight: 500; }
   tr:last-child td { border-bottom: none; }
   code, pre { background: #0a0c10; border: 1px solid var(--border); border-radius: 4px; padding: 0 0.3rem; font-size: 0.78rem; }
-  pre { padding: 0.6rem; white-space: pre-wrap; word-break: break-word; overflow-x: auto; max-height: 22rem; }
+  pre { padding: 0.6rem; white-space: pre-wrap; word-break: break-word; overflow: auto; max-height: 22rem; }
   .pill { display: inline-block; padding: 0.05rem 0.5rem; border: 1px solid var(--border); border-radius: 999px; font-size: 0.72rem; margin-right: 0.25rem; color: var(--dim); }
   .pill.good { color: var(--good); border-color: var(--good); }
   .pill.warn { color: var(--warn); border-color: var(--warn); }
@@ -403,7 +403,7 @@
     {% if scheduler_log.last_cycle %}
       <p><strong>last cycle:</strong> <code>{{ scheduler_log.last_cycle }}</code></p>
     {% endif %}
-    <pre>{% for line in scheduler_log.lines %}{{ line }}
+    <pre id="logTail">{% for line in scheduler_log.lines %}{{ line }}
 {% endfor %}</pre>
   {% endif %}
 </section>
@@ -414,6 +414,14 @@
 
 <script>
 (function () {
+  // Pin the log tail to its bottom so the freshest lines are visible
+  // on load. Runs independently of Chart.js so it works even if the
+  // CDN is unreachable.
+  const logTail = document.getElementById("logTail");
+  if (logTail) {
+    logTail.scrollTop = logTail.scrollHeight;
+  }
+
   if (typeof Chart === "undefined") return;
 
   Chart.defaults.color = "#8b97a7";
