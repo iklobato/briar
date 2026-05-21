@@ -48,3 +48,14 @@ class SourceTemplate(ABC):
         """Default: source contributes no action tools. Override for
         trackers to expose comment/transition/etc. tools."""
         return []
+
+    def target(self, args: argparse.Namespace) -> str:
+        """Human-readable identifier for this source (e.g. ``owner/repo``).
+
+        Used by ``ScaffoldComposer`` to interpolate ``{target}`` into the
+        archetype's role/goal/backstory. The default returns ``""`` because
+        cloud sources (AWS) don't carry a single target string. Tracker
+        sources (GitHub, Bitbucket, Jira) override this to return their
+        repo / project identifier; the scaffold template picks the first
+        non-empty result among the selected sources."""
+        return ""

@@ -25,6 +25,14 @@ class CredEnv(str, Enum):
 
     GITHUB_TOKEN = "GITHUB_TOKEN"
 
+    # Bitbucket Cloud uses basic auth: a user identity plus an app password.
+    # Per-company (workspace-scoped) because Bitbucket app passwords are
+    # tied to a specific user/workspace membership — unlike GitHub PATs,
+    # they do not span orgs.
+    BITBUCKET_USERNAME = "BITBUCKET_{c}_USERNAME"
+    BITBUCKET_APP_PASSWORD = "BITBUCKET_{c}_APP_PASSWORD"
+    BITBUCKET_WORKSPACE = "BITBUCKET_{c}_WORKSPACE"
+
     JIRA_EMAIL = "JIRA_{c}_EMAIL"
     JIRA_TOKEN = "JIRA_{c}_TOKEN"
 

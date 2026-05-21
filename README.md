@@ -116,9 +116,46 @@ var names (`{c}` = company name uppercased, hyphens → underscores):
 | `AWS_{c}_ACCESS_KEY_ID` / `SECRET_ACCESS_KEY` / `SESSION_TOKEN` | `aws-infra` (per-company AWS credentials) |
 | `GITHUB_TOKEN` | every GitHub extractor (workspace-wide PAT) |
 | `JIRA_{c}_EMAIL` / `_TOKEN` | reserved for a future Jira extractor |
+| `BITBUCKET_{c}_USERNAME` / `_APP_PASSWORD` / `_WORKSPACE` | reserved for a future Bitbucket extractor |
 
 `aws-infra` falls back to the local `~/.aws/credentials` profile when
 env vars are unset. The droplet runs purely off env vars.
+
+---
+
+## Repository providers — where Bitbucket vs GitHub plug in
+
+The codebase has two distinct layers where a repository provider
+appears, and the level of polymorphism is different at each:
+
+| Layer | GitHub | Bitbucket | Pattern |
+|---|---|---|---|
+| **Scaffold source** (`iac/scaffold/sources/`) | `SourceGithub` | `SourceBitbucket` | Strategy + Registry. Both register identity flags + auth + tools by implementing `SourceTemplate`. |
+| **Scaffold trigger** (`iac/scaffold/triggers/`) | `TriggerGithubWebhook` | `TriggerBitbucketWebhook` | Strategy + Registry. |
+| **CredEnv** (`env_vars.py`) | `GITHUB_TOKEN` (workspace-wide) | `BITBUCKET_{c}_USERNAME` + `_APP_PASSWORD` + `_WORKSPACE` (per-company) | Bitbucket Cloud app passwords are user/workspace-scoped, so they fit the per-tenant `{c}` pattern. |
+| **Runtime extractors** (`extract/`) | `_gh.py` + `ExtractPrArchaeology` / `ExtractActiveWork` / `ExtractGithubDeployments` / `ExtractCodebaseConventions` | **NOT YET** — see below | Strategy at the extractor level, but the API client (`_gh.py`) is GitHub-specific. |
+
+### Adding Bitbucket equivalents of the extractors — the open work
+
+The extractor layer (`extract/pr_archaeology.py`, `active_work.py`,
+`github_deployments.py`, `codebase_conventions.py`) hard-codes the
+GitHub REST API client (`_gh.GithubApi`). The clean refactor — not yet
+done — is:
+
+1. Extract a `RepositoryProvider` ABC (`extract/_provider.py`) with
+   verbs like `list_open_prs`, `list_recent_merged_prs`,
+   `get_deployments`, `list_workflow_runs`, `list_tree`.
+2. Move the current `_gh.py` into a `GithubProvider` implementation.
+3. Add a `BitbucketProvider` sibling using the Bitbucket Cloud 2.0
+   REST API.
+4. Each extractor takes a `RepositoryProvider` instead of constructing
+   `GithubApi` directly. The runbook YAML grows a `provider:` field
+   per extractor entry (defaults to `github` for backward compat).
+
+Until that refactor lands, the extractors will silently fail on a
+Bitbucket-only runbook (no `GITHUB_TOKEN`, no GitHub API to hit).
+The scaffold side ships Bitbucket as a first-class citizen *today*;
+the extractor side ships GitHub-only.
 
 ---
 
@@ -195,15 +232,33 @@ sources / tools / trigger you want. The CLI does not POST it anywhere
 — consumers paste it into whatever downstream system needs the shape.
 
 ```bash
+# GitHub repository, OAuth, webhook-driven plan→approve flow
 briar scaffold implementation \
     --prefix acme-impl \
-    --owner iklobato --repo lightapi \
     --source github \
+    --owner iklobato --repo lightapi \
     --auth-mode pat --github-secret-id <secret-uuid> \
     --shape plan-approve-act --archetype engineer \
     --trigger-kind github_webhook \
     --out acme-impl.json
+
+# Bitbucket repository, app-password auth, Bitbucket webhook
+briar scaffold implementation \
+    --prefix acme-impl \
+    --source bitbucket \
+    --bitbucket-workspace acme --bitbucket-repo widgets \
+    --auth-mode pat --bitbucket-secret-id <secret-uuid> \
+    --shape plan-approve-act --archetype engineer \
+    --trigger-kind bitbucket_webhook \
+    --out acme-impl.json
 ```
+
+**Identity flags belong to the source, not the scaffold.** GitHub uses
+`--owner` / `--repo`; Bitbucket uses `--bitbucket-workspace` /
+`--bitbucket-repo`; Jira uses `--jira-project`. The scaffold template
+itself is provider-agnostic — it asks each selected source for its
+`target()` identifier (`SourceTemplate.target` on the ABC) and uses
+the first non-empty answer.
 
 ### Templates
 
@@ -216,8 +271,8 @@ briar scaffold implementation \
 
 | Axis | Flag | Built-in kinds |
 |---|---|---|
-| Sources | `--source <kind>` (repeatable) | `github`, `jira`, `aws` |
-| Trigger | `--trigger-kind <kind>` | `github_webhook`, `schedule_cron`, `manual` |
+| Sources | `--source <kind>` (repeatable) | `github`, `bitbucket`, `jira`, `aws` |
+| Trigger | `--trigger-kind <kind>` | `github_webhook`, `bitbucket_webhook`, `schedule_cron`, `manual` |
 | Workflow shape | `--shape <name>` | `plan-approve-act`, `one-shot`, `triage` |
 | Agent archetype | `--archetype <name>` | `engineer`, `pr-fixer`, `triager` |
 
@@ -372,6 +427,209 @@ the scheduler or 500-ing the dashboard.
 
 - `--verbose` (or `BRIAR_VERBOSE=1`) → DEBUG-level briar logs.
 - `BRIAR_LIB_DEBUG=1` → DEBUG on httpx / httpcore / boto3 / schedule.
+
+---
+
+## Glossary
+
+Terms used throughout this README, the code, and the per-company
+markdown blobs. Grouped by subsystem; alphabetised inside each group.
+
+### Storage + content
+
+- **Blob.** One unit stored in a `KnowledgeStore`. Markdown content keyed
+  by a string `name` (e.g. `knowledge:acme`). Blobs are the only thing
+  the store knows about; structure inside the markdown is convention.
+- **Blob name.** `<category>:<identifier>` by convention
+  (`knowledge:acme`, `memory:reviewer-iklobato`, `lessons:python-typing`).
+  The store treats the whole name as an opaque key; the colon-prefix is
+  used purely for grouping in `list()`/dashboard/file layout.
+- **Category.** Everything before the first `:` in a blob name. The
+  Postgres backend stores it as a column for indexing; the file backend
+  uses it as the parent directory name.
+- **Fingerprint.** Hex MD5 of a blob's content. `KnowledgeStore.fingerprint()`
+  returns the stored blob's md5 — server-side on Postgres, local hash on
+  file. Used by `put_if_changed` to skip no-op writes.
+- **KnowledgeBinding.** Per-company "where do my blobs live" record:
+  `store` (`file` | `postgres`), `name` (blob-name template), and optional
+  `root` (file backend only). Parsed from `companies.<x>.knowledge:` in
+  the runbook YAML.
+- **KnowledgeRef.** Metadata-only handle returned by `KnowledgeStore.list()`:
+  name, category, byte count, updated-at, extras. Does NOT carry the
+  content — callers re-`get()` if they need bytes.
+- **KnowledgeStore.** The four-verb (`put`/`get`/`list`/`delete`) blob-store
+  contract in `storage/base.py`. Two implementations: `StoreFile` (one
+  markdown file per blob on disk) and `StorePostgres` (two tables with an
+  append-only history). Every part of the system reads/writes via this
+  one interface.
+- **`put_if_changed`.** The write call extractors actually make. Compares
+  the new content's md5 against the stored blob's; only writes when they
+  differ. Returns a `PutIfChangedResult` (`wrote: bool`, `byte_count`,
+  `new_hash`, `prev_hash`). On Postgres it's a single-connection atomic
+  compare-and-set; on file it's a two-step read-then-write.
+
+### Extraction
+
+- **Composer.** `KnowledgeComposer.markdown(company, sections)` — turns
+  a list of `ExtractedSection` objects into the final per-company
+  markdown blob (with timestamp header, `## <heading>` per section,
+  nested subsections). Also has a `.json()` form for programmatic
+  consumers.
+- **Company.** A tenant. The top-level key under `companies:` in a
+  runbook YAML (`acme`, `widget-co`, …). Drives credential
+  lookup (`AWS_<COMPANY>_*` env vars), blob naming
+  (`knowledge:<company>`), and the dashboard's per-company grouping.
+- **Every-DSL.** The cadence syntax in runbook YAML's `every:` field:
+  `"minute"`, `"N minutes"`, `"hour"`, `"hour at :MM"`, `"day at HH:MM"`,
+  `"monday at HH:MM"`. Parsed by `EveryParser` into a `schedule.Job`.
+- **ExtractedSection.** One result-fragment returned by an extractor's
+  `.extract(args)`: `title`, `body` (markdown), structured `data` (for
+  the JSON form), and nested `subsections`. The "no data" sentinel is
+  `ExtractedSection(title="")` (`EMPTY_SECTION`) — the composer skips
+  empty sections instead of needing `Optional`.
+- **Extractor.** A `KnowledgeExtractor` subclass that mines one source
+  family (GitHub, AWS, local checkout) and returns one
+  `ExtractedSection`. Doesn't know the store exists; the runbook
+  executor handles persistence.
+- **Knowledge file / knowledge blob.** The composed per-company markdown
+  bundle: `knowledge:<company>` (or `knowledge:<company>.<task>` for
+  non-default tasks). What agents read.
+- **Runbook.** A YAML file describing one or more companies and their
+  per-task schedules. Validated by Pydantic via `RunbookFile.model_validate`.
+  One file per company by convention (`examples/acme.yaml`,
+  `examples/widgets.yaml`).
+- **Schedule (entry).** One `(task, every, extract)` triple inside a
+  company. Distinct tasks for the same company can run on different
+  cadences — common pattern is `extractors: day at 03:17` for the
+  heavy AWS run, `prfix: hour` for the hot GitHub poll.
+- **Task.** Name of one schedule within a company (`extractors`,
+  `implementation`, `prfix`). Used to filter `briar runbook extract --task`
+  and to suffix the blob name for non-default tasks.
+
+### Scaffold (agent + workflow generator)
+
+- **Archetype.** A `AgentArchetype` subclass — agent persona definition:
+  `role`, `goal`, `backstory_template`, `max_iter`, `tool_filter`,
+  `consumes`. Five shipped: `engineer`, `pr-fixer`, `pr-ci-fixer`,
+  `pr-conflict-resolver`, `triager`. The archetype is what `--archetype`
+  picks on the `briar scaffold` CLI.
+- **Backstory template.** The persona prose an archetype declares; gets
+  rendered by `build_persona(target)` with `{target}` interpolation, then
+  spliced with every applicable rule's body, severity-sorted.
+- **`consumes`.** A tuple on each archetype declaring which extractors'
+  output it reads, in order. Used both in the prose ("READ
+  `codebase-conventions` first") and by `KnowledgeSplicer` to decide
+  which sections to splice into the agent's `system_prompt`.
+- **KnowledgeSplicer.** At scaffold time, pulls every `knowledge:<company>*`
+  blob, parses it by `## <heading>` markers, and concatenates the slices
+  the archetype declares it `consumes` into a `system_prompt` prologue.
+  Lets the scaffold output be self-contained — the downstream runtime
+  doesn't need DB access.
+- **Persona.** The dict produced by `archetype.build_persona(target)` —
+  `{role, goal, backstory}` with `{target}` filled in and inherited rules
+  appended. Goes into the agent's record in the scaffold JSON.
+- **Prefix.** The `--prefix` CLI flag — prepended to every resource key
+  in the generated bundle (`acme-impl-engineer`,
+  `acme-impl-workflow`, …). Lets multiple bundles coexist in one
+  downstream runtime.
+- **Prologue.** The system-prompt header `KnowledgeSplicer.prologue()`
+  emits: `# Gathered knowledge for <company>` plus the consumed
+  extractor sections. Appended above the archetype's backstory inside
+  the agent record.
+- **Rule.** A markdown-with-frontmatter file in
+  `iac/scaffold/rules/` (`commit-as-human.md`, `no-force-push.md`, …).
+  Frontmatter declares `severity`, `applies_to` (archetype names or
+  `[all]`), and `enforced_by`. Loaded into `RuleRegistry`; rules that
+  match an archetype's name get spliced into its backstory at compose
+  time. To add a new rule across N archetypes, drop one file — no
+  archetype edits.
+- **RuleRegistry.** The auto-loader for `iac/scaffold/rules/*.md`.
+  `RuleRegistry.for_archetype("pr-fixer")` returns every rule that
+  applies, sorted blocking → mandatory → advisory.
+- **Scaffold.** The JSON bundle (`{version, llm_models, sources, tools,
+  agents, workflows, triggers}`) emitted by `briar scaffold`. The CLI
+  doesn't POST it anywhere; consumers paste it into a downstream
+  orchestrator that understands the shape.
+- **Severity.** A rule's enforcement priority: `blocking` |
+  `mandatory` | `advisory`. Renders as the heading prefix
+  (`### [blocking] no-force-push`) and controls ordering in the
+  archetype's backstory.
+- **Shape.** A `WorkflowShape` subclass — the topology of the workflow
+  graph. Three shipped: `plan-approve-act` (plan → human-approval → act
+  or comment), `one-shot` (single agent, no checkpoint), `triage`
+  (read-only, no implement tools). `--shape` picks one.
+- **Source.** A `SourceTemplate` subclass — declares one external system
+  (GitHub, Bitbucket, Jira, AWS) the workflow's agents will read from.
+  Three roles: emit a `Source` dict (context provider), emit
+  zero-or-more action `Tool` dicts (mutating verbs like
+  `github.commit_files` / `bitbucket.commit_files`), and declare the
+  source's own identity flags + a `target(args)` method returning the
+  human-readable identifier (`owner/repo` for GitHub,
+  `workspace/repo` for Bitbucket). Cloud sources are read-only;
+  tracker sources bring action tools.
+- **Target.** Human-readable string like `iklobato/lightapi` or
+  `acme/widgets` passed to `archetype.build_persona(target)` —
+  interpolated into every `{target}` placeholder in role/goal/backstory.
+  Derived by `ScaffoldResolver.target_for(args)`, which walks the
+  selected sources in declared order and takes the first non-empty
+  `SourceTemplate.target(args)`. GitHub returns
+  `<owner>/<repo>`, Bitbucket returns `<workspace>/<repo>`, Jira returns
+  the first project key, AWS returns `""`.
+- **Tool filter.** An archetype's `tool_filter` tuple — substring
+  whitelist applied to each source-contributed tool's
+  `implementation_ref`. Empty tuple = bind every tool. A triager has
+  `tool_filter = ("comment_on_issue", "add_labels", "comment")` so it
+  literally cannot open a PR, regardless of what the LLM "wants" to do.
+- **Trigger.** A `TriggerTemplate` subclass — declares what creates
+  tasks for the workflow. Three shipped: `github_webhook`,
+  `schedule_cron`, `manual`. `--trigger-kind` picks one.
+
+### Runtime + delivery
+
+- **Agent runner.** `briar agent`, implemented in `agent/runner.py`. The
+  Anthropic-API tool-use loop: loads the archetype, splices the
+  knowledge prologue, drives `client.messages.create` until the model
+  emits `end_turn`, dispatches tool calls to `BashTool` / `ReadFileTool`
+  / `WriteFileTool` / `EditFileTool`. Auths via `CLAUDE_CODE_OAUTH_TOKEN`.
+- **Collector.** A `Collector` subclass in `dashboard/collectors.py` —
+  one fact-gatherer per dashboard section (22 of them: disk, memory,
+  knowledge inventory, scheduler state, etc.). Same Strategy + Registry
+  pattern as everywhere else.
+- **Dashboard.** The read-only HTTP server (`briar dashboard`). GET-only
+  by construction; POST/PUT/DELETE return 501. Renders 22 Collector
+  outputs through a single Jinja template, port 8080 by default.
+- **Scheduler.** `briar runbook serve` — the long-lived process that
+  registers every `(company, task)` from the runbook YAMLs in
+  `examples/` and runs them on their declared `every:` cadence using
+  the `schedule` library. No system cron, no separate scheduler binary.
+
+### Cross-cutting
+
+- **Bootstrap (Postgres).** `StorePostgres.bootstrap_admin(admin_dsn,
+  password)` — one-time setup that creates the two tables and the
+  scoped `briar_kb` role. Runs with a high-privilege DSN (e.g.
+  `doadmin`); runtime uses the scoped role with only DML grants.
+- **CredEnv.** The env-var name templating helper in `env_vars.py`.
+  `CredEnv.AWS_KEY_ID.for_company("widget-co")` →
+  `"AWS_WIDGET_CO_ACCESS_KEY_ID"`. One source of truth for which
+  env vars exist.
+- **Frontmatter.** YAML header at the top of a rule file, between two
+  `---` lines, declaring `name`, `severity`, `applies_to`,
+  `enforced_by`. Parsed by `parse_rule_file`.
+- **Plugin axis.** One of the four registries that compose into a
+  scaffold output: sources, archetypes, shapes, triggers. Each axis is
+  a directory of subclasses + an `__init__.py` registry dict. Adding a
+  kind on any axis = one file + one registry entry.
+- **Registry.** The dict-of-strategies pattern repeated throughout:
+  `EXTRACTORS`, `SOURCE_TEMPLATES`, `ARCHETYPES`, `WORKFLOW_SHAPES`,
+  `TRIGGER_TEMPLATES`, `KnowledgeStoreRegistry.STORES`, `RuleRegistry`,
+  `FormatterRegistry`, `CommandRegistry`. Same shape every time:
+  abstract base in `base.py`, concrete subclasses in sibling files,
+  package `__init__.py` wires the registry.
+- **Strategy + Registry.** The single design pattern this codebase
+  bets on: every plugin family is an `abc.ABC` contract + a registry
+  dict + concrete implementations. Adding a new kind doesn't edit any
+  caller — only the registry grows.
 
 ---
 

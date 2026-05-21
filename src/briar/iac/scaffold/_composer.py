@@ -182,6 +182,47 @@ class ScaffoldComposer:
         return out
 
 
+class ScaffoldResolver:
+    """Helpers for the scaffold templates that don't fit on the composer.
+
+    Right now this hosts `target_for` — the rule for picking the human-
+    readable agent target from the selected sources. Trackers (GitHub,
+    Bitbucket, Jira) declare their own identifier; cloud sources don't.
+    The composer needs *one* string, so we walk the source list in the
+    user's declared order and take the first non-empty result."""
+
+    @staticmethod
+    def target_for(args: argparse.Namespace) -> str:
+        """Pick the agent target string from the chosen sources.
+
+        Walks `args.source` in the user's declared order, asks each
+        `SourceTemplate.target(args)`, returns the first non-empty
+        answer. Falls back to the scaffold's `--prefix` when no source
+        declares a target (e.g. AWS-only scaffolds). The prefix path is
+        not great — every tracker source should be returning a real
+        identifier — but it's better than crashing on `{target}`
+        interpolation."""
+        ns = vars(args)
+        kinds: List[str] = list(ns.get("source") or [])
+        for kind in kinds:
+            tmpl = SOURCE_TEMPLATES.get(kind)
+            if tmpl is None:
+                continue
+            ident = tmpl.target(args)
+            if ident:
+                return ident
+        prefix = (ns.get("prefix") or "").strip()
+        if prefix:
+            log.warning(
+                "scaffold: no source declared a target — falling back to --prefix=%r. "
+                "If this scaffold opens PRs, set the source's identity flags "
+                "(--owner/--repo for GitHub, --bitbucket-workspace/--bitbucket-repo for Bitbucket).",
+                prefix,
+            )
+            return prefix
+        raise SystemExit("scaffold: cannot derive agent target — pass --prefix or set the selected source's identity flags")
+
+
 class ScaffoldArgs:
     """Argparse contributions shared across every concrete scaffold."""
 

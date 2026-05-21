@@ -21,6 +21,19 @@ class SourceGithub(SourceTemplate):
     default_provider_for_oauth = "github"
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        # Identity flags for the GitHub source. Registered here (not on
+        # the scaffold templates) so a Bitbucket-only or AWS-only scaffold
+        # doesn't have GitHub-shaped required flags. Validation that they
+        # are set happens in `build_source` when `--source github` is
+        # actually selected.
+        parser.add_argument(
+            "--owner",
+            help="GitHub org/user (required when --source includes github)",
+        )
+        parser.add_argument(
+            "--repo",
+            help="GitHub repo name (required when --source includes github)",
+        )
         parser.add_argument(
             "--github-authors-allow",
             action="append",
@@ -51,9 +64,14 @@ class SourceGithub(SourceTemplate):
         args: argparse.Namespace,
         key_prefix: str,
     ) -> Dict[str, Any]:
+        ns = vars(args)
+        owner = ns.get("owner")
+        repo = ns.get("repo")
+        if not owner or not repo:
+            raise SystemExit("--source github requires --owner AND --repo")
         config: Dict[str, Any] = {
-            "owner": args.owner,
-            "repo": f"{args.owner}/{args.repo}",
+            "owner": owner,
+            "repo": f"{owner}/{repo}",
             "include": "open",
         }
         for key, values in self._user_filters(args).items():
@@ -100,6 +118,14 @@ class SourceGithub(SourceTemplate):
                 **auth,
             },
         ]
+
+    def target(self, args: argparse.Namespace) -> str:
+        ns = vars(args)
+        owner = ns.get("owner") or ""
+        repo = ns.get("repo") or ""
+        if not owner or not repo:
+            return ""
+        return f"{owner}/{repo}"
 
     @staticmethod
     def _auth(args: argparse.Namespace) -> Dict[str, Any]:

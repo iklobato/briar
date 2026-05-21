@@ -36,6 +36,15 @@ def _ns(**kwargs) -> argparse.Namespace:
         "aws_services": [],
         "webhook_events": [],
         "webhook_labels": ["briar"],
+        "bitbucket_workspace": None,
+        "bitbucket_repo": None,
+        "bitbucket_secret_id": None,
+        "bitbucket_authors_allow": [],
+        "bitbucket_authors_block": [],
+        "bitbucket_assignees_allow": [],
+        "bitbucket_assignees_block": [],
+        "bitbucket_webhook_events": [],
+        "bitbucket_webhook_labels": ["briar"],
         "schedule": "0 * * * *",
     }
     defaults.update(kwargs)
@@ -107,11 +116,86 @@ class PrFixesTemplateTests(unittest.TestCase):
         self.assertNotIn("github.add_labels", refs)
 
 
+class BitbucketSourceTests(unittest.TestCase):
+    """Bitbucket plugs into the same composer as GitHub. Its identity
+    flags live on the source itself, not the scaffold template."""
+
+    def _bb_ns(self, **overrides) -> argparse.Namespace:
+        ns = _ns(
+            source=["bitbucket"],
+            owner=None,
+            repo=None,
+            trigger_kind="bitbucket_webhook",
+            bitbucket_workspace="acme",
+            bitbucket_repo="widgets",
+            auth_mode="pat",
+            bitbucket_secret_id="11111111-2222-3333-4444-555555555555",
+        )
+        for k, v in overrides.items():
+            setattr(ns, k, v)
+        return ns
+
+    def test_emits_bitbucket_source_with_workspace_repo(self) -> None:
+        tmpl = TEMPLATES["implementation"]
+        bundle = tmpl.build(self._bb_ns())
+        sources = bundle["sources"]
+        self.assertEqual([s["kind"] for s in sources], ["bitbucket"])
+        config = sources[0]["config"]
+        self.assertEqual(config["workspace"], "acme")
+        self.assertEqual(config["repo"], "acme/widgets")
+
+    def test_emits_three_bitbucket_action_tools(self) -> None:
+        tmpl = TEMPLATES["implementation"]
+        bundle = tmpl.build(self._bb_ns())
+        refs = sorted(t["implementation_ref"] for t in bundle["tools"])
+        self.assertEqual(
+            refs,
+            ["bitbucket.comment_on_issue", "bitbucket.commit_files", "bitbucket.open_pr"],
+        )
+
+    def test_triager_filter_drops_commit_and_open_pr_on_bitbucket(self) -> None:
+        # The archetype tool_filter is substring-based, so it must work
+        # identically against `bitbucket.*` refs as against `github.*`.
+        tmpl = TEMPLATES["implementation"]
+        bundle = tmpl.build(self._bb_ns(archetype="triager"))
+        refs = [t["implementation_ref"] for t in bundle["tools"]]
+        self.assertIn("bitbucket.comment_on_issue", refs)
+        self.assertNotIn("bitbucket.commit_files", refs)
+        self.assertNotIn("bitbucket.open_pr", refs)
+
+    def test_target_interpolation_uses_workspace_repo(self) -> None:
+        tmpl = TEMPLATES["implementation"]
+        bundle = tmpl.build(self._bb_ns())
+        backstory = bundle["agents"][0]["backstory"]
+        self.assertIn("acme/widgets", backstory)
+
+    def test_pat_mode_requires_secret_id(self) -> None:
+        tmpl = TEMPLATES["implementation"]
+        with self.assertRaises(SystemExit):
+            tmpl.build(self._bb_ns(bitbucket_secret_id=None))
+
+    def test_workspace_and_repo_both_required(self) -> None:
+        tmpl = TEMPLATES["implementation"]
+        with self.assertRaises(SystemExit):
+            tmpl.build(self._bb_ns(bitbucket_workspace=None))
+        with self.assertRaises(SystemExit):
+            tmpl.build(self._bb_ns(bitbucket_repo=None))
+
+    def test_bitbucket_webhook_trigger_emits_bitbucket_event_shape(self) -> None:
+        tmpl = TEMPLATES["implementation"]
+        bundle = tmpl.build(self._bb_ns())
+        trigger = bundle["triggers"][0]
+        self.assertEqual(trigger["kind"], "bitbucket_webhook")
+        self.assertEqual(trigger["filter_rules"]["events"], ["issue:created", "issue:updated"])
+        # Bitbucket issues use `id`, not `number`.
+        self.assertEqual(trigger["payload_to_context_mapping"]["issue_number"], "$.issue.id")
+
+
 class RegistryShapesTests(unittest.TestCase):
     """Every registry is non-empty and self-consistent."""
 
     def test_sources_registered(self) -> None:
-        for kind in ("github", "jira", "aws"):
+        for kind in ("github", "bitbucket", "jira", "aws"):
             self.assertIn(kind, SOURCE_TEMPLATES)
 
     def test_archetypes_registered(self) -> None:
@@ -123,7 +207,7 @@ class RegistryShapesTests(unittest.TestCase):
             self.assertIn(name, WORKFLOW_SHAPES)
 
     def test_triggers_registered(self) -> None:
-        for name in ("github_webhook", "schedule_cron", "manual"):
+        for name in ("github_webhook", "bitbucket_webhook", "schedule_cron", "manual"):
             self.assertIn(name, TRIGGER_TEMPLATES)
 
 

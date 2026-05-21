@@ -1,11 +1,21 @@
 """PR-fixes scaffold — defaults to `pr-fixer` archetype + `one-shot`
 shape (no human gate; fires hourly on cron).
 
-Example:
+Identity flags come from the selected source (``--owner``/``--repo``
+for GitHub, ``--bitbucket-workspace``/``--bitbucket-repo`` for
+Bitbucket).
+
+Examples:
 
     briar scaffold pr-fixes \\
-        --prefix acme-prfix --owner iklobato --repo lightapi \\
-        --source github \\
+        --prefix acme-prfix --source github \\
+        --owner iklobato --repo lightapi \\
+        --trigger-kind schedule_cron --schedule "0 * * * *"
+
+    briar scaffold pr-fixes \\
+        --prefix acme-prfix --source bitbucket \\
+        --bitbucket-workspace acme --bitbucket-repo widgets \\
+        --auth-mode pat --bitbucket-secret-id <uuid> \\
         --trigger-kind schedule_cron --schedule "0 * * * *"
 """
 
@@ -15,6 +25,7 @@ import argparse
 from typing import Any, Dict
 
 from briar.iac.scaffold._composer import (
+    ScaffoldResolver,
     add_common_arguments,
     attach_source_arguments,
     attach_trigger_arguments,
@@ -28,8 +39,6 @@ class ScaffoldPrFixes(ScaffoldTemplate):
     description = "Read PR review comments, push fixes, reply (no human gate)."
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("--owner", required=True)
-        parser.add_argument("--repo", required=True)
         add_common_arguments(parser)
         attach_source_arguments(parser)
         attach_trigger_arguments(parser)
@@ -39,4 +48,5 @@ class ScaffoldPrFixes(ScaffoldTemplate):
     def build(self, args: argparse.Namespace) -> Dict[str, Any]:
         if not args.source:
             args.source = ["github"]
-        return compose_bundle(args, target=f"{args.owner}/{args.repo}")
+        target = ScaffoldResolver.target_for(args)
+        return compose_bundle(args, target=target)

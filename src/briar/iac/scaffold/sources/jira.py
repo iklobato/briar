@@ -125,6 +125,13 @@ class SourceJira(SourceTemplate):
             },
         ]
 
+    def target(self, args: argparse.Namespace) -> str:
+        ns = vars(args)
+        projects = ns.get("jira_project") or []
+        if not projects:
+            return ""
+        return projects[0]
+
     @staticmethod
     def _auth(args: argparse.Namespace) -> Dict[str, Any]:
         ns = vars(args)
