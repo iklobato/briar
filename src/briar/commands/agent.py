@@ -127,32 +127,47 @@ class CommandAgent(Command):
 
     @staticmethod
     def _clone_branch(clone_url: str, branch: str, dest: Path) -> bool:
-        """Clone via `gh repo clone` so the droplet's GH auth chain is
-        used. `git clone https://...` would fail because the droplet has
-        no credential helper for github.com — but `gh` IS authenticated
-        (GITHUB_TOKEN sourced from /etc/briar/secrets.env at runtime)."""
-        owner_repo = clone_url.replace("https://github.com/", "").replace(".git", "")
-        log.debug("clone-branch: gh repo clone %s --branch %s -> %s", owner_repo, branch, dest)
+        """Clone via HTTPS with the GITHUB_TOKEN embedded in the URL.
+
+        The droplet has no git credential helper configured for
+        github.com (and `gh` isn't installed), so plain `git clone
+        https://github.com/...` fails with `could not read Username for
+        'https://github.com'`. Standard CI workaround: inject the token
+        as the username field. The token comes from $GITHUB_TOKEN — same
+        env var the rest of briar uses (sourced from /etc/briar/secrets.env
+        on the droplet via `set -a; . /etc/briar/secrets.env`).
+
+        The token is stripped from the resulting remote URL after clone
+        so it does not linger in .git/config on disk."""
+        import os
+
+        token = os.environ.get("GITHUB_TOKEN", "").strip()
+        if not token:
+            log.error("clone failed: GITHUB_TOKEN env var missing")
+            return False
+        authed_url = clone_url.replace("https://github.com/", f"https://x-access-token:{token}@github.com/")
+        log.debug("clone-branch: branch=%s dest=%s (token redacted)", branch, dest)
         proc = subprocess.run(
-            [
-                "gh",
-                "repo",
-                "clone",
-                owner_repo,
-                str(dest),
-                "--",
-                "--depth",
-                "50",
-                "--branch",
-                branch,
-            ],
+            ["git", "clone", "--depth", "50", "--branch", branch, authed_url, str(dest)],
             capture_output=True,
             text=True,
             timeout=180,
         )
         if proc.returncode != 0:
-            log.error("clone failed: rc=%d stderr=%s", proc.returncode, proc.stderr.strip()[:400])
+            # Redact the token from the URL in case it leaked into stderr.
+            stderr = proc.stderr.replace(token, "<TOKEN>").strip()[:400]
+            log.error("clone failed: rc=%d stderr=%s", proc.returncode, stderr)
             return False
+        # Strip the embedded token from the persisted remote so anyone
+        # who looks at .git/config later doesn't see it.
+        reset = subprocess.run(
+            ["git", "-C", str(dest), "remote", "set-url", "origin", clone_url],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if reset.returncode != 0:
+            log.warning("clone: remote set-url cleanup failed (token may persist in .git/config)")
         return True
 
     @staticmethod
