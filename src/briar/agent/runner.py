@@ -67,7 +67,7 @@ class AgentRunner:
         workdir: Path,
         knowledge_store: Any,
         target: str,
-        api_key: str = "",
+        oauth_token: str = "",
         model: str = "",
         max_iterations: int = 0,
         extra_user_instructions: str = "",
@@ -78,7 +78,10 @@ class AgentRunner:
         self._archetype = ARCHETYPES[archetype_name]
         self._store = knowledge_store
         self._target = target
-        self._api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+        # Auth is the Claude Code OAuth token only (subscription billing
+        # via Bearer header). The plain ANTHROPIC_API_KEY path was
+        # explicitly rejected — no fallback, no precedence chain.
+        self._oauth_token = oauth_token or os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "")
         self._model = model or self.DEFAULT_MODEL
         self._max_iterations = max_iterations or self.DEFAULT_MAX_ITERATIONS
         self._extra = extra_user_instructions
@@ -92,15 +95,22 @@ class AgentRunner:
 
     def run(self) -> AgentRunResult:
         with log_context(company=self._company, task=self._task, agent=self._archetype.name):
-            if not self._api_key:
+            if not self._oauth_token:
                 return AgentRunResult(
                     company=self._company,
                     task=self._task,
-                    error="ANTHROPIC_API_KEY missing — set it in /etc/briar/secrets.env or env",
+                    error="CLAUDE_CODE_OAUTH_TOKEN missing — set it in /etc/briar/secrets.env or env",
                 )
             import anthropic
 
-            client = anthropic.Anthropic(api_key=self._api_key)
+            # OAuth path: Bearer auth + the Claude Code OAuth beta
+            # header. The plain `api_key=...` form would send the token
+            # as `x-api-key`, which the OAuth flow rejects.
+            log.info("agent-auth: using CLAUDE_CODE_OAUTH_TOKEN")
+            client = anthropic.Anthropic(
+                auth_token=self._oauth_token,
+                default_headers={"anthropic-beta": "oauth-2025-04-20"},
+            )
             system = self._build_system_prompt()
             initial_user = self._build_initial_user_message()
             log.info(
