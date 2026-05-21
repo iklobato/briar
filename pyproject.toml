@@ -34,6 +34,7 @@ dependencies = [
     "pytz",                # `schedule`'s tz support for `at("HH:MM", tz)`
     "psycopg[binary]>=3.1,<4",  # postgres KnowledgeStore backend (lazy-imported)
     "anthropic>=0.40,<1",  # `briar agent` runner — autonomous prfix loop
+    "PyGithub>=2.5,<3",    # GitHub API — replaces the httpx GithubApi facade
 ]
 
 [project.optional-dependencies]

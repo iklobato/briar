@@ -1,20 +1,26 @@
 """GitHub helpers shared by the extractors.
 
-`GithubApi` exposes three primitives — `auth_token`, `get_json`,
-`get_paginated`. Picks up the user's existing `gh` CLI auth first,
-falling back to `$GITHUB_TOKEN`. Empty-string return = "no token";
-callers check truthiness, never identity."""
+`GithubApi` is a thin facade on top of PyGithub. The public surface
+(`auth_token`, `get_json`, `get_paginated`, `client`) keeps the
+extractor call sites unchanged — they pass GitHub API paths like
+`/repos/{owner}/{repo}/pulls` and get back parsed JSON the same way as
+the previous httpx-based implementation.
+
+Backed by PyGithub instead of raw httpx so we get its battle-tested
+retry / rate-limit / pagination / conditional-GET handling for free
+instead of maintaining a parallel implementation.
+
+Token resolution: `$GITHUB_TOKEN` only. The previous fallback that
+shelled out to `gh auth token` was removed — briar is meant to run
+headless (droplet, CI) where `gh` may not be installed, and the env
+var is the universal contract."""
 
 from __future__ import annotations
 
 import logging
 import os
-import shutil
-import subprocess
 import time
 from typing import Any, Dict, List, Tuple
-
-import httpx
 
 from briar.errors import CliError
 
@@ -22,156 +28,132 @@ from briar.errors import CliError
 log = logging.getLogger(__name__)
 
 
-# Process-local ETag cache for GitHub's conditional-GET protocol. Maps a
-# canonical (path, accept-header) tuple to (etag, cached_payload). Per
-# GitHub's docs, a 304 response does NOT consume rate-limit quota — so
-# every cache hit is a free hourly-quota credit. Reset on process restart;
-# that's fine, the next call re-warms.
-_ETAG_CACHE: Dict[Tuple[str, str], Tuple[str, Any]] = {}
-
-
 class GithubApi:
+    """PyGithub-backed facade. The same `get_json` / `get_paginated`
+    interface the extractors have always used, but no httpx, no manual
+    pagination walking, no manual ETag cache — PyGithub's `Requester`
+    layer does all of that internally."""
+
     BASE = "https://api.github.com"
-    HEADERS = {
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
 
     @staticmethod
     def auth_token() -> str:
-        """Try `gh auth token`, then `$GITHUB_TOKEN`, then `""`."""
-        if shutil.which("gh"):
-            proc = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, timeout=5)
-            if proc.returncode == 0 and proc.stdout.strip():
-                return proc.stdout.strip()
+        """Return $GITHUB_TOKEN, stripped, or empty string."""
         return os.environ.get("GITHUB_TOKEN", "").strip()
 
     @classmethod
     def _require_token(cls, token: str) -> str:
         tok = token or cls.auth_token()
         if not tok:
-            raise CliError("GitHub credentials missing — install `gh` + `gh auth login`, or set $GITHUB_TOKEN.")
+            raise CliError("GitHub credentials missing — set $GITHUB_TOKEN in /etc/briar/secrets.env or env.")
         return tok
 
     @classmethod
-    def _headers(cls, token: str) -> Dict[str, str]:
-        return {"Authorization": f"Bearer {token}", **cls.HEADERS}
+    def client(cls, token: str = ""):
+        """Return a configured PyGithub `Github` client. Callers that
+        want the high-level API (e.g. `client().get_repo(...)`)
+        use this directly. The two convenience methods below build on
+        the same client internally."""
+        from github import Auth, Github
+
+        tok = cls._require_token(token)
+        return Github(auth=Auth.Token(tok), per_page=100, retry=3)
 
     @classmethod
     def get_json(cls, path: str, token: str = "") -> Any:
         """Single GET against api.github.com.
 
-        Uses an in-process ETag cache: a previously-seen path is fetched
-        with `If-None-Match: <last-etag>` and GitHub returns 304 (not
-        modified) when the content hasn't changed. 304 responses don't
-        consume rate-limit quota, so cache hits are effectively free.
+        Returns the parsed JSON payload. Tunnels through PyGithub's
+        Requester so we benefit from its retry + rate-limit handling.
         """
-        tok = cls._require_token(token)
-        url = f"{cls.BASE}{path}"
-        cache_key = (path, cls.HEADERS["Accept"])
-        cached = _ETAG_CACHE.get(cache_key)
-        headers = cls._headers(tok)
-        if cached is not None:
-            headers["If-None-Match"] = cached[0]
-            log.debug("gh GET conditional path=%s etag=%s", path, cached[0])
-        else:
-            log.debug("gh GET path=%s", path)
+        gh = cls.client(token)
         started = time.perf_counter()
+        log.debug("gh GET path=%s", path)
         try:
-            response = httpx.get(url, headers=headers, timeout=30.0)
-        except httpx.HTTPError:
-            log.exception("gh GET network error path=%s", path)
+            headers, payload = gh._Github__requester.requestJsonAndCheck("GET", path)
+        except Exception:
+            log.exception("gh GET error path=%s", path)
             raise
         elapsed_ms = int((time.perf_counter() - started) * 1000)
-        if response.status_code == 304 and cached is not None:
-            log.info(
-                "gh GET 304-cache-hit path=%s elapsed_ms=%d ratelimit_remaining=%s",
-                path,
-                elapsed_ms,
-                response.headers.get("x-ratelimit-remaining", "?"),
-            )
-            return cached[1]
-        if not response.is_success:
-            log.error(
-                "gh GET non-2xx path=%s status=%s elapsed_ms=%d ratelimit_remaining=%s body_preview=%r",
-                path,
-                response.status_code,
-                elapsed_ms,
-                response.headers.get("x-ratelimit-remaining", "?"),
-                response.text[:200],
-            )
-            response.raise_for_status()
-        payload = response.json()
-        new_etag = response.headers.get("etag", "")
-        if new_etag:
-            _ETAG_CACHE[cache_key] = (new_etag, payload)
-        log.debug(
-            "gh GET ok path=%s elapsed_ms=%d etag=%s ratelimit_remaining=%s",
+        remaining = cls._extract_rate_remaining(headers, gh)
+        log.info(
+            "gh GET ok path=%s elapsed_ms=%d ratelimit_remaining=%s",
             path,
             elapsed_ms,
-            new_etag or "(none)",
-            response.headers.get("x-ratelimit-remaining", "?"),
+            remaining,
         )
         return payload
 
     @classmethod
     def get_paginated(cls, path: str, per_page: int = 100, max_pages: int = 50, token: str = "") -> List[Dict[str, Any]]:
-        """Walk GitHub's Link-header pagination to a hard ceiling."""
-        tok = cls._require_token(token)
+        """Walk GitHub's Link-header pagination via PyGithub's Requester.
+
+        PyGithub exposes pagination internally through the same low-level
+        `requestJsonAndCheck`; we follow `Link: rel="next"` manually
+        because the extractor call sites pass raw paths (not typed
+        objects) and we need to return the raw JSON pages."""
+        gh = cls.client(token)
         sep = "&" if "?" in path else "?"
-        url = f"{cls.BASE}{path}{sep}per_page={per_page}"
-        pages: List[Dict[str, Any]] = []
+        next_path: str = f"{path}{sep}per_page={per_page}"
+        all_rows: List[Dict[str, Any]] = []
         visited = 0
         started = time.perf_counter()
-        log.debug("gh PAGINATED start path=%s per_page=%d max_pages=%d", path, per_page, max_pages)
         last_remaining = "?"
-        with httpx.Client(timeout=30.0, follow_redirects=True) as client:
-            while url and visited < max_pages:
-                try:
-                    resp = client.get(url, headers=cls._headers(tok))
-                except httpx.HTTPError:
-                    log.exception("gh PAGINATED network error path=%s page=%d", path, visited + 1)
-                    raise
-                if not resp.is_success:
-                    log.error(
-                        "gh PAGINATED non-2xx path=%s page=%d status=%s ratelimit_remaining=%s body_preview=%r",
-                        path,
-                        visited + 1,
-                        resp.status_code,
-                        resp.headers.get("x-ratelimit-remaining", "?"),
-                        resp.text[:200],
-                    )
-                    resp.raise_for_status()
-                last_remaining = resp.headers.get("x-ratelimit-remaining", last_remaining)
-                page_data = resp.json()
-                if type(page_data) is list:
-                    pages.extend(page_data)
-                url = cls._next_link(resp.headers.get("Link", ""))
-                visited += 1
+        log.debug("gh PAGINATED start path=%s per_page=%d max_pages=%d", path, per_page, max_pages)
+        while next_path and visited < max_pages:
+            try:
+                headers, page = gh._Github__requester.requestJsonAndCheck("GET", next_path)
+            except Exception:
+                log.exception("gh PAGINATED error path=%s page=%d", path, visited + 1)
+                raise
+            last_remaining = cls._extract_rate_remaining(headers, gh) or last_remaining
+            if isinstance(page, list):
+                all_rows.extend(page)
+            next_path = cls._next_link(headers.get("link", ""))
+            visited += 1
         elapsed_ms = int((time.perf_counter() - started) * 1000)
-        # INFO not DEBUG so the dashboard's GhStatsCollector can read it
-        # without flipping every install into verbose mode. Quota is
-        # numeric; we surface it as `ratelimit_remaining=N` to share the
-        # same parsing regex as get_json.
         log.info(
             "gh PAGINATED ok path=%s pages=%d rows=%d elapsed_ms=%d ratelimit_remaining=%s",
             path,
             visited,
-            len(pages),
+            len(all_rows),
             elapsed_ms,
             last_remaining,
         )
-        if visited >= max_pages and url:
+        if visited >= max_pages and next_path:
             log.warning("gh PAGINATED truncated path=%s hit_max_pages=%d (more pages exist)", path, max_pages)
-        return pages
+        return all_rows
 
     @staticmethod
     def _next_link(link_header: str) -> str:
-        """Parse the GitHub `Link` header for `rel="next"`. `""` if none."""
+        """Parse the GitHub `Link` header for `rel="next"`. Returns the
+        next-page path (with the leading `https://api.github.com`
+        stripped — PyGithub's requester wants relative paths)."""
+        if not link_header:
+            return ""
         for chunk in link_header.split(","):
             if 'rel="next"' not in chunk:
                 continue
             url_part = chunk.split(";", 1)[0].strip()
             if url_part.startswith("<") and url_part.endswith(">"):
-                return url_part[1:-1]
+                full = url_part[1:-1]
+                if full.startswith(GithubApi.BASE):
+                    return full[len(GithubApi.BASE) :]
+                return full
         return ""
+
+    @staticmethod
+    def _extract_rate_remaining(response_headers: Dict[str, Any], gh) -> str:
+        """PyGithub returns dict-like response headers from
+        `requestJsonAndCheck`. The header name is lowercased by the
+        underlying requests library. Fall back to the live rate-limit
+        API if the header isn't present (rare — only for GraphQL or
+        unauthenticated calls)."""
+        for key in ("x-ratelimit-remaining", "X-RateLimit-Remaining"):
+            if key in response_headers:
+                return str(response_headers[key])
+        try:
+            rl = gh.get_rate_limit()
+            return str(rl.core.remaining)
+        except Exception:  # noqa: BLE001
+            return "?"
