@@ -155,8 +155,9 @@ class RunbookExtractor:
         log.info("schedule-start: every=%r extract_count=%d", schedule.every, len(schedule.extract))
         try:
             sections = cls._collect_sections(schedule.extract, registry, company=company)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             log.exception("schedule-failed: collect_sections raised")
+            cls._notify_failure(company, schedule.task, "collect_sections raised", str(exc))
             rows.append(ExtractRow(company_name, schedule.task, "failed (collect_sections raised — see traceback)", binding.name))
             return
 
@@ -172,8 +173,9 @@ class RunbookExtractor:
         log.debug("schedule-store-open: store=%s file_root=%s", binding.store, file_root)
         try:
             store = make_store(binding.store, file_root=file_root)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             log.exception("schedule-failed: store open raised store=%s", binding.store)
+            cls._notify_failure(company, schedule.task, f"store open raised: {binding.store}", str(exc))
             rows.append(ExtractRow(company_name, schedule.task, f"failed (store open raised: {binding.store})", binding.name))
             return
 
@@ -186,8 +188,9 @@ class RunbookExtractor:
         # traffic, history bloat, and downstream LLM re-read tokens.
         try:
             outcome = store.put_if_changed(blob_name, md, category="knowledge")
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             log.exception("schedule-failed: put_if_changed raised blob=%s", blob_name)
+            cls._notify_failure(company, schedule.task, f"put_if_changed raised: {blob_name}", str(exc))
             rows.append(ExtractRow(company_name, schedule.task, f"failed (put_if_changed raised: {blob_name})", blob_name))
             return
 
@@ -219,6 +222,39 @@ class RunbookExtractor:
             outcome.prev_hash or "(none)",
         )
         rows.append(ExtractRow(company_name, schedule.task, f"wrote {outcome.byte_count} bytes via store={binding.store}", blob_name))
+
+    @staticmethod
+    def _notify_failure(company: str, task: str, reason: str, detail: str) -> None:
+        """Dispatch a failure notification to every sink listed in
+        ``$BRIAR_NOTIFY_SINKS`` (comma-separated). Silent no-op when
+        the env var is empty.
+
+        Each sink is fire-and-forget — a sink failure is logged but
+        does NOT propagate (a broken Telegram bot must not crash the
+        extractor). Per-company creds resolve through the standard
+        ``CredEnv`` path."""
+        from briar.env_vars import CredEnv
+        from briar.notify import make_sink
+
+        raw = CredEnv.BRIAR_NOTIFY_SINKS.read()
+        if not raw:
+            return
+        title = f"briar: {company or '?'} / {task or '?'} failed"
+        body = f"{reason}\n\n{detail[:1500]}"
+        for kind in (k.strip() for k in raw.split(",") if k.strip()):
+            try:
+                sink = make_sink(kind, company=company)
+            except Exception:  # noqa: BLE001
+                log.exception("notify-failure: unknown sink kind=%s — skipping", kind)
+                continue
+            if not sink.is_available():
+                log.debug("notify-failure: sink=%s not available (no creds) — skipping", kind)
+                continue
+            try:
+                ok = sink.send(title=title, body=body)
+                log.info("notify-failure: sink=%s ok=%s", kind, ok)
+            except Exception:  # noqa: BLE001
+                log.exception("notify-failure: sink=%s raised", kind)
 
     @staticmethod
     def _binding_for(company: CompanyEntry, company_name: str) -> KnowledgeBinding:

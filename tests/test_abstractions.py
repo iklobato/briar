@@ -9,6 +9,7 @@ one real implementation and one or more stubs that fail loudly via
 
 from __future__ import annotations
 
+import json
 import unittest
 from unittest import mock
 
@@ -35,14 +36,45 @@ class TrackerRegistryTests(unittest.TestCase):
             tracker = make_tracker("jira", company="acme")
             self.assertFalse(tracker.is_available())
 
-    def test_linear_stub_raises_on_data_verb(self) -> None:
+    def test_linear_list_tickets_translates_graphql_response(self) -> None:
         from briar.extract._trackers import make_tracker
 
+        fake_response = {
+            "data": {
+                "issues": {
+                    "nodes": [
+                        {
+                            "identifier": "ENG-42",
+                            "title": "broken metric",
+                            "createdAt": "2026-05-20T00:00:00Z",
+                            "updatedAt": "2026-05-21T00:00:00Z",
+                            "url": "https://linear.app/acme/issue/ENG-42",
+                            "priorityLabel": "High",
+                            "state": {"name": "Triage", "type": "triage"},
+                            "creator": {"displayName": "Alice", "name": "alice"},
+                            "assignee": {"displayName": "Bob", "name": "bob"},
+                            "labels": {"nodes": [{"name": "bug"}, {"name": "metrics"}]},
+                        }
+                    ]
+                }
+            }
+        }
         with mock.patch.dict("os.environ", {"LINEAR_ACME_TOKEN": "lin_xxx"}):
             tracker = make_tracker("linear", company="acme")
             self.assertTrue(tracker.is_available())
-            with self.assertRaises(NotImplementedError):
-                tracker.list_tickets("ENG", state="open", max_count=10)
+
+            mock_resp = mock.MagicMock()
+            mock_resp.read.return_value = (json.dumps(fake_response)).encode("utf-8")
+            mock_resp.__enter__ = lambda s: s
+            mock_resp.__exit__ = lambda s, *a: None
+            with mock.patch("urllib.request.urlopen", return_value=mock_resp):
+                tickets = tracker.list_tickets("ENG", state="open", max_count=10)
+        self.assertEqual(len(tickets), 1)
+        self.assertEqual(tickets[0].key, "ENG-42")
+        self.assertEqual(tickets[0].title, "broken metric")
+        self.assertEqual(tickets[0].reporter, "Alice")
+        self.assertEqual(tickets[0].assignee, "Bob")
+        self.assertIn("bug", tickets[0].labels)
 
 
 class LLMRegistryTests(unittest.TestCase):
@@ -60,12 +92,34 @@ class LLMRegistryTests(unittest.TestCase):
             llm = make_llm("anthropic")
             self.assertTrue(llm.is_available())
 
-    def test_openai_stub_raises(self) -> None:
+    def test_openai_unavailable_without_api_key(self) -> None:
         from briar.agent._llms import make_llm
 
-        llm = make_llm("openai")
-        with self.assertRaises(NotImplementedError):
-            llm.complete(system="x", messages=[], tools=[], max_tokens=10)
+        with mock.patch.dict("os.environ", {}, clear=True):
+            llm = make_llm("openai")
+            self.assertFalse(llm.is_available())
+
+    def test_openai_complete_raises_when_sdk_missing(self) -> None:
+        """SDK is an opt-in extra. Without `openai` installed, `complete`
+        must raise a clear message — never silently return empty."""
+        from briar.agent._llms import make_llm
+
+        with mock.patch.dict("os.environ", {"OPENAI_API_KEY": "sk-x"}):
+            llm = make_llm("openai")
+            with mock.patch("briar.agent._llms.openai_llm._import_openai", return_value=None):
+                with self.assertRaises(RuntimeError) as ctx:
+                    llm.complete(system="", messages=[], tools=[], max_tokens=10)
+                self.assertIn("briar-cli[openai]", str(ctx.exception))
+
+    def test_bedrock_format_tool_result_uses_toolresult_shape(self) -> None:
+        """Bedrock Converse API uses camelCase `toolResult` blocks
+        wrapped in a user message."""
+        from briar.agent._llms import make_llm
+
+        llm = make_llm("bedrock")
+        msg = llm.format_tool_result(tool_call_id="t_1", output="hello")
+        self.assertEqual(msg["role"], "user")
+        self.assertEqual(msg["content"][0]["toolResult"]["toolUseId"], "t_1")
 
     def test_anthropic_format_tool_result_shape(self) -> None:
         from briar.agent._llms import make_llm
@@ -108,12 +162,30 @@ class CloudRegistryTests(unittest.TestCase):
         cloud = make_cloud("gcp", company="acme")
         self.assertFalse(cloud.is_available())
 
-    def test_azure_stub_raises_on_data_verb(self) -> None:
+    def test_azure_unavailable_without_sdk(self) -> None:
         from briar.extract._clouds import make_cloud
 
         cloud = make_cloud("azure", profile="sub-id-here")
-        with self.assertRaises(NotImplementedError):
-            cloud.caller_identity()
+        with mock.patch("briar.extract._clouds.azure._try_import", return_value=None):
+            self.assertFalse(cloud.is_available())
+
+    def test_azure_caller_identity_raises_when_sdk_missing(self) -> None:
+        from briar.extract._clouds import make_cloud
+
+        cloud = make_cloud("azure", profile="sub-id-here")
+        with mock.patch("briar.extract._clouds.azure._try_import", return_value=None):
+            with self.assertRaises(RuntimeError) as ctx:
+                cloud.caller_identity()
+            self.assertIn("briar-cli[azure]", str(ctx.exception))
+
+    def test_gcp_caller_identity_raises_when_sdk_missing(self) -> None:
+        from briar.extract._clouds import make_cloud
+
+        cloud = make_cloud("gcp", profile="proj-id")
+        with mock.patch("briar.extract._clouds.gcp._try_import", return_value=None):
+            with self.assertRaises(RuntimeError) as ctx:
+                cloud.caller_identity()
+            self.assertIn("briar-cli[gcp]", str(ctx.exception))
 
 
 class NotificationRegistryTests(unittest.TestCase):
@@ -138,14 +210,35 @@ class NotificationRegistryTests(unittest.TestCase):
             sink = make_sink("telegram", company="acme")
             self.assertFalse(sink.send(title="t", body="b"))
 
-    def test_slack_stub_raises(self) -> None:
+    def test_slack_send_posts_to_webhook(self) -> None:
         from briar.notify import make_sink
 
         with mock.patch.dict("os.environ", {"SLACK_ACME_WEBHOOK_URL": "https://hooks.slack.com/x"}):
             sink = make_sink("slack", company="acme")
             self.assertTrue(sink.is_available())
-            with self.assertRaises(NotImplementedError):
-                sink.send(title="t", body="b")
+            mock_resp = mock.MagicMock()
+            mock_resp.read.return_value = b"ok"
+            mock_resp.__enter__ = lambda s: s
+            mock_resp.__exit__ = lambda s, *a: None
+            with mock.patch("urllib.request.urlopen", return_value=mock_resp) as urlopen:
+                ok = sink.send(title="x", body="y")
+            self.assertTrue(ok)
+            self.assertEqual(urlopen.call_count, 1)
+
+    def test_pagerduty_send_posts_to_events_api(self) -> None:
+        from briar.notify import make_sink
+
+        with mock.patch.dict("os.environ", {"PAGERDUTY_ACME_ROUTING_KEY": "rk_xxx"}):
+            sink = make_sink("pagerduty", company="acme")
+            self.assertTrue(sink.is_available())
+            mock_resp = mock.MagicMock()
+            mock_resp.read.return_value = b'{"status": "success"}'
+            mock_resp.__enter__ = lambda s: s
+            mock_resp.__exit__ = lambda s, *a: None
+            with mock.patch("urllib.request.urlopen", return_value=mock_resp) as urlopen:
+                ok = sink.send(title="x", body="y")
+            self.assertTrue(ok)
+            self.assertEqual(urlopen.call_count, 1)
 
 
 class CredentialStoreTests(unittest.TestCase):
@@ -184,12 +277,92 @@ class CredentialStoreTests(unittest.TestCase):
             expected = hashlib.md5(b"ghp_xxx").hexdigest()
             self.assertEqual(store.fingerprint("GITHUB_TOKEN"), expected)
 
-    def test_aws_secrets_stub_raises(self) -> None:
+    def test_aws_secrets_read_uses_boto3_and_caches(self) -> None:
         from briar.credentials import make_credential_store
 
         store = make_credential_store("aws-secretsmanager")
-        with self.assertRaises(NotImplementedError):
-            store.read("anything")
+        fake_client = mock.MagicMock()
+        fake_client.get_secret_value.return_value = {"SecretString": "ghp_xxx"}
+        with mock.patch("boto3.client", return_value=fake_client):
+            self.assertEqual(store.read("GITHUB_TOKEN"), "ghp_xxx")
+            self.assertEqual(store.read("GITHUB_TOKEN"), "ghp_xxx")  # cached
+            self.assertEqual(fake_client.get_secret_value.call_count, 1)
+        # Composite JSON secret: `{"value": "..."}` is extracted.
+        store2 = make_credential_store("aws-secretsmanager")
+        fake_client2 = mock.MagicMock()
+        fake_client2.get_secret_value.return_value = {"SecretString": '{"value": "from-json"}'}
+        with mock.patch("boto3.client", return_value=fake_client2):
+            self.assertEqual(store2.read("GITHUB_TOKEN"), "from-json")
+
+    def test_vault_unavailable_without_addr_or_token(self) -> None:
+        from briar.credentials import make_credential_store
+
+        store = make_credential_store("vault")
+        with mock.patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(store.read("anything"), "")  # silent miss, no SDK call attempted
+
+    def test_vault_read_raises_when_hvac_missing(self) -> None:
+        from briar.credentials import make_credential_store
+
+        with mock.patch.dict("os.environ", {"VAULT_ADDR": "http://x", "VAULT_TOKEN": "t"}):
+            store = make_credential_store("vault")
+            with mock.patch("briar.credentials.vault._import_hvac", return_value=None):
+                with self.assertRaises(RuntimeError) as ctx:
+                    store.read("anything")
+                self.assertIn("briar-cli[vault]", str(ctx.exception))
+
+    def test_ssm_read_uses_boto3(self) -> None:
+        from briar.credentials import make_credential_store
+
+        store = make_credential_store("ssm")
+        fake_client = mock.MagicMock()
+        fake_client.get_parameter.return_value = {"Parameter": {"Value": "secret-val"}}
+        with mock.patch("boto3.client", return_value=fake_client):
+            self.assertEqual(store.read("GITHUB_TOKEN"), "secret-val")
+            # Path prefix is applied
+            fake_client.get_parameter.assert_called_with(Name="/briar/GITHUB_TOKEN", WithDecryption=True)
+
+
+class ExecutorNotificationTests(unittest.TestCase):
+    """`RunbookExtractor._notify_failure` dispatches to every sink
+    listed in ``$BRIAR_NOTIFY_SINKS``. The dispatch must NOT raise
+    — a broken sink can't crash the scheduler."""
+
+    def test_notify_failure_dispatches_to_telegram_when_configured(self) -> None:
+        from briar.iac.runbook.executor import RunbookExtractor
+
+        fake_sink = mock.MagicMock()
+        fake_sink.is_available.return_value = True
+        fake_sink.send.return_value = True
+
+        with mock.patch.dict("os.environ", {"BRIAR_NOTIFY_SINKS": "telegram"}):
+            with mock.patch("briar.notify.make_sink", return_value=fake_sink):
+                RunbookExtractor._notify_failure("acme", "extractors", "stuff broke", "trace")
+
+        self.assertEqual(fake_sink.send.call_count, 1)
+        kwargs = fake_sink.send.call_args.kwargs
+        self.assertIn("acme", kwargs["title"])
+        self.assertIn("stuff broke", kwargs["body"])
+
+    def test_notify_failure_silent_when_no_sinks_configured(self) -> None:
+        from briar.iac.runbook.executor import RunbookExtractor
+
+        with mock.patch.dict("os.environ", {}, clear=True):
+            with mock.patch("briar.notify.make_sink") as make_sink:
+                RunbookExtractor._notify_failure("acme", "extractors", "stuff broke", "trace")
+                self.assertEqual(make_sink.call_count, 0)
+
+    def test_notify_failure_swallows_sink_exceptions(self) -> None:
+        from briar.iac.runbook.executor import RunbookExtractor
+
+        fake_sink = mock.MagicMock()
+        fake_sink.is_available.return_value = True
+        fake_sink.send.side_effect = RuntimeError("network down")
+
+        with mock.patch.dict("os.environ", {"BRIAR_NOTIFY_SINKS": "telegram"}):
+            with mock.patch("briar.notify.make_sink", return_value=fake_sink):
+                # MUST NOT raise — scheduler stays alive on sink failure
+                RunbookExtractor._notify_failure("acme", "extractors", "x", "y")
 
 
 class NewExtractorTests(unittest.TestCase):

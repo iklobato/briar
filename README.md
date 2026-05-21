@@ -237,19 +237,51 @@ vendors. All follow the same shape (ABC + concrete adapters +
 registry + factory function) so adding a new vendor never edits a
 caller:
 
-| Family | ABC | Adapters that ship | Where consumed |
+| Family | ABC | Adapters (all implemented) | Where consumed |
 |---|---|---|---|
-| **Repository** | `RepositoryProvider` | GitHub (full), Bitbucket Cloud (full) | `pr-archaeology`, `active-work`, `github-deployments`, `codebase-conventions` |
-| **Tracker** | `TrackerProvider` | Jira (full), GitHub Issues (full), Bitbucket Issues (full), Linear (stub) | `active-tickets`, `ticket-archaeology` |
-| **Cloud** | `CloudProvider` | AWS (full, via existing `aws_services/`), GCP (stub), Azure (stub) | `aws-infra` (provider-agnostic now, kept the legacy name) |
-| **LLM** | `LLMProvider` | Anthropic (full, OAuth + API key), OpenAI (stub), Gemini (stub), Bedrock (stub) | `briar agent` runner |
-| **Notification** | `NotificationSink` | Telegram (full), Slack (stub), Email (stub), PagerDuty (stub) | future: scheduler failure alerts |
-| **Credentials** | `CredentialStore` | EnvFile (full), AWS Secrets Manager (stub), SSM (stub), Vault (stub) | `briar secrets doctor` |
+| **Repository** | `RepositoryProvider` | GitHub · Bitbucket Cloud | `pr-archaeology`, `active-work`, `github-deployments`, `codebase-conventions` |
+| **Tracker** | `TrackerProvider` | Jira · GitHub Issues · Bitbucket Issues · Linear | `active-tickets`, `ticket-archaeology` |
+| **Cloud** | `CloudProvider` | AWS · GCP · Azure | `aws-infra` (provider-agnostic now) |
+| **LLM** | `LLMProvider` | Anthropic · OpenAI · Gemini · Bedrock | `briar agent` runner |
+| **Notification** | `NotificationSink` | Telegram · Slack · Email · PagerDuty | scheduler failure alerts (via `$BRIAR_NOTIFY_SINKS`) |
+| **Credentials** | `CredentialStore` | EnvFile · AWS Secrets Manager · SSM Parameter Store · Vault | `briar secrets doctor` |
 
-The full adapters work today. The stubs implement `is_available()`
-honestly + raise `NotImplementedError` on data verbs with the exact
-SDK call signature embedded in the message — so the next reader
-knows what to wire up without guessing.
+Every adapter has a working data path — no `NotImplementedError`
+stubs remain. SDKs that aren't core dependencies (OpenAI, Gemini,
+Vault, GCP, Azure) are gated behind opt-in extras
+(`pip install briar-cli[openai]`, etc.); the adapter's
+`is_available()` returns False when the SDK isn't installed, and the
+data verbs raise a clear `RuntimeError` with the exact install
+command in the message.
+
+### Optional-dependency extras
+
+| Extra | Pulls in | Used by |
+|---|---|---|
+| `openai` | `openai>=1.40` | `OpenAILLM` |
+| `gemini` | `google-generativeai>=0.7` | `GeminiLLM` |
+| `vault` | `hvac>=2.0` | `VaultStore` |
+| `gcp` | `google-cloud-run`, `-pubsub`, `-logging`, `google-api-python-client`, `google-auth` | `GcpCloudProvider` |
+| `azure` | `azure-identity`, `azure-mgmt-{subscription,appcontainers,rdbms,servicebus,loganalytics}` | `AzureCloudProvider` |
+| `all` | All of the above | — |
+
+### Failure notifications — wiring the scheduler to the sinks
+
+The scheduler dispatches an alert to every sink listed in
+`$BRIAR_NOTIFY_SINKS` (comma-separated) when an extract fails. Each
+sink is fire-and-forget; one broken sink can't crash the scheduler.
+
+```bash
+BRIAR_NOTIFY_SINKS="telegram,slack"   # alert on every failed extract
+BRIAR_NOTIFY_SINKS=""                  # disabled (the default)
+```
+
+Per-sink credentials follow the existing `CredEnv` pattern:
+
+- `TELEGRAM_BOT_TOKEN` (workspace) + `TELEGRAM_<COMPANY>_CHAT_ID` (per-tenant)
+- `SLACK_<COMPANY>_WEBHOOK_URL`
+- `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `EMAIL_FROM` (workspace) + `EMAIL_<COMPANY>_TO` (per-tenant)
+- `PAGERDUTY_<COMPANY>_ROUTING_KEY`
 
 ### Adding a new vendor anywhere
 

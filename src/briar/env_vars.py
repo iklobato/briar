@@ -53,6 +53,10 @@ class CredEnv(str, Enum):
     TELEGRAM_BOT_TOKEN = "TELEGRAM_BOT_TOKEN"
     TELEGRAM_CHAT_ID = "TELEGRAM_{c}_CHAT_ID"
     SLACK_WEBHOOK_URL = "SLACK_{c}_WEBHOOK_URL"
+    # Comma-separated list of sink kinds the scheduler should dispatch
+    # extract-failure notifications to (e.g. "telegram,slack"). Empty
+    # disables notifications entirely.
+    BRIAR_NOTIFY_SINKS = "BRIAR_NOTIFY_SINKS"
 
     def for_company(self, company: str) -> str:
         normalised = company.upper().replace("-", "_")

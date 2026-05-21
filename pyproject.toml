@@ -44,6 +44,32 @@ dev = [
     "black>=25,<26",
     "mypy>=1.13,<2",
 ]
+# Adapter SDKs are opt-in extras so a base install stays minimal. Operators
+# only install what they actually use. Each adapter's `is_available()`
+# reports False when its SDK is missing; each `complete()` / `read()` /
+# `caller_identity()` raises a clear ImportError-derived message.
+openai = ["openai>=1.40,<2"]
+gemini = ["google-generativeai>=0.7,<1"]
+vault = ["hvac>=2.0,<3"]
+gcp = [
+    "google-cloud-run>=0.10,<1",
+    "google-cloud-pubsub>=2.18,<3",
+    "google-cloud-logging>=3.8,<4",
+    "google-api-python-client>=2.100,<3",  # for Cloud SQL Admin API
+    "google-auth>=2.20,<3",
+]
+azure = [
+    "azure-identity>=1.15,<2",
+    "azure-mgmt-subscription>=3.1,<4",
+    "azure-mgmt-appcontainers>=3.0,<4",
+    "azure-mgmt-rdbms>=10.1,<11",
+    "azure-mgmt-servicebus>=8.2,<9",
+    "azure-mgmt-loganalytics>=12.0,<14",
+]
+# Convenience meta-extra — `pip install briar-cli[all]` pulls everything.
+all = [
+    "briar-cli[openai,gemini,vault,gcp,azure]",
+]
 
 
 [tool.black]
