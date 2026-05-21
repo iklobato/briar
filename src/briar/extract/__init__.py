@@ -11,11 +11,13 @@ from typing import Dict
 from briar.extract.active_tickets import ExtractActiveTickets
 from briar.extract.active_work import ExtractActiveWork
 from briar.extract.aws_infra import ExtractAwsInfra
-from briar.extract.base import ExtractedSection, KnowledgeExtractor
+from briar.extract.base import ExtractedSection, KnowledgeExtractor, TaskScopedExtractor
 from briar.extract.codebase_conventions import ExtractCodebaseConventions
 from briar.extract.github_deployments import ExtractGithubDeployments
 from briar.extract.pr_archaeology import ExtractPrArchaeology
+from briar.extract.pr_review_context import FetchPrReviewContext
 from briar.extract.ticket_archaeology import ExtractTicketArchaeology
+from briar.extract.ticket_context import FetchTicketContext
 
 
 EXTRACTORS: Dict[str, KnowledgeExtractor] = {
@@ -28,6 +30,19 @@ EXTRACTORS: Dict[str, KnowledgeExtractor] = {
         ExtractCodebaseConventions(),
         ExtractActiveTickets(),
         ExtractTicketArchaeology(),
+    )
+}
+
+
+# Task-scoped extractors live in a SEPARATE registry. They're not
+# invoked by the runbook executor (no schedule); the agent runner
+# fetches them at agent-invocation time when the operator passes
+# --ticket-key / --pr-target-number.
+TASK_SCOPED_EXTRACTORS: Dict[str, TaskScopedExtractor] = {
+    e.name: e
+    for e in (
+        FetchTicketContext(),
+        FetchPrReviewContext(),
     )
 }
 

@@ -91,6 +91,40 @@ class LinearTracker(TrackerProvider):
             out.append(Comment(author=author, body=str(c.get("body") or "")[:500], created_at=str(c.get("createdAt") or "")))
         return out
 
+    @swallow_errors(default=None, message="linear get_ticket")
+    def get_ticket(self, project: str, ticket_key: str) -> Ticket:
+        query = """
+        query Issue($id: String!) {
+          issue(id: $id) {
+            identifier title description createdAt updatedAt url
+            priorityLabel
+            state { name type }
+            creator { displayName name }
+            assignee { displayName name }
+            labels { nodes { name } }
+          }
+        }
+        """
+        result = self._gql(query, {"id": ticket_key})
+        node = (result.get("data") or {}).get("issue")
+        if not isinstance(node, dict):
+            return super().get_ticket(project, ticket_key)
+        ticket = self._to_ticket(node)
+        return Ticket(
+            key=ticket.key,
+            title=ticket.title,
+            reporter=ticket.reporter,
+            assignee=ticket.assignee,
+            status=ticket.status,
+            kind=ticket.kind,
+            priority=ticket.priority,
+            created_at=ticket.created_at,
+            updated_at=ticket.updated_at,
+            labels=ticket.labels,
+            url=ticket.url,
+            description=str(node.get("description") or "")[:8000],
+        )
+
     # ---- internals --------------------------------------------------------
 
     def _gql(self, query: str, variables: Dict[str, Any]) -> Dict[str, Any]:

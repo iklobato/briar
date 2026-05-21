@@ -95,6 +95,17 @@ class CommandAgent(Command):
             self._cleanup_worktree(worktree, keep=args.keep_worktree)
             return 5
 
+        # JIT-fetch the PR's review comments + failing-CI context. Spliced
+        # into the agent's system prompt below the archetype's persona.
+        # Failure here is non-fatal — the agent still has the worktree
+        # and the bash tool; the pr-review-context is enrichment.
+        task_sections = self._fetch_pr_context(
+            company=args.company,
+            owner=args.owner,
+            repo=args.repo,
+            pr=args.pr,
+        )
+
         runner = AgentRunner(
             company=args.company,
             task="prfix",
@@ -105,6 +116,7 @@ class CommandAgent(Command):
             model=args.model,
             max_iterations=args.max_iter,
             extra_user_instructions=self._pr_specific_instructions(args.owner, args.repo, args.pr, args.branch),
+            task_context_sections=task_sections,
         )
         result = runner.run()
 
@@ -183,6 +195,34 @@ class CommandAgent(Command):
                 log.error("git config %s failed: %s", key, proc.stderr.strip())
                 return False
         return True
+
+    @staticmethod
+    def _fetch_pr_context(*, company: str, owner: str, repo: str, pr: int):
+        """Run the `pr-review-context` task-scoped extractor for this
+        PR. Returns a list with one ExtractedSection or empty on failure.
+        Defensive — the agent should still run if this fetch fails."""
+        import argparse as _ap
+
+        from briar.extract import TASK_SCOPED_EXTRACTORS
+
+        extractor = TASK_SCOPED_EXTRACTORS.get("pr-review-context")
+        if extractor is None:
+            return []
+        ns = _ap.Namespace(
+            company=company,
+            provider="github",  # CommandAgent.prfix is GitHub-only today; Bitbucket variant would override.
+            pr_target_repo=f"{owner}/{repo}",
+            pr_target_number=pr,
+        )
+        try:
+            section = extractor.fetch(ns)
+        except Exception:  # noqa: BLE001
+            log.exception("pr-review-context fetch failed; agent continues without it")
+            return []
+        if getattr(section, "is_empty", True):
+            return []
+        log.info("pr-review-context: title=%r body_bytes=%d", section.title, len(section.body or ""))
+        return [section]
 
     @staticmethod
     def _pr_specific_instructions(owner: str, repo: str, pr: int, branch: str) -> str:

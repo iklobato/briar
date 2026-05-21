@@ -23,11 +23,14 @@ from typing import Any, Dict, List, Tuple
 from briar.decorators import swallow_errors
 from briar.env_vars import CredEnv
 from briar.extract._provider import (
+    CiFailure,
     CiRun,
+    Commit,
     Deployment,
     Environment,
     PullRequest,
     RepositoryProvider,
+    ReviewComment,
 )
 
 
@@ -161,6 +164,79 @@ class BitbucketProvider(RepositoryProvider):
         if isinstance(resp, str):
             return resp
         return ""
+
+    @swallow_errors(default=None, message="bitbucket get_pull")
+    def get_pull(self, repo: str, number: int) -> PullRequest:
+        bb_repo = self._repo(repo)
+        pr = bb_repo.pullrequests.get(number)
+        # Bitbucket state vocabulary: OPEN | MERGED | DECLINED | SUPERSEDED
+        state = "merged" if getattr(pr, "is_merged", False) else "open"
+        return self._to_pull(pr, state=state)
+
+    @swallow_errors(default=[], message="bitbucket list_pr_comments")
+    def list_pr_comments(self, repo: str, number: int) -> List[ReviewComment]:
+        bb_repo = self._repo(repo)
+        pr = bb_repo.pullrequests.get(number)
+        out: List[ReviewComment] = []
+        for c in pr.comments():
+            data = getattr(c, "data", {}) or {}
+            inline = data.get("inline") or {}
+            content = (data.get("content") or {}).get("raw") or ""
+            user = data.get("user") or {}
+            out.append(
+                ReviewComment(
+                    id=str(data.get("id") or ""),
+                    author=str(user.get("display_name") or user.get("nickname") or ""),
+                    body=str(content)[:1500],
+                    file_path=str(inline.get("path") or "") if isinstance(inline, dict) else "",
+                    line=int(inline.get("to") or inline.get("from") or 0) if isinstance(inline, dict) else 0,
+                    is_resolved=False,
+                    created_at=str(data.get("created_on") or ""),
+                )
+            )
+        return out
+
+    # Bitbucket Cloud Pipelines: failure details require fetching each
+    # failing step's log. Implemented in a follow-up — for now, return
+    # empty so the section degrades gracefully on Bitbucket.
+    def list_ci_failures(self, repo: str, number: int) -> List[CiFailure]:
+        return []
+
+    @swallow_errors(default=[], message="bitbucket list_recent_commits")
+    def list_recent_commits(self, repo: str, *, since_days: int = 30, max_count: int = 200) -> List[Commit]:
+        bb_repo = self._repo(repo)
+        out: List[Commit] = []
+        for c in bb_repo.commits.each():
+            data = getattr(c, "data", {}) or {}
+            sha = str(data.get("hash") or "")
+            if not sha:
+                continue
+            # Bitbucket commits include `parents` but file lists require
+            # an additional /diffstat/{sha} call — populate for the
+            # first 50 commits only.
+            files: List[str] = []
+            if len(out) < 50:
+                try:
+                    diffstat = bb_repo.get(f"diffstat/{sha}")
+                    for f in (diffstat or {}).get("values", []) if isinstance(diffstat, dict) else []:
+                        new_path = (f.get("new") or {}).get("path") or ""
+                        if new_path:
+                            files.append(new_path)
+                except Exception:  # noqa: BLE001
+                    pass
+            author = (data.get("author") or {}).get("user") or {}
+            out.append(
+                Commit(
+                    sha=sha,
+                    author=str(author.get("display_name") or author.get("nickname") or ""),
+                    message=(str(data.get("message") or "").splitlines() or [""])[0][:200],
+                    created_at=str(data.get("date") or ""),
+                    file_paths=files,
+                )
+            )
+            if len(out) >= max_count:
+                break
+        return out
 
     @staticmethod
     def _to_pull(pr, *, state: str) -> PullRequest:

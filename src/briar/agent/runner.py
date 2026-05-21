@@ -77,6 +77,7 @@ class AgentRunner:
         extra_user_instructions: str = "",
         llm_kind: str = "anthropic",
         llm: LLMProvider = None,  # type: ignore[assignment] — tests inject; runtime falls through
+        task_context_sections: List[Any] = None,  # type: ignore[assignment]
     ) -> None:
         self._company = company
         self._task = task
@@ -87,6 +88,11 @@ class AgentRunner:
         self._llm: LLMProvider = llm or make_llm(llm_kind, model=model)
         self._max_iterations = max_iterations or self.DEFAULT_MAX_ITERATIONS
         self._extra = extra_user_instructions
+        # JIT context fetched by the caller (FetchTicketContext /
+        # FetchPrReviewContext output sections, etc.). Spliced into the
+        # system prompt below the archetype's persona — sits next to the
+        # scheduled knowledge sections so the agent treats them the same.
+        self._task_context_sections = list(task_context_sections or [])
         # Tools share the same root list so the agent can read/write
         # inside the worktree but nowhere else.
         roots = [self._workdir]
@@ -183,7 +189,20 @@ class AgentRunner:
             `git config user.name` before your first commit.
             """
         )
-        return body + ("\n\n" + prologue if prologue else "")
+        sections: List[str] = []
+        if prologue:
+            sections.append(prologue)
+        # Task-scoped sections (ticket-context, pr-review-context, …)
+        # render with their own `## <title>` heading + body, mirroring
+        # the format the scheduled KnowledgeSplicer emits. The agent
+        # treats both layers as one continuous context block.
+        for section in self._task_context_sections:
+            if getattr(section, "is_empty", False):
+                continue
+            sections.append(f"## {section.title}\n\n{section.body}")
+        if not sections:
+            return body
+        return body + "\n\n" + "\n\n".join(sections)
 
     def _build_initial_user_message(self) -> str:
         intro = textwrap.dedent(

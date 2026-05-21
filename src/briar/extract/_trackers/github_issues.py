@@ -61,6 +61,28 @@ class GithubIssuesTracker(TrackerProvider):
             out.append(Comment(author=author, body=body[:500], created_at=c.get("created_at") or ""))
         return out
 
+    @swallow_errors(default=None, message="github-issues get_ticket")
+    def get_ticket(self, project: str, ticket_key: str) -> Ticket:
+        number = ticket_key.lstrip("#")
+        data = GithubApi.get_json(f"/repos/{project}/issues/{number}")
+        if not isinstance(data, dict):
+            return super().get_ticket(project, ticket_key)
+        ticket = self._to_ticket(data, project)
+        return Ticket(
+            key=ticket.key,
+            title=ticket.title,
+            reporter=ticket.reporter,
+            assignee=ticket.assignee,
+            status=ticket.status,
+            kind=ticket.kind,
+            priority=ticket.priority,
+            created_at=ticket.created_at,
+            updated_at=ticket.updated_at,
+            labels=ticket.labels,
+            url=ticket.url,
+            description=str(data.get("body") or "")[:8000],
+        )
+
     @swallow_errors(default=[], message="github-issues list_status_transitions")
     def list_status_transitions(self, project: str, ticket_key: str) -> List[str]:
         # GitHub Issues don't have rich status states; only open ↔ closed.

@@ -80,6 +80,44 @@ class CiRun:
     created_at: str
 
 
+@dataclass(frozen=True)
+class ReviewComment:
+    """One inline review-thread comment on a PR. Has a file + line
+    reference, unlike a generic top-level issue/PR comment."""
+
+    id: str
+    author: str
+    body: str
+    file_path: str = ""  # empty for top-level (non-inline) comments
+    line: int = 0  # 0 for top-level
+    is_resolved: bool = False
+    created_at: str = ""
+
+
+@dataclass(frozen=True)
+class CiFailure:
+    """One failed CI step on a PR. Carries enough log tail for the
+    agent to diagnose without re-fetching."""
+
+    workflow: str  # the workflow name (e.g. "test", "build")
+    job: str  # the failing job inside the workflow
+    step: str  # the specific step that failed
+    log_tail: str  # last ~80 lines of the failing step's log
+    url: str = ""
+
+
+@dataclass(frozen=True)
+class Commit:
+    """One repository commit with its file list. Used by the
+    code-hotspots extractor to find files that co-change."""
+
+    sha: str
+    author: str
+    message: str  # first line / subject
+    created_at: str
+    file_paths: List[str] = field(default_factory=list)
+
+
 class RepositoryProvider(ABC):
     """Strategy contract. Each concrete subclass adapts one vendor
     (GitHub, Bitbucket, GitLab, …) onto the same surface so extractors
@@ -127,4 +165,45 @@ class RepositoryProvider(ABC):
 
     def list_ci_runs(self, repo: str, *, limit: int) -> List[CiRun]:
         """Return the most-recent CI / pipeline runs. Empty default."""
+        return []
+
+    # ---- task-scoped verbs (used by FetchPrReviewContext) ----------------
+    #
+    # Three concrete-default-empty verbs that providers override to deliver
+    # the rich per-PR context an agent needs to fix a review or pass CI.
+    # The scheduled extractors don't use these — they're for
+    # `briar agent` invocations where the operator passed --pr <N>.
+
+    def get_pull(self, repo: str, number: int) -> "PullRequest":
+        """Fetch one PR by number with full detail. Default returns the
+        same shape as `list_pulls` with empty-author etc. — override
+        to populate real fields. Used by FetchPrReviewContext."""
+        return PullRequest(
+            number=number,
+            title="",
+            author="",
+            is_draft=False,
+            head_ref="",
+            base_ref="",
+            review_comment_count=0,
+            created_at="",
+        )
+
+    def list_pr_comments(self, repo: str, number: int) -> List[ReviewComment]:
+        """Return every comment on one PR — inline review-thread
+        comments AND top-level issue comments. Empty default."""
+        return []
+
+    def list_ci_failures(self, repo: str, number: int) -> List[CiFailure]:
+        """Return the failing CI steps for one PR with a log tail.
+        Empty default. Implementations can be expensive (each failure
+        requires fetching the workflow run log) — call site is one PR
+        at a time, never bulk."""
+        return []
+
+    # ---- task-scoped verbs (used by ExtractCodeHotspots) -----------------
+
+    def list_recent_commits(self, repo: str, *, since_days: int = 30, max_count: int = 200) -> List[Commit]:
+        """Return recent commits with their file lists, used for
+        co-change clustering. Empty default."""
         return []

@@ -122,6 +122,93 @@ class TrackerBackedExtractor(KnowledgeExtractor):
         return make_tracker(kind, company=company)
 
 
+class TaskScopedExtractor(ABC):
+    """JIT-invoked extractor — fetched at agent-invocation time for one
+    specific task (a single ticket, a single PR), NOT pre-baked into
+    the per-company markdown blob.
+
+    Distinct from `KnowledgeExtractor` because the lifecycle differs:
+
+      ``KnowledgeExtractor.extract(args)``  runs on a cron-equivalent
+                                            schedule; output goes into
+                                            ``./knowledge/<company>.md``
+                                            and applies to every task.
+      ``TaskScopedExtractor.fetch(args)``   runs once at agent
+                                            invocation; output is
+                                            spliced into ONE agent's
+                                            system prompt only.
+
+    Same `ExtractedSection` output shape so the agent prompt builder
+    can treat both uniformly. Concrete subclasses pick a partial base
+    below (``TaskScopedTrackerExtractor`` / ``TaskScopedRepoExtractor``)
+    that registers the right ``--tracker`` / ``--provider`` flag and
+    factory helper."""
+
+    name: ClassVar[str] = ""
+    description: ClassVar[str] = ""
+
+    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Default: no extra arguments. Concrete subclasses register
+        their identity flags (--ticket-key, --pr-number, etc.) here."""
+
+    @abstractmethod
+    def fetch(self, args: argparse.Namespace) -> ExtractedSection:
+        """Pull JIT context + return one section. Use ``EMPTY_SECTION``
+        when there's nothing to report. Called once per agent run, NOT
+        on the runbook schedule."""
+
+
+class TaskScopedTrackerExtractor(TaskScopedExtractor):
+    """TaskScoped + tracker-backed. Same shape as
+    `TrackerBackedExtractor` but for the JIT lifecycle."""
+
+    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        from briar.extract._trackers import TrackerRegistry
+
+        try:
+            parser.add_argument(
+                "--tracker",
+                default="jira",
+                choices=list(TrackerRegistry.kinds()),
+                help="Tracker provider this extractor uses (default: jira)",
+            )
+        except argparse.ArgumentError:
+            pass
+
+    def _tracker(self, args: argparse.Namespace):
+        from briar.extract._trackers import make_tracker
+
+        ns = vars(args)
+        kind = ns.get("tracker") or "jira"
+        company = ns.get("company") or ""
+        return make_tracker(kind, company=company)
+
+
+class TaskScopedRepoExtractor(TaskScopedExtractor):
+    """TaskScoped + repo-backed."""
+
+    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        from briar.extract._providers import RepositoryProviderRegistry
+
+        try:
+            parser.add_argument(
+                "--provider",
+                default="github",
+                choices=list(RepositoryProviderRegistry.kinds()),
+                help="Repository provider this extractor uses (default: github)",
+            )
+        except argparse.ArgumentError:
+            pass
+
+    def _provider(self, args: argparse.Namespace):
+        from briar.extract._providers import make_provider
+
+        ns = vars(args)
+        kind = ns.get("provider") or "github"
+        company = ns.get("company") or ""
+        return make_provider(kind, company=company)
+
+
 class RepoBackedExtractor(KnowledgeExtractor):
     """Base class for extractors that talk to a code host (GitHub,
     Bitbucket, …). Adds the shared ``--provider`` flag and a

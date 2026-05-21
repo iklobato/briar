@@ -68,6 +68,62 @@ class JiraTracker(TrackerProvider):
             out.append(Comment(author=author, body=body[:500], created_at=c.get("created") or ""))
         return out
 
+    @swallow_errors(default=None, message="jira get_ticket")
+    def get_ticket(self, project: str, ticket_key: str) -> Ticket:
+        # Fetch the issue with description + acceptance-criteria custom
+        # fields. Atlassian Document Format → plain text via the library's
+        # rendered fields fallback.
+        issue = self._jira().issue(ticket_key, fields="*all")
+        if not isinstance(issue, dict):
+            return super().get_ticket(project, ticket_key)
+        ticket = self._to_ticket(issue)
+        fields = issue.get("fields") or {}
+        description = fields.get("description")
+        # Atlassian Document Format is a dict-of-content blocks; fall
+        # back to str() for now (Jira's `expand=renderedFields` gives
+        # rendered HTML, less useful for an LLM than the raw ADF text).
+        if isinstance(description, dict):
+            description = self._adf_to_text(description)
+        return Ticket(
+            key=ticket.key,
+            title=ticket.title,
+            reporter=ticket.reporter,
+            assignee=ticket.assignee,
+            status=ticket.status,
+            kind=ticket.kind,
+            priority=ticket.priority,
+            created_at=ticket.created_at,
+            updated_at=ticket.updated_at,
+            labels=ticket.labels,
+            url=ticket.url,
+            description=str(description or "")[:8000],
+        )
+
+    @classmethod
+    def _adf_to_text(cls, doc: Dict[str, Any]) -> str:
+        """Flatten Atlassian Document Format into plain text. Walks
+        every node, concatenates `text` values, inserts newlines at
+        paragraph boundaries. Good enough for an LLM prompt; not a
+        full ADF renderer."""
+        out: List[str] = []
+        cls._adf_walk(doc, out)
+        return "".join(out)
+
+    @classmethod
+    def _adf_walk(cls, node: Any, out: List[str]) -> None:
+        if isinstance(node, dict):
+            kind = node.get("type", "")
+            if kind == "text":
+                out.append(str(node.get("text", "")))
+                return
+            for child in node.get("content") or []:
+                cls._adf_walk(child, out)
+            if kind in ("paragraph", "heading", "bulletList", "orderedList", "listItem", "codeBlock"):
+                out.append("\n")
+        elif isinstance(node, list):
+            for item in node:
+                cls._adf_walk(item, out)
+
     @swallow_errors(default=[], message="jira list_status_transitions")
     def list_status_transitions(self, project: str, ticket_key: str) -> List[str]:
         result = self._jira().issue(ticket_key, expand="changelog")

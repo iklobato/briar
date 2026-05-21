@@ -77,6 +77,31 @@ class BitbucketIssuesTracker(TrackerProvider):
             out.append(Comment(author=author, body=content[:500], created_at=c.get("created_on") or ""))
         return out
 
+    @swallow_errors(default=None, message="bitbucket-issues get_ticket")
+    def get_ticket(self, project: str, ticket_key: str) -> Ticket:
+        ws, slug = self._resolve_addr(project)
+        issue_id = ticket_key.lstrip("#")
+        repo = self._cloud().workspaces.get(ws).repositories.get(slug)
+        data = repo.get(f"issues/{issue_id}")
+        if not isinstance(data, dict):
+            return super().get_ticket(project, ticket_key)
+        ticket = self._to_ticket(data, project)
+        content = (data.get("content") or {}).get("raw") or ""
+        return Ticket(
+            key=ticket.key,
+            title=ticket.title,
+            reporter=ticket.reporter,
+            assignee=ticket.assignee,
+            status=ticket.status,
+            kind=ticket.kind,
+            priority=ticket.priority,
+            created_at=ticket.created_at,
+            updated_at=ticket.updated_at,
+            labels=ticket.labels,
+            url=ticket.url,
+            description=str(content)[:8000],
+        )
+
     @staticmethod
     def _to_ticket(issue: Dict[str, Any], project: str) -> Ticket:
         reporter = (issue.get("reporter") or {}).get("display_name") or ""

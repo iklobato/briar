@@ -52,6 +52,10 @@ class Ticket:
     updated_at: str = ""
     labels: List[str] = field(default_factory=list)
     url: str = ""
+    # Full markdown body, populated by `get_ticket` (single-ticket fetch).
+    # The list/scan verbs (`list_tickets`) leave this empty — they don't
+    # fetch the body to avoid N round-trips.
+    description: str = ""
 
 
 @dataclass(frozen=True)
@@ -97,3 +101,19 @@ class TrackerProvider(ABC):
         Empty default — only providers with a native changelog
         (Jira, Linear) implement this."""
         return []
+
+    def get_ticket(self, project: str, ticket_key: str) -> Ticket:
+        """Fetch one ticket by key WITH its full description body
+        populated. Used by `FetchTicketContext` at agent-invocation
+        time. Default returns an empty Ticket; concrete providers
+        override to hit their single-ticket endpoint."""
+        return Ticket(
+            key=ticket_key,
+            title="",
+            reporter="",
+            assignee="",
+            status="",
+            kind="",
+            priority="",
+            created_at="",
+        )
