@@ -230,6 +230,45 @@ beats catching it via a 4 AM empty extract.
 
 ---
 
+## The provider ABCs — vendor-neutral by construction
+
+Briar ships **five** Strategy + Registry families that abstract over
+vendors. All follow the same shape (ABC + concrete adapters +
+registry + factory function) so adding a new vendor never edits a
+caller:
+
+| Family | ABC | Adapters that ship | Where consumed |
+|---|---|---|---|
+| **Repository** | `RepositoryProvider` | GitHub (full), Bitbucket Cloud (full) | `pr-archaeology`, `active-work`, `github-deployments`, `codebase-conventions` |
+| **Tracker** | `TrackerProvider` | Jira (full), GitHub Issues (full), Bitbucket Issues (full), Linear (stub) | `active-tickets`, `ticket-archaeology` |
+| **Cloud** | `CloudProvider` | AWS (full, via existing `aws_services/`), GCP (stub), Azure (stub) | `aws-infra` (provider-agnostic now, kept the legacy name) |
+| **LLM** | `LLMProvider` | Anthropic (full, OAuth + API key), OpenAI (stub), Gemini (stub), Bedrock (stub) | `briar agent` runner |
+| **Notification** | `NotificationSink` | Telegram (full), Slack (stub), Email (stub), PagerDuty (stub) | future: scheduler failure alerts |
+| **Credentials** | `CredentialStore` | EnvFile (full), AWS Secrets Manager (stub), SSM (stub), Vault (stub) | `briar secrets doctor` |
+
+The full adapters work today. The stubs implement `is_available()`
+honestly + raise `NotImplementedError` on data verbs with the exact
+SDK call signature embedded in the message — so the next reader
+knows what to wire up without guessing.
+
+### Adding a new vendor anywhere
+
+One module + one entry in the registry tuple. Zero edits to extractors,
+the runner, the executor, or commands. Example for a hypothetical
+GitLab repo provider:
+
+```
+src/briar/extract/_providers/gitlab.py     # new file: GitlabProvider(RepositoryProvider)
+src/briar/extract/_providers/__init__.py   # tuple += (GitlabProvider,)
+```
+
+That's the whole change. The substring `tool_filter` on archetypes
+(`"commit"`, `"open_pr"`, `"comment_on_issue"`) keeps working as long
+as the scaffold-side `Source<Vendor>.build_tools` follows the
+`<vendor>.<verb>` naming convention.
+
+---
+
 ## Repository providers — one ABC, one runtime, every vendor
 
 Every layer that needs to talk to a code host goes through the same

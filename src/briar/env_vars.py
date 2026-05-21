@@ -35,10 +35,24 @@ class CredEnv(str, Enum):
 
     JIRA_EMAIL = "JIRA_{c}_EMAIL"
     JIRA_TOKEN = "JIRA_{c}_TOKEN"
+    JIRA_URL = "JIRA_{c}_URL"
+
+    LINEAR_TOKEN = "LINEAR_{c}_TOKEN"
 
     BRIAR_DATABASE_URL = "BRIAR_DATABASE_URL"
 
+    # LLM providers — agent/runner.py uses CLAUDE_CODE_OAUTH_TOKEN by default.
+    # OPENAI / GEMINI / Bedrock equivalents are read by their respective LLMProvider adapters.
     CLAUDE_CODE_OAUTH_TOKEN = "CLAUDE_CODE_OAUTH_TOKEN"
+    ANTHROPIC_API_KEY = "ANTHROPIC_API_KEY"
+    OPENAI_API_KEY = "OPENAI_API_KEY"
+    GEMINI_API_KEY = "GEMINI_API_KEY"
+    # AWS Bedrock uses the existing AWS_{c}_* per-company creds; no separate key needed.
+
+    # Notification sinks — see notify/.
+    TELEGRAM_BOT_TOKEN = "TELEGRAM_BOT_TOKEN"
+    TELEGRAM_CHAT_ID = "TELEGRAM_{c}_CHAT_ID"
+    SLACK_WEBHOOK_URL = "SLACK_{c}_WEBHOOK_URL"
 
     def for_company(self, company: str) -> str:
         normalised = company.upper().replace("-", "_")

@@ -1,21 +1,26 @@
-"""Agent runner — Anthropic-API-driven tool-use loop.
+"""Agent runner — LLM-provider-driven tool-use loop.
 
-Loads the pr-fixer archetype's system prompt, splices in the company's
-knowledge, and runs `client.messages.create` in a loop until the model
+Loads the archetype's system prompt, splices in the company's
+knowledge, and drives an `LLMProvider.complete` loop until the model
 returns `end_turn` (or we hit guardrails). Tool calls dispatch to the
 `BashTool` / `ReadFileTool` / `WriteFileTool` / `EditFileTool` primitives
 in `briar.agent.tools`.
+
+Provider-agnostic: selecting Anthropic / OpenAI / Gemini / Bedrock is a
+constructor arg. The runner reads normalised `LLMResponse` shapes so
+this file doesn't grow per-vendor branches.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 import textwrap
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 
+from briar.agent._llm import LLMProvider, LLMToolCall
+from briar.agent._llms import make_llm
 from briar.agent.tools import BashTool, EditFileTool, ReadFileTool, ToolError, WriteFileTool
 from briar.iac.scaffold.archetypes import ARCHETYPES
 from briar.log_context import log_context
@@ -54,7 +59,6 @@ class AgentRunner:
     are confined to the worktree the caller hands us.
     """
 
-    DEFAULT_MODEL = "claude-sonnet-4-5"
     DEFAULT_MAX_ITERATIONS = 30
     DEFAULT_MAX_TOKENS_PER_TURN = 8_000
 
@@ -67,10 +71,12 @@ class AgentRunner:
         workdir: Path,
         knowledge_store: Any,
         target: str,
-        oauth_token: str = "",
+        oauth_token: str = "",  # kept for back-compat; ignored — Anthropic adapter reads env directly
         model: str = "",
         max_iterations: int = 0,
         extra_user_instructions: str = "",
+        llm_kind: str = "anthropic",
+        llm: LLMProvider = None,  # type: ignore[assignment] — tests inject; runtime falls through
     ) -> None:
         self._company = company
         self._task = task
@@ -78,11 +84,7 @@ class AgentRunner:
         self._archetype = ARCHETYPES[archetype_name]
         self._store = knowledge_store
         self._target = target
-        # Auth is the Claude Code OAuth token only (subscription billing
-        # via Bearer header). The plain ANTHROPIC_API_KEY path was
-        # explicitly rejected — no fallback, no precedence chain.
-        self._oauth_token = oauth_token or os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "")
-        self._model = model or self.DEFAULT_MODEL
+        self._llm: LLMProvider = llm or make_llm(llm_kind, model=model)
         self._max_iterations = max_iterations or self.DEFAULT_MAX_ITERATIONS
         self._extra = extra_user_instructions
         # Tools share the same root list so the agent can read/write
@@ -95,28 +97,18 @@ class AgentRunner:
 
     def run(self) -> AgentRunResult:
         with log_context(company=self._company, task=self._task, agent=self._archetype.name):
-            if not self._oauth_token:
+            if not self._llm.is_available():
                 return AgentRunResult(
                     company=self._company,
                     task=self._task,
-                    error="CLAUDE_CODE_OAUTH_TOKEN missing — set it in /etc/briar/secrets.env or env",
+                    error=f"LLM ({self._llm.kind}) credentials missing — see env_vars.py for the required vars",
                 )
-            import anthropic
-
-            # OAuth path: Bearer auth + the Claude Code OAuth beta
-            # header. The plain `api_key=...` form would send the token
-            # as `x-api-key`, which the OAuth flow rejects.
-            log.info("agent-auth: using CLAUDE_CODE_OAUTH_TOKEN")
-            client = anthropic.Anthropic(
-                auth_token=self._oauth_token,
-                default_headers={"anthropic-beta": "oauth-2025-04-20"},
-            )
             system = self._build_system_prompt()
             initial_user = self._build_initial_user_message()
             log.info(
-                "agent-start: archetype=%s model=%s max_iter=%d workdir=%s",
+                "agent-start: archetype=%s llm=%s max_iter=%d workdir=%s",
                 self._archetype.name,
-                self._model,
+                self._llm.kind,
                 self._max_iterations,
                 self._workdir,
             )
@@ -125,76 +117,44 @@ class AgentRunner:
             result = AgentRunResult(company=self._company, task=self._task)
             for iteration in range(1, self._max_iterations + 1):
                 result.iterations = iteration
-                response = self._call_with_retry(
-                    client=client,
-                    system=system,
-                    messages=messages,
-                    iteration=iteration,
-                )
-                if response is None:
-                    result.error = "api: exhausted rate-limit retries (see traceback in log)"
+                try:
+                    response = self._llm.complete(
+                        system=system,
+                        messages=messages,
+                        tools=self._tool_specs(),
+                        max_tokens=self.DEFAULT_MAX_TOKENS_PER_TURN,
+                    )
+                except Exception:  # noqa: BLE001
+                    log.exception("agent-failed: LLM raised on iteration %d", iteration)
+                    result.error = "api: LLM call failed (see traceback in log)"
                     return result
-                if response.usage is not None:
-                    result.input_tokens += response.usage.input_tokens
-                    result.output_tokens += response.usage.output_tokens
-                stop = getattr(response, "stop_reason", "")
+
+                result.input_tokens += response.input_tokens
+                result.output_tokens += response.output_tokens
+                stop = response.stop_reason
                 result.stop_reason = stop
                 log.info(
-                    "agent-turn iter=%d stop=%s blocks=%d in=%d out=%d",
+                    "agent-turn iter=%d stop=%s tool_calls=%d in=%d out=%d",
                     iteration,
                     stop,
-                    len(response.content),
-                    response.usage.input_tokens if response.usage else 0,
-                    response.usage.output_tokens if response.usage else 0,
+                    len(response.tool_calls),
+                    response.input_tokens,
+                    response.output_tokens,
                 )
                 if stop == "end_turn":
-                    result.final_text = self._extract_text(response.content)
+                    result.final_text = response.text
                     log.info("agent-done iter=%d %s", iteration, result.cost_summary())
                     return result
                 if stop != "tool_use":
                     result.error = f"unexpected stop_reason={stop}"
                     log.warning("agent-stopped: %s", result.error)
                     return result
-                tool_results = self._execute_all_tool_uses(response.content, result)
-                messages.append({"role": "assistant", "content": [b.model_dump() for b in response.content]})
+                tool_results = self._execute_all_tool_uses(response.tool_calls, result)
+                messages.append(response.raw_assistant_message)
                 messages.append({"role": "user", "content": tool_results})
             result.error = f"hit iteration ceiling ({self._max_iterations})"
             log.warning("agent-ceiling: %d iterations exhausted %s", self._max_iterations, result.cost_summary())
             return result
-
-    def _call_with_retry(self, *, client: Any, system: str, messages: List[Dict[str, Any]], iteration: int) -> Any:
-        """Wrap one client.messages.create with retry-on-429.
-
-        Backoff schedule: 30s, 60s, 120s, 240s, 480s (5 attempts total).
-        429s on Claude Code OAuth tokens are commonly transient — they
-        clear quickly when the user's parallel Claude Code session ends
-        its current turn. Other API errors are not retried; they
-        propagate and end the run."""
-        import time
-
-        import anthropic
-
-        wait_seconds = [0, 30, 60, 120, 240]
-        for attempt, wait in enumerate(wait_seconds, start=1):
-            if wait > 0:
-                log.info("agent-rate-limit: sleeping %ds before attempt %d", wait, attempt)
-                time.sleep(wait)
-            try:
-                return client.messages.create(
-                    model=self._model,
-                    max_tokens=self.DEFAULT_MAX_TOKENS_PER_TURN,
-                    system=system,
-                    tools=self._tool_specs(),
-                    messages=messages,
-                )
-            except anthropic.RateLimitError as exc:
-                log.warning("agent-429: iter=%d attempt=%d/%d err=%s", iteration, attempt, len(wait_seconds), exc)
-                continue
-            except Exception:
-                log.exception("agent-failed: anthropic API raised on iteration %d", iteration)
-                return None
-        log.error("agent-429-exhausted: %d retries hit on iteration %d", len(wait_seconds), iteration)
-        return None
 
     def _build_system_prompt(self) -> str:
         persona = self._archetype.build_persona(self._target)
@@ -264,20 +224,20 @@ class AgentRunner:
             {"name": self._edit.name, "description": self._edit.description, "input_schema": self._edit.INPUT_SCHEMA},
         ]
 
-    def _execute_all_tool_uses(self, blocks: Any, result: AgentRunResult) -> List[Dict[str, Any]]:
+    def _execute_all_tool_uses(self, tool_calls: List[LLMToolCall], result: AgentRunResult) -> List[Dict[str, Any]]:
+        """Dispatch each tool call from the LLM, then format the result
+        in the provider's echo-back shape via `LLMProvider.format_tool_result`.
+        Keeps the runner free of any vendor-specific result shape."""
         tool_results: List[Dict[str, Any]] = []
-        for block in blocks:
-            if getattr(block, "type", "") != "tool_use":
-                continue
+        for call in tool_calls:
             result.tool_calls += 1
-            tool_result = self._dispatch_tool(block.name, block.input, result)
+            outcome = self._dispatch_tool(call.name, call.arguments, result)
             tool_results.append(
-                {
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": tool_result["content"],
-                    "is_error": tool_result["is_error"],
-                }
+                self._llm.format_tool_result(
+                    tool_call_id=call.id,
+                    output=outcome["content"],
+                    is_error=outcome["is_error"],
+                )
             )
         return tool_results
 
@@ -310,10 +270,3 @@ class AgentRunner:
         if match:
             result.commits.append(match.group(1))
 
-    @staticmethod
-    def _extract_text(blocks: Any) -> str:
-        parts: List[str] = []
-        for block in blocks:
-            if getattr(block, "type", "") == "text":
-                parts.append(block.text)
-        return "\n".join(parts)

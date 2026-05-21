@@ -15,6 +15,7 @@ from briar.commands.dashboard import CommandDashboard
 from briar.commands.extract import CommandExtract
 from briar.commands.iac import CommandScaffold
 from briar.commands.runbook import CommandRunbook
+from briar.commands.secrets import CommandSecrets
 from briar.commands.version import CommandVersion
 
 
@@ -29,6 +30,7 @@ class CommandRegistry:
         ContextCommand,
         CommandDashboard,
         CommandAgent,
+        CommandSecrets,
         CommandVersion,
     ]
 

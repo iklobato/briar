@@ -62,6 +62,66 @@ class KnowledgeExtractor(ABC):
         the extractor had nothing to report — the composer skips it."""
 
 
+class CloudBackedExtractor(KnowledgeExtractor):
+    """Base class for extractors that talk to a cloud provider (AWS,
+    GCP, Azure). Registers the shared ``--cloud`` flag + helper."""
+
+    requires_cloud_provider: ClassVar[bool] = True
+
+    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        from briar.extract._clouds import CloudRegistry
+
+        try:
+            parser.add_argument(
+                "--cloud",
+                default="aws",
+                choices=list(CloudRegistry.kinds()),
+                help="Cloud provider this extractor uses (default: aws)",
+            )
+        except argparse.ArgumentError:
+            pass
+
+    def _cloud(self, args: argparse.Namespace):
+        from briar.extract._clouds import make_cloud
+
+        ns = vars(args)
+        kind = ns.get("cloud") or "aws"
+        company = ns.get("company") or ""
+        region = ns.get("aws_extract_region") or ns.get("cloud_region") or ""
+        profile = ns.get("aws_extract_profile") or ns.get("cloud_profile") or ""
+        return make_cloud(kind, company=company, region=region, profile=profile)
+
+
+class TrackerBackedExtractor(KnowledgeExtractor):
+    """Base class for extractors that talk to an issue tracker (Jira,
+    GitHub Issues, Bitbucket Issues, Linear). Symmetric to
+    `RepoBackedExtractor` — same `--tracker` flag + `_tracker(args)`
+    helper, just a different ABC behind it."""
+
+    requires_tracker_provider: ClassVar[bool] = True
+
+    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        from briar.extract._trackers import TrackerRegistry
+
+        try:
+            parser.add_argument(
+                "--tracker",
+                default="jira",
+                choices=list(TrackerRegistry.kinds()),
+                help="Tracker provider this extractor uses (default: jira)",
+            )
+        except argparse.ArgumentError:
+            pass
+
+    def _tracker(self, args: argparse.Namespace):
+        from briar.extract._trackers import make_tracker
+
+        ns = vars(args)
+        kind = ns.get("tracker") or "jira"
+        company = ns.get("company") or ""
+        return make_tracker(kind, company=company)
+
+
 class RepoBackedExtractor(KnowledgeExtractor):
     """Base class for extractors that talk to a code host (GitHub,
     Bitbucket, …). Adds the shared ``--provider`` flag and a

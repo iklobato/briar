@@ -8,12 +8,14 @@ from __future__ import annotations
 
 from typing import Dict
 
+from briar.extract.active_tickets import ExtractActiveTickets
 from briar.extract.active_work import ExtractActiveWork
 from briar.extract.aws_infra import ExtractAwsInfra
 from briar.extract.base import ExtractedSection, KnowledgeExtractor
 from briar.extract.codebase_conventions import ExtractCodebaseConventions
 from briar.extract.github_deployments import ExtractGithubDeployments
 from briar.extract.pr_archaeology import ExtractPrArchaeology
+from briar.extract.ticket_archaeology import ExtractTicketArchaeology
 
 
 EXTRACTORS: Dict[str, KnowledgeExtractor] = {
@@ -24,6 +26,8 @@ EXTRACTORS: Dict[str, KnowledgeExtractor] = {
         ExtractActiveWork(),
         ExtractGithubDeployments(),
         ExtractCodebaseConventions(),
+        ExtractActiveTickets(),
+        ExtractTicketArchaeology(),
     )
 }
 
