@@ -12,10 +12,12 @@ from briar.extract.active_tickets import ExtractActiveTickets
 from briar.extract.active_work import ExtractActiveWork
 from briar.extract.aws_infra import ExtractAwsInfra
 from briar.extract.base import ExtractedSection, KnowledgeExtractor, TaskScopedExtractor
+from briar.extract.code_hotspots import ExtractCodeHotspots
 from briar.extract.codebase_conventions import ExtractCodebaseConventions
 from briar.extract.github_deployments import ExtractGithubDeployments
 from briar.extract.pr_archaeology import ExtractPrArchaeology
 from briar.extract.pr_review_context import FetchPrReviewContext
+from briar.extract.reviewer_profile import ExtractReviewerProfile
 from briar.extract.ticket_archaeology import ExtractTicketArchaeology
 from briar.extract.ticket_context import FetchTicketContext
 
@@ -30,6 +32,8 @@ EXTRACTORS: Dict[str, KnowledgeExtractor] = {
         ExtractCodebaseConventions(),
         ExtractActiveTickets(),
         ExtractTicketArchaeology(),
+        ExtractReviewerProfile(),
+        ExtractCodeHotspots(),
     )
 }
 

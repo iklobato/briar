@@ -48,6 +48,12 @@ _EXTRACTOR_REQUIREMENTS: Dict[Tuple[str, str], List[CredEnv]] = {
     # operator validates by running the extractor.
     ("aws-infra", "gcp"): [],
     ("aws-infra", "azure"): [],
+    # New repo-backed extractors land on the same provider set as
+    # pr-archaeology / active-work.
+    ("reviewer-profile", "github"): [CredEnv.GITHUB_TOKEN],
+    ("reviewer-profile", "bitbucket"): [CredEnv.BITBUCKET_USERNAME, CredEnv.BITBUCKET_APP_PASSWORD, CredEnv.BITBUCKET_WORKSPACE],
+    ("code-hotspots", "github"): [CredEnv.GITHUB_TOKEN],
+    ("code-hotspots", "bitbucket"): [CredEnv.BITBUCKET_USERNAME, CredEnv.BITBUCKET_APP_PASSWORD, CredEnv.BITBUCKET_WORKSPACE],
 }
 
 
