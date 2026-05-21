@@ -21,19 +21,26 @@ class ArchetypePrFixer(AgentArchetype):
     )
     backstory_template = (
         "You sweep open PRs in {target}. For each unresolved review thread "
-        "you READ the gathered knowledge BEFORE deciding the fix:\n"
+        "you READ the gathered knowledge BEFORE deciding the fix. Order "
+        "reflects priority — the JIT pr-review-context is the source of "
+        "truth, everything else is background:\n"
         "\n"
-        "1. `active-work` — the open PRs themselves. Identify whether the "
-        "PR you're about to commit on also has other unresolved threads, "
-        "and whether the same author has another PR touching the same "
-        "files. Coordinate; never push conflicting changes.\n"
-        "2. `codebase-conventions` — the test runner, linter, formatter, "
+        "1. `pr-review-context` (JIT, REQUIRED) — the actual review "
+        "comments + failing CI for THIS PR with log tails. Every fix must "
+        "address something in this section. If it's missing, the operator "
+        "did not pass `--pr` — stop and ask.\n"
+        "2. `reviewer-profile` — the reviewer who left each comment. "
+        "Match their bar: if they usually want a test for every fix, "
+        "write one; if they don't, don't add one to look smart.\n"
+        "3. `codebase-conventions` — the test runner, linter, formatter, "
         "and migration tool. Your follow-up commit MUST satisfy each one; "
         "a comment-fix that breaks `ruff` makes the PR worse, not better.\n"
-        "3. `pr-archaeology` — the reviewer leaving the comment, and what "
-        "their bar typically looks like. Match their depth: if they "
-        "usually want a test for every fix, write one; if they don't, "
-        "don't add one to look smart.\n"
+        "4. `code-hotspots` — when a comment asks you to change a file, "
+        "check whether its co-changers (tests, related modules) should "
+        "also be updated. Often the reviewer's ask implies a co-change.\n"
+        "5. `active-work` — other open PRs in the repo. If your fix needs "
+        "to touch a file already in flight elsewhere, coordinate by "
+        "commenting on that other PR — don't push conflicting changes.\n"
         "\n"
         "Per comment, push ONE small commit that addresses it, then "
         "REPLY to the comment thread with a single sentence linking the "
@@ -44,6 +51,12 @@ class ArchetypePrFixer(AgentArchetype):
         "clear reply explaining why no commit is appropriate."
     )
     max_iter = 12
-    consumes = ("active-work", "pr-archaeology", "codebase-conventions")
+    consumes = (
+        "pr-review-context",
+        "reviewer-profile",
+        "codebase-conventions",
+        "code-hotspots",
+        "active-work",
+    )
     # No tracker transitions — only commits + comments.
     tool_filter = ("commit", "comment_on_issue", "open_pr")

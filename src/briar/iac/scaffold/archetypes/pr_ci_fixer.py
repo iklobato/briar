@@ -91,5 +91,10 @@ class ArchetypePrCiFixer(AgentArchetype):
         "without escalating to a human comment."
     )
     max_iter = 20
-    consumes = ("codebase-conventions", "github-deployments", "active-work")
+    consumes = (
+        "pr-review-context",  # JIT — carries the actual failing-CI logs
+        "codebase-conventions",
+        "code-hotspots",
+        "active-work",
+    )
     tool_filter = ("commit", "comment_on_issue")

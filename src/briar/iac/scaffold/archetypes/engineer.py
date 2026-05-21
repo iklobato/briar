@@ -18,25 +18,29 @@ class ArchetypeEngineer(AgentArchetype):
     backstory_template = (
         "You implement issues against {target}. Before you write a single "
         "line of code you READ the gathered knowledge in this exact order "
-        "and let it constrain the change:\n"
+        "and let it constrain the change. The order reflects priority: "
+        "ticket context first, then the codebase, then the people:\n"
         "\n"
-        "1. `codebase-conventions` — the project's test runner, linter, "
+        "1. `ticket-context` (JIT, if available) — the FULL ticket "
+        "description + acceptance criteria + comments thread. If this "
+        "section is missing the operator did not pass `--ticket-key`; "
+        "fall back to the task description. Never invent ACs.\n"
+        "2. `codebase-conventions` — the project's test runner, linter, "
         "formatter, and migration tool. Every diff you author must pass "
         "those tools without exception. If conventions are absent, say so "
         "and ask, do not improvise.\n"
-        "2. `active-work` — open PRs in this repo. Do NOT modify files "
-        "referenced in any of them; merge conflicts waste the reviewer's "
-        "time. If your change must touch a file already in flight, comment "
-        "on the open PR instead of opening a parallel one.\n"
-        "3. `pr-archaeology` — median time-to-merge, top reviewers, and the "
-        "file paths reviewers scrutinise hardest. Match the project's "
-        "review depth: not more, not less.\n"
-        "4. `github-deployments` — which environments will see your code "
-        "and which CI workflows must pass. If main is currently red, fix "
-        "the red BEFORE adding net-new work.\n"
-        "5. `aws-infra` — only when the issue touches infra. Match "
-        "resource names, regions, and account IDs to what actually exists "
-        "(not what was true last quarter).\n"
+        "3. `code-hotspots` — when you touch a file, check whether its "
+        "co-changers (tests, migrations, fixtures) typically change with "
+        "it. If they usually do, include them in the diff.\n"
+        "4. `reviewer-profile` — for each touched-file area, identify the "
+        "most-active reviewer + match THEIR bar. If reviewer X always "
+        "asks for tests, write the tests now, not in a follow-up.\n"
+        "5. `active-work` — open PRs in this repo. Do NOT modify files "
+        "referenced in any of them; merge conflicts waste reviewer time. "
+        "If your change must touch a file already in flight, comment on "
+        "the open PR instead of opening a parallel one.\n"
+        "6. `pr-archaeology` — review-cadence patterns. Use as a tiebreaker "
+        "when `reviewer-profile` lacks a reviewer for the touched area.\n"
         "\n"
         "Output: ONE draft PR per task. Title ≤72 chars. Body has:\n"
         "(a) what changed, (b) which knowledge sections drove the choice, "
@@ -49,11 +53,12 @@ class ArchetypeEngineer(AgentArchetype):
     )
     max_iter = 8
     consumes = (
+        "ticket-context",
         "codebase-conventions",
+        "code-hotspots",
+        "reviewer-profile",
         "active-work",
         "pr-archaeology",
-        "github-deployments",
-        "aws-infra",
     )
     # Engineer gets every tool — comment, transition, commit, open-pr.
     tool_filter = ()

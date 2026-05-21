@@ -365,6 +365,34 @@ class ExecutorNotificationTests(unittest.TestCase):
                 RunbookExtractor._notify_failure("acme", "extractors", "x", "y")
 
 
+class ArchetypeConsumesOrderingTests(unittest.TestCase):
+    """The `consumes` ordering on engineer/pr-fixer is load-bearing —
+    it controls what the agent reads first. Pin the new order so a
+    later careless reorder breaks the test, not production."""
+
+    def test_engineer_consumes_ticket_context_first(self) -> None:
+        from briar.iac.scaffold.archetypes import ARCHETYPES
+
+        engineer = ARCHETYPES["engineer"]
+        self.assertEqual(engineer.consumes[0], "ticket-context")
+        # The two new context-rich extractors must precede the legacy
+        # active-work / pr-archaeology pair.
+        self.assertLess(engineer.consumes.index("code-hotspots"), engineer.consumes.index("active-work"))
+        self.assertLess(engineer.consumes.index("reviewer-profile"), engineer.consumes.index("pr-archaeology"))
+        # github-deployments + aws-infra are NO LONGER in engineer's
+        # consumes — they were dropped as low-signal for implementation work.
+        self.assertNotIn("github-deployments", engineer.consumes)
+        self.assertNotIn("aws-infra", engineer.consumes)
+
+    def test_pr_fixer_consumes_pr_review_context_first(self) -> None:
+        from briar.iac.scaffold.archetypes import ARCHETYPES
+
+        pr_fixer = ARCHETYPES["pr-fixer"]
+        self.assertEqual(pr_fixer.consumes[0], "pr-review-context")
+        self.assertIn("reviewer-profile", pr_fixer.consumes)
+        self.assertIn("code-hotspots", pr_fixer.consumes)
+
+
 class NewExtractorTests(unittest.TestCase):
     """Verify the two new tracker-backed extractors register and gate
     on tracker availability."""

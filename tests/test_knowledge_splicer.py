@@ -77,7 +77,11 @@ class KnowledgeSplicerTests(unittest.TestCase):
         # Header is present.
         self.assertIn("Gathered knowledge for acme", prologue)
 
-    def test_pr_fixer_consumes_only_its_three(self) -> None:
+    def test_pr_fixer_consumes_only_its_declared_set(self) -> None:
+        """pr-fixer's consumes shifted: it now prioritises the JIT
+        pr-review-context + reviewer-profile + code-hotspots over the
+        old (active-work, pr-archaeology, codebase-conventions) trio.
+        AWS infra + GitHub deployments are still excluded."""
         with tempfile.TemporaryDirectory() as td:
             store = make_store("file", file_root=Path(td))
             store.put("knowledge:acme", _ACME_BLOB)
@@ -85,12 +89,14 @@ class KnowledgeSplicerTests(unittest.TestCase):
             prologue = splicer.prologue(ARCHETYPES["pr-fixer"])
 
         self.assertIn("Active work", prologue)
-        self.assertIn("PR archaeology", prologue)
         self.assertIn("Codebase conventions", prologue)
         # pr-fixer does not consume AWS or deployments — they shouldn't
         # be in the prologue even if they were in the blob.
         self.assertNotIn("AWS infrastructure", prologue)
         self.assertNotIn("GitHub deployments", prologue)
+        # pr-archaeology was dropped from pr-fixer's consumes in favour
+        # of the more-actionable reviewer-profile + code-hotspots.
+        self.assertNotIn("PR archaeology", prologue)
 
     def test_multi_blob_merge(self) -> None:
         """Per-task blobs (e.g. `knowledge:acme.prfix`) get merged in

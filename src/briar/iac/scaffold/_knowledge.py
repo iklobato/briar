@@ -28,6 +28,16 @@ _EXTRACTOR_HEADINGS: Dict[str, str] = {
     "github-deployments": "GitHub deployments",
     "codebase-conventions": "Codebase conventions",
     "aws-infra": "AWS infrastructure",
+    "active-tickets": "Active tickets",
+    "ticket-archaeology": "Ticket archaeology",
+    "reviewer-profile": "Reviewer profiles",
+    "code-hotspots": "Code hotspots",
+    # JIT (task-scoped) sections — keys are the extractor names; the
+    # heading prefix is what `FetchTicketContext.fetch` / FetchPrReviewContext
+    # emit as their section.title. KnowledgeSplicer also looks these up
+    # for archetype `consumes` ordering when the JIT section is present.
+    "ticket-context": "Ticket context",
+    "pr-review-context": "PR review context",
 }
 
 

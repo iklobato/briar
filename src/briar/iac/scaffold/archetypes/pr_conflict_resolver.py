@@ -74,5 +74,10 @@ class ArchetypePrConflictResolver(AgentArchetype):
         "- Files outside the conflicted set? Leave them alone."
     )
     max_iter = 16
-    consumes = ("active-work", "codebase-conventions", "pr-archaeology")
+    consumes = (
+        "pr-review-context",  # JIT — full diff + comments on the conflicted PR
+        "active-work",
+        "codebase-conventions",
+        "reviewer-profile",
+    )
     tool_filter = ("commit", "comment_on_issue")
