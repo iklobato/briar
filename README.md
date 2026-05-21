@@ -121,6 +121,125 @@ var names (`{c}` = company name uppercased, hyphens → underscores):
 `aws-infra` falls back to the local `~/.aws/credentials` profile when
 env vars are unset. The droplet runs purely off env vars.
 
+#### Multi-company example
+
+Three companies showcasing the patterns side-by-side:
+
+- `widget-co` — GitHub + AWS
+- `acme` — GitHub + AWS + Jira
+- `acme` — Bitbucket + AWS
+
+`/etc/briar/secrets.env`:
+
+```bash
+# ─── workspace-wide (no {c} substitution) ───────────────────────────
+GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-xxxxxxxxxxxxxxxxxxxxxxxx   # only if running `briar agent`
+BRIAR_DATABASE_URL=postgresql://briar_kb:xxx@db:5432/briar?sslmode=require  # optional; file backend otherwise
+
+# ─── widget-co: GitHub + AWS ───────────────────────────────────
+AWS_WIDGET_CO_ACCESS_KEY_ID=ASIAEXAMPLEAAAAAAAAA
+AWS_WIDGET_CO_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+AWS_WIDGET_CO_SESSION_TOKEN=IQoJb3JpZ2luX2VjEJr////...truncated
+AWS_WIDGET_CO_REGION=us-east-1
+
+# ─── acme: GitHub + AWS (different region) + Jira ─────────────────
+AWS_ACME_ACCESS_KEY_ID=ASIAEXAMPLEBBBBBBBBB
+AWS_ACME_SECRET_ACCESS_KEY=Ke7MDENG/bPxRfiCYEXAMPLEKEYxxxxxxxxxx
+AWS_ACME_SESSION_TOKEN=IQoJb3JpZ2luX2VjEK4////...truncated
+AWS_ACME_REGION=us-east-2
+JIRA_ACME_EMAIL=ops@acme.example
+JIRA_ACME_TOKEN=ATATT3xFfGN0xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# ─── acme: Bitbucket + AWS ──────────────────────────────────────────
+BITBUCKET_ACME_USERNAME=acme-machine-user
+BITBUCKET_ACME_APP_PASSWORD=ATBBxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+BITBUCKET_ACME_WORKSPACE=acme
+AWS_ACME_ACCESS_KEY_ID=ASIAEXAMPLECCCCCCCCC
+AWS_ACME_SECRET_ACCESS_KEY=fiCYEXAMPLEKEYxxxxxxxxxxxxxxxxxxxxxx
+AWS_ACME_SESSION_TOKEN=IQoJb3JpZ2luX2VjEPj////...truncated
+AWS_ACME_REGION=eu-west-1
+```
+
+**How names resolve** (`CredEnv.{template}.for_company({company})`):
+
+| Call | Resolves to |
+|---|---|
+| `CredEnv.AWS_KEY_ID.for_company("widget-co")` | `AWS_WIDGET_CO_ACCESS_KEY_ID` |
+| `CredEnv.JIRA_TOKEN.for_company("acme")` | `JIRA_ACME_TOKEN` |
+| `CredEnv.BITBUCKET_APP_PASSWORD.for_company("acme")` | `BITBUCKET_ACME_APP_PASSWORD` |
+| `CredEnv.GITHUB_TOKEN.value` | `GITHUB_TOKEN` (no `{c}`) |
+
+**Runbook YAML uses the company name verbatim** — the executor passes
+it to `CredEnv.for_company()` when it asks each extractor for its
+credentials:
+
+```yaml
+# examples/acme.yaml — the company key "acme" drives AWS_ACME_*
+companies:
+  acme:
+    knowledge: {store: file, name: ./knowledge/acme.md}
+    schedules:
+      - task: extractors
+        every: "day at 04:17"
+        extract:
+          - name: aws-infra
+            args:
+              aws_extract_region: us-east-2          # reads AWS_ACME_*
+              aws_extract_service: [ecs, lambda, logs, rds, sqs]
+```
+
+**Verify a company's credential surface** without leaking values:
+
+```bash
+sudo -u briar bash -c '
+  set -a; source /etc/briar/secrets.env; set +a
+  for c in WIDGET_CO ACME ACME; do
+    echo "=== $c ==="
+    env | grep -E "^(AWS|JIRA|BITBUCKET)_${c}_" | sed "s/=.*/=<set>/" | sort
+  done
+  echo "=== workspace ==="
+  env | grep -E "^(GITHUB_TOKEN|CLAUDE_CODE_OAUTH_TOKEN|BRIAR_DATABASE_URL)=" \
+      | sed "s/=.*/=<set>/"
+'
+```
+
+Expected output:
+
+```
+=== WIDGET_CO ===
+AWS_WIDGET_CO_ACCESS_KEY_ID=<set>
+AWS_WIDGET_CO_REGION=<set>
+AWS_WIDGET_CO_SECRET_ACCESS_KEY=<set>
+AWS_WIDGET_CO_SESSION_TOKEN=<set>
+=== ACME ===
+AWS_ACME_ACCESS_KEY_ID=<set>
+AWS_ACME_REGION=<set>
+AWS_ACME_SECRET_ACCESS_KEY=<set>
+AWS_ACME_SESSION_TOKEN=<set>
+JIRA_ACME_EMAIL=<set>
+JIRA_ACME_TOKEN=<set>
+=== ACME ===
+AWS_ACME_ACCESS_KEY_ID=<set>
+AWS_ACME_REGION=<set>
+AWS_ACME_SECRET_ACCESS_KEY=<set>
+AWS_ACME_SESSION_TOKEN=<set>
+BITBUCKET_ACME_APP_PASSWORD=<set>
+BITBUCKET_ACME_USERNAME=<set>
+BITBUCKET_ACME_WORKSPACE=<set>
+=== workspace ===
+BRIAR_DATABASE_URL=<set>
+CLAUDE_CODE_OAUTH_TOKEN=<set>
+GITHUB_TOKEN=<set>
+```
+
+A `<set>` missing for a company an extractor is configured against
+shows up at scheduler run time as an empty section in
+`./knowledge/<company>.md` (the extractor's `is_available()` returns
+False; the executor logs `extractor-skip: is_available() returned
+False — likely missing credentials`). Catching it via this one-liner
+beats catching it via a 4 AM empty extract.
+
 ---
 
 ## Repository providers — where Bitbucket vs GitHub plug in
