@@ -127,9 +127,25 @@ class CommandAgent(Command):
 
     @staticmethod
     def _clone_branch(clone_url: str, branch: str, dest: Path) -> bool:
-        log.debug("clone-branch: url=%s branch=%s dest=%s", clone_url, branch, dest)
+        """Clone via `gh repo clone` so the droplet's GH auth chain is
+        used. `git clone https://...` would fail because the droplet has
+        no credential helper for github.com — but `gh` IS authenticated
+        (GITHUB_TOKEN sourced from /etc/briar/secrets.env at runtime)."""
+        owner_repo = clone_url.replace("https://github.com/", "").replace(".git", "")
+        log.debug("clone-branch: gh repo clone %s --branch %s -> %s", owner_repo, branch, dest)
         proc = subprocess.run(
-            ["git", "clone", "--depth", "50", "--branch", branch, clone_url, str(dest)],
+            [
+                "gh",
+                "repo",
+                "clone",
+                owner_repo,
+                str(dest),
+                "--",
+                "--depth",
+                "50",
+                "--branch",
+                branch,
+            ],
             capture_output=True,
             text=True,
             timeout=180,
