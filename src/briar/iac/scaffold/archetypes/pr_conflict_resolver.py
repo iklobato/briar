@@ -1,6 +1,11 @@
 """PR-Conflict-Resolver — brings stale PR branches up to date with their
 base by merging the base in, resolving conflicts, and pushing the merge
-commit back. NEVER rebases or force-pushes.
+commit back.
+
+The persona-specific resolution procedure stays here; all cross-archetype
+rules (commit-as-human, no-force-push, skip-approved-green, etc.) live in
+`briar.iac.scaffold.rules/` and are spliced in by
+`AgentArchetype.build_persona` at compose time.
 """
 
 from __future__ import annotations
@@ -58,24 +63,15 @@ class ArchetypePrConflictResolver(AgentArchetype):
         "had conflicts, which side won each one, and a link to the merge "
         "commit SHA.\n"
         "\n"
-        "Identity rule — every commit + push MUST use the human author's "
-        "GitHub identity, never a bot account. Set `git config user.name` "
-        "and `git config user.email` on the worktree before any commit. "
-        "NEVER commit as `github-actions[bot]`, `briar-bot`, `claude[bot]`, "
-        "or any other bot identity.\n"
-        "\n"
-        "NEVER:\n"
-        "- Force-push, rebase, squash, or amend.\n"
-        "- Discard the PR's commits to 'start clean'. The merge commit is "
-        "the right tool; the existing history stays intact.\n"
-        "- Use `git checkout --theirs` or `--ours` wholesale. Inspect every "
-        "marker individually. Wholesale resolution loses work.\n"
-        "- Resolve a conflict if the test suite then fails and you don't "
-        "understand why. Abort the merge (`git merge --abort`) and surface "
-        "the failure in a PR comment instead.\n"
-        "- Touch files outside the conflicted set.\n"
-        "- Modify a PR whose mergeStateStatus is CLEAN (no conflict, no "
-        "fix needed)."
+        "Discard-or-keep heuristics:\n"
+        "- Discard the PR's commits to 'start clean'? NEVER. The merge commit "
+        "is the right tool; the existing history stays intact.\n"
+        "- `git checkout --theirs` or `--ours` wholesale? NEVER. Inspect "
+        "every marker individually. Wholesale resolution loses work.\n"
+        "- A conflict that breaks tests + you don't understand why? Abort "
+        "the merge (`git merge --abort`) and surface the failure in a PR "
+        "comment instead.\n"
+        "- Files outside the conflicted set? Leave them alone."
     )
     max_iter = 16
     consumes = ("active-work", "codebase-conventions", "pr-archaeology")

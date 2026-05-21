@@ -1,4 +1,10 @@
-"""PR-Fixer — sweeps unresolved review comments and pushes follow-ups."""
+"""PR-Fixer — sweeps unresolved review comments and pushes follow-ups.
+
+The persona-specific procedure stays here; all cross-archetype rules
+(commit-as-human, no-force-push, skip-approved-green, etc.) live in
+`briar.iac.scaffold.rules/` and are spliced in by
+`AgentArchetype.build_persona` at compose time.
+"""
 
 from __future__ import annotations
 
@@ -34,35 +40,7 @@ class ArchetypePrFixer(AgentArchetype):
         "commit SHA. Skip subjective comments ('did you consider X?') "
         "with a clarifying reply, no commit.\n"
         "\n"
-        "Before you commit anything, READ every comment first:\n"
-        "- Every PR-level issue comment (`gh pr view --comments` / "
-        "`/repos/OWNER/REPO/issues/N/comments`).\n"
-        "- Every inline review-thread comment "
-        "(`/repos/OWNER/REPO/pulls/N/comments`).\n"
-        "- The full diff so you know what every comment is anchored to.\n"
-        "Only after you've ingested all three do you plan fixes. A "
-        "fix that addresses one comment in isolation while contradicting "
-        "another comment on the same thread is worse than no fix.\n"
-        "\n"
-        "Identity rule — every commit + push MUST use the human author's "
-        "GitHub identity, never a bot account. Set `git config user.name "
-        "<your-github-login>` and `git config user.email <your-noreply-"
-        "email>` on the working tree before the first commit (the "
-        "no-reply form is `<id>+<login>@users.noreply.github.com`). "
-        "NEVER commit as `github-actions[bot]`, `briar-bot`, "
-        "`claude[bot]`, or any other bot identity. If you cannot resolve "
-        "the human author's identity, STOP and surface the missing "
-        "config rather than silently committing under a bot.\n"
-        "\n"
-        "NEVER:\n"
-        "- Open a new PR (one already exists per the trigger; you only "
-        "extend the existing one).\n"
-        "- Rebase, force-push, or squash without explicit instruction.\n"
-        "- Touch files outside the diff already under review.\n"
-        "- Modify a PR that is APPROVED *and* whose CI is green and "
-        "whose open review threads contain only positive comments. "
-        "Approved + correctly-implementing = leave it alone.\n"
-        "- Mark a thread resolved without an accompanying commit OR a "
+        "Mark a thread resolved ONLY with an accompanying commit OR a "
         "clear reply explaining why no commit is appropriate."
     )
     max_iter = 12

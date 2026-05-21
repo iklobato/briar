@@ -1,6 +1,11 @@
 """PR-CI-Fixer — reads the latest failing CI check on an open PR, parses
 the failure log, applies a minimum-correct fix, commits, and re-polls
 CI until it goes green or it's hit its iteration ceiling.
+
+The persona-specific procedure stays here; all cross-archetype rules
+(commit-as-human, no-force-push, skip-approved-green, etc.) live in
+`briar.iac.scaffold.rules/` and are spliced in by
+`AgentArchetype.build_persona` at compose time.
 """
 
 from __future__ import annotations
@@ -62,7 +67,7 @@ class ArchetypePrCiFixer(AgentArchetype):
         "and stage the result).\n"
         "2. Commit with a subject like `ci: <short description> [fix <check-name>]`. "
         "The body explains why the fix addresses the failure log.\n"
-        "3. Push (fast-forward only, never force-push).\n"
+        "3. Push fast-forward.\n"
         "4. Re-poll CI: `gh pr checks <N> --watch` until all required "
         "checks resolve. If the same check fails again with a different "
         "log: repeat from step (b), but stop after THREE total fix "
@@ -71,13 +76,7 @@ class ArchetypePrCiFixer(AgentArchetype):
         "5. Reply on the PR with one comment per fixed check, citing the "
         "commit SHA and the specific log line you addressed.\n"
         "\n"
-        "Identity rule — every commit + push MUST use the human author's "
-        "GitHub identity, never a bot account. Set `git config user.name` "
-        "and `git config user.email` on the worktree before any commit. "
-        "NEVER commit as `github-actions[bot]`, `briar-bot`, `claude[bot]`, "
-        "or any other bot identity.\n"
-        "\n"
-        "NEVER:\n"
+        "Forbidden under all circumstances:\n"
         "- Skip / `xfail` / `@pytest.mark.skip` a failing test to make "
         "the check pass. The check is reporting a real failure; address "
         "the failure.\n"
@@ -85,12 +84,9 @@ class ArchetypePrCiFixer(AgentArchetype):
         "`eslint-disable`) unless the failing rule's documentation "
         "explicitly endorses ignoring this case AND the same pattern "
         "exists elsewhere in the repo.\n"
-        "- Disable a CI job, change a workflow's `on:` trigger, or edit "
-        "`.github/workflows/*` to drop a required check.\n"
+        "- Disable a CI job, change a workflow's `on:` trigger.\n"
         "- Modify `pyproject.toml`, `setup.cfg`, `eslint.config.*`, or "
         "any other linter config to relax a rule that's failing.\n"
-        "- Force-push, rebase, or squash.\n"
-        "- Touch files unrelated to the failure log.\n"
         "- Continue past three failed fix attempts on the same check "
         "without escalating to a human comment."
     )

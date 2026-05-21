@@ -54,10 +54,32 @@ class AgentArchetype(ABC):
 
     def build_persona(self, target: str) -> Dict[str, str]:
         """`target` is a human-readable string like 'iklobato/lightapi'
-        spliced into every persona field that contains `{target}`."""
+        spliced into every persona field that contains `{target}`.
+
+        The backstory is composed in two parts:
+        1. The archetype's own `backstory_template` (persona-specific
+           procedures + tone).
+        2. Every rule in the global registry whose `applies_to` includes
+           this archetype, rendered with severity-ordered headings.
+
+        The second part is shared across archetypes — adding a new rule
+        that hits `pr-fixer` AND `pr-conflict-resolver` is one markdown
+        file, no archetype edits."""
+        from briar.iac.scaffold.rules import RuleRegistry
+
         ctx = {"target": target}
+        backstory = self.backstory_template.format(**ctx)
+        rules = RuleRegistry.for_archetype(self.name)
+        if rules:
+            rule_chunks: List[str] = ["", "## Inherited rules", ""]
+            for rule in rules:
+                rule_chunks.append(f"### [{rule.severity}] {rule.name}")
+                rule_chunks.append("")
+                rule_chunks.append(rule.render())
+                rule_chunks.append("")
+            backstory = backstory.rstrip() + "\n\n" + "\n".join(rule_chunks).strip() + "\n"
         return {
             "role": self.role.format(**ctx),
             "goal": self.goal.format(**ctx),
-            "backstory": self.backstory_template.format(**ctx),
+            "backstory": backstory,
         }
