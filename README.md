@@ -170,24 +170,12 @@ AWS_ACME_REGION=eu-west-1
 | `CredEnv.BITBUCKET_APP_PASSWORD.for_company("acme")` | `BITBUCKET_ACME_APP_PASSWORD` |
 | `CredEnv.GITHUB_TOKEN.value` | `GITHUB_TOKEN` (no `{c}`) |
 
-**Runbook YAML uses the company name verbatim** — the executor passes
-it to `CredEnv.for_company()` when it asks each extractor for its
-credentials:
-
-```yaml
-# examples/acme.yaml — the company key "acme" drives AWS_ACME_*
-companies:
-  acme:
-    knowledge: {store: file, name: ./knowledge/acme.md}
-    schedules:
-      - task: extractors
-        every: "day at 04:17"
-        extract:
-          - name: aws-infra
-            args:
-              aws_extract_region: us-east-2          # reads AWS_ACME_*
-              aws_extract_service: [ecs, lambda, logs, rds, sqs]
-```
+**The runbook YAML uses the company name verbatim** — the executor
+passes it to `CredEnv.for_company()` when each extractor asks for its
+credentials. So `companies.acme.schedules[].extract[].aws-infra`
+runs against `AWS_ACME_*`, `companies.acme` against `AWS_ACME_*` +
+`BITBUCKET_ACME_*`, etc. See `## Runbook YAML` below for the full
+schedule structure.
 
 **Verify a company's credential surface** without leaking values:
 
@@ -296,7 +284,9 @@ companies:
           - name: pr-archaeology
             args: {pr_repo: [acme-co/acme-app], pr_max: 30}
           - name: aws-infra
-            args: {aws_extract_profile: acme, aws_extract_region: us-east-2,
+            # No aws_extract_profile — the company key "acme" already
+            # drives AWS_ACME_* via CredEnv.for_company().
+            args: {aws_extract_region: us-east-2,
                    aws_extract_service: [ecs, lambda, logs, rds, sqs]}
 
       - task: implementation            # repo-shape
@@ -504,10 +494,16 @@ can reach GitHub + AWS).
 
 `secrets.env` holds short-lived AWS STS triplets (the SSO-vended ones
 expire on the local SSO session timeout). When the session ages out,
-re-push from your laptop:
+re-push from your laptop. See `#### Multi-company example` above for
+the full structure of `secrets.env` — this one-liner only rotates the
+AWS STS triplets + `GITHUB_TOKEN`; static creds (Bitbucket app
+passwords, Jira tokens) carry across.
 
 ```bash
-{ for c in widget-co acme; do
+# Edit the company list to match the runbooks you actually have.
+COMPANIES="widget-co acme acme"
+
+{ for c in $COMPANIES; do
     aws configure export-credentials --profile $c --format env-no-export 2>/dev/null \
       | grep -E '^AWS_(ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN)=' \
       | sed -E "s/^AWS_/AWS_${c^^}_/; s/-/_/g"
