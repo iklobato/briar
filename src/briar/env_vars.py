@@ -30,6 +30,8 @@ class CredEnv(str, Enum):
 
     BRIAR_DATABASE_URL = "BRIAR_DATABASE_URL"
 
+    ANTHROPIC_API_KEY = "ANTHROPIC_API_KEY"
+
     def for_company(self, company: str) -> str:
         normalised = company.upper().replace("-", "_")
         return self.value.format(c=normalised)

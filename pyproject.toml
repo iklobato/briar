@@ -33,6 +33,7 @@ dependencies = [
     "schedule>=1.2,<2",    # in-process scheduler (replaces cron)
     "pytz",                # `schedule`'s tz support for `at("HH:MM", tz)`
     "psycopg[binary]>=3.1,<4",  # postgres KnowledgeStore backend (lazy-imported)
+    "anthropic>=0.40,<1",  # `briar agent` runner — autonomous prfix loop
 ]
 
 [project.optional-dependencies]
