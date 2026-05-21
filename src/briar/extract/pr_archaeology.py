@@ -3,7 +3,12 @@
 Surfaces the patterns + reviewer cadence agents should respect when
 proposing changes. Modeled on
 `claude-standalone/scans/pr_archaeology.py` condensed to a live agent
-context blob (heavy duplicate-PR clustering is deferred to v2)."""
+context blob (heavy duplicate-PR clustering is deferred to v2).
+
+Provider-agnostic: this extractor talks to a `RepositoryProvider`,
+not to GitHub directly. Setting ``--provider bitbucket`` in the
+runbook routes the same logic onto Bitbucket Cloud once
+`BitbucketProvider.list_pulls` is implemented."""
 
 from __future__ import annotations
 
@@ -13,15 +18,15 @@ from datetime import datetime
 from statistics import median
 from typing import Any, Dict, List
 
-from briar.extract._gh import GithubApi
+from briar.extract._provider import PullRequest
 from briar.extract._user_filter import (
     add_user_filter_arguments,
-    apply_user_filter,
+    apply_user_filter_objs,
 )
-from briar.extract.base import EMPTY_SECTION, ExtractedSection, KnowledgeExtractor
+from briar.extract.base import EMPTY_SECTION, ExtractedSection, RepoBackedExtractor
 
 
-class ExtractPrArchaeology(KnowledgeExtractor):
+class ExtractPrArchaeology(RepoBackedExtractor):
     UNPARSABLE_HOURS = -1.0
 
     @classmethod
@@ -37,14 +42,15 @@ class ExtractPrArchaeology(KnowledgeExtractor):
 
     name = "pr-archaeology"
     description = "merged-PR patterns, review focus, reviewer profiles"
-    requires_github = True
+    requires_github = True  # legacy flag — kept for back-compat; new gate is requires_repository_provider
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        super().add_arguments(parser)
         parser.add_argument(
             "--pr-repo",
             action="append",
             default=[],
-            help="GitHub repo to mine (owner/repo). Repeatable.",
+            help="Repository slug to mine (e.g. owner/repo). Repeatable.",
         )
         parser.add_argument(
             "--pr-max",
@@ -55,13 +61,20 @@ class ExtractPrArchaeology(KnowledgeExtractor):
         add_user_filter_arguments(parser, prefix="pr")
 
     def is_available(self, args: argparse.Namespace) -> bool:
-        return bool(args.pr_repo) and bool(GithubApi.auth_token())
+        if not args.pr_repo:
+            return False
+        try:
+            provider = self._provider(args)
+        except Exception:  # noqa: BLE001
+            return False
+        return provider.is_available()
 
     def extract(self, args: argparse.Namespace) -> ExtractedSection:
+        provider = self._provider(args)
         per_repo: List[ExtractedSection] = []
         for repo in args.pr_repo:
-            section = self._mine_repo(repo, args.pr_max, args)
-            if section is not None:
+            section = self._mine_repo(repo, args.pr_max, args, provider)
+            if not section.is_empty:
                 per_repo.append(section)
         if not per_repo:
             return EMPTY_SECTION
@@ -80,22 +93,20 @@ class ExtractPrArchaeology(KnowledgeExtractor):
         repo: str,
         max_prs: int,
         args: argparse.Namespace,
+        provider,
     ) -> ExtractedSection:
-        path = f"/repos/{repo}/pulls?state=closed&sort=updated&direction=desc"
-        pages_needed = max(1, (max_prs // 100) + 1)
-        rows = GithubApi.get_paginated(path, max_pages=pages_needed)
-        merged = [p for p in rows if p.get("merged_at") is not None]
-        merged = apply_user_filter(merged, args, prefix="pr")[:max_prs]
+        merged: List[PullRequest] = provider.list_pulls(repo, state="merged", max_count=max_prs)
+        merged = apply_user_filter_objs(merged, args, prefix="pr")
         if not merged:
             return EMPTY_SECTION
 
-        cycle_hours = [h for h in (self._hours_between(p["created_at"], p["merged_at"]) for p in merged) if h >= 0]
+        cycle_hours = [h for h in (self._hours_between(p.created_at, p.merged_at) for p in merged) if h >= 0]
         reviewers: Counter = Counter()
         authors: Counter = Counter()
         for p in merged:
-            authors[(p.get("user") or {}).get("login", "?")] += 1
-            for r in p.get("requested_reviewers") or []:
-                reviewers[r.get("login", "?")] += 1
+            authors[p.author or "?"] += 1
+            for r in p.requested_reviewers:
+                reviewers[r or "?"] += 1
 
         data: Dict[str, Any] = {
             "repo": repo,

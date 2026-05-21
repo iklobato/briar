@@ -131,6 +131,7 @@ class RunbookExtractor:
                             composer=KnowledgeComposer,
                             make_store=make_store,
                             rows=rows,
+                            company=company_name,
                         )
         log.info("runbook-extract: finished total_rows=%d", len(rows))
         return rows
@@ -146,13 +147,14 @@ class RunbookExtractor:
         composer: Any,
         make_store: Any,
         rows: List[ExtractRow],
+        company: str = "",
     ) -> None:
         """Execute one schedule entry. Pulled out of `extract` to keep
         the per-task work in one place with its own log context."""
         wall_start = time.perf_counter()
         log.info("schedule-start: every=%r extract_count=%d", schedule.every, len(schedule.extract))
         try:
-            sections = cls._collect_sections(schedule.extract, registry)
+            sections = cls._collect_sections(schedule.extract, registry, company=company)
         except Exception:  # noqa: BLE001
             log.exception("schedule-failed: collect_sections raised")
             rows.append(ExtractRow(company_name, schedule.task, "failed (collect_sections raised — see traceback)", binding.name))
@@ -234,7 +236,12 @@ class RunbookExtractor:
         return f"{base_name}.{task}"
 
     @staticmethod
-    def _collect_sections(extract_list: List[ExtractEntry], registry: Any) -> List[ExtractedSection]:
+    def _collect_sections(
+        extract_list: List[ExtractEntry],
+        registry: Any,
+        *,
+        company: str = "",
+    ) -> List[ExtractedSection]:
         sections: List[ExtractedSection] = []
         for entry in extract_list:
             with log_context(extractor=entry.name):
@@ -245,6 +252,11 @@ class RunbookExtractor:
                 seed = argparse.ArgumentParser(add_help=False)
                 extractor.add_arguments(seed)
                 ns = seed.parse_args([])
+                # Inject the current company so RepoBackedExtractor._provider
+                # can resolve per-tenant creds (BITBUCKET_<COMPANY>_*, etc.).
+                # Overridable via the YAML args dict — explicit beats implicit.
+                if company and "company" not in entry.args:
+                    setattr(ns, "company", company)
                 for k, v in entry.args.items():
                     setattr(ns, k, v)
                 log.debug("extractor-args: %s", _summarise_args(entry.args))

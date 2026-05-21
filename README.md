@@ -230,39 +230,86 @@ beats catching it via a 4 AM empty extract.
 
 ---
 
-## Repository providers — where Bitbucket vs GitHub plug in
+## Repository providers — one ABC, one runtime, every vendor
 
-The codebase has two distinct layers where a repository provider
-appears, and the level of polymorphism is different at each:
+Every layer that needs to talk to a code host goes through the same
+abstraction now: `RepositoryProvider` (in `extract/_provider.py`).
+Each concrete provider lives in `extract/_providers/` and self-registers.
+Extractors call provider verbs (`list_pulls`, `read_file`,
+`list_environments`, `list_deployments`, `list_ci_runs`); the provider
+adapts those onto its vendor's SDK.
 
 | Layer | GitHub | Bitbucket | Pattern |
 |---|---|---|---|
-| **Scaffold source** (`iac/scaffold/sources/`) | `SourceGithub` | `SourceBitbucket` | Strategy + Registry. Both register identity flags + auth + tools by implementing `SourceTemplate`. |
+| **Scaffold source** (`iac/scaffold/sources/`) | `SourceGithub` | `SourceBitbucket` | Strategy + Registry. |
 | **Scaffold trigger** (`iac/scaffold/triggers/`) | `TriggerGithubWebhook` | `TriggerBitbucketWebhook` | Strategy + Registry. |
 | **CredEnv** (`env_vars.py`) | `GITHUB_TOKEN` (workspace-wide) | `BITBUCKET_{c}_USERNAME` + `_APP_PASSWORD` + `_WORKSPACE` (per-company) | Bitbucket Cloud app passwords are user/workspace-scoped, so they fit the per-tenant `{c}` pattern. |
-| **Runtime extractors** (`extract/`) | `_gh.py` + `ExtractPrArchaeology` / `ExtractActiveWork` / `ExtractGithubDeployments` / `ExtractCodebaseConventions` | **NOT YET** — see below | Strategy at the extractor level, but the API client (`_gh.py`) is GitHub-specific. |
+| **Runtime extractor provider** (`extract/_providers/`) | `GithubProvider` (PyGithub) | `BitbucketProvider` (`atlassian-python-api` Cloud client) | Strategy + Registry behind `RepositoryProvider` ABC. |
 
-### Adding Bitbucket equivalents of the extractors — the open work
+### How extractors stay provider-agnostic
 
-The extractor layer (`extract/pr_archaeology.py`, `active_work.py`,
-`github_deployments.py`, `codebase_conventions.py`) hard-codes the
-GitHub REST API client (`_gh.GithubApi`). The clean refactor — not yet
-done — is:
+Every PR-aware extractor (`pr-archaeology`, `active-work`,
+`github-deployments`, `codebase-conventions`) inherits from
+`RepoBackedExtractor` (in `extract/base.py`). That base class:
 
-1. Extract a `RepositoryProvider` ABC (`extract/_provider.py`) with
-   verbs like `list_open_prs`, `list_recent_merged_prs`,
-   `get_deployments`, `list_workflow_runs`, `list_tree`.
-2. Move the current `_gh.py` into a `GithubProvider` implementation.
-3. Add a `BitbucketProvider` sibling using the Bitbucket Cloud 2.0
-   REST API.
-4. Each extractor takes a `RepositoryProvider` instead of constructing
-   `GithubApi` directly. The runbook YAML grows a `provider:` field
-   per extractor entry (defaults to `github` for backward compat).
+1. Registers a shared `--provider` argparse flag with `choices` driven
+   by `RepositoryProviderRegistry.kinds()`.
+2. Exposes `self._provider(args)` which reads `args.provider` +
+   `args.company` and hands back a configured `RepositoryProvider`.
 
-Until that refactor lands, the extractors will silently fail on a
-Bitbucket-only runbook (no `GITHUB_TOKEN`, no GitHub API to hit).
-The scaffold side ships Bitbucket as a first-class citizen *today*;
-the extractor side ships GitHub-only.
+The runbook executor injects `args.company = <company_name>` before
+each extractor runs, so per-tenant creds (`BITBUCKET_<COMPANY>_*`)
+resolve correctly. GitHub treats `company` as inert; Bitbucket uses
+it as the env-var prefix.
+
+```yaml
+# examples/acme.yaml — same extractors, different provider
+companies:
+  acme:
+    schedules:
+      - task: extractors
+        every: "day at 05:17"
+        extract:
+          - name: pr-archaeology
+            args:
+              provider: bitbucket                    # ← routes onto BitbucketProvider
+              pr_repo: [acme/widgets]                # workspace/repo
+              pr_max: 30
+          - name: codebase-conventions
+            args:
+              provider: bitbucket
+              conventions_repo: [acme/widgets]
+```
+
+### Adding a new vendor
+
+Adding GitLab / Forgejo / SourceHut / … is one file + one entry:
+
+1. Implement `RepositoryProvider` in `extract/_providers/<vendor>.py`
+   — five verbs minimum (`is_available`, `list_pulls`, `read_file`
+   plus the three optional `list_environments` / `list_deployments`
+   / `list_ci_runs`).
+2. Add `<VendorProvider>` to the tuple in
+   `extract/_providers/__init__.py`'s `PROVIDERS` dict.
+
+Zero edits to any extractor. Zero edits to the executor. The
+substring `tool_filter` on archetypes (`"commit"`, `"open_pr"`,
+`"comment_on_issue"`) keeps working as long as the scaffold-side
+`Source<Vendor>.build_tools` follows the same `<vendor>.<verb>`
+naming convention.
+
+### Normalised data shapes
+
+The dataclasses in `_provider.py` are the contract every provider
+must populate. Each vendor's adapter translates its native JSON into
+these:
+
+| Dataclass | Fields | GitHub source | Bitbucket source |
+|---|---|---|---|
+| `PullRequest` | `number, title, author, is_draft, head_ref, base_ref, review_comment_count, created_at, merged_at, requested_reviewers` | PyGithub PR dict | `atlassian.bitbucket.cloud` typed PR object |
+| `Environment` | `name, protection_rule_count, url` | `/repos/{repo}/environments` | `Repository.deployment_environments` |
+| `Deployment` | `id, environment, sha, creator, created_at` | `/repos/{repo}/deployments` | `/2.0/repositories/.../deployments` |
+| `CiRun` | `name, status, conclusion, head_branch, created_at` | `/repos/{repo}/actions/runs` | `Repository.pipelines` |
 
 ---
 
@@ -605,10 +652,25 @@ markdown blobs. Grouped by subsystem; alphabetised inside each group.
 - **Extractor.** A `KnowledgeExtractor` subclass that mines one source
   family (GitHub, AWS, local checkout) and returns one
   `ExtractedSection`. Doesn't know the store exists; the runbook
-  executor handles persistence.
+  executor handles persistence. Code-host-aware extractors inherit
+  from `RepoBackedExtractor` so they pick up the `--provider` flag
+  and `_provider(args)` helper for free.
 - **Knowledge file / knowledge blob.** The composed per-company markdown
   bundle: `knowledge:<company>` (or `knowledge:<company>.<task>` for
   non-default tasks). What agents read.
+- **RepoBackedExtractor.** Base class in `extract/base.py` for
+  extractors that need a code host. Registers `--provider` (choices
+  pulled from `RepositoryProviderRegistry.kinds()`) and exposes
+  `self._provider(args)` so subclasses never construct a vendor
+  client directly.
+- **RepositoryProvider.** Vendor-neutral facade extractors call
+  instead of GitHub / Bitbucket / GitLab APIs directly
+  (`extract/_provider.py`). Five verbs: `is_available`, `list_pulls`,
+  `read_file`, `list_environments`, `list_deployments`,
+  `list_ci_runs`. Returns the dataclasses (`PullRequest`,
+  `Environment`, `Deployment`, `CiRun`) so the extractor never sees
+  vendor-specific field names. Strategy + Registry behind
+  `_providers/`; built by `make_provider(kind, company)`.
 - **Runbook.** A YAML file describing one or more companies and their
   per-task schedules. Validated by Pydantic via `RunbookFile.model_validate`.
   One file per company by convention (`examples/acme.yaml`,

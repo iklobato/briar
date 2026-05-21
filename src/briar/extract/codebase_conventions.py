@@ -4,56 +4,48 @@ This file is a thin orchestrator over `language_detectors/`. Each
 detector reads exactly one manifest file (pyproject.toml, package.json,
 go.mod, …) and reports its findings; the union becomes the repo
 section. Adding a new language is one file in `language_detectors/` —
-this orchestrator is unaware of how many detectors exist."""
+this orchestrator is unaware of how many detectors exist.
+
+Provider-agnostic: the detectors already take a `FileReader` callable.
+This orchestrator just supplies one backed by the current
+`RepositoryProvider.read_file`. Swap providers, same detectors."""
 
 from __future__ import annotations
 
 import argparse
-import base64
-from typing import Any, Dict, List
+from typing import Any, Dict
 
-from briar.extract._gh import GithubApi
-from briar.extract.base import EMPTY_SECTION, ExtractedSection, KnowledgeExtractor
+from briar.extract.base import ExtractedSection, RepoBackedExtractor
 from briar.extract.language_detectors import LANGUAGE_DETECTORS, FileReader
 
 
-class ExtractCodebaseConventions(KnowledgeExtractor):
-    @staticmethod
-    def _read_repo_file(repo: str, path: str) -> str:
-        """Pull a file via the GitHub Contents API. Returns `""` on
-        404 / non-file / decode error — callers check truthiness."""
-        try:
-            resp = GithubApi.get_json(f"/repos/{repo}/contents/{path}")
-        except Exception:  # noqa: BLE001 — 404 is the common case
-            return ""
-        if type(resp) is not dict or resp.get("type") != "file":
-            return ""
-        raw = resp.get("content") or ""
-        encoding = resp.get("encoding") or "base64"
-        if encoding != "base64":
-            return raw
-        try:
-            return base64.b64decode(raw).decode("utf-8", errors="replace")
-        except Exception:  # noqa: BLE001
-            return ""
-
+class ExtractCodebaseConventions(RepoBackedExtractor):
     name = "codebase-conventions"
     description = "language, test runner, linter, migration tool per repo"
-    requires_github = True
+    requires_github = True  # legacy flag
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        super().add_arguments(parser)
         parser.add_argument(
             "--conventions-repo",
             action="append",
             default=[],
-            help="GitHub repo to detect conventions for. Repeatable.",
+            help="Repository slug to detect conventions for. Repeatable.",
         )
 
     def is_available(self, args: argparse.Namespace) -> bool:
-        return bool(args.conventions_repo) and bool(GithubApi.auth_token())
+        if not args.conventions_repo:
+            return False
+        try:
+            provider = self._provider(args)
+        except Exception:  # noqa: BLE001
+            return False
+        return provider.is_available()
 
     def extract(self, args: argparse.Namespace) -> ExtractedSection:
-        subsections = [self._inspect_repo(repo, self._read_repo_file) for repo in args.conventions_repo]
+        provider = self._provider(args)
+        reader: FileReader = provider.read_file
+        subsections = [self._inspect_repo(repo, reader) for repo in args.conventions_repo]
         return ExtractedSection(
             title=f"Codebase conventions — {len(subsections)} repo(s)",
             body=("Agents must match the detected conventions when proposing " "changes — same test runner, same linter, same migration " "tool."),

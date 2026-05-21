@@ -67,34 +67,55 @@ class ComposerTests(unittest.TestCase):
 
 class ExtractPrArchaeologyTests(unittest.TestCase):
     def test_extracts_summary(self) -> None:
+        from briar.extract._provider import PullRequest, RepositoryProvider
+
+        class FakeProvider(RepositoryProvider):
+            kind = "fake"
+
+            def __init__(self, *, company: str = "") -> None:
+                self._company = company
+
+            def is_available(self) -> bool:
+                return True
+
+            def list_pulls(self, repo, *, state, max_count):
+                return [
+                    PullRequest(
+                        number=1,
+                        title="t1",
+                        author="iklobato",
+                        is_draft=False,
+                        head_ref="f",
+                        base_ref="main",
+                        review_comment_count=0,
+                        created_at="2026-05-09T22:00:00Z",
+                        merged_at="2026-05-10T00:00:00Z",
+                        requested_reviewers=["reviewer1"],
+                    ),
+                    PullRequest(
+                        number=2,
+                        title="t2",
+                        author="iklobato",
+                        is_draft=False,
+                        head_ref="g",
+                        base_ref="main",
+                        review_comment_count=0,
+                        created_at="2026-05-09T21:00:00Z",
+                        merged_at="2026-05-10T00:00:00Z",
+                    ),
+                ]
+
+            def read_file(self, repo, path):
+                return ""
+
         ext = EXTRACTORS["pr-archaeology"]
-        fake_prs = [
-            {
-                "merged_at": "2026-05-10T00:00:00Z",
-                "created_at": "2026-05-09T22:00:00Z",
-                "user": {"login": "iklobato"},
-                "requested_reviewers": [{"login": "reviewer1"}],
-            },
-            {
-                "merged_at": "2026-05-10T00:00:00Z",
-                "created_at": "2026-05-09T21:00:00Z",
-                "user": {"login": "iklobato"},
-                "requested_reviewers": [],
-            },
-        ]
-        with (
-            mock.patch(
-                "briar.extract._gh.GithubApi.get_paginated",
-                return_value=fake_prs,
-            ),
-            mock.patch(
-                "briar.extract._gh.GithubApi.auth_token",
-                return_value="fake-token",
-            ),
-        ):
-            args = argparse.Namespace(pr_repo=["o/r"], pr_max=10)
-            section = ext.extract(args)
-        self.assertIsNotNone(section)
+        provider = FakeProvider()
+        with mock.patch("briar.extract.base.make_provider", return_value=provider, create=True):
+            with mock.patch.object(ext, "_provider", return_value=provider):
+                args = argparse.Namespace(pr_repo=["o/r"], pr_max=10, provider="fake", company="")
+                # is_available also calls _provider — covered by the same patch.
+                self.assertTrue(ext.is_available(args))
+                section = ext.extract(args)
         self.assertEqual(section.title, "PR archaeology — 1 repo(s)")
         repo_section = section.subsections[0]
         self.assertEqual(repo_section.data["merged_pr_count"], 2)
@@ -185,21 +206,119 @@ class LanguageDetectorTests(unittest.TestCase):
         self.assertEqual(result["test_runner"], "go test")
 
 
+class RepositoryProviderTests(unittest.TestCase):
+    """Provider registry + per-provider plumbing. No network."""
+
+    def test_registry_lists_github_and_bitbucket(self) -> None:
+        from briar.extract._providers import RepositoryProviderRegistry
+
+        self.assertIn("github", RepositoryProviderRegistry.kinds())
+        self.assertIn("bitbucket", RepositoryProviderRegistry.kinds())
+
+    def test_unknown_provider_raises(self) -> None:
+        from briar.errors import CliError
+        from briar.extract._providers import make_provider
+
+        with self.assertRaises(CliError):
+            make_provider("perforce", company="acme")
+
+    def test_github_provider_uses_workspace_token(self) -> None:
+        from briar.extract._providers import make_provider
+
+        with mock.patch.dict("os.environ", {"GITHUB_TOKEN": "ghp_test"}):
+            provider = make_provider("github", company="anything")
+            self.assertTrue(provider.is_available())
+
+    def test_github_provider_unavailable_without_token(self) -> None:
+        from briar.extract._providers import make_provider
+
+        with mock.patch.dict("os.environ", {}, clear=True):
+            provider = make_provider("github", company="acme")
+            self.assertFalse(provider.is_available())
+
+    def test_bitbucket_provider_reads_per_company_creds(self) -> None:
+        from briar.extract._providers import make_provider
+
+        env = {
+            "BITBUCKET_ACME_USERNAME": "machine-user",
+            "BITBUCKET_ACME_APP_PASSWORD": "ATBB-secret",
+            "BITBUCKET_ACME_WORKSPACE": "acme",
+        }
+        with mock.patch.dict("os.environ", env):
+            provider = make_provider("bitbucket", company="acme")
+            self.assertTrue(provider.is_available())
+
+    def test_bitbucket_provider_unavailable_without_company_creds(self) -> None:
+        from briar.extract._providers import make_provider
+
+        with mock.patch.dict("os.environ", {}, clear=True):
+            provider = make_provider("bitbucket", company="acme")
+            self.assertFalse(provider.is_available())
+
+    def test_bitbucket_provider_unavailable_for_empty_company(self) -> None:
+        from briar.extract._providers import make_provider
+
+        provider = make_provider("bitbucket", company="")
+        self.assertFalse(provider.is_available())
+
+    def test_pull_request_dataclass_is_provider_neutral(self) -> None:
+        """The PR shape extractors consume must NOT carry provider-specific
+        field names. A field rename here is a deliberate breaking change."""
+        from briar.extract._provider import PullRequest
+
+        pr = PullRequest(
+            number=42,
+            title="t",
+            author="alice",
+            is_draft=False,
+            head_ref="f",
+            base_ref="main",
+            review_comment_count=3,
+            created_at="2026-05-21T00:00:00Z",
+        )
+        # The fields below are the contract every provider adapter
+        # must populate. Adding one here = updating every provider.
+        for field_name in (
+            "number",
+            "title",
+            "author",
+            "is_draft",
+            "head_ref",
+            "base_ref",
+            "review_comment_count",
+            "created_at",
+            "merged_at",
+            "requested_reviewers",
+        ):
+            self.assertTrue(hasattr(pr, field_name), f"PullRequest must expose {field_name!r}")
+
+
 class ExtractCodebaseConventionsTests(unittest.TestCase):
     def test_orchestrator_uses_python_detector(self) -> None:
-        ext = EXTRACTORS["codebase-conventions"]
+        from briar.extract._provider import RepositoryProvider
+
         py_text = "[tool.pytest.ini_options]\n[tool.ruff]\n[tool.alembic]\n"
-        with (
-            mock.patch(
-                "briar.extract.codebase_conventions.ExtractCodebaseConventions._read_repo_file",
-                side_effect=lambda r, p: py_text if p == "pyproject.toml" else None,
-            ),
-            mock.patch(
-                "briar.extract._gh.GithubApi.auth_token",
-                return_value="t",
-            ),
-        ):
-            args = argparse.Namespace(conventions_repo=["o/r"])
+
+        class FakeProvider(RepositoryProvider):
+            kind = "fake"
+
+            def __init__(self, *, company: str = "") -> None:
+                self._company = company
+
+            def is_available(self) -> bool:
+                return True
+
+            def list_pulls(self, repo, *, state, max_count):
+                return []
+
+            def read_file(self, repo, path):
+                return py_text if path == "pyproject.toml" else ""
+
+        ext = EXTRACTORS["codebase-conventions"]
+        provider = FakeProvider()
+        with mock.patch.object(ext, "_provider", return_value=provider):
+            args = argparse.Namespace(conventions_repo=["o/r"], provider="fake", company="")
+            self.assertTrue(ext.is_available(args))
             section = ext.extract(args)
         sub = section.subsections[0]
         self.assertEqual(sub.data["language"], "python")

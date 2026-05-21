@@ -1,77 +1,85 @@
-"""GitHub deployments / environments / CI status extractor."""
+"""Deployments / environments / CI status extractor.
+
+Provider-agnostic: reads via a `RepositoryProvider`. Named
+`github-deployments` for back-compat with existing runbook YAMLs, but
+the logic works against any provider that overrides
+``list_environments`` / ``list_deployments`` / ``list_ci_runs``.
+Bitbucket Cloud provider returns empty lists today; an override in
+``_providers/bitbucket.py`` will fill them in."""
 
 from __future__ import annotations
 
 import argparse
-from typing import Any, Dict, List
+from typing import List
 
-from briar.extract._gh import GithubApi
-from briar.extract.base import ExtractedSection, KnowledgeExtractor
+from briar.extract.base import ExtractedSection, RepoBackedExtractor
 
 
-class ExtractGithubDeployments(KnowledgeExtractor):
+class ExtractGithubDeployments(RepoBackedExtractor):
     name = "github-deployments"
     description = "environments, deployments, recent CI runs"
-    requires_github = True
+    requires_github = True  # legacy flag
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        super().add_arguments(parser)
         parser.add_argument(
             "--deploy-repo",
             action="append",
             default=[],
-            help="GitHub repo to scan for deployments. Repeatable.",
+            help="Repository slug to scan for deployments. Repeatable.",
         )
 
     def is_available(self, args: argparse.Namespace) -> bool:
-        return bool(args.deploy_repo) and bool(GithubApi.auth_token())
+        if not args.deploy_repo:
+            return False
+        try:
+            provider = self._provider(args)
+        except Exception:  # noqa: BLE001
+            return False
+        return provider.is_available()
 
     def extract(self, args: argparse.Namespace) -> ExtractedSection:
-        subsections = [self._scan_repo(repo) for repo in args.deploy_repo]
+        provider = self._provider(args)
+        subsections = [self._scan_repo(repo, provider) for repo in args.deploy_repo]
         return ExtractedSection(
             title=f"GitHub deployments — {len(subsections)} repo(s)",
             body="Environments, recent deployments, latest CI runs.",
             subsections=subsections,
         )
 
-    def _scan_repo(self, repo: str) -> ExtractedSection:
-        env_envelope = GithubApi.get_json(f"/repos/{repo}/environments")
-        envs = env_envelope.get("environments", []) if type(env_envelope) is dict else []
-        env_rows: List[Dict[str, Any]] = [
+    def _scan_repo(self, repo: str, provider) -> ExtractedSection:
+        environments = provider.list_environments(repo)
+        env_rows = [
             {
-                "name": e.get("name"),
-                "protection_rules": len(e.get("protection_rules") or []),
-                "url": e.get("html_url"),
+                "name": e.name,
+                "protection_rules": e.protection_rule_count,
+                "url": e.url,
             }
-            for e in envs
+            for e in environments
         ]
 
-        deployments = GithubApi.get_paginated(
-            f"/repos/{repo}/deployments",
-            max_pages=1,
-            per_page=20,
-        )
+        deployments = provider.list_deployments(repo, limit=10)
         recent_deploys = [
             {
-                "id": d.get("id"),
-                "env": d.get("environment"),
-                "sha": (d.get("sha") or "")[:7],
-                "creator": (d.get("creator") or {}).get("login"),
-                "created_at": d.get("created_at"),
+                "id": d.id,
+                "env": d.environment,
+                "sha": d.sha,
+                "creator": d.creator,
+                "created_at": d.created_at,
             }
-            for d in deployments[:10]
+            for d in deployments
         ]
 
-        runs_envelope = GithubApi.get_json(f"/repos/{repo}/actions/runs?per_page=10")
-        runs = runs_envelope.get("workflow_runs", []) if type(runs_envelope) is dict else []
+        runs = provider.list_ci_runs(repo, limit=5)
         ci_rows = [
             {
-                "name": r.get("name"),
-                "status": r.get("status"),
-                "conclusion": r.get("conclusion"),
-                "head_branch": r.get("head_branch"),
-                "created_at": r.get("created_at"),
+                "name": r.name,
+                "status": r.status,
+                "conclusion": r.conclusion,
+                "head_branch": r.head_branch,
+                "created_at": r.created_at,
             }
-            for r in runs[:5]
+            for r in runs
         ]
 
         body_parts: List[str] = []
