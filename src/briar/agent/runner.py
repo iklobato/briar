@@ -125,17 +125,14 @@ class AgentRunner:
             result = AgentRunResult(company=self._company, task=self._task)
             for iteration in range(1, self._max_iterations + 1):
                 result.iterations = iteration
-                try:
-                    response = client.messages.create(
-                        model=self._model,
-                        max_tokens=self.DEFAULT_MAX_TOKENS_PER_TURN,
-                        system=system,
-                        tools=self._tool_specs(),
-                        messages=messages,
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    log.exception("agent-failed: anthropic API raised on iteration %d", iteration)
-                    result.error = f"api: {exc}"
+                response = self._call_with_retry(
+                    client=client,
+                    system=system,
+                    messages=messages,
+                    iteration=iteration,
+                )
+                if response is None:
+                    result.error = "api: exhausted rate-limit retries (see traceback in log)"
                     return result
                 if response.usage is not None:
                     result.input_tokens += response.usage.input_tokens
@@ -164,6 +161,40 @@ class AgentRunner:
             result.error = f"hit iteration ceiling ({self._max_iterations})"
             log.warning("agent-ceiling: %d iterations exhausted %s", self._max_iterations, result.cost_summary())
             return result
+
+    def _call_with_retry(self, *, client: Any, system: str, messages: List[Dict[str, Any]], iteration: int) -> Any:
+        """Wrap one client.messages.create with retry-on-429.
+
+        Backoff schedule: 30s, 60s, 120s, 240s, 480s (5 attempts total).
+        429s on Claude Code OAuth tokens are commonly transient — they
+        clear quickly when the user's parallel Claude Code session ends
+        its current turn. Other API errors are not retried; they
+        propagate and end the run."""
+        import time
+
+        import anthropic
+
+        wait_seconds = [0, 30, 60, 120, 240]
+        for attempt, wait in enumerate(wait_seconds, start=1):
+            if wait > 0:
+                log.info("agent-rate-limit: sleeping %ds before attempt %d", wait, attempt)
+                time.sleep(wait)
+            try:
+                return client.messages.create(
+                    model=self._model,
+                    max_tokens=self.DEFAULT_MAX_TOKENS_PER_TURN,
+                    system=system,
+                    tools=self._tool_specs(),
+                    messages=messages,
+                )
+            except anthropic.RateLimitError as exc:
+                log.warning("agent-429: iter=%d attempt=%d/%d err=%s", iteration, attempt, len(wait_seconds), exc)
+                continue
+            except Exception:
+                log.exception("agent-failed: anthropic API raised on iteration %d", iteration)
+                return None
+        log.error("agent-429-exhausted: %d retries hit on iteration %d", len(wait_seconds), iteration)
+        return None
 
     def _build_system_prompt(self) -> str:
         persona = self._archetype.build_persona(self._target)
