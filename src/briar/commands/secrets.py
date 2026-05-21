@@ -42,6 +42,12 @@ _EXTRACTOR_REQUIREMENTS: Dict[Tuple[str, str], List[CredEnv]] = {
     ("ticket-archaeology", "bitbucket-issues"): [CredEnv.BITBUCKET_USERNAME, CredEnv.BITBUCKET_APP_PASSWORD, CredEnv.BITBUCKET_WORKSPACE],
     ("ticket-archaeology", "linear"): [CredEnv.LINEAR_TOKEN],
     ("aws-infra", "aws"): [CredEnv.AWS_KEY_ID, CredEnv.AWS_SECRET],
+    # GCP + Azure cloud providers use ambient credential chains (ADC
+    # for GCP, DefaultAzureCredential for Azure). The doctor can't
+    # check those statically — the empty list reports `ok` and the
+    # operator validates by running the extractor.
+    ("aws-infra", "gcp"): [],
+    ("aws-infra", "azure"): [],
 }
 
 

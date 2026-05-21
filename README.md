@@ -386,6 +386,14 @@ these:
 
 ## Runbook YAML — multi-company, per-task schedules
 
+> **For a fully worked multi-vendor example covering every provider
+> combination**, see [`examples/multi_company.yaml`](examples/multi_company.yaml)
+> and its companion env file
+> [`examples/multi_company.env.example`](examples/multi_company.env.example).
+> Three companies (`acme`, `bitspark`, `datacore`) exercise GitHub +
+> Bitbucket, Jira + Linear + Bitbucket Issues + GitHub Issues, AWS + GCP,
+> file + postgres storage, and Telegram + Slack + PagerDuty notifications.
+
 ```yaml
 # examples/acme.yaml
 version: 1

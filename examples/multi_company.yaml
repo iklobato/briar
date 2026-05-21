@@ -1,0 +1,228 @@
+# ============================================================================
+# Multi-company runbook — covers every provider combination Briar supports
+# ============================================================================
+#
+# This file is reference documentation as much as a runbook. Three companies,
+# each with a deliberately distinct vendor stack, demonstrate how the
+# provider abstractions compose:
+#
+#   acme       GitHub repos + AWS infra + Jira tickets
+#              File-backed knowledge store, Telegram alerts.
+#
+#   bitspark   Bitbucket repos + AWS infra + Linear tickets
+#              Postgres-backed knowledge store, Slack alerts.
+#
+#   datacore   GitHub repos + GCP infra + Bitbucket Issues tickets
+#              File-backed knowledge store, PagerDuty alerts.
+#
+# Per-company secrets live in `/etc/briar/secrets.env`. See
+# `examples/multi_company.env.example` for the full schema.
+#
+# To use:
+#   briar runbook extract examples/multi_company.yaml             # one-shot, every company
+#   briar runbook extract examples/multi_company.yaml --task prfix  # one task across all companies
+#   briar runbook serve examples/                                  # 24/7 scheduler
+#
+# To audit credential coverage WITHOUT printing values:
+#   briar secrets doctor --examples examples/
+#
+# Selecting a vendor at the extractor entry:
+#   - `provider: github | bitbucket`              for repo-backed extractors
+#   - `tracker:  jira | github-issues | bitbucket-issues | linear`
+#   - `cloud:    aws | gcp | azure`               for aws-infra (now provider-agnostic)
+# ============================================================================
+
+version: 1
+companies:
+
+  # ==========================================================================
+  # acme — GitHub + AWS + Jira (classic stack)
+  # ==========================================================================
+  # File-backed knowledge so the markdown lives next to the runbook and
+  # `briar dashboard` can serve it without a database. Four tasks split
+  # by cadence: heavy daily, repo-state every 4h, hot every hour, tickets
+  # every 2h.
+  # --------------------------------------------------------------------------
+  acme:
+    knowledge:
+      store: file
+      name: ./knowledge/acme.md
+
+    schedules:
+
+      # ─── extractors: daily heavyweights (PR mining, AWS infra) ─────────
+      - task: extractors
+        every: "day at 03:17"
+        extract:
+          - name: pr-archaeology
+            args:
+              # `provider: github` is the default — shown explicitly for clarity.
+              provider: github
+              pr_repo: [acme-co/acme-app, acme-co/acme-shared]
+              pr_max: 50
+              # Filter: only count PRs by people on the acme team.
+              # Composes as `allow ∩ ¬block`.
+              pr_authors_allow: [alice, bob, carol]
+
+          - name: aws-infra
+            args:
+              # `cloud: aws` is the default.
+              cloud: aws
+              aws_extract_region: us-east-1
+              aws_extract_service: [ecs, rds, lambda, logs, sqs]
+
+      # ─── implementation: repo conventions + CI/CD state (4h) ───────────
+      - task: implementation
+        every: "4 hours"
+        extract:
+          - name: codebase-conventions
+            args:
+              provider: github
+              conventions_repo: [acme-co/acme-app, acme-co/acme-shared]
+          - name: github-deployments
+            args:
+              provider: github
+              deploy_repo: [acme-co/acme-app]
+
+      # ─── prfix: hot signal — open PRs only, every hour ─────────────────
+      - task: prfix
+        every: "hour"
+        extract:
+          - name: active-work
+            args:
+              provider: github
+              active_repo: [acme-co/acme-app, acme-co/acme-shared]
+              # Drop bot PRs from the active-work signal — noise for agents.
+              # Quoted because `[` inside YAML flow-sequences confuses the parser.
+              active_authors_block: ["renovate[bot]", "dependabot[bot]"]
+
+      # ─── tickets: Jira open tickets + 2h archaeology ───────────────────
+      - task: tickets
+        every: "2 hours"
+        extract:
+          - name: active-tickets
+            args:
+              tracker: jira
+              ticket_project: [ACME, INFRA]
+          - name: ticket-archaeology
+            args:
+              tracker: jira
+              ticket_archaeology_project: [ACME]
+              ticket_max: 50
+
+  # ==========================================================================
+  # bitspark — Bitbucket Cloud + AWS + Linear (alternative-vendor stack)
+  # ==========================================================================
+  # Two key flags flip the underlying provider per extractor entry:
+  #   `provider: bitbucket` routes pr-archaeology + active-work onto
+  #   BitbucketProvider (atlassian-python-api Cloud client).
+  #   `tracker: linear` routes ticket extractors onto LinearTracker
+  #   (stdlib GraphQL via urllib).
+  #
+  # Knowledge goes to Postgres so the dashboard + scheduler can share one
+  # source of truth without file-locking. `BRIAR_DATABASE_URL` must be set.
+  # --------------------------------------------------------------------------
+  bitspark:
+    knowledge:
+      store: postgres
+      # Blob name in the briar_knowledge table.
+      name: knowledge:bitspark
+
+    schedules:
+
+      # ─── archaeology: deep weekly mining (PRs + closed tickets) ────────
+      - task: archaeology
+        every: "monday at 02:30"
+        extract:
+          - name: pr-archaeology
+            args:
+              provider: bitbucket
+              # Repo addresses are `<workspace>/<slug>` (matches the
+              # GitHub `owner/repo` convention).
+              pr_repo: [bitspark/api, bitspark/web]
+              pr_max: 100
+
+          - name: ticket-archaeology
+            args:
+              tracker: linear
+              # Linear's `project` field is the team key (e.g. `ENG`),
+              # NOT the issue identifier.
+              ticket_archaeology_project: [ENG, INFRA]
+              ticket_max: 100
+
+      # ─── prfix: hourly PR + ticket snapshot ────────────────────────────
+      - task: prfix
+        every: "hour"
+        extract:
+          - name: active-work
+            args:
+              provider: bitbucket
+              active_repo: [bitspark/api, bitspark/web]
+          - name: active-tickets
+            args:
+              tracker: linear
+              ticket_project: [ENG]
+
+      # ─── extractors: daily AWS infra (us-west-2, different from acme) ──
+      - task: extractors
+        every: "day at 04:17"
+        extract:
+          - name: aws-infra
+            args:
+              cloud: aws
+              aws_extract_region: us-west-2
+              aws_extract_service: [ecs, lambda, logs]
+
+  # ==========================================================================
+  # datacore — GitHub + GCP + Bitbucket Issues (hybrid migration scenario)
+  # ==========================================================================
+  # Demonstrates per-extractor vendor mixing in one company: GitHub for
+  # code (mainstream), GCP for cloud infra (their platform), Bitbucket
+  # Issues for tickets (carried over from a migration that never finished).
+  # One consolidated daily task because the org is small + low-cadence.
+  #
+  # Requires `pip install briar-cli[gcp]` for the GCP cloud provider's
+  # google-cloud-* SDKs.
+  # --------------------------------------------------------------------------
+  datacore:
+    knowledge:
+      store: file
+      name: ./knowledge/datacore/main.md
+      # `root` overrides the default `./knowledge` parent dir. Useful when
+      # you want one company's knowledge in a separate physical location
+      # (e.g. an EBS volume mounted just for that tenant).
+      root: ./knowledge
+
+    schedules:
+
+      # ─── extractors: one consolidated daily run (small org) ────────────
+      - task: extractors
+        every: "day at 05:00"
+        extract:
+          - name: pr-archaeology
+            args:
+              provider: github
+              pr_repo: [datacore-io/platform]
+              pr_max: 30
+
+          - name: codebase-conventions
+            args:
+              provider: github
+              conventions_repo: [datacore-io/platform]
+
+          # NB: the extractor name is still `aws-infra` (kept for
+          # back-compat) but `cloud: gcp` routes it onto GcpCloudProvider.
+          - name: aws-infra
+            args:
+              cloud: gcp
+              # `cloud_profile` carries the GCP project ID. For Azure
+              # adapter this would be the subscription ID. For AWS it
+              # carries the local boto3 profile name.
+              cloud_profile: datacore-prod
+              cloud_region: us-central1
+
+          - name: active-tickets
+            args:
+              tracker: bitbucket-issues
+              # Bitbucket Issues `project` is `<workspace>/<repo_slug>`.
+              ticket_project: [datacore-legacy/issues]

@@ -27,6 +27,8 @@ class ExtractEntry(_Strict):
         "active-work",
         "github-deployments",
         "codebase-conventions",
+        "active-tickets",
+        "ticket-archaeology",
     ]
     args: Dict[str, Any] = Field(default_factory=dict)
 
