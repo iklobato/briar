@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Dict, Tuple, Type
 
+from briar._registry import build_registry
 from briar.errors import CliError
 from briar.notify._sink import NotificationSink
 from briar.notify.email import EmailSink
@@ -16,10 +17,11 @@ from briar.notify.slack import SlackSink
 from briar.notify.telegram import TelegramSink
 
 
-SINKS: Dict[str, Type[NotificationSink]] = {
-    cls.kind: cls
-    for cls in (TelegramSink, SlackSink, EmailSink, PagerDutySink)
-}
+SINKS: Dict[str, Type[NotificationSink]] = build_registry(
+    (TelegramSink, SlackSink, EmailSink, PagerDutySink),
+    kind="notification sink",
+    name_attr="kind",
+)
 
 
 class NotificationRegistry:

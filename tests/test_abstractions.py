@@ -407,6 +407,55 @@ class AgentOpRegistryTests(unittest.TestCase):
         self.assertTrue(called.get("happened"))
 
 
+class BuildRegistryTests(unittest.TestCase):
+    """`build_registry` is used by all 13 plugin registries to surface
+    accidental duplicate-name collisions at import time."""
+
+    def test_builds_dict_by_name(self) -> None:
+        from briar._registry import build_registry
+
+        class Item:
+            def __init__(self, name):
+                self.name = name
+
+        a, b = Item("a"), Item("b")
+        out = build_registry((a, b), kind="test")
+        self.assertEqual(out, {"a": a, "b": b})
+
+    def test_raises_on_duplicate_name(self) -> None:
+        from briar._registry import build_registry
+
+        class Item:
+            def __init__(self, name):
+                self.name = name
+
+        with self.assertRaises(RuntimeError) as ctx:
+            build_registry((Item("dup"), Item("ok"), Item("dup")), kind="test")
+        self.assertIn("duplicate", str(ctx.exception))
+        self.assertIn("dup", str(ctx.exception))
+
+    def test_raises_on_empty_name(self) -> None:
+        from briar._registry import build_registry
+
+        class Item:
+            name = ""
+
+        with self.assertRaises(RuntimeError):
+            build_registry((Item(),), kind="test")
+
+    def test_supports_kind_attribute(self) -> None:
+        """Most provider registries key on `.kind` instead of `.name`."""
+        from briar._registry import build_registry
+
+        class Provider:
+            def __init__(self, kind):
+                self.kind = kind
+
+        out = build_registry((Provider("github"), Provider("bitbucket")), kind="provider", name_attr="kind")
+        self.assertIn("github", out)
+        self.assertIn("bitbucket", out)
+
+
 class RunbookSchemaRegistryValidationTests(unittest.TestCase):
     """ExtractEntry.name + KnowledgeBinding.store validate against the
     LIVE registry, not a hardcoded Literal[...]. This test pins that —

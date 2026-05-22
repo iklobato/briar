@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Dict
 
+from briar._registry import build_registry
 from briar.iac.scaffold.sources.aws import SourceAws
 from briar.iac.scaffold.sources.base import SourceTemplate
 from briar.iac.scaffold.sources.bitbucket import SourceBitbucket
@@ -15,15 +16,11 @@ from briar.iac.scaffold.sources.github import SourceGithub
 from briar.iac.scaffold.sources.jira import SourceJira
 
 
-SOURCE_TEMPLATES: Dict[str, SourceTemplate] = {
-    t.kind: t
-    for t in (
-        SourceGithub(),
-        SourceBitbucket(),
-        SourceJira(),
-        SourceAws(),
-    )
-}
+SOURCE_TEMPLATES: Dict[str, SourceTemplate] = build_registry(
+    (SourceGithub(), SourceBitbucket(), SourceJira(), SourceAws()),
+    kind="scaffold source",
+    name_attr="kind",
+)
 
 
 __all__ = ["SOURCE_TEMPLATES", "SourceTemplate"]

@@ -15,16 +15,18 @@ from __future__ import annotations
 
 from typing import Dict, Tuple, Type
 
+from briar._registry import build_registry
 from briar.errors import CliError
 from briar.extract._provider import RepositoryProvider
 from briar.extract._providers.bitbucket import BitbucketProvider
 from briar.extract._providers.github import GithubProvider
 
 
-PROVIDERS: Dict[str, Type[RepositoryProvider]] = {
-    cls.kind: cls
-    for cls in (GithubProvider, BitbucketProvider)
-}
+PROVIDERS: Dict[str, Type[RepositoryProvider]] = build_registry(
+    (GithubProvider, BitbucketProvider),
+    kind="repository provider",
+    name_attr="kind",
+)
 
 
 class RepositoryProviderRegistry:

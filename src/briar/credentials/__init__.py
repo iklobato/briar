@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import Dict, Tuple, Type
 
+from briar._registry import build_registry
 from briar.credentials._store import CredentialStore
 from briar.credentials.aws_secrets import AwsSecretsManagerStore
 from briar.credentials.envfile import EnvFileStore
@@ -14,10 +15,11 @@ from briar.credentials.vault import VaultStore
 from briar.errors import CliError
 
 
-STORES: Dict[str, Type[CredentialStore]] = {
-    cls.kind: cls
-    for cls in (EnvFileStore, AwsSecretsManagerStore, SsmParameterStore, VaultStore)
-}
+STORES: Dict[str, Type[CredentialStore]] = build_registry(
+    (EnvFileStore, AwsSecretsManagerStore, SsmParameterStore, VaultStore),
+    kind="credential store",
+    name_attr="kind",
+)
 
 
 class CredentialStoreRegistry:

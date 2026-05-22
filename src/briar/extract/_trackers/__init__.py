@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import Dict, Tuple, Type
 
+from briar._registry import build_registry
 from briar.errors import CliError
 from briar.extract._tracker import TrackerProvider
 from briar.extract._trackers.bitbucket import BitbucketIssuesTracker
@@ -14,10 +15,11 @@ from briar.extract._trackers.jira import JiraTracker
 from briar.extract._trackers.linear import LinearTracker
 
 
-TRACKERS: Dict[str, Type[TrackerProvider]] = {
-    cls.kind: cls
-    for cls in (JiraTracker, GithubIssuesTracker, BitbucketIssuesTracker, LinearTracker)
-}
+TRACKERS: Dict[str, Type[TrackerProvider]] = build_registry(
+    (JiraTracker, GithubIssuesTracker, BitbucketIssuesTracker, LinearTracker),
+    kind="tracker provider",
+    name_attr="kind",
+)
 
 
 class TrackerRegistry:

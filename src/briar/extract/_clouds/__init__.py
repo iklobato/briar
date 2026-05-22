@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Dict, Tuple, Type
 
+from briar._registry import build_registry
 from briar.errors import CliError
 from briar.extract._cloud import CloudProvider
 from briar.extract._clouds.aws import AwsCloudProvider
@@ -11,10 +12,11 @@ from briar.extract._clouds.azure import AzureCloudProvider
 from briar.extract._clouds.gcp import GcpCloudProvider
 
 
-CLOUDS: Dict[str, Type[CloudProvider]] = {
-    cls.kind: cls
-    for cls in (AwsCloudProvider, GcpCloudProvider, AzureCloudProvider)
-}
+CLOUDS: Dict[str, Type[CloudProvider]] = build_registry(
+    (AwsCloudProvider, GcpCloudProvider, AzureCloudProvider),
+    kind="cloud provider",
+    name_attr="kind",
+)
 
 
 class CloudRegistry:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Dict, Tuple, Type
 
+from briar._registry import build_registry
 from briar.agent._llm import LLMProvider
 from briar.agent._llms.anthropic_llm import AnthropicLLM
 from briar.agent._llms.bedrock import BedrockLLM
@@ -12,10 +13,11 @@ from briar.agent._llms.openai_llm import OpenAILLM
 from briar.errors import CliError
 
 
-LLMS: Dict[str, Type[LLMProvider]] = {
-    cls.kind: cls
-    for cls in (AnthropicLLM, OpenAILLM, GeminiLLM, BedrockLLM)
-}
+LLMS: Dict[str, Type[LLMProvider]] = build_registry(
+    (AnthropicLLM, OpenAILLM, GeminiLLM, BedrockLLM),
+    kind="LLM provider",
+    name_attr="kind",
+)
 
 
 class LLMRegistry:

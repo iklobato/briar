@@ -149,16 +149,17 @@ class RunbookExtractor:
         rows: List[ExtractRow],
         company: str = "",
     ) -> None:
-        """Execute one schedule entry. Pulled out of `extract` to keep
-        the per-task work in one place with its own log context."""
+        """Execute one schedule entry. Three failure points are all
+        routed through `_record_failure` so the log + notify + row
+        shape stays consistent and the failure paths don't drift in
+        style across edits."""
         wall_start = time.perf_counter()
         log.info("schedule-start: every=%r extract_count=%d", schedule.every, len(schedule.extract))
+
         try:
             sections = cls._collect_sections(schedule.extract, registry, company=company)
         except Exception as exc:  # noqa: BLE001
-            log.exception("schedule-failed: collect_sections raised")
-            cls._notify_failure(company, schedule.task, "collect_sections raised", str(exc))
-            rows.append(ExtractRow(company_name, schedule.task, "failed (collect_sections raised — see traceback)", binding.name))
+            cls._record_failure(rows, company_name=company_name, company=company, task=schedule.task, reason="collect_sections raised", blob_name=binding.name, exc=exc)
             return
 
         if not sections:
@@ -174,9 +175,7 @@ class RunbookExtractor:
         try:
             store = make_store(binding.store, file_root=file_root)
         except Exception as exc:  # noqa: BLE001
-            log.exception("schedule-failed: store open raised store=%s", binding.store)
-            cls._notify_failure(company, schedule.task, f"store open raised: {binding.store}", str(exc))
-            rows.append(ExtractRow(company_name, schedule.task, f"failed (store open raised: {binding.store})", binding.name))
+            cls._record_failure(rows, company_name=company_name, company=company, task=schedule.task, reason=f"store open raised: {binding.store}", blob_name=binding.name, exc=exc)
             return
 
         blob_name = binding.name if schedule.task == _DEFAULT_TASK else cls._task_blob_name(binding.name, schedule.task)
@@ -189,9 +188,7 @@ class RunbookExtractor:
         try:
             outcome = store.put_if_changed(blob_name, md, category="knowledge")
         except Exception as exc:  # noqa: BLE001
-            log.exception("schedule-failed: put_if_changed raised blob=%s", blob_name)
-            cls._notify_failure(company, schedule.task, f"put_if_changed raised: {blob_name}", str(exc))
-            rows.append(ExtractRow(company_name, schedule.task, f"failed (put_if_changed raised: {blob_name})", blob_name))
+            cls._record_failure(rows, company_name=company_name, company=company, task=schedule.task, reason=f"put_if_changed raised: {blob_name}", blob_name=blob_name, exc=exc)
             return
 
         elapsed_ms = int((time.perf_counter() - wall_start) * 1000)
@@ -222,6 +219,25 @@ class RunbookExtractor:
             outcome.prev_hash or "(none)",
         )
         rows.append(ExtractRow(company_name, schedule.task, f"wrote {outcome.byte_count} bytes via store={binding.store}", blob_name))
+
+    @classmethod
+    def _record_failure(
+        cls,
+        rows: List[ExtractRow],
+        *,
+        company_name: str,
+        company: str,
+        task: str,
+        reason: str,
+        blob_name: str,
+        exc: Exception,
+    ) -> None:
+        """The "schedule step raised" boundary — three sites used to
+        duplicate this four-line shape (log.exception + notify + row
+        append). One place now."""
+        log.exception("schedule-failed: %s", reason)
+        cls._notify_failure(company, task, reason, str(exc))
+        rows.append(ExtractRow(company_name, task, f"failed ({reason} — see traceback)", blob_name))
 
     @staticmethod
     def _notify_failure(company: str, task: str, reason: str, detail: str) -> None:

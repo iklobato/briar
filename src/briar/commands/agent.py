@@ -17,6 +17,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, ClassVar, Dict
 
+from briar._registry import build_registry
 from briar.agent.runner import AgentRunner
 from briar.commands.base import Command
 
@@ -105,7 +106,10 @@ class ImplementOp(AgentOp):
         return agent_cmd._run_implement(args)
 
 
-AGENT_OPS: Dict[str, AgentOp] = {op.name: op for op in (PrfixOp(), ImplementOp())}
+AGENT_OPS: Dict[str, AgentOp] = build_registry(
+    (PrfixOp(), ImplementOp()),
+    kind="agent op",
+)
 
 
 # ─── RepoCloner Strategy + Registry ─────────────────────────────────────────
@@ -199,7 +203,11 @@ class BitbucketRepoCloner(RepoCloner):
         )
 
 
-REPO_CLONERS: Dict[str, RepoCloner] = {c.kind: c for c in (GithubRepoCloner(), BitbucketRepoCloner())}
+REPO_CLONERS: Dict[str, RepoCloner] = build_registry(
+    (GithubRepoCloner(), BitbucketRepoCloner()),
+    kind="repo cloner",
+    name_attr="kind",
+)
 
 
 def _resolve_cloner(provider: str) -> RepoCloner:

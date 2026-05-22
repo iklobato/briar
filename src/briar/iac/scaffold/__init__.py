@@ -10,12 +10,16 @@ from __future__ import annotations
 
 from typing import Dict
 
+from briar._registry import build_registry
 from briar.iac.scaffold.base import ScaffoldTemplate
 from briar.iac.scaffold.implementation import ScaffoldImplementation
 from briar.iac.scaffold.pr_fixes import ScaffoldPrFixes
 
 
-TEMPLATES: Dict[str, ScaffoldTemplate] = {t.name: t for t in (ScaffoldImplementation(), ScaffoldPrFixes())}
+TEMPLATES: Dict[str, ScaffoldTemplate] = build_registry(
+    (ScaffoldImplementation(), ScaffoldPrFixes()),
+    kind="scaffold template",
+)
 
 
 __all__ = ["ScaffoldTemplate", "TEMPLATES"]

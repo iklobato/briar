@@ -22,20 +22,17 @@ from __future__ import annotations
 
 from typing import Any, ClassVar, Dict
 
+from briar._registry import build_registry
 from briar.iac.scaffold.shapes.base import WorkflowShape
 from briar.iac.scaffold.shapes.one_shot import ShapeOneShot
 from briar.iac.scaffold.shapes.plan_approve_act import ShapePlanApproveAct
 from briar.iac.scaffold.shapes.triage import ShapeTriage
 
 
-WORKFLOW_SHAPES: Dict[str, WorkflowShape] = {
-    s.name: s
-    for s in (
-        ShapePlanApproveAct(),
-        ShapeOneShot(),
-        ShapeTriage(),
-    )
-}
+WORKFLOW_SHAPES: Dict[str, WorkflowShape] = build_registry(
+    (ShapePlanApproveAct(), ShapeOneShot(), ShapeTriage()),
+    kind="workflow shape",
+)
 
 
 __all__ = ["WorkflowShape", "WORKFLOW_SHAPES"]
