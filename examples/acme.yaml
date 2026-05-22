@@ -1,0 +1,99 @@
+# acme — zenithacme (Bitbucket Cloud) + Jira KAN + AWS account 125903112070.
+#
+# Knowledge is partitioned into four tasks, each with its own cron cadence:
+#   extractors      heavy / slow      daily 03:17 UTC
+#   implementation  repo-shape        every 12h
+#   prfix           review-driven     every 4h
+#   tickets         jira              every 2h
+#
+# Secrets sourced from AWS Secrets Manager via /usr/local/sbin/briar-fetch-secrets.sh
+# (systemd ExecStartPre). The EC2 lives in the same AWS account it mines, so the
+# `aws-infra` extractor uses the instance role — no per-company AWS keys.
+#
+# Bitbucket auth: the existing `zenith/bitbucket-app-password` secret holds a
+# Bitbucket workspace access token (PAT). Briar's BitbucketProvider passes it via
+# atlassian-python-api's basic auth, so the boot script writes
+# BITBUCKET_ACME_USERNAME=x-token-auth as the no-username sentinel.
+
+version: 1
+
+companies:
+  acme:
+    knowledge:
+      store: file
+      name: ./knowledge/acme.md
+
+    schedules:
+
+      - task: extractors
+        every: "day at 03:17"
+        extract:
+          - name: pr-archaeology
+            args:
+              provider: bitbucket
+              pr_repo:
+                - zenithacme/zenith-app-core
+                - zenithacme/zenith-auth
+                - zenithacme/zenith-client-web
+                - zenithacme/zenith-console-bff
+                - zenithacme/zenith-console-web
+                - zenithacme/zenith-ds
+                - zenithacme/zenith-infra-dev-hml-preview
+                - zenithacme/zenith-login-web
+              pr_max: 50
+          - name: aws-infra
+            args:
+              cloud: aws
+              aws_extract_region: us-east-1
+              aws_extract_service: [ecs, rds, lambda, logs, sqs]
+
+      - task: implementation
+        every: "12 hours"
+        extract:
+          - name: codebase-conventions
+            args:
+              provider: bitbucket
+              conventions_repo:
+                - zenithacme/zenith-app-core
+                - zenithacme/zenith-auth
+                - zenithacme/zenith-client-web
+                - zenithacme/zenith-console-bff
+                - zenithacme/zenith-console-web
+                - zenithacme/zenith-ds
+                - zenithacme/zenith-login-web
+          - name: github-deployments
+            args:
+              provider: bitbucket
+              deploy_repo:
+                - zenithacme/zenith-app-core
+                - zenithacme/zenith-auth
+                - zenithacme/zenith-console-bff
+
+      - task: prfix
+        every: "4 hours"
+        extract:
+          - name: active-work
+            args:
+              provider: bitbucket
+              active_repo:
+                - zenithacme/zenith-app-core
+                - zenithacme/zenith-auth
+                - zenithacme/zenith-client-web
+                - zenithacme/zenith-console-bff
+                - zenithacme/zenith-console-web
+                - zenithacme/zenith-ds
+                - zenithacme/zenith-infra-dev-hml-preview
+                - zenithacme/zenith-login-web
+
+      - task: tickets
+        every: "2 hours"
+        extract:
+          - name: active-tickets
+            args:
+              tracker: jira
+              ticket_project: [KAN]
+          - name: ticket-archaeology
+            args:
+              tracker: jira
+              ticket_archaeology_project: [KAN]
+              ticket_max: 100

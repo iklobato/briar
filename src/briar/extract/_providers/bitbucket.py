@@ -11,6 +11,11 @@ Auth: per-company. ``BITBUCKET_<COMPANY>_USERNAME`` +
 (see ``CredEnv``). Empty company means generic provider —
 ``is_available()`` returns False and the extractor short-circuits.
 
+For Bitbucket workspace/repository access tokens (``ATCTT…`` prefix), set
+``BITBUCKET_<COMPANY>_USERNAME=x-token-auth`` and put the token in
+``BITBUCKET_<COMPANY>_APP_PASSWORD``. The provider auto-detects the sentinel
+and switches to Bearer auth (workspace tokens reject HTTP basic).
+
 Repo address convention: callers pass ``<workspace>/<repo_slug>`` to
 match the GitHub convention; if a bare ``<repo_slug>`` is supplied,
 the env-var workspace is used as the prefix."""
@@ -55,11 +60,15 @@ class BitbucketProvider(RepositoryProvider):
         if self._client is None:
             from atlassian.bitbucket.cloud import Cloud
 
-            self._client = Cloud(
-                url=self.BASE,
-                username=self._username,
-                password=self._app_password,
-            )
+            if self._username == "x-token-auth":
+                # Workspace/repository access tokens reject basic auth.
+                self._client = Cloud(url=self.BASE, token=self._app_password)
+            else:
+                self._client = Cloud(
+                    url=self.BASE,
+                    username=self._username,
+                    password=self._app_password,
+                )
         return self._client
 
     def _resolve_addr(self, repo: str) -> Tuple[str, str]:

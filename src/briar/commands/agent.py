@@ -212,20 +212,20 @@ class CommandAgent(Command):
             return 3
 
         target = f"{args.owner}/{args.repo}"
-        clone_url = f"https://github.com/{target}.git"
 
         worktree = Path(tempfile.mkdtemp(prefix="briar-agent-implement-"))
         log.info(
-            "agent-implement: target=%s ticket=%s tracker=%s worktree=%s dry_run=%s",
+            "agent-implement: target=%s ticket=%s tracker=%s provider=%s worktree=%s dry_run=%s",
             target,
             args.ticket_key,
             args.tracker,
+            args.provider,
             worktree,
             args.dry_run,
         )
 
         if not args.dry_run:
-            if not self._clone_default(clone_url, worktree):
+            if not self._clone_default(args.provider, args.owner, args.repo, worktree, company=args.company):
                 log.error("agent-implement: clone failed; aborting")
                 self._cleanup_worktree(worktree, keep=args.keep_worktree)
                 return 4
@@ -260,6 +260,8 @@ class CommandAgent(Command):
             model=args.model,
             max_iterations=args.max_iter,
             extra_user_instructions=self._implement_specific_instructions(
+                provider=args.provider,
+                company=args.company,
                 owner=args.owner,
                 repo=args.repo,
                 ticket_key=args.ticket_key,
@@ -287,18 +289,36 @@ class CommandAgent(Command):
         return 0 if not result.error else 6
 
     @staticmethod
-    def _clone_default(clone_url: str, dest: Path) -> bool:
-        """Clone the default branch (no `--branch` flag), embedding
-        GITHUB_TOKEN for HTTPS auth in headless environments. Same
-        token-stripping cleanup as `_clone_branch`."""
+    def _clone_default(provider: str, owner: str, repo: str, dest: Path, *, company: str = "") -> bool:
+        """Clone the default branch (no `--branch` flag), embedding an
+        auth token for HTTPS in headless environments. Token-stripping
+        cleanup matches `_clone_branch`. provider='github' uses
+        ``GITHUB_TOKEN`` + the GitHub `x-access-token` username
+        convention; provider='bitbucket' uses
+        ``BITBUCKET_<COMPANY>_APP_PASSWORD`` + Bitbucket's
+        `x-token-auth` username convention."""
         import os
 
-        token = os.environ.get("GITHUB_TOKEN", "").strip()
-        if not token:
-            log.error("clone failed: GITHUB_TOKEN env var missing")
-            return False
-        authed_url = clone_url.replace("https://github.com/", f"https://x-access-token:{token}@github.com/")
-        log.debug("clone-default: dest=%s (token redacted)", dest)
+        if provider == "bitbucket":
+            from briar.env_vars import CredEnv
+
+            token = (CredEnv.BITBUCKET_APP_PASSWORD.read(company=company) or "").strip() if company else ""
+            if not token:
+                log.error("clone failed: BITBUCKET_<COMPANY>_APP_PASSWORD missing for company=%r", company)
+                return False
+            clone_url = f"https://bitbucket.org/{owner}/{repo}.git"
+            authed_url = clone_url.replace("https://bitbucket.org/", f"https://x-token-auth:{token}@bitbucket.org/")
+            scrub_host = "https://bitbucket.org/"
+        else:
+            token = os.environ.get("GITHUB_TOKEN", "").strip()
+            if not token:
+                log.error("clone failed: GITHUB_TOKEN env var missing")
+                return False
+            clone_url = f"https://github.com/{owner}/{repo}.git"
+            authed_url = clone_url.replace("https://github.com/", f"https://x-access-token:{token}@github.com/")
+            scrub_host = "https://github.com/"
+
+        log.debug("clone-default: provider=%s dest=%s (token redacted)", provider, dest)
         proc = subprocess.run(
             ["git", "clone", "--depth", "50", authed_url, str(dest)],
             capture_output=True,
@@ -316,7 +336,7 @@ class CommandAgent(Command):
             timeout=10,
         )
         if reset.returncode != 0:
-            log.warning("clone-default: remote set-url cleanup failed (token may persist in .git/config)")
+            log.warning("clone-default: remote set-url cleanup failed (token may persist in .git/config) host=%s", scrub_host)
         return True
 
     @staticmethod
@@ -348,15 +368,35 @@ class CommandAgent(Command):
         return [section]
 
     @staticmethod
-    def _implement_specific_instructions(*, owner: str, repo: str, ticket_key: str) -> str:
-        return (
+    def _implement_specific_instructions(*, provider: str, company: str, owner: str, repo: str, ticket_key: str) -> str:
+        branch = f"briar/{ticket_key.lower().replace('#','').replace(' ', '-')}"
+        common = (
             f"The target ticket is {ticket_key} on {owner}/{repo}. The worktree is a fresh clone of the "
             "default branch. Procedure:\n"
             "  1. Read the ticket-context section above for the full body + acceptance criteria. Address EVERY AC.\n"
-            f"  2. Create a feature branch: `git checkout -b briar/{ticket_key.lower().replace('#','').replace(' ', '-')}`.\n"
+            f"  2. Create a feature branch: `git checkout -b {branch}`.\n"
             "  3. Make the change. Match codebase-conventions (test runner, linter, formatter, migration tool).\n"
             "  4. Run the test command from codebase-conventions locally; only push when it's green.\n"
             "  5. Push: `git push -u origin HEAD` (NEVER --force).\n"
+        )
+        if provider == "bitbucket":
+            # Bitbucket Cloud has no first-party CLI; use the v2 REST API via curl.
+            # Workspace access token lives in BITBUCKET_<COMPANY>_APP_PASSWORD;
+            # auth header is HTTP basic with username `x-token-auth`.
+            env_token = f"BITBUCKET_{company.upper().replace('-', '_')}_APP_PASSWORD"
+            return common + (
+                f"  6. Open a draft PR via the Bitbucket v2 API. The workspace access token is in env var "
+                f"`{env_token}`. Auth: `-u 'x-token-auth:$"+env_token+"'`. Endpoint: "
+                f"`POST https://api.bitbucket.org/2.0/repositories/{owner}/{repo}/pullrequests`. "
+                f"Body JSON fields: `title`, `description`, `source.branch.name` (= `{branch}`), `draft: true`. "
+                "The response's `links.html.href` is the PR URL.\n"
+                "  7. End your output with the PR URL on its own line. No fictitious URLs — if the curl fails, surface the error verbatim.\n"
+                "\n"
+                "Strict constraints: NEVER --force, --amend, rebase, squash. NEVER commit as a bot identity "
+                "(run `git config user.name` to verify it's a human). If an AC is ambiguous, stop and post a "
+                "clarifying comment on the ticket — do not guess."
+            )
+        return common + (
             "  6. Open a draft PR via `gh pr create --draft --title '<key>: <short>' --body '<plan + test plan + risks>'`.\n"
             "  7. End your output with the PR URL on its own line. No fictitious URLs — if `gh pr create` fails, surface the error.\n"
             "\n"

@@ -476,7 +476,7 @@ class AgentCommandTests(unittest.TestCase):
         from briar.commands.agent import CommandAgent
 
         instructions = CommandAgent._implement_specific_instructions(
-            owner="acme-co", repo="acme-app", ticket_key="ACME-42"
+            provider="github", company="acme", owner="acme-co", repo="acme-app", ticket_key="ACME-42"
         )
         self.assertIn("ACME-42", instructions)
         self.assertIn("briar/acme-42", instructions)

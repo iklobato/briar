@@ -46,7 +46,14 @@ class JiraTracker(TrackerProvider):
             jql = f'project = "{project}" AND statusCategory = "Done" ORDER BY updated DESC'
         else:
             jql = f'project = "{project}" AND statusCategory != "Done" ORDER BY updated DESC'
-        result = self._jira().jql(jql, limit=max_count)
+        # Atlassian removed /rest/api/2/search per CHANGE-2046. The v3 enhanced-search
+        # endpoint is POST-only and requires explicit `fields`; ask for what _to_ticket reads.
+        payload = {
+            "jql": jql,
+            "fields": ["summary", "status", "issuetype", "priority", "reporter", "assignee", "labels", "created", "updated"],
+            "maxResults": min(max_count, 100),
+        }
+        result = self._jira().post("rest/api/3/search/jql", data=payload)
         issues = (result or {}).get("issues", []) if isinstance(result, dict) else []
         out: List[Ticket] = []
         for issue in issues[:max_count]:
