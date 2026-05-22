@@ -28,6 +28,10 @@ class GithubIssuesTracker(TrackerProvider):
     def is_available(self) -> bool:
         return bool(GithubApi.auth_token())
 
+    @classmethod
+    def required_env_vars(cls, company: str = "") -> List[str]:
+        return ["GITHUB_TOKEN"]
+
     @swallow_errors(default=[], message="github-issues list_tickets")
     def list_tickets(self, project: str, *, state: str, max_count: int) -> List[Ticket]:
         gh_state = "closed" if state == "closed" else "open"

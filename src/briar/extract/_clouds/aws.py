@@ -64,6 +64,18 @@ class AwsCloudProvider(CloudProvider):
         except ImportError:
             return False
 
+    @classmethod
+    def required_env_vars(cls, company: str = "") -> List[str]:
+        # AWS can fall back to ambient creds (instance role, SSO profile)
+        # so the env vars are "optional but recommended" — the doctor
+        # reports them as required because that's the most common path.
+        if not company:
+            return []
+        return [
+            CredEnv.AWS_KEY_ID.for_company(company),
+            CredEnv.AWS_SECRET.for_company(company),
+        ]
+
     def caller_identity(self) -> AccountIdentity:
         session = self._make_session()
         identity = session.client("sts").get_caller_identity()

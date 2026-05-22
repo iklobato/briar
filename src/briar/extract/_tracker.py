@@ -102,6 +102,11 @@ class TrackerProvider(ABC):
         (Jira, Linear) implement this."""
         return []
 
+    @classmethod
+    def required_env_vars(cls, company: str = "") -> List[str]:
+        """See `RepositoryProvider.required_env_vars`."""
+        return []
+
     def get_ticket(self, project: str, ticket_key: str) -> Ticket:
         """Fetch one ticket by key WITH its full description body
         populated. Used by `FetchTicketContext` at agent-invocation

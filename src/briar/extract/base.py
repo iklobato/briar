@@ -61,6 +61,15 @@ class KnowledgeExtractor(ABC):
         """Pull data + return one section. Use `EMPTY_SECTION` when
         the extractor had nothing to report — the composer skips it."""
 
+    def provider_class_for(self, args: argparse.Namespace):
+        """Return the provider CLASS this extractor uses for the given
+        runbook args, or None if it's not provider-backed (file/local
+        extractors). Used by ``briar secrets doctor`` to query
+        ``provider_class.required_env_vars(company)`` without having
+        to maintain a parallel (extractor × provider) cred table.
+        Default: None. Each ``*BackedExtractor`` base overrides."""
+        return None
+
 
 class CloudBackedExtractor(KnowledgeExtractor):
     """Base class for extractors that talk to a cloud provider (AWS,
@@ -91,6 +100,11 @@ class CloudBackedExtractor(KnowledgeExtractor):
         profile = ns.get("aws_extract_profile") or ns.get("cloud_profile") or ""
         return make_cloud(kind, company=company, region=region, profile=profile)
 
+    def provider_class_for(self, args: argparse.Namespace):
+        from briar.extract._clouds import CLOUDS
+
+        return CLOUDS.get(vars(args).get("cloud") or "aws")
+
 
 class TrackerBackedExtractor(KnowledgeExtractor):
     """Base class for extractors that talk to an issue tracker (Jira,
@@ -120,6 +134,11 @@ class TrackerBackedExtractor(KnowledgeExtractor):
         kind = ns.get("tracker") or "jira"
         company = ns.get("company") or ""
         return make_tracker(kind, company=company)
+
+    def provider_class_for(self, args: argparse.Namespace):
+        from briar.extract._trackers import TRACKERS
+
+        return TRACKERS.get(vars(args).get("tracker") or "jira")
 
 
 class TaskScopedExtractor(ABC):
@@ -208,6 +227,11 @@ class TaskScopedRepoExtractor(TaskScopedExtractor):
         company = ns.get("company") or ""
         return make_provider(kind, company=company)
 
+    def provider_class_for(self, args: argparse.Namespace):
+        from briar.extract._providers import PROVIDERS
+
+        return PROVIDERS.get(vars(args).get("provider") or "github")
+
 
 class RepoBackedExtractor(KnowledgeExtractor):
     """Base class for extractors that talk to a code host (GitHub,
@@ -259,3 +283,8 @@ class RepoBackedExtractor(KnowledgeExtractor):
         kind = ns.get("provider") or "github"
         company = ns.get("company") or ""
         return make_provider(kind, company=company)
+
+    def provider_class_for(self, args: argparse.Namespace):
+        from briar.extract._providers import PROVIDERS
+
+        return PROVIDERS.get(vars(args).get("provider") or "github")

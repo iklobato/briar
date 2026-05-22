@@ -207,3 +207,12 @@ class RepositoryProvider(ABC):
         """Return recent commits with their file lists, used for
         co-change clustering. Empty default."""
         return []
+
+    @classmethod
+    def required_env_vars(cls, company: str = "") -> List[str]:
+        """Canonical env-var names this provider needs to be usable for
+        the given company. The doctor (`briar secrets doctor`) uses
+        this for coverage reporting; the values are never read here.
+        Default: empty (provider needs no env vars — ambient credential
+        chain handles auth)."""
+        return []

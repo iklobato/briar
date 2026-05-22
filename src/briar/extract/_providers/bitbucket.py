@@ -90,6 +90,16 @@ class BitbucketProvider(RepositoryProvider):
     def is_available(self) -> bool:
         return bool(self._username and self._app_password and self._workspace_slug)
 
+    @classmethod
+    def required_env_vars(cls, company: str = "") -> List[str]:
+        if not company:
+            return []
+        return [
+            CredEnv.BITBUCKET_USERNAME.for_company(company),
+            CredEnv.BITBUCKET_APP_PASSWORD.for_company(company),
+            CredEnv.BITBUCKET_WORKSPACE.for_company(company),
+        ]
+
     @swallow_errors(default=[], message="bitbucket list_pulls")
     def list_pulls(self, repo: str, *, state: str, max_count: int) -> List[PullRequest]:
         from atlassian.bitbucket.cloud.repositories.pullRequests import PullRequest as BBPullRequest

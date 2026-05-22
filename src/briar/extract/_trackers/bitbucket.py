@@ -43,6 +43,16 @@ class BitbucketIssuesTracker(TrackerProvider):
     def is_available(self) -> bool:
         return bool(self._username and self._app_password and self._workspace_slug)
 
+    @classmethod
+    def required_env_vars(cls, company: str = "") -> List[str]:
+        if not company:
+            return []
+        return [
+            CredEnv.BITBUCKET_USERNAME.for_company(company),
+            CredEnv.BITBUCKET_APP_PASSWORD.for_company(company),
+            CredEnv.BITBUCKET_WORKSPACE.for_company(company),
+        ]
+
     @swallow_errors(default=[], message="bitbucket-issues list_tickets")
     def list_tickets(self, project: str, *, state: str, max_count: int) -> List[Ticket]:
         ws, slug = self._resolve_addr(project)

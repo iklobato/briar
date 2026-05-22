@@ -9,6 +9,7 @@ one real implementation and one or more stubs that fail loudly via
 
 from __future__ import annotations
 
+import argparse
 import json
 import unittest
 from unittest import mock
@@ -405,6 +406,62 @@ class AgentOpRegistryTests(unittest.TestCase):
             rc = cmd.run(ns)
         self.assertEqual(rc, 42)
         self.assertTrue(called.get("happened"))
+
+
+class ProviderRequiredEnvVarsTests(unittest.TestCase):
+    """Each provider declares its own required env vars via a
+    ``classmethod required_env_vars(company)`` — replaces the
+    hand-maintained `_EXTRACTOR_REQUIREMENTS` table the doctor used
+    to consult."""
+
+    def test_github_provider_returns_workspace_token(self) -> None:
+        from briar.extract._providers.github import GithubProvider
+
+        self.assertEqual(GithubProvider.required_env_vars(), ["GITHUB_TOKEN"])
+        # Company arg is inert (GITHUB_TOKEN is workspace-wide).
+        self.assertEqual(GithubProvider.required_env_vars(company="acme"), ["GITHUB_TOKEN"])
+
+    def test_bitbucket_provider_returns_three_per_company_vars(self) -> None:
+        from briar.extract._providers.bitbucket import BitbucketProvider
+
+        # Empty company → empty list (no creds claimable without a tenant).
+        self.assertEqual(BitbucketProvider.required_env_vars(), [])
+        # Per-company → three env-var names interpolated.
+        names = BitbucketProvider.required_env_vars(company="acme")
+        self.assertIn("BITBUCKET_ACME_USERNAME", names)
+        self.assertIn("BITBUCKET_ACME_APP_PASSWORD", names)
+        self.assertIn("BITBUCKET_ACME_WORKSPACE", names)
+
+    def test_jira_tracker_returns_three_per_company_vars(self) -> None:
+        from briar.extract._trackers.jira import JiraTracker
+
+        names = JiraTracker.required_env_vars(company="acme")
+        self.assertIn("JIRA_ACME_URL", names)
+        self.assertIn("JIRA_ACME_EMAIL", names)
+        self.assertIn("JIRA_ACME_TOKEN", names)
+
+    def test_extractor_provider_class_for_routes_via_args(self) -> None:
+        """Each extractor's `provider_class_for(args)` returns the
+        provider class implied by `args.provider` / `args.tracker` /
+        `args.cloud`. The doctor uses this to avoid maintaining a
+        parallel (extractor × provider) table."""
+        from briar.extract import EXTRACTORS
+
+        # pr-archaeology is RepoBacked — defaults to GitHub.
+        ext = EXTRACTORS["pr-archaeology"]
+        ns = argparse.Namespace(provider="github")
+        provider_cls = ext.provider_class_for(ns)
+        self.assertIsNotNone(provider_cls)
+        self.assertEqual(provider_cls.kind, "github")
+
+        ns_bb = argparse.Namespace(provider="bitbucket")
+        provider_cls = ext.provider_class_for(ns_bb)
+        self.assertEqual(provider_cls.kind, "bitbucket")
+
+        # active-tickets is TrackerBacked — defaults to Jira.
+        ext = EXTRACTORS["active-tickets"]
+        provider_cls = ext.provider_class_for(argparse.Namespace(tracker="linear"))
+        self.assertEqual(provider_cls.kind, "linear")
 
 
 class BuildRegistryTests(unittest.TestCase):

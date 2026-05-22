@@ -46,6 +46,11 @@ class GithubProvider(RepositoryProvider):
     def is_available(self) -> bool:
         return bool(GithubApi.auth_token())
 
+    @classmethod
+    def required_env_vars(cls, company: str = "") -> List[str]:
+        # GITHUB_TOKEN is workspace-wide; the company arg is inert.
+        return ["GITHUB_TOKEN"]
+
     def list_pulls(self, repo: str, *, state: str, max_count: int) -> List[PullRequest]:
         # Contract: state is "open" | "merged". GitHub vocabulary is
         # "open" | "closed", and merged PRs are a subset of closed

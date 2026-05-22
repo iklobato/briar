@@ -38,6 +38,16 @@ class JiraTracker(TrackerProvider):
     def is_available(self) -> bool:
         return bool(self._url and self._email and self._token)
 
+    @classmethod
+    def required_env_vars(cls, company: str = "") -> List[str]:
+        if not company:
+            return []
+        return [
+            CredEnv.JIRA_URL.for_company(company),
+            CredEnv.JIRA_EMAIL.for_company(company),
+            CredEnv.JIRA_TOKEN.for_company(company),
+        ]
+
     @swallow_errors(default=[], message="jira list_tickets")
     def list_tickets(self, project: str, *, state: str, max_count: int) -> List[Ticket]:
         # Jira state vocabulary uses `statusCategory`: To Do | In Progress | Done.
