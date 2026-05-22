@@ -1,0 +1,508 @@
+# ============================================================================
+# all_features.yaml — every briar feature, every combination, in one file
+# ============================================================================
+#
+# Four companies, each exhausting a different slice of the matrix:
+#
+#   acme       GitHub repos + Jira tracker + AWS cloud
+#              File storage. All 5 GitHub-side message writers wired.
+#              The "everything is mainstream" baseline.
+#
+#   bitspark   Bitbucket Cloud + Linear + AWS (us-west-2)
+#              Postgres storage. Bitbucket PR-comment + Slack + Telegram.
+#              Demonstrates the full vendor swap at every layer.
+#
+#   datacore   GitHub repos + Bitbucket Issues (legacy) + GCP
+#              File storage with custom root. Showcases the
+#              alternative cloud + hybrid tracker scenario.
+#
+#   fintech    Bitbucket Cloud + GitHub Issues + Azure
+#              Postgres storage. Shows that any (repo, tracker, cloud)
+#              triple is valid — the abstractions are orthogonal.
+#
+# Together these four cover:
+#
+#   Repo providers     ✓ github (acme, datacore) ✓ bitbucket (bitspark, fintech)
+#   Tracker providers  ✓ jira (acme)             ✓ linear (bitspark)
+#                      ✓ bitbucket-issues (datacore)  ✓ github-issues (fintech)
+#   Cloud providers    ✓ aws (acme, bitspark)    ✓ gcp (datacore)  ✓ azure (fintech)
+#   Storage backends   ✓ file (acme, datacore)   ✓ postgres (bitspark, fintech)
+#   Message writers    ✓ all 6 across the four companies
+#   Cadence patterns   ✓ minute / hourly / 4-hourly / daily / weekly
+#   User filters       ✓ author allow / block, assignee allow / block
+#   Per-task fanout    ✓ one extractor per task, multiple extractors per task
+#
+# To use:
+#   briar runbook extract examples/all_features.yaml                 # run every schedule
+#   briar runbook extract examples/all_features.yaml --task prfix    # one task across all
+#   briar runbook serve examples/                                    # 24/7 scheduler
+#   briar secrets doctor --examples examples/all_features.yaml       # credential audit
+#
+# Required env vars (per-company secrets.env):
+#   See ARCHITECTURE.md + IMPLEMENTATION_PLAN.md. Run `briar secrets doctor`
+#   for an exhaustive coverage report — it walks each (extractor × provider)
+#   AND each (messages × writer) pair and tells you what's missing.
+
+version: 1
+companies:
+
+  # ===========================================================================
+  # acme — GitHub + Jira + AWS, every GitHub-side writer
+  # ===========================================================================
+  # The mainstream stack. Useful as the "what does it look like with
+  # nothing exotic" baseline.
+  #
+  # Required env vars (rendered by `briar secrets doctor`):
+  #   GITHUB_TOKEN                       workspace-wide PAT
+  #   AWS_ACME_ACCESS_KEY_ID             per-company STS triplet
+  #   AWS_ACME_SECRET_ACCESS_KEY
+  #   AWS_ACME_SESSION_TOKEN             (only if SSO-vended)
+  #   AWS_ACME_REGION                    us-east-1
+  #   JIRA_ACME_URL                      https://acme.atlassian.net
+  #   JIRA_ACME_EMAIL                    bot user
+  #   JIRA_ACME_TOKEN                    Atlassian API token
+  #   TELEGRAM_BOT_TOKEN                 workspace-wide
+  #   TELEGRAM_ACME_CHAT_ID              per-company channel
+  #   SLACK_ACME_WEBHOOK_URL             per-company webhook
+  # ---------------------------------------------------------------------------
+  acme:
+    knowledge:
+      store: file
+      name: ./knowledge/acme.md
+
+    # Outbound message channels. The agent's `send_message` tool resolves
+    # these handles at run time. Adding a channel = one line here + the
+    # corresponding env vars in /etc/briar/secrets.env. Doctor verifies.
+    messages:
+      # Jira write paths — distinct verbs, same auth
+      ticket_comment:
+        kind: jira-comment
+      ticket_transition:
+        kind: jira-transition
+        config:
+          status: "In Review"           # default when extras.status not passed
+      # GitHub write path
+      pr_reply:
+        kind: github-pr-comment
+      # Operator-facing channels
+      ops_chat:
+        kind: slack-channel
+      escalation:
+        kind: telegram-chat
+
+    schedules:
+
+      # ─── extractors: daily heavyweights ─────────────────────────────────
+      - task: extractors
+        every: "day at 03:17"
+        extract:
+
+          - name: pr-archaeology
+            args:
+              provider: github
+              pr_repo: [acme-co/acme-app, acme-co/acme-shared]
+              pr_max: 50
+              # Filter: only count PRs by the acme team. Composition is
+              # `allow ∩ ¬block`, so adding renovate to the allow list
+              # below would still be vetoed by the active-work block.
+              pr_authors_allow: [alice, bob, carol]
+
+          - name: aws-infra
+            args:
+              cloud: aws                   # default; shown for clarity
+              aws_extract_region: us-east-1
+              aws_extract_service: [ecs, rds, lambda, logs, sqs]
+
+          # NEW extractors from this session — context-rich
+          - name: reviewer-profile
+            args:
+              provider: github
+              reviewer_repo: [acme-co/acme-app]
+              reviewer_pr_sample: 30
+              reviewer_top_n: 5
+
+          - name: code-hotspots
+            args:
+              provider: github
+              hotspots_repo: [acme-co/acme-app, acme-co/acme-shared]
+              hotspots_since_days: 30
+              hotspots_max_commits: 100
+              hotspots_top_n: 10
+
+      # ─── implementation: codebase + deploy state, every 4h ──────────────
+      - task: implementation
+        every: "4 hours"
+        extract:
+
+          - name: codebase-conventions
+            args:
+              provider: github
+              conventions_repo: [acme-co/acme-app, acme-co/acme-shared]
+
+          - name: github-deployments
+            args:
+              provider: github
+              deploy_repo: [acme-co/acme-app]
+
+      # ─── prfix: open PRs, every hour ────────────────────────────────────
+      - task: prfix
+        every: "hour"
+        extract:
+          - name: active-work
+            args:
+              provider: github
+              active_repo: [acme-co/acme-app, acme-co/acme-shared]
+              # Drop bot-authored PRs from the active-work signal.
+              # Quoted because square brackets inside YAML flow seqs
+              # are interpreted as nested sequences otherwise.
+              active_authors_block: ["renovate[bot]", "dependabot[bot]"]
+
+      # ─── tickets: Jira queries every 2 hours ────────────────────────────
+      - task: tickets
+        every: "2 hours"
+        extract:
+
+          - name: active-tickets
+            args:
+              tracker: jira
+              ticket_project: [ACME, INFRA]
+
+          - name: ticket-archaeology
+            args:
+              tracker: jira
+              ticket_archaeology_project: [ACME]
+              ticket_max: 50
+
+      # ─── status: a per-minute health blip (testing the minute cadence) ──
+      # Useful only for demoing the DSL; in production you'd not need
+      # this. The extractor walked is trivial — `active-work` against
+      # an empty repo list returns EMPTY_SECTION fast.
+      - task: heartbeat
+        every: "5 minutes"
+        extract:
+          - name: active-work
+            args: {provider: github, active_repo: []}
+
+  # ===========================================================================
+  # bitspark — Bitbucket Cloud + Linear + AWS (us-west-2)
+  # ===========================================================================
+  # Demonstrates the full vendor swap: pr-archaeology against Bitbucket
+  # via app-password basic auth; ticket-archaeology against Linear via
+  # GraphQL; AWS is in us-west-2 (different region from acme).
+  # Knowledge goes to Postgres so multiple readers (scheduler + dashboard)
+  # share one source of truth without file-lock contention.
+  #
+  # Required env vars:
+  #   BITBUCKET_BITSPARK_USERNAME       machine user (or `x-token-auth` for workspace token)
+  #   BITBUCKET_BITSPARK_APP_PASSWORD   app password OR workspace access token
+  #   BITBUCKET_BITSPARK_WORKSPACE      workspace slug
+  #   AWS_BITSPARK_ACCESS_KEY_ID        per-company STS triplet
+  #   AWS_BITSPARK_SECRET_ACCESS_KEY
+  #   AWS_BITSPARK_SESSION_TOKEN
+  #   AWS_BITSPARK_REGION               us-west-2
+  #   LINEAR_BITSPARK_TOKEN             Linear API key (NO Bearer prefix)
+  #   BRIAR_DATABASE_URL                workspace-wide Postgres DSN
+  #   TELEGRAM_BOT_TOKEN                shared with other companies
+  #   TELEGRAM_BITSPARK_CHAT_ID         per-tenant Telegram channel
+  #   SLACK_BITSPARK_WEBHOOK_URL        per-tenant Slack webhook
+  # ---------------------------------------------------------------------------
+  bitspark:
+    knowledge:
+      store: postgres
+      name: knowledge:bitspark         # blob name in the briar_knowledge table
+
+    messages:
+      # Bitbucket write path (top-level OR inline review reply)
+      pr_reply:
+        kind: bitbucket-pr-comment
+      # Per-binding env override: this binding reads the engineering
+      # channel URL from a non-default env var. Useful when one company
+      # has multiple Slack channels (general, engineering, security).
+      engineering_chat:
+        kind: slack-channel
+        config:
+          webhook_env: SLACK_BITSPARK_ENGINEERING_WEBHOOK
+      ops_chat:                          # default convention: SLACK_BITSPARK_WEBHOOK_URL
+        kind: slack-channel
+      escalation:
+        kind: telegram-chat
+
+    schedules:
+
+      # ─── archaeology: weekly deep mining, Sunday-night batched ──────────
+      - task: archaeology
+        every: "monday at 02:30"
+        extract:
+
+          - name: pr-archaeology
+            args:
+              provider: bitbucket
+              # Bitbucket Cloud repo addresses follow GitHub `owner/repo`
+              # convention — workspace is in the slug.
+              pr_repo: [bitspark/api, bitspark/web]
+              pr_max: 100
+
+          - name: ticket-archaeology
+            args:
+              tracker: linear
+              # Linear `project` = team key, NOT issue identifier.
+              ticket_archaeology_project: [ENG, INFRA]
+              ticket_max: 100
+
+          - name: reviewer-profile
+            args:
+              provider: bitbucket
+              reviewer_repo: [bitspark/api]
+              reviewer_pr_sample: 50
+
+      # ─── prfix: hourly active-PRs + active-tickets ──────────────────────
+      - task: prfix
+        every: "hour"
+        extract:
+
+          - name: active-work
+            args:
+              provider: bitbucket
+              active_repo: [bitspark/api, bitspark/web]
+
+          - name: active-tickets
+            args:
+              tracker: linear
+              ticket_project: [ENG]
+
+      # ─── extractors: daily AWS infra (different region from acme) ───────
+      - task: extractors
+        every: "day at 04:17"
+        extract:
+
+          - name: aws-infra
+            args:
+              cloud: aws
+              aws_extract_region: us-west-2
+              aws_extract_service: [ecs, lambda, logs]
+
+  # ===========================================================================
+  # datacore — GitHub code + Bitbucket Issues tracker + GCP infra
+  # ===========================================================================
+  # Hybrid carryover from a partial migration: code lives on GitHub but
+  # the issue tracker stayed on Bitbucket. Infra runs on GCP. One
+  # company, three different vendors at three layers — the abstractions
+  # are orthogonal.
+  #
+  # Custom file root demonstrates per-company storage paths (useful for
+  # mounting one company's knowledge on a separate EBS volume).
+  #
+  # Required env vars:
+  #   GITHUB_TOKEN                            workspace-wide PAT (also used for the GH repo)
+  #   BITBUCKET_DATACORE_USERNAME             machine user for the legacy tracker workspace
+  #   BITBUCKET_DATACORE_APP_PASSWORD
+  #   BITBUCKET_DATACORE_WORKSPACE
+  #   GOOGLE_APPLICATION_CREDENTIALS          path to SA JSON for GCP ADC
+  #   TELEGRAM_BOT_TOKEN
+  #   TELEGRAM_DATACORE_CHAT_ID
+  #
+  # Install: `pip install briar-cli[gcp]` for the google-cloud-* SDKs.
+  # ---------------------------------------------------------------------------
+  datacore:
+    knowledge:
+      store: file
+      name: ./knowledge/datacore/main.md   # custom path
+      root: ./knowledge                    # explicit root (default would be ./knowledge)
+
+    messages:
+      # Bitbucket-Issues doesn't have a separate writer; comments on
+      # Bitbucket Issues go through the same `bitbucket-pr-comment`
+      # writer pointed at an issue URL — OR add a `bitbucket-issue-comment`
+      # writer if needed (future).
+      pr_reply:
+        kind: github-pr-comment
+      ops_chat:
+        kind: telegram-chat
+
+    schedules:
+
+      # One consolidated daily task — small org, low cadence is fine.
+      - task: extractors
+        every: "day at 05:00"
+        extract:
+
+          - name: pr-archaeology
+            args:
+              provider: github
+              pr_repo: [datacore-io/platform]
+              pr_max: 30
+              # Filter on assignee — only PRs assigned to the
+              # datacore-engineering team show up.
+              pr_assignees_allow: [datacore-eng, datacore-platform]
+
+          - name: codebase-conventions
+            args:
+              provider: github
+              conventions_repo: [datacore-io/platform]
+
+          - name: code-hotspots
+            args:
+              provider: github
+              hotspots_repo: [datacore-io/platform]
+              hotspots_since_days: 60      # quieter project; wider window
+              hotspots_max_commits: 80
+
+          # The extractor name stays `aws-infra` for back-compat, but
+          # `cloud: gcp` routes it onto GcpCloudProvider. The output's
+          # markdown shape is the generic Compute / Databases / Queues
+          # / Log-groups (the AWS-native gatherer-by-gatherer shape is
+          # AwsCloudProvider's override).
+          - name: aws-infra
+            args:
+              cloud: gcp
+              cloud_profile: datacore-prod   # GCP project ID
+              cloud_region: us-central1
+
+          - name: active-tickets
+            args:
+              tracker: bitbucket-issues
+              # Bitbucket Issues project = `workspace/repo_slug`.
+              ticket_project: [datacore-legacy/issues]
+
+      # PRs change more often than tickets in this org; sample every 4h.
+      - task: prfix
+        every: "4 hours"
+        extract:
+          - name: active-work
+            args:
+              provider: github
+              active_repo: [datacore-io/platform]
+
+  # ===========================================================================
+  # fintech — Bitbucket Cloud + GitHub Issues + Azure
+  # ===========================================================================
+  # Demonstrates that the abstractions are orthogonal. Repo lives on
+  # Bitbucket, tickets on GitHub Issues (because the legacy issue
+  # archive lives in a public-archive GitHub repo even though new
+  # development happens on Bitbucket). Infra on Azure.
+  #
+  # Required env vars:
+  #   GITHUB_TOKEN                           for the tracker side
+  #   BITBUCKET_FINTECH_USERNAME             machine user / `x-token-auth` sentinel
+  #   BITBUCKET_FINTECH_APP_PASSWORD         app password OR workspace access token
+  #   BITBUCKET_FINTECH_WORKSPACE
+  #   AZURE_CLIENT_ID                        Service principal app ID (workspace-wide)
+  #   AZURE_TENANT_ID                        AAD tenant
+  #   AZURE_CLIENT_SECRET                    Service principal password
+  #   BRIAR_DATABASE_URL                     shared Postgres DSN
+  #   JIRA_FINTECH_URL                       still here even though tickets
+  #   JIRA_FINTECH_EMAIL                     are on GH Issues — fintech also
+  #   JIRA_FINTECH_TOKEN                     uses jira-comment writer for
+  #                                          cross-posting compliance notes
+  #
+  # Install: `pip install briar-cli[azure]` for azure-mgmt-* SDKs.
+  # ---------------------------------------------------------------------------
+  fintech:
+    knowledge:
+      store: postgres
+      name: knowledge:fintech
+
+    messages:
+      # Heterogeneous: code reviews on Bitbucket PR, but compliance
+      # comments cross-posted to a Jira "audit" project. Two writers,
+      # two destinations.
+      pr_reply:
+        kind: bitbucket-pr-comment
+      compliance_log:
+        kind: jira-comment
+      ops_chat:
+        kind: slack-channel
+
+    schedules:
+
+      # Daily PR + ticket archaeology (small dev team)
+      - task: archaeology
+        every: "day at 06:00"
+        extract:
+
+          - name: pr-archaeology
+            args:
+              provider: bitbucket
+              pr_repo: [fintech/core]
+              pr_max: 40
+
+          - name: ticket-archaeology
+            args:
+              tracker: github-issues
+              # GitHub Issues project = `owner/repo`.
+              ticket_archaeology_project: [fintech-archive/legacy-issues]
+              ticket_max: 30
+
+      - task: implementation
+        every: "4 hours"
+        extract:
+
+          - name: codebase-conventions
+            args:
+              provider: bitbucket
+              conventions_repo: [fintech/core]
+
+          - name: reviewer-profile
+            args:
+              provider: bitbucket
+              reviewer_repo: [fintech/core]
+              reviewer_pr_sample: 25
+
+      - task: prfix
+        every: "hour"
+        extract:
+          - name: active-work
+            args:
+              provider: bitbucket
+              active_repo: [fintech/core]
+
+      - task: tickets
+        every: "2 hours"
+        extract:
+          - name: active-tickets
+            args:
+              tracker: github-issues
+              ticket_project: [fintech-archive/legacy-issues]
+
+      # Azure infra extractor — different cloud, same extractor name
+      # (`aws-infra` is the back-compat name; `cloud: azure` routes
+      # it onto AzureCloudProvider).
+      - task: extractors
+        every: "day at 07:30"
+        extract:
+          - name: aws-infra
+            args:
+              cloud: azure
+              cloud_profile: 11111111-2222-3333-4444-555555555555   # subscription ID
+              cloud_region: eastus
+
+# ============================================================================
+# Notes
+# ============================================================================
+#
+# Cadence ladder by cost / freshness:
+#
+#   "5 minutes"      cheapest signal, near-realtime — use for "heartbeat"
+#                    style probes only; not for any actual API-hitting
+#                    extractor.
+#   "hour"           the standard "hot" cadence — open PRs, active tickets.
+#   "2 hours"        ticket queries (the queue changes more slowly than PRs).
+#   "4 hours"        codebase conventions + CI/deploy state — repo-shape
+#                    doesn't change between commits.
+#   "day at HH:MM"   heavy mining (pr-archaeology, code-hotspots,
+#                    aws-infra). Pin to a wall-clock anchor to space
+#                    multiple companies; the scheduler auto-staggers
+#                    non-anchored cadences by company-hash so two
+#                    companies on `hour` don't fire at the same minute.
+#   "monday at HH:MM"  weekly deep mining (reviewer-profile, archaeology).
+#
+# All providers are pluggable. To add GitLab (repo + tracker), add one
+# file to extract/_providers/ + one to extract/_trackers/ + register
+# in the tuple; runbooks reference `provider: gitlab` / `tracker:
+# gitlab-issues` immediately. Same for new clouds, new writers.
+#
+# `briar secrets doctor --examples examples/all_features.yaml` is the
+# fastest way to know what's missing per company. It walks every
+# (extractor × provider) pair AND every (messages × writer) pair, hits
+# the configured `CredentialStore` (default: envfile), and prints the
+# `X MISSING:` / `ok` rows without ever logging the values.
