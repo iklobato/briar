@@ -1,8 +1,9 @@
-"""`briar agent prfix` — autonomous PR-fixer runner.
+"""`briar agent` — autonomous agent runner.
 
-Loads the company's knowledge from the configured store, opens a clean
-git worktree on the target PR's branch, then drives the pr-fixer
-archetype through the Anthropic API loop until completion or guardrail.
+Two ops today (`prfix`, `implement`); future ops register by adding a
+subclass to `AGENT_OPS`. The dispatcher (`CommandAgent.run`) does a
+registry lookup, NOT an if-chain — same Strategy + Registry shape as
+every other plugin family in the codebase.
 """
 
 from __future__ import annotations
@@ -12,8 +13,9 @@ import logging
 import shutil
 import subprocess
 import tempfile
+from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar, Dict
 
 from briar.agent.runner import AgentRunner
 from briar.commands.base import Command
@@ -22,99 +24,107 @@ from briar.commands.base import Command
 log = logging.getLogger(__name__)
 
 
-class CommandAgent(Command):
-    name = "agent"
-    help = "Run an autonomous agent flow against a target (prfix / conflict-resolve / ci-fix)."
+# ─── AgentOp Strategy + Registry ────────────────────────────────────────────
+#
+# Each op owns its own `add_arguments` + `run`. CommandAgent.add_arguments
+# iterates AGENT_OPS to attach subparsers; CommandAgent.run does a single
+# registry lookup. Adding a new op = one subclass + one entry in AGENT_OPS.
+
+
+class AgentOp(ABC):
+    """One agent subcommand. Concrete subclasses (`PrfixOp`,
+    `ImplementOp`, …) declare the per-op argparse flags and run logic."""
+
+    name: ClassVar[str] = ""
+    help: ClassVar[str] = ""
+
+    @abstractmethod
+    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        ...
+
+    @abstractmethod
+    def run(self, agent_cmd: "CommandAgent", args: argparse.Namespace) -> int:
+        ...
+
+
+class PrfixOp(AgentOp):
+    name = "prfix"
+    help = "Address open review comments on a PR (pr-fixer archetype)."
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        sub = parser.add_subparsers(dest="agent_op", required=True, metavar="OP")
-        prfix = sub.add_parser("prfix", help="Address open review comments on a PR (pr-fixer archetype).")
-        prfix.add_argument("--company", required=True, help="Company key — must match a runbook YAML")
-        prfix.add_argument("--owner", required=True, help="GitHub owner of the target repo")
-        prfix.add_argument("--repo", required=True, help="GitHub repo name")
-        prfix.add_argument("--pr", type=int, required=True, help="PR number to address")
-        prfix.add_argument("--branch", required=True, help="PR head branch name")
-        prfix.add_argument("--store", default="postgres", choices=["file", "postgres"], help="KnowledgeStore backend")
-        prfix.add_argument("--knowledge", default="./knowledge", help="File-store root (ignored for postgres)")
-        prfix.add_argument(
-            "--model",
-            default="",
-            help="Override Anthropic model (defaults to AgentRunner.DEFAULT_MODEL)",
-        )
-        prfix.add_argument(
-            "--max-iter",
-            type=int,
-            default=0,
-            help="Iteration ceiling (defaults to AgentRunner.DEFAULT_MAX_ITERATIONS)",
-        )
-        prfix.add_argument(
-            "--git-user-name",
-            default="iklobato",
-            help="git config user.name to set on the worktree before any commit",
-        )
-        prfix.add_argument(
-            "--git-user-email",
-            default="dev@users.noreply.github.com",
-            help="git config user.email to set on the worktree before any commit",
-        )
-        prfix.add_argument(
-            "--keep-worktree",
-            action="store_true",
-            help="Leave the worktree in /tmp after the run for inspection (default: remove on success)",
-        )
-        prfix.add_argument(
+        parser.add_argument("--company", required=True, help="Company key — must match a runbook YAML")
+        parser.add_argument("--owner", required=True, help="GitHub owner of the target repo")
+        parser.add_argument("--repo", required=True, help="GitHub repo name")
+        parser.add_argument("--pr", type=int, required=True, help="PR number to address")
+        parser.add_argument("--branch", required=True, help="PR head branch name")
+        parser.add_argument("--store", default="postgres", choices=["file", "postgres"], help="KnowledgeStore backend")
+        parser.add_argument("--knowledge", default="./knowledge", help="File-store root (ignored for postgres)")
+        parser.add_argument("--model", default="", help="Override Anthropic model (defaults to AgentRunner.DEFAULT_MODEL)")
+        parser.add_argument("--max-iter", type=int, default=0, help="Iteration ceiling (defaults to AgentRunner.DEFAULT_MAX_ITERATIONS)")
+        parser.add_argument("--git-user-name", default="iklobato", help="git config user.name to set on the worktree before any commit")
+        parser.add_argument("--git-user-email", default="dev@users.noreply.github.com", help="git config user.email to set on the worktree before any commit")
+        parser.add_argument("--keep-worktree", action="store_true", help="Leave the worktree in /tmp after the run for inspection")
+        parser.add_argument(
             "--dry-run",
             action="store_true",
             help="Build + print the system prompt + user message + tool list, skip the LLM call. "
             "Validates the JIT context wiring (pr-review-context) without spending tokens.",
         )
 
-        # ─── `implement` subcommand — engineer archetype on one ticket ─────
-        implement = sub.add_parser(
-            "implement",
-            help="Implement one ticket end-to-end (engineer archetype). Clones default branch, fetches ticket-context, runs the agent.",
-        )
-        implement.add_argument("--company", required=True, help="Company key — must match a runbook YAML")
-        implement.add_argument("--owner", required=True, help="Repository owner (GitHub) or workspace (Bitbucket)")
-        implement.add_argument("--repo", required=True, help="Repository name / slug")
-        implement.add_argument("--ticket-project", required=True, help="Tracker project key (Jira: PROJ; Linear team: ENG; GH/BB Issues: owner/repo)")
-        implement.add_argument("--ticket-key", required=True, help="Ticket identifier (Jira: PROJ-123; GH/BB: #42; Linear: ENG-7)")
-        implement.add_argument(
-            "--tracker",
-            default="jira",
-            help="Tracker provider for the ticket (default: jira). One of: jira, github-issues, bitbucket-issues, linear.",
-        )
-        implement.add_argument(
-            "--provider",
-            default="github",
-            help="Repository provider (default: github). One of: github, bitbucket.",
-        )
-        implement.add_argument("--store", default="postgres", choices=["file", "postgres"], help="KnowledgeStore backend")
-        implement.add_argument("--knowledge", default="./knowledge", help="File-store root (ignored for postgres)")
-        implement.add_argument("--model", default="", help="Override Anthropic model (defaults to AgentRunner.DEFAULT_MODEL)")
-        implement.add_argument("--max-iter", type=int, default=0, help="Iteration ceiling (defaults to AgentRunner.DEFAULT_MAX_ITERATIONS)")
-        implement.add_argument("--git-user-name", default="iklobato", help="git config user.name on the worktree")
-        implement.add_argument("--git-user-email", default="dev@users.noreply.github.com", help="git config user.email on the worktree")
-        implement.add_argument(
-            "--keep-worktree",
-            action="store_true",
-            help="Leave the worktree in /tmp after the run for inspection (default: remove on success)",
-        )
-        implement.add_argument(
+    def run(self, agent_cmd: "CommandAgent", args: argparse.Namespace) -> int:
+        return agent_cmd._run_prfix(args)
+
+
+class ImplementOp(AgentOp):
+    name = "implement"
+    help = "Implement one ticket end-to-end (engineer archetype). Clones default branch, fetches ticket-context, runs the agent."
+
+    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument("--company", required=True, help="Company key — must match a runbook YAML")
+        parser.add_argument("--owner", required=True, help="Repository owner (GitHub) or workspace (Bitbucket)")
+        parser.add_argument("--repo", required=True, help="Repository name / slug")
+        parser.add_argument("--ticket-project", required=True, help="Tracker project key (Jira: PROJ; Linear team: ENG; GH/BB Issues: owner/repo)")
+        parser.add_argument("--ticket-key", required=True, help="Ticket identifier (Jira: PROJ-123; GH/BB: #42; Linear: ENG-7)")
+        parser.add_argument("--tracker", default="jira", help="Tracker provider for the ticket (default: jira). One of: jira, github-issues, bitbucket-issues, linear.")
+        parser.add_argument("--provider", default="github", help="Repository provider (default: github). One of: github, bitbucket.")
+        parser.add_argument("--store", default="postgres", choices=["file", "postgres"], help="KnowledgeStore backend")
+        parser.add_argument("--knowledge", default="./knowledge", help="File-store root (ignored for postgres)")
+        parser.add_argument("--model", default="", help="Override Anthropic model (defaults to AgentRunner.DEFAULT_MODEL)")
+        parser.add_argument("--max-iter", type=int, default=0, help="Iteration ceiling (defaults to AgentRunner.DEFAULT_MAX_ITERATIONS)")
+        parser.add_argument("--git-user-name", default="iklobato", help="git config user.name on the worktree")
+        parser.add_argument("--git-user-email", default="dev@users.noreply.github.com", help="git config user.email on the worktree")
+        parser.add_argument("--keep-worktree", action="store_true", help="Leave the worktree in /tmp after the run for inspection")
+        parser.add_argument(
             "--dry-run",
             action="store_true",
             help="Build + print the system prompt + user message + tool list, skip the LLM call. "
             "Validates the JIT context wiring (ticket-context) without spending tokens.",
         )
 
+    def run(self, agent_cmd: "CommandAgent", args: argparse.Namespace) -> int:
+        return agent_cmd._run_implement(args)
+
+
+AGENT_OPS: Dict[str, AgentOp] = {op.name: op for op in (PrfixOp(), ImplementOp())}
+
+
+class CommandAgent(Command):
+    name = "agent"
+    help = "Run an autonomous agent flow against a target (prfix / conflict-resolve / ci-fix)."
+
+    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        sub = parser.add_subparsers(dest="agent_op", required=True, metavar="OP")
+        for op in AGENT_OPS.values():
+            op_parser = sub.add_parser(op.name, help=op.help)
+            op.add_arguments(op_parser)
+
     def run(self, args: argparse.Namespace) -> int:
-        op = args.agent_op
-        if op == "prfix":
-            return self._run_prfix(args)
-        if op == "implement":
-            return self._run_implement(args)
-        log.error("unknown agent op: %s", op)
-        return 2
+        op = AGENT_OPS.get(args.agent_op)
+        if op is None:
+            known = ", ".join(sorted(AGENT_OPS.keys()))
+            log.error("unknown agent op: %s (known: %s)", args.agent_op, known)
+            return 2
+        return op.run(self, args)
 
     def _run_prfix(self, args: argparse.Namespace) -> int:
         from briar.storage import make_store

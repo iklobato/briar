@@ -365,6 +365,48 @@ class ExecutorNotificationTests(unittest.TestCase):
                 RunbookExtractor._notify_failure("acme", "extractors", "x", "y")
 
 
+class AgentOpRegistryTests(unittest.TestCase):
+    """`briar agent` dispatches via AGENT_OPS registry, NOT an if-chain.
+    This test pins that contract — a regression to `if op == 'prfix':`
+    style would break it."""
+
+    def test_agent_ops_registered(self) -> None:
+        from briar.commands.agent import AGENT_OPS
+
+        self.assertIn("prfix", AGENT_OPS)
+        self.assertIn("implement", AGENT_OPS)
+
+    def test_run_returns_2_on_unknown_op(self) -> None:
+        from briar.commands.agent import CommandAgent
+
+        cmd = CommandAgent()
+        ns = mock.MagicMock(agent_op="frobnicate")
+        rc = cmd.run(ns)
+        self.assertEqual(rc, 2)
+
+    def test_run_dispatches_via_registry(self) -> None:
+        """If `run` ever reverts to `if op == 'prfix':`, this test
+        catches it — we swap the registry entry and confirm dispatch
+        followed the new pointer."""
+        from briar.commands.agent import AGENT_OPS, CommandAgent
+
+        called = {}
+
+        class FakeOp:
+            name = "prfix"
+
+            def run(self, agent_cmd, args):
+                called["happened"] = True
+                return 42
+
+        with mock.patch.dict(AGENT_OPS, {"prfix": FakeOp()}):
+            cmd = CommandAgent()
+            ns = mock.MagicMock(agent_op="prfix")
+            rc = cmd.run(ns)
+        self.assertEqual(rc, 42)
+        self.assertTrue(called.get("happened"))
+
+
 class AgentCommandTests(unittest.TestCase):
     """`briar agent` subcommands wire the task-scoped extractors
     correctly. These tests don't run the agent — they just verify
