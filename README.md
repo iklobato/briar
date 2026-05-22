@@ -65,11 +65,13 @@ Dev extras (`pip install -e ".[dev]"`): `black`, `mypy`.
 ## Commands
 
 ```
-extract    — run extractors against external sources (GitHub, AWS)
+extract    — run extractors against external sources (GitHub, Bitbucket, AWS, Jira, …)
 runbook    — multi-company orchestration; long-lived scheduler
 scaffold   — generate JSON config bundles
 context    — read/write local markdown blobs
 dashboard  — serve the read-only HTML dashboard
+agent      — autonomous agent runs (prfix / implement) with JIT context fetch
+secrets    — audit credential coverage (briar secrets doctor)
 version    — print client version
 ```
 
@@ -84,13 +86,35 @@ loggers (httpx, boto3, …) — useful when debugging wire traffic.
 
 ## Knowledge extractors
 
-| `--include` name | What it mines | Auth |
+Eleven extractors split across two lifecycles. **Scheduled** extractors
+fire on the runbook cadence and write into the per-company knowledge
+blob. **Task-scoped** extractors run on-demand at agent invocation
+time (`briar agent prfix` / `briar agent implement`) and splice their
+output into a single agent's system prompt only.
+
+### Scheduled (RepoBacked / TrackerBacked / CloudBacked)
+
+| `--include` name | What it mines | Provider type |
 |---|---|---|
-| `pr-archaeology` | merged-PR patterns, median time-to-merge, top reviewers | `gh auth token` or `$GITHUB_TOKEN` |
-| `aws-infra` | ECS, RDS, Lambda, SQS, CloudWatch (top 10 log groups by size) | local AWS profile or per-company env-var credentials |
-| `active-work` | open PRs across configured repos | GitHub PAT |
-| `github-deployments` | environments, recent deployments, CI runs | GitHub PAT |
-| `codebase-conventions` | per-repo language / test runner / linter / migration tool | GitHub PAT |
+| `pr-archaeology` | merged-PR patterns, top reviewers | repo (GitHub / Bitbucket) |
+| `active-work` | open PRs across configured repos | repo |
+| `github-deployments` | environments, deployments, CI runs | repo |
+| `codebase-conventions` | language, test runner, linter, formatter, migration tool | repo |
+| `reviewer-profile` | per-top-reviewer comment cadence + file hotspots + sample asks | repo |
+| `code-hotspots` | files that change together (co-change clustering) | repo |
+| `active-tickets` | open tickets per project | tracker (Jira / Linear / GH Issues / BB Issues) |
+| `ticket-archaeology` | closed-ticket patterns, assignee + label cadence | tracker |
+| `aws-infra` | cloud resources (compute, databases, queues, log groups) | cloud (AWS / GCP / Azure) |
+
+### Task-scoped (JIT, invoked by `briar agent`)
+
+| Name | What it fetches | When used |
+|---|---|---|
+| `ticket-context` | Full ticket body + ACs + comments + status history for ONE ticket | `briar agent implement --ticket-key ACME-42` |
+| `pr-review-context` | One PR's diff + every comment + failing CI logs | `briar agent prfix --pr 42` |
+
+Task-scoped extractors are NEVER invoked by the runbook scheduler —
+they're fetched at agent-invocation time only.
 
 One-shot run:
 
@@ -232,18 +256,19 @@ beats catching it via a 4 AM empty extract.
 
 ## The provider ABCs — vendor-neutral by construction
 
-Briar ships **five** Strategy + Registry families that abstract over
+Briar ships **seven** Strategy + Registry families that abstract over
 vendors. All follow the same shape (ABC + concrete adapters +
 registry + factory function) so adding a new vendor never edits a
 caller:
 
 | Family | ABC | Adapters (all implemented) | Where consumed |
 |---|---|---|---|
-| **Repository** | `RepositoryProvider` | GitHub · Bitbucket Cloud | `pr-archaeology`, `active-work`, `github-deployments`, `codebase-conventions` |
-| **Tracker** | `TrackerProvider` | Jira · GitHub Issues · Bitbucket Issues · Linear | `active-tickets`, `ticket-archaeology` |
+| **Repository** | `RepositoryProvider` | GitHub · Bitbucket Cloud | `pr-archaeology`, `active-work`, `github-deployments`, `codebase-conventions`, `reviewer-profile`, `code-hotspots` |
+| **Tracker** | `TrackerProvider` | Jira · GitHub Issues · Bitbucket Issues · Linear | `active-tickets`, `ticket-archaeology`, `ticket-context` |
 | **Cloud** | `CloudProvider` | AWS · GCP · Azure | `aws-infra` (provider-agnostic now) |
 | **LLM** | `LLMProvider` | Anthropic · OpenAI · Gemini · Bedrock | `briar agent` runner |
 | **Notification** | `NotificationSink` | Telegram · Slack · Email · PagerDuty | scheduler failure alerts (via `$BRIAR_NOTIFY_SINKS`) |
+| **Message writer** | `MessageWriter` | jira-comment · jira-transition · slack-channel · telegram-chat · github-pr-comment · bitbucket-pr-comment | `briar agent`'s `send_message` tool (per-company `messages:` block in runbook YAML) |
 | **Credentials** | `CredentialStore` | EnvFile · AWS Secrets Manager · SSM Parameter Store · Vault | `briar secrets doctor` |
 
 Every adapter has a working data path — no `NotImplementedError`
@@ -386,13 +411,14 @@ these:
 
 ## Runbook YAML — multi-company, per-task schedules
 
-> **For a fully worked multi-vendor example covering every provider
-> combination**, see [`examples/multi_company.yaml`](examples/multi_company.yaml)
-> and its companion env file
-> [`examples/multi_company.env.example`](examples/multi_company.env.example).
-> Three companies (`acme`, `bitspark`, `datacore`) exercise GitHub +
-> Bitbucket, Jira + Linear + Bitbucket Issues + GitHub Issues, AWS + GCP,
-> file + postgres storage, and Telegram + Slack + PagerDuty notifications.
+> **Comprehensive reference**: [`examples/all_features.yaml`](examples/all_features.yaml)
+> covers every combination briar supports — 4 companies exhausting
+> the (repo provider × tracker × cloud × storage × writer) matrix
+> including the new `messages:` block.
+>
+> **Lighter tutorial**: [`examples/multi_company.yaml`](examples/multi_company.yaml)
+> + [`examples/multi_company.env.example`](examples/multi_company.env.example) —
+> 3 companies, no `messages:` block.
 
 ```yaml
 # examples/acme.yaml
@@ -526,6 +552,100 @@ name so the agent knows which knowledge sections drive each decision.
 Adding a new kind in any axis = one file in the relevant folder under
 `src/briar/iac/scaffold/` + one entry in the registry. No edits
 elsewhere.
+
+---
+
+## `briar agent` — autonomous flows with JIT context
+
+Two ops today, routed via the `AGENT_OPS` registry (no if-chain
+dispatch):
+
+| Op | Archetype | JIT extractor | What it does |
+|---|---|---|---|
+| `prfix` | `pr-fixer` | `pr-review-context` | Sweeps unresolved review comments + failing CI on one PR; pushes follow-up commits + replies |
+| `implement` | `engineer` | `ticket-context` | Implements one ticket end-to-end: branches off default, makes the change, opens a draft PR |
+
+Both subcommands:
+
+```bash
+briar agent prfix \
+    --company acme --owner X --repo Y \
+    --pr 42 --branch fix-x \
+    --runbook examples/all_features.yaml \
+    --dry-run                                  # validate prompt without spending tokens
+
+briar agent implement \
+    --company acme --owner X --repo Y \
+    --ticket-project ACME --ticket-key ACME-42 \
+    --tracker jira \
+    --runbook examples/all_features.yaml
+```
+
+`--dry-run` prints the rendered system prompt + initial user message
++ tool list, then exits without calling the LLM. Useful for
+validating ticket-context / pr-review-context wiring before spending
+tokens.
+
+`--runbook <yaml>` loads the company's `messages:` block (see below)
+and binds the agent's `send_message` tool to the configured channels.
+Without it, the agent falls back to the bash escape hatch
+(`gh pr comment`, `curl`).
+
+### The `messages:` block — per-company outbound channels
+
+The runbook YAML's `messages:` block under each company declares
+named outbound channels the agent's `send_message` tool routes to.
+Each handle maps to a registered `MessageWriter` kind plus optional
+per-binding config:
+
+```yaml
+companies:
+  acme:
+    knowledge: { store: file, name: ./knowledge/acme.md }
+    messages:
+      ticket_comment:                    # arbitrary handle
+        kind: jira-comment               # registry key
+      ticket_transition:
+        kind: jira-transition
+        config: {status: "In Review"}    # default when extras.status not passed
+      pr_reply:
+        kind: github-pr-comment
+      ops_chat:
+        kind: slack-channel
+      escalation:
+        kind: telegram-chat
+        config: {chat_env: TELEGRAM_ACME_OPS_CHAT_ID}   # env-var override
+    schedules: [...]
+```
+
+The agent sees a `send_message` tool spec listing the available
+channel handles. It picks one by name; the tool resolves
+handle → `MessageBinding` → `MessageWriter` via `make_writer(kind,
+company, config)` and calls `send(target, body, **extras)`. The LLM
+no longer needs to know which vendor backs each channel — that's
+runbook config.
+
+`briar secrets doctor` walks the `messages:` block too and reports
+`messages.<handle>` rows alongside the extractor rows. See
+[`examples/all_features.yaml`](examples/all_features.yaml) for the
+fully worked example.
+
+---
+
+## `briar secrets doctor` — credential coverage audit
+
+```bash
+briar secrets doctor --examples examples/
+briar secrets doctor --examples examples/all_features.yaml --store envfile
+briar secrets doctor --store aws-secretsmanager        # alternative backend
+```
+
+Walks every `(company, extractor, provider)` tuple AND every
+`(company, messages, writer)` tuple across the configured runbooks,
+asks each provider/writer class for its `required_env_vars(company)`,
+and reports per-line `ok` / `X MISSING:` status against the chosen
+`CredentialStore`. Values are never printed. Exits non-zero if any
+row is missing.
 
 ---
 
@@ -744,12 +864,47 @@ markdown blobs. Grouped by subsystem; alphabetised inside each group.
   client directly.
 - **RepositoryProvider.** Vendor-neutral facade extractors call
   instead of GitHub / Bitbucket / GitLab APIs directly
-  (`extract/_provider.py`). Five verbs: `is_available`, `list_pulls`,
+  (`extract/_provider.py`). Verbs: `is_available`, `list_pulls`,
   `read_file`, `list_environments`, `list_deployments`,
-  `list_ci_runs`. Returns the dataclasses (`PullRequest`,
-  `Environment`, `Deployment`, `CiRun`) so the extractor never sees
-  vendor-specific field names. Strategy + Registry behind
-  `_providers/`; built by `make_provider(kind, company)`.
+  `list_ci_runs`, `get_pull`, `list_pr_comments`, `list_ci_failures`,
+  `list_recent_commits`. Returns the dataclasses (`PullRequest`,
+  `Environment`, `Deployment`, `CiRun`, `ReviewComment`, `CiFailure`,
+  `Commit`) so the extractor never sees vendor-specific field names.
+  Strategy + Registry behind `_providers/`; built by
+  `make_provider(kind, company)`. Each adapter exposes a
+  `required_env_vars(company)` classmethod consumed by
+  `briar secrets doctor`.
+- **TaskScopedExtractor.** Second extractor lifecycle (`extract/base.py`).
+  Where `KnowledgeExtractor` runs on the runbook cadence and writes
+  into the per-company blob, `TaskScopedExtractor.fetch(args)` runs
+  once at agent invocation and splices its `ExtractedSection` into
+  one agent's system prompt. Two concretes: `FetchTicketContext`
+  (Jira/GH-Issues/BB-Issues/Linear body + ACs + comments) and
+  `FetchPrReviewContext` (one PR's diff + all comments + failing-CI
+  log tails).
+- **MessageWriter.** Vendor-neutral OUTBOUND write facade
+  (`messaging/_writer.py`). Symmetric to `TrackerProvider` /
+  `RepositoryProvider` but for writes. One verb: `send(target, body,
+  **extras) → SendResult(ok, detail, ref)`. Six concretes:
+  `jira-comment`, `jira-transition`, `slack-channel`, `telegram-chat`,
+  `github-pr-comment`, `bitbucket-pr-comment`. Each has
+  `required_env_vars(company)` so the doctor audits write creds.
+- **MessageBinding.** One named outbound channel in a company's
+  `messages:` block (`iac/runbook/models.py:MessageBinding`).
+  `kind` is the registered writer kind (validated via
+  `field_validator` against the `WRITERS` registry); `config` is
+  freeform per-binding settings (`channel_env`, `webhook_env`,
+  default `status` for jira-transition).
+- **SendMessageTool.** The agent's typed write tool
+  (`agent/tools.py`). Bound to `AgentRunner` only when the company's
+  runbook has a non-empty `messages:` block. The LLM picks a channel
+  by handle; the tool resolves handle → `MessageBinding` → writer.
+  Bash escape hatch (`gh` / `curl`) stays as fallback.
+- **build_registry.** Defensive helper (`briar/_registry.py`) every
+  plugin family uses to build its `*_REGISTRY` dict. Raises on a
+  duplicate `name` / `kind` collision so adapter typos fail loudly at
+  import time instead of silently dropping one of the conflicting
+  entries.
 - **Runbook.** A YAML file describing one or more companies and their
   per-task schedules. Validated by Pydantic via `RunbookFile.model_validate`.
   One file per company by convention (`examples/acme.yaml`,

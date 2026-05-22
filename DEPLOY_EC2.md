@@ -327,10 +327,11 @@ Both should report `active (running)`. If either reports `failed`, see §10 (tro
 
 ## 8. Verify
 
-1. **Dashboard reachable:** browser → `http://<elastic-ip>:8080/`. You should see the read-only status page.
-2. **Scheduler logging:** `sudo journalctl -u briar-scheduler -n 50 --no-pager` and `sudo tail -n 50 /var/log/briar/scheduler.log`. Either path shows the same lines — confirm the scheduler logged "registered N jobs" for each runbook.
-3. **A job actually fires:** wait until the soonest `every:` cadence elapses (often 1 hour). Re-tail the scheduler log; you should see the extractor name and a row count.
-4. **Knowledge blob written:** `ls /opt/briar-scheduler/knowledge/` shows one markdown file per company.
+1. **Credential coverage:** `sudo -u briar bash -c 'set -a; . /etc/briar/secrets.env; set +a; .venv/bin/briar secrets doctor --examples examples/'` — walks every `(company, extractor, provider)` and `(company, messages, writer)` tuple in the runbooks and reports `ok` / `X MISSING:` per row without ever printing values. Fix every `X` before relying on the scheduler.
+2. **Dashboard reachable:** browser → `http://<elastic-ip>:8080/`. You should see the read-only status page.
+3. **Scheduler logging:** `sudo journalctl -u briar-scheduler -n 50 --no-pager` and `sudo tail -n 50 /var/log/briar/scheduler.log`. Either path shows the same lines — confirm the scheduler logged "registered N jobs" for each runbook.
+4. **A job actually fires:** wait until the soonest `every:` cadence elapses (often 1 hour). Re-tail the scheduler log; you should see the extractor name and a row count.
+5. **Knowledge blob written:** `ls /opt/briar-scheduler/knowledge/` shows one markdown file per company.
 
 ---
 

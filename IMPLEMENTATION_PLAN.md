@@ -545,6 +545,31 @@ company you keep:
    to the vendor the company uses.
 5. Use repo / project / workspace names that match what's in the
    actual vendor.
+6. **Optional:** add a `messages:` block to declare outbound channels
+   the agent can use via the typed `send_message` tool:
+
+   ```yaml
+   companies:
+     acme:
+       knowledge: { store: file, name: ./knowledge/acme.md }
+       messages:
+         ticket_comment: {kind: jira-comment}
+         pr_reply:       {kind: github-pr-comment}
+         ops_chat:       {kind: slack-channel}
+         escalation:     {kind: telegram-chat}
+       schedules: [...]
+   ```
+
+   Available writer kinds: `jira-comment`, `jira-transition`,
+   `slack-channel`, `telegram-chat`, `github-pr-comment`,
+   `bitbucket-pr-comment`. Each one has its own `required_env_vars`
+   — see `briar secrets doctor` output for coverage.
+
+   When `briar agent prfix` / `briar agent implement` is invoked with
+   `--runbook <yaml>`, the agent reads this block and binds the
+   `send_message` tool to the configured handles. Without the block,
+   the agent falls back to the bash escape hatch (`gh pr comment`,
+   `curl`).
 
 Validate the YAML against the schema BEFORE running:
 
@@ -564,8 +589,9 @@ the line.
 
 ## 7. Validate with `briar secrets doctor`
 
-Audit every `(company × extractor × provider)` tuple for missing
-credentials without printing values:
+Audit every `(company × extractor × provider)` tuple AND every
+`(company × messages × writer)` tuple for missing credentials,
+without printing values:
 
 ```bash
 source /etc/briar/secrets.env
@@ -575,13 +601,17 @@ briar secrets doctor --examples examples/
 Sample output:
 
 ```
-=== acme (multi_company.yaml) ===
+=== acme (all_features.yaml) ===
   ok pr-archaeology (provider=github)
   ok aws-infra (provider=aws)
   ok codebase-conventions (provider=github)
   ok github-deployments (provider=github)
   ok active-work (provider=github)
   X  active-tickets (provider=jira) — MISSING: JIRA_ACME_URL, JIRA_ACME_EMAIL, JIRA_ACME_TOKEN
+  ok messages.pr_reply (kind=github-pr-comment)
+  X  messages.ticket_comment (kind=jira-comment) — MISSING: JIRA_ACME_URL, JIRA_ACME_EMAIL, JIRA_ACME_TOKEN
+  X  messages.ops_chat (kind=slack-channel) — MISSING: SLACK_ACME_WEBHOOK_URL
+  X  messages.escalation (kind=telegram-chat) — MISSING: TELEGRAM_BOT_TOKEN, TELEGRAM_ACME_CHAT_ID
 ```
 
 Exits non-zero if anything is `X`. Fix every red row before the
@@ -618,6 +648,33 @@ cat ./knowledge/acme.md | head -50    # or whichever company you ran
 ```
 
 You should see a markdown blob with the per-task heading.
+
+### Agent invocations (optional — for autonomous flows)
+
+```bash
+# pr-fixer archetype: clones the PR's branch, fetches the JIT
+# pr-review-context (all comments + CI failures with log tails),
+# drives an LLM tool-use loop. --dry-run prints the rendered prompt
+# without spending tokens.
+briar agent prfix \
+    --company acme --owner X --repo Y \
+    --pr 42 --branch fix-x \
+    --runbook examples/all_features.yaml \
+    --dry-run
+
+# engineer archetype: clones the default branch, fetches the JIT
+# ticket-context (full body + ACs + comments), drives the LLM to
+# implement + push + open a PR.
+briar agent implement \
+    --company acme --owner X --repo Y \
+    --ticket-project ACME --ticket-key ACME-42 \
+    --tracker jira \
+    --runbook examples/all_features.yaml
+```
+
+`--runbook <yaml>` loads the company's `messages:` block and binds
+the agent's `send_message` tool. Without it, the agent falls back
+to the bash escape hatch (`gh pr comment`, `curl`).
 
 ---
 
