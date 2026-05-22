@@ -365,6 +365,70 @@ class ExecutorNotificationTests(unittest.TestCase):
                 RunbookExtractor._notify_failure("acme", "extractors", "x", "y")
 
 
+class AgentCommandTests(unittest.TestCase):
+    """`briar agent` subcommands wire the task-scoped extractors
+    correctly. These tests don't run the agent — they just verify
+    that the JIT fetch helpers return what they should."""
+
+    def test_implement_fetches_ticket_context_via_task_scoped_extractor(self) -> None:
+        from briar.commands.agent import CommandAgent
+        from briar.extract.base import ExtractedSection
+
+        fake_section = ExtractedSection(title="Ticket context — ACME-42: do thing", body="full body here")
+        fake_extractor = mock.MagicMock()
+        fake_extractor.fetch.return_value = fake_section
+
+        with mock.patch.dict(
+            "briar.extract.TASK_SCOPED_EXTRACTORS",
+            {"ticket-context": fake_extractor},
+        ):
+            sections = CommandAgent._fetch_ticket_context(
+                company="acme",
+                tracker="jira",
+                ticket_project="ACME",
+                ticket_key="ACME-42",
+            )
+
+        self.assertEqual(len(sections), 1)
+        self.assertEqual(sections[0].title, "Ticket context — ACME-42: do thing")
+        # The fetch helper passes the right kwargs to the extractor.
+        call_args = fake_extractor.fetch.call_args.args[0]
+        self.assertEqual(call_args.company, "acme")
+        self.assertEqual(call_args.tracker, "jira")
+        self.assertEqual(call_args.ticket_project, "ACME")
+        self.assertEqual(call_args.ticket_key, "ACME-42")
+
+    def test_implement_returns_empty_when_extractor_raises(self) -> None:
+        """A broken tracker call must NOT crash the agent invocation —
+        the agent still has the worktree and falls back to the ticket
+        key alone."""
+        from briar.commands.agent import CommandAgent
+
+        fake_extractor = mock.MagicMock()
+        fake_extractor.fetch.side_effect = RuntimeError("api down")
+
+        with mock.patch.dict(
+            "briar.extract.TASK_SCOPED_EXTRACTORS",
+            {"ticket-context": fake_extractor},
+        ):
+            sections = CommandAgent._fetch_ticket_context(
+                company="acme", tracker="jira", ticket_project="ACME", ticket_key="ACME-42"
+            )
+        self.assertEqual(sections, [])
+
+    def test_implement_instructions_include_ticket_key_and_branch_name(self) -> None:
+        """The instruction string is what the agent sees — must contain
+        the ticket key + a derived branch name + the no-force constraint."""
+        from briar.commands.agent import CommandAgent
+
+        instructions = CommandAgent._implement_specific_instructions(
+            owner="acme-co", repo="acme-app", ticket_key="ACME-42"
+        )
+        self.assertIn("ACME-42", instructions)
+        self.assertIn("briar/acme-42", instructions)
+        self.assertIn("NEVER --force", instructions)
+
+
 class ArchetypeConsumesOrderingTests(unittest.TestCase):
     """The `consumes` ordering on engineer/pr-fixer is load-bearing —
     it controls what the agent reads first. Pin the new order so a

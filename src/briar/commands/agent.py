@@ -63,10 +63,44 @@ class CommandAgent(Command):
             help="Leave the worktree in /tmp after the run for inspection (default: remove on success)",
         )
 
+        # ─── `implement` subcommand — engineer archetype on one ticket ─────
+        implement = sub.add_parser(
+            "implement",
+            help="Implement one ticket end-to-end (engineer archetype). Clones default branch, fetches ticket-context, runs the agent.",
+        )
+        implement.add_argument("--company", required=True, help="Company key — must match a runbook YAML")
+        implement.add_argument("--owner", required=True, help="Repository owner (GitHub) or workspace (Bitbucket)")
+        implement.add_argument("--repo", required=True, help="Repository name / slug")
+        implement.add_argument("--ticket-project", required=True, help="Tracker project key (Jira: PROJ; Linear team: ENG; GH/BB Issues: owner/repo)")
+        implement.add_argument("--ticket-key", required=True, help="Ticket identifier (Jira: PROJ-123; GH/BB: #42; Linear: ENG-7)")
+        implement.add_argument(
+            "--tracker",
+            default="jira",
+            help="Tracker provider for the ticket (default: jira). One of: jira, github-issues, bitbucket-issues, linear.",
+        )
+        implement.add_argument(
+            "--provider",
+            default="github",
+            help="Repository provider (default: github). One of: github, bitbucket.",
+        )
+        implement.add_argument("--store", default="postgres", choices=["file", "postgres"], help="KnowledgeStore backend")
+        implement.add_argument("--knowledge", default="./knowledge", help="File-store root (ignored for postgres)")
+        implement.add_argument("--model", default="", help="Override Anthropic model (defaults to AgentRunner.DEFAULT_MODEL)")
+        implement.add_argument("--max-iter", type=int, default=0, help="Iteration ceiling (defaults to AgentRunner.DEFAULT_MAX_ITERATIONS)")
+        implement.add_argument("--git-user-name", default="iklobato", help="git config user.name on the worktree")
+        implement.add_argument("--git-user-email", default="dev@users.noreply.github.com", help="git config user.email on the worktree")
+        implement.add_argument(
+            "--keep-worktree",
+            action="store_true",
+            help="Leave the worktree in /tmp after the run for inspection (default: remove on success)",
+        )
+
     def run(self, args: argparse.Namespace) -> int:
         op = args.agent_op
         if op == "prfix":
             return self._run_prfix(args)
+        if op == "implement":
+            return self._run_implement(args)
         log.error("unknown agent op: %s", op)
         return 2
 
@@ -136,6 +170,173 @@ class CommandAgent(Command):
             print(f"--- commits: {', '.join(result.commits)} ---")
         self._cleanup_worktree(worktree, keep=args.keep_worktree or bool(result.error))
         return 0 if not result.error else 6
+
+    def _run_implement(self, args: argparse.Namespace) -> int:
+        """Implement one ticket end-to-end via the engineer archetype.
+
+        Parallel to `_run_prfix` but anchored on a ticket key instead
+        of a PR number. Clones the default branch (the agent creates
+        its own feature branch + pushes + opens a PR); fetches the
+        full ticket body via the ticket-context task-scoped extractor;
+        splices it into the agent's system prompt."""
+        from briar.storage import make_store
+
+        try:
+            store = make_store(args.store, file_root=Path(args.knowledge))
+        except Exception:  # noqa: BLE001
+            log.exception("agent-implement: failed to open store=%s", args.store)
+            return 3
+
+        target = f"{args.owner}/{args.repo}"
+        clone_url = f"https://github.com/{target}.git"
+
+        worktree = Path(tempfile.mkdtemp(prefix="briar-agent-implement-"))
+        log.info(
+            "agent-implement: target=%s ticket=%s tracker=%s worktree=%s",
+            target,
+            args.ticket_key,
+            args.tracker,
+            worktree,
+        )
+
+        if not self._clone_default(clone_url, worktree):
+            log.error("agent-implement: clone failed; aborting")
+            self._cleanup_worktree(worktree, keep=args.keep_worktree)
+            return 4
+
+        if not self._set_git_identity(worktree, args.git_user_name, args.git_user_email):
+            log.error("agent-implement: git identity setup failed; aborting")
+            self._cleanup_worktree(worktree, keep=args.keep_worktree)
+            return 5
+
+        # JIT-fetch the ticket's full body + ACs + comments. Spliced
+        # into the agent's system prompt below the archetype's persona.
+        # Failure here is non-fatal — the agent can still proceed with
+        # whatever the runbook-blob's `active-tickets` summary had, but
+        # we log a warning since the ticket-context is the engineer
+        # archetype's #1 priority input.
+        task_sections = self._fetch_ticket_context(
+            company=args.company,
+            tracker=args.tracker,
+            ticket_project=args.ticket_project,
+            ticket_key=args.ticket_key,
+        )
+        if not task_sections:
+            log.warning("agent-implement: ticket-context was empty — agent will rely on ticket key alone")
+
+        runner = AgentRunner(
+            company=args.company,
+            task="implement",
+            archetype_name="engineer",
+            workdir=worktree,
+            knowledge_store=store,
+            target=target,
+            model=args.model,
+            max_iterations=args.max_iter,
+            extra_user_instructions=self._implement_specific_instructions(
+                owner=args.owner,
+                repo=args.repo,
+                ticket_key=args.ticket_key,
+            ),
+            task_context_sections=task_sections,
+        )
+        result = runner.run()
+
+        log.info(
+            "agent-implement: done iterations=%d stop=%s commits=%d tool_calls=%d %s%s",
+            result.iterations,
+            result.stop_reason,
+            len(result.commits),
+            result.tool_calls,
+            result.cost_summary(),
+            f" error={result.error!r}" if result.error else "",
+        )
+        if result.final_text:
+            print("--- agent final text ---")
+            print(result.final_text)
+        if result.commits:
+            print(f"--- commits: {', '.join(result.commits)} ---")
+        self._cleanup_worktree(worktree, keep=args.keep_worktree or bool(result.error))
+        return 0 if not result.error else 6
+
+    @staticmethod
+    def _clone_default(clone_url: str, dest: Path) -> bool:
+        """Clone the default branch (no `--branch` flag), embedding
+        GITHUB_TOKEN for HTTPS auth in headless environments. Same
+        token-stripping cleanup as `_clone_branch`."""
+        import os
+
+        token = os.environ.get("GITHUB_TOKEN", "").strip()
+        if not token:
+            log.error("clone failed: GITHUB_TOKEN env var missing")
+            return False
+        authed_url = clone_url.replace("https://github.com/", f"https://x-access-token:{token}@github.com/")
+        log.debug("clone-default: dest=%s (token redacted)", dest)
+        proc = subprocess.run(
+            ["git", "clone", "--depth", "50", authed_url, str(dest)],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        if proc.returncode != 0:
+            stderr = proc.stderr.replace(token, "<TOKEN>").strip()[:400]
+            log.error("clone failed: rc=%d stderr=%s", proc.returncode, stderr)
+            return False
+        reset = subprocess.run(
+            ["git", "-C", str(dest), "remote", "set-url", "origin", clone_url],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if reset.returncode != 0:
+            log.warning("clone-default: remote set-url cleanup failed (token may persist in .git/config)")
+        return True
+
+    @staticmethod
+    def _fetch_ticket_context(*, company: str, tracker: str, ticket_project: str, ticket_key: str):
+        """Run the `ticket-context` task-scoped extractor. Returns a
+        list with one ExtractedSection or empty on failure. Symmetric
+        to `_fetch_pr_context` but for the engineer flow."""
+        import argparse as _ap
+
+        from briar.extract import TASK_SCOPED_EXTRACTORS
+
+        extractor = TASK_SCOPED_EXTRACTORS.get("ticket-context")
+        if extractor is None:
+            return []
+        ns = _ap.Namespace(
+            company=company,
+            tracker=tracker,
+            ticket_project=ticket_project,
+            ticket_key=ticket_key,
+        )
+        try:
+            section = extractor.fetch(ns)
+        except Exception:  # noqa: BLE001
+            log.exception("ticket-context fetch failed; agent continues without it")
+            return []
+        if getattr(section, "is_empty", True):
+            return []
+        log.info("ticket-context: title=%r body_bytes=%d", section.title, len(section.body or ""))
+        return [section]
+
+    @staticmethod
+    def _implement_specific_instructions(*, owner: str, repo: str, ticket_key: str) -> str:
+        return (
+            f"The target ticket is {ticket_key} on {owner}/{repo}. The worktree is a fresh clone of the "
+            "default branch. Procedure:\n"
+            "  1. Read the ticket-context section above for the full body + acceptance criteria. Address EVERY AC.\n"
+            f"  2. Create a feature branch: `git checkout -b briar/{ticket_key.lower().replace('#','').replace(' ', '-')}`.\n"
+            "  3. Make the change. Match codebase-conventions (test runner, linter, formatter, migration tool).\n"
+            "  4. Run the test command from codebase-conventions locally; only push when it's green.\n"
+            "  5. Push: `git push -u origin HEAD` (NEVER --force).\n"
+            "  6. Open a draft PR via `gh pr create --draft --title '<key>: <short>' --body '<plan + test plan + risks>'`.\n"
+            "  7. End your output with the PR URL on its own line. No fictitious URLs — if `gh pr create` fails, surface the error.\n"
+            "\n"
+            "Strict constraints: NEVER --force, --amend, rebase, squash. NEVER commit as a bot identity "
+            "(run `git config user.name` to verify it's a human). If an AC is ambiguous, stop and post a "
+            "clarifying comment on the ticket — do not guess."
+        )
 
     @staticmethod
     def _clone_branch(clone_url: str, branch: str, dest: Path) -> bool:
