@@ -320,11 +320,68 @@ flowchart LR
 
 ---
 
-## 5. What to ship next, ranked by impact
+## 5. Resolution
 
-1. **#8 (CollectorRegistry):** medium — affects every new collector. ~80 LOC. Worth it because the dashboard is where new collectors land most often.
-2. **#9 (registry dup-check):** low effort, defensive. ~30 LOC. Adds a `build_registry()` helper used by 13 registries. Cheap insurance.
-3. **#13 (`_run_schedule` failure handling):** medium — readability win, no behaviour change. ~50 LOC removed.
-4. **#11 (typed scaffold bundle):** high-effort, high-leverage. Decide later — needs a downstream-orchestrator consumer-stability discussion first.
+| # | Status | Commit / rationale |
+|---|---|---|
+| 1 | ✅ FIXED | `fbdba77` — AgentOp registry |
+| 2 | ✅ FIXED | `a762f4c` — RepoCloner Strategy |
+| 3 | ✅ FIXED | `a762f4c` — same RepoCloner refactor |
+| 4 | ✅ FIXED | `9fe9bc0` — `CloudProvider.list_subsections` polymorphism |
+| 5 | ✅ FIXED | `7b4cb96` — runbook `field_validator` against live registries |
+| 6 | ✅ FIXED | `7b4cb96` — same |
+| 7 | ✅ FIXED | `1c8c1e0` — `provider.required_env_vars` classmethod replaces hand table |
+| 8 | ⏸ KEEP | Reconsidered — see below |
+| 9 | ✅ FIXED | `82d13c8` — `build_registry()` with dup-check applied to 13 registries |
+| 10 | — | Not a violation; no action |
+| 11 | ⏸ DEFER | Serialization boundary, see below |
+| 12 | ⏸ KEEP | Three sites with meaningfully different needs, see below |
+| 13 | ✅ FIXED | `82d13c8` — `_record_failure` helper |
 
-I'd ship #9 + #13 in one commit (small, surgical), #8 in a second commit, and defer #11 + #12 to roadmap.
+**#8 rationale (CollectorRegistry).** I started the refactor and
+backed out. The current `from_paths` is hand-instantiation, but
+adding a new collector touches exactly one file (`collectors.py`)
+regardless of which pattern you choose. Converting to a
+`requires(paths, dash) -> dict` classmethod per collector would add
+24 new methods without changing the "one place to edit" property.
+The current shape also makes the `Collector → DashboardPaths`
+coupling explicit at the call site, which is arguably preferable to
+hiding it inside each collector. The original "not a real registry"
+framing was correct on shape but wrong on impact.
+
+**#11 rationale (typed ScaffoldBundle).** The bundle produced by
+`ScaffoldComposer.compose()` is a serialization boundary — it gets
+JSON-encoded and handed off to a downstream orchestrator. The dict
+shape IS the wire format. Wrapping it in a pydantic model would
+force every consumer to migrate without changing what crosses the
+wire. The 188 `Dict[str, Any]` count includes a lot of internal
+scratch data that doesn't cross any boundary; per-call-site
+migration would be invasive without commensurate value. Defer until
+a consumer-stability discussion settles which boundaries are public.
+
+**#12 rationale (subprocess wrappers).** Three call sites
+(`collectors._run`, `BashTool.run`, `_clone_default`) each have
+meaningfully different needs:
+
+- `collectors._run` — stdout-only on success, empty on any failure.
+- `BashTool.run` — stdout+stderr, raises `ToolError` on non-zero,
+  env scrubbing for the agent path.
+- `_clone_default` — returns `bool`, logs token-redacted output.
+
+A shared wrapper would either lose one of these behaviours or grow
+several boolean flags. Per CLAUDE.md ("three or more places, extract
+a decorator" — but only when the shape is genuinely the same), keep
+separate.
+
+---
+
+## 6. Closing the audit
+
+Both audit docs (ARCHITECTURE.md from the first pass + this one) now
+have resolution columns. 10/13 findings shipped or no-action; 3
+deliberately deferred with rationale. The codebase no longer has any
+string-dispatch if-chain, any duplicated `Literal[...]` registry, or
+any hand-maintained `(extractor × provider) → creds` table. The
+build_registry helper means a future duplicate-name collision in any
+of the 13 plugin registries fails loudly at import time instead of
+silently dropping an adapter.
