@@ -43,6 +43,20 @@ class Cli:
         log = logging.getLogger("briar.cli")
         log.debug("argv=%r verbose=%s", raw_argv, verbose)
 
+        # Bootstrap credentials from any configured remote vault BEFORE
+        # the command registry imports (which transitively trigger
+        # provider / writer adapter construction that may read env vars
+        # at import time). auto_bootstrap() iterates the BOOTSTRAPS
+        # registry — typically a no-op locally, runs InfisicalBootstrap
+        # on hosts that have the universal-auth machine identity set.
+        from briar.credentials._bootstraps import auto_bootstrap
+
+        result = auto_bootstrap()
+        if not result.ok:
+            log.warning("credential-bootstrap: %s failed — %s", result.backend, result.error)
+        elif result.count:
+            log.info("credential-bootstrap: %s hydrated %d env vars", result.backend, result.count)
+
         commands = build_registry()
         parser = cls._build_parser(commands)
 

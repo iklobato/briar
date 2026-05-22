@@ -41,6 +41,13 @@ class CredEnv(str, Enum):
 
     BRIAR_DATABASE_URL = "BRIAR_DATABASE_URL"
 
+    # Infisical credential-bootstrap machine-identity creds.
+    # When all three are set, `briar.cli.main` auto-hydrates env vars
+    # from Infisical at process startup before any command runs.
+    INFISICAL_CLIENT_ID = "INFISICAL_CLIENT_ID"
+    INFISICAL_CLIENT_SECRET = "INFISICAL_CLIENT_SECRET"
+    INFISICAL_PROJECT_ID = "INFISICAL_PROJECT_ID"
+
     # LLM providers — agent/runner.py uses CLAUDE_CODE_OAUTH_TOKEN by default.
     # OPENAI / GEMINI / Bedrock equivalents are read by their respective LLMProvider adapters.
     CLAUDE_CODE_OAUTH_TOKEN = "CLAUDE_CODE_OAUTH_TOKEN"

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import unittest
 from unittest import mock
 
@@ -576,6 +577,96 @@ class ProviderRequiredEnvVarsTests(unittest.TestCase):
         ext = EXTRACTORS["active-tickets"]
         provider_cls = ext.provider_class_for(argparse.Namespace(tracker="linear"))
         self.assertEqual(provider_cls.kind, "linear")
+
+
+class CredentialBootstrapTests(unittest.TestCase):
+    """`CredentialBootstrap` is a separate ABC from CredentialStore
+    (bulk-write-at-startup vs read-on-demand). InfisicalBootstrap is
+    the only concrete impl today; this test pins the contract so a
+    future addition stays in shape."""
+
+    def test_registry_lists_infisical(self) -> None:
+        from briar.credentials._bootstraps import BOOTSTRAPS
+
+        self.assertIn("infisical", BOOTSTRAPS)
+
+    def test_infisical_unavailable_without_creds(self) -> None:
+        from briar.credentials._bootstraps.infisical import InfisicalBootstrap
+
+        with mock.patch.dict("os.environ", {}, clear=True):
+            bs = InfisicalBootstrap()
+            self.assertFalse(bs.is_available())
+            # hydrate() returns a structured error, NOT raises — so a
+            # misconfigured host doesn't crash briar at startup.
+            result = bs.hydrate()
+            self.assertFalse(result.ok)
+            self.assertIn("missing INFISICAL_", result.error)
+
+    def test_infisical_required_env_vars(self) -> None:
+        from briar.credentials._bootstraps.infisical import InfisicalBootstrap
+
+        names = InfisicalBootstrap.required_env_vars()
+        self.assertIn("INFISICAL_CLIENT_ID", names)
+        self.assertIn("INFISICAL_CLIENT_SECRET", names)
+        self.assertIn("INFISICAL_PROJECT_ID", names)
+
+    def test_auto_bootstrap_no_backend_configured(self) -> None:
+        """No backend has its creds set → returns a `(none)` result.
+        Does NOT raise — startup must be robust to "no remote vault"."""
+        from briar.credentials._bootstraps import auto_bootstrap
+
+        with mock.patch.dict("os.environ", {}, clear=True):
+            result = auto_bootstrap()
+        self.assertEqual(result.backend, "(none)")
+        self.assertEqual(result.count, 0)
+        self.assertTrue(result.ok)
+
+    def test_infisical_hydrate_writes_via_setdefault_dry_run(self) -> None:
+        """Dry-run path: fetches from Infisical (mocked SDK), reports
+        the keys that WOULD be set, never writes to os.environ.
+        Already-set env vars are listed in `skipped`."""
+        from briar.credentials._bootstraps.infisical import InfisicalBootstrap
+
+        fake_secret = mock.MagicMock(secretKey="NEW_VAR", secretValue="x")
+        already_set = mock.MagicMock(secretKey="GITHUB_TOKEN", secretValue="from-vault")
+        fake_result = mock.MagicMock(secrets=[fake_secret, already_set])
+
+        env_creds = {
+            "INFISICAL_CLIENT_ID": "id-x",
+            "INFISICAL_CLIENT_SECRET": "secret-x",
+            "INFISICAL_PROJECT_ID": "proj-x",
+            "GITHUB_TOKEN": "operator-supplied-token",   # would be preserved
+        }
+        with mock.patch.dict("os.environ", env_creds, clear=True):
+            bs = InfisicalBootstrap()
+            self.assertTrue(bs.is_available())
+            # Replace the lazy SDK import + the constructed client
+            # before hydrate() runs.
+            with mock.patch.object(bs, "_fetch_secrets", return_value=[("NEW_VAR", "x"), ("GITHUB_TOKEN", "from-vault")]):
+                result = bs.hydrate(dry_run=True)
+        self.assertTrue(result.ok)
+        self.assertIn("NEW_VAR", result.written)
+        self.assertIn("GITHUB_TOKEN", result.skipped)   # operator-supplied wins
+        # dry-run: nothing actually written
+        self.assertNotIn("NEW_VAR", os.environ)
+
+    def test_infisical_complete_raises_when_sdk_missing(self) -> None:
+        """Opt-in extra `pip install briar-cli[infisical]` brings the
+        SDK. Without it, hydrate() returns a structured error rather
+        than crashing at import time."""
+        from briar.credentials._bootstraps.infisical import InfisicalBootstrap
+
+        env_creds = {
+            "INFISICAL_CLIENT_ID": "id",
+            "INFISICAL_CLIENT_SECRET": "s",
+            "INFISICAL_PROJECT_ID": "p",
+        }
+        with mock.patch.dict("os.environ", env_creds, clear=True):
+            bs = InfisicalBootstrap()
+            with mock.patch("briar.credentials._bootstraps.infisical._import_infisical_sdk", return_value=None):
+                result = bs.hydrate()
+        self.assertFalse(result.ok)
+        self.assertIn("briar-cli[infisical]", result.error)
 
 
 class BuildRegistryTests(unittest.TestCase):
