@@ -702,11 +702,15 @@ task ssh                       # open an interactive SSH session
 task ssh -- uptime             # one-shot: `uptime` on the droplet
 task tail                      # follow /var/log/briar/{scheduler,dashboard}.log
 task status                    # droplet state via doctl (no SSH needed)
+task allow-ip                  # add your current public IP to the firewall SSH allow-list
+task revoke-ip                 # remove your current public IP from the allow-list
 ```
 
-The droplet IP + ID are hardcoded in `Taskfile.yml`; `task status`
-hits the DigitalOcean API via `doctl` so the token never enters the
-command line.
+The droplet IP + ID + firewall ID are hardcoded in `Taskfile.yml`;
+`task status` / `task allow-ip` / `task revoke-ip` hit the
+DigitalOcean API via `doctl` so the token never enters the command
+line. `allow-ip` + `revoke-ip` are idempotent — re-running each is a
+no-op when the desired state is already present.
 
 ### One-line deploy
 
