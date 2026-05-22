@@ -124,6 +124,35 @@ class AwsCloudProvider(CloudProvider):
             )
         return out
 
+    def list_subsections(self, *, services: List[str] = None) -> List[Any]:  # type: ignore[assignment]
+        """AWS native renderer — preserves the original `aws-infra`
+        markdown shape by delegating to the per-service gatherer
+        registry (ECS / RDS / Lambda / SQS / Logs). Each gatherer
+        emits its own ExtractedSection with its own per-service
+        body format; the result reads richer than the generic
+        Compute/Databases/Queues walker the base class provides.
+
+        Optional ``services`` filter: subset of
+        ``AWS_SERVICE_GATHERERS.keys()`` to gather. Empty/None means
+        all of them."""
+        from briar.extract.aws_services import AWS_SERVICE_GATHERERS
+        from briar.extract.base import ExtractedSection
+
+        selected = services or list(AWS_SERVICE_GATHERERS.keys())
+        out: List[Any] = []
+        session = self._make_session()
+        for svc_name in selected:
+            gatherer = AWS_SERVICE_GATHERERS.get(svc_name)
+            if gatherer is None:
+                continue
+            try:
+                section = gatherer.gather(session)
+            except Exception as exc:  # noqa: BLE001
+                section = ExtractedSection(title=svc_name.upper(), body=f"_skipped — {exc}_")
+            if not section.is_empty:
+                out.append(section)
+        return out
+
     def _gather_via(self, svc: str, *, kind: str, as_queue: bool = False) -> List[Any]:
         from briar.extract.aws_services import AWS_SERVICE_GATHERERS
 

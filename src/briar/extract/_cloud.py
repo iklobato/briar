@@ -95,3 +95,56 @@ class CloudProvider(ABC):
 
     def list_log_groups(self, *, top_by_bytes: int = 10) -> List[LogGroup]:
         return []
+
+    def list_subsections(self, *, services: List[str] = None) -> List[Any]:  # type: ignore[assignment]
+        """Provider-specific subsection rendering. Default impl walks
+        the four list_* verbs above and builds generic Compute /
+        Databases / Queues / Log-groups subsections. Subclasses with
+        a richer native model (AWS has the `aws_services/` per-service
+        gatherers) override this to keep their markdown shape stable
+        without forcing the extractor to special-case the cloud kind.
+
+        Return type is List[ExtractedSection] but typed as List[Any]
+        here to avoid an import cycle (`extract.base -> _cloud -> base`).
+        ``services`` is an optional whitelist filter — only AWS uses
+        it today; other clouds ignore it."""
+        from briar.extract.base import ExtractedSection
+
+        out: List[ExtractedSection] = []
+        compute = self.list_compute()
+        if compute:
+            out.append(
+                ExtractedSection(
+                    title="Compute",
+                    body="\n".join(f"- {c.name} ({c.kind}, {c.region})" for c in compute),
+                    data={"resources": [{"name": c.name, "kind": c.kind, "region": c.region} for c in compute]},
+                )
+            )
+        dbs = self.list_databases()
+        if dbs:
+            out.append(
+                ExtractedSection(
+                    title="Databases",
+                    body="\n".join(f"- {d.name} {d.engine} {d.version} ({d.instance_class})" for d in dbs),
+                    data={"instances": [{"identifier": d.name, "engine": d.engine, "version": d.version, "class": d.instance_class, "multi_az": d.multi_az} for d in dbs]},
+                )
+            )
+        queues = self.list_queues()
+        if queues:
+            out.append(
+                ExtractedSection(
+                    title="Queues",
+                    body="\n".join(f"- {q.name} ({q.kind})" for q in queues),
+                    data={"queues": [{"name": q.name, "kind": q.kind} for q in queues]},
+                )
+            )
+        logs = self.list_log_groups(top_by_bytes=10)
+        if logs:
+            out.append(
+                ExtractedSection(
+                    title="Log groups (top 10 by size)",
+                    body="\n".join(f"- {g.name} ({g.stored_bytes} bytes, retention={g.retention_days}d)" for g in logs),
+                    data={"groups": [{"name": g.name, "stored_bytes": g.stored_bytes, "retention_days": g.retention_days} for g in logs]},
+                )
+            )
+        return out
