@@ -408,6 +408,120 @@ class AgentOpRegistryTests(unittest.TestCase):
         self.assertTrue(called.get("happened"))
 
 
+class MessageWriterRegistryTests(unittest.TestCase):
+    """The 6 message writers register correctly + the runbook
+    `messages:` block validates against the live WRITERS registry +
+    SendMessageTool dispatches via the registry."""
+
+    def test_all_writers_registered(self) -> None:
+        from briar.messaging import WRITERS
+
+        for kind in (
+            "jira-comment",
+            "jira-transition",
+            "slack-channel",
+            "telegram-chat",
+            "github-pr-comment",
+            "bitbucket-pr-comment",
+        ):
+            self.assertIn(kind, WRITERS)
+
+    def test_make_writer_unknown_kind_raises(self) -> None:
+        from briar.errors import CliError
+        from briar.messaging import make_writer
+
+        with self.assertRaises(CliError):
+            make_writer("discord-channel", company="acme")
+
+    def test_message_binding_pydantic_validates_against_registry(self) -> None:
+        from pydantic import ValidationError
+
+        from briar.iac.runbook.models import MessageBinding
+
+        MessageBinding(kind="jira-comment")
+        with self.assertRaises((ValidationError, ValueError)):
+            MessageBinding(kind="discord-channel")
+
+    def test_company_entry_accepts_messages_block(self) -> None:
+        """Per-company runbook can declare named writer bindings."""
+        from briar.iac.runbook.models import CompanyEntry
+
+        c = CompanyEntry.model_validate(
+            {
+                "knowledge": {"store": "file", "name": "./knowledge/acme.md"},
+                "messages": {
+                    "ticket_comment": {"kind": "jira-comment"},
+                    "ops_chat": {"kind": "slack-channel"},
+                },
+            }
+        )
+        self.assertEqual(set(c.messages.keys()), {"ticket_comment", "ops_chat"})
+        self.assertEqual(c.messages["ticket_comment"].kind, "jira-comment")
+
+    def test_github_pr_comment_target_parsing(self) -> None:
+        from briar.messaging.github_pr_comment import GithubPrCommentWriter
+
+        # `#`-form
+        repo, n = GithubPrCommentWriter._parse_target("acme/app#42", {})
+        self.assertEqual((repo, n), ("acme/app", 42))
+        # extras form
+        repo, n = GithubPrCommentWriter._parse_target("acme/app", {"pr": 7})
+        self.assertEqual((repo, n), ("acme/app", 7))
+        # Garbage
+        repo, n = GithubPrCommentWriter._parse_target("nonsense", {})
+        self.assertEqual((repo, n), ("", 0))
+
+    def test_send_message_tool_lists_channels(self) -> None:
+        from briar.agent.tools import SendMessageTool
+        from briar.iac.runbook.models import MessageBinding
+
+        tool = SendMessageTool(
+            messages={
+                "ticket_comment": MessageBinding(kind="jira-comment"),
+                "ops_chat": MessageBinding(kind="slack-channel"),
+            },
+            company="acme",
+        )
+        self.assertEqual(tool.channels(), ["ops_chat", "ticket_comment"])
+
+    def test_send_message_tool_rejects_unknown_channel(self) -> None:
+        from briar.agent.tools import SendMessageTool, ToolError
+
+        tool = SendMessageTool(messages={}, company="acme")
+        with self.assertRaises(ToolError):
+            tool.run(channel="nonexistent", body="x")
+
+    def test_send_message_tool_dispatches_via_make_writer(self) -> None:
+        """Regression-pin: the tool resolves channel → kind → writer
+        via the messaging registry. A regression to a `if kind ==
+        'jira'` chain would break this."""
+        from briar.agent.tools import SendMessageTool
+        from briar.iac.runbook.models import MessageBinding
+        from briar.messaging._writer import SendResult
+
+        fake_writer = mock.MagicMock()
+        fake_writer.is_available.return_value = True
+        fake_writer.send.return_value = SendResult(ok=True, ref="cmt-1")
+        with mock.patch("briar.messaging.make_writer", return_value=fake_writer):
+            tool = SendMessageTool(
+                messages={"ticket_comment": MessageBinding(kind="jira-comment")},
+                company="acme",
+            )
+            out = tool.run(channel="ticket_comment", target="ACME-42", body="LGTM")
+        self.assertIn("sent via", out)
+        fake_writer.send.assert_called_once_with(target="ACME-42", body="LGTM")
+
+    def test_jira_writers_required_env_vars(self) -> None:
+        from briar.messaging.jira_comment import JiraCommentWriter
+        from briar.messaging.jira_transition import JiraTransitionWriter
+
+        for cls in (JiraCommentWriter, JiraTransitionWriter):
+            names = cls.required_env_vars(company="acme")
+            self.assertIn("JIRA_ACME_URL", names)
+            self.assertIn("JIRA_ACME_EMAIL", names)
+            self.assertIn("JIRA_ACME_TOKEN", names)
+
+
 class ProviderRequiredEnvVarsTests(unittest.TestCase):
     """Each provider declares its own required env vars via a
     ``classmethod required_env_vars(company)`` — replaces the

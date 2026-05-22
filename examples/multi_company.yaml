@@ -48,6 +48,20 @@ companies:
       store: file
       name: ./knowledge/acme.md
 
+    # Named outbound channels — the agent's `send_message` tool
+    # resolves these handles to a MessageWriter at run time. Without
+    # this block, the agent falls back to the bash escape hatch
+    # (gh / curl) for writes.
+    messages:
+      ticket_comment:                       # used by engineer + pr-fixer
+        kind: jira-comment
+      pr_reply:                             # used by pr-fixer
+        kind: github-pr-comment
+      ops_chat:                             # scheduler / agent broadcasts
+        kind: slack-channel
+      escalation:
+        kind: telegram-chat
+
     schedules:
 
       # ─── extractors: daily heavyweights (PR mining, AWS infra) ─────────

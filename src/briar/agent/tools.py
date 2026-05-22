@@ -283,3 +283,73 @@ class EditFileTool:
             except ValueError:
                 continue
         raise ToolError(f"edit_file rejected: {p} outside allowed roots {self._roots}")
+
+
+class SendMessageTool:
+    """Send a message via a runbook-configured channel.
+
+    The LLM picks a channel by its handle (the key under the company's
+    ``messages:`` block in the runbook YAML), not by vendor. The tool
+    resolves the handle → `MessageBinding` → `MessageWriter` →
+    `send(target, body, **extras)`. The LLM no longer needs to know
+    which vendor (Jira vs GitHub vs Slack) is wired up for each channel
+    — that's runbook config.
+
+    Bound by `AgentRunner` only when the company's runbook entry has
+    a non-empty ``messages:`` block. If empty, this tool is NOT in
+    the agent's tool list (the bash escape hatch via `gh`/`curl`
+    stays available)."""
+
+    name = "send_message"
+    description = (
+        "Send a message via a named runbook channel. The set of available channels comes from the company's "
+        "runbook config and is listed below at agent-start time. Use this INSTEAD of `gh pr comment` / "
+        "`gh api .../replies` / curl-against-Jira-or-Bitbucket. `target` is the destination — for jira-comment "
+        "/ jira-transition it's a ticket key (PROJ-42); for github-pr-comment / bitbucket-pr-comment it's "
+        "owner/repo#42; for slack-channel / telegram-chat target is unused (the channel/chat ID is bound). "
+        "`extras` carries optional per-writer fields (status for jira-transition, file_path + line for "
+        "inline PR comments)."
+    )
+
+    INPUT_SCHEMA: Dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "channel": {"type": "string", "description": "Handle from the company's runbook `messages:` block (e.g. ticket_comment, ops_chat)"},
+            "target": {"type": "string", "description": "Destination identifier; vendor-specific shape (see tool description)"},
+            "body": {"type": "string", "description": "Message body"},
+            "extras": {"type": "object", "description": "Optional per-writer fields (status, file_path, line, title)", "additionalProperties": True},
+        },
+        "required": ["channel", "body"],
+    }
+
+    def __init__(self, *, messages: Dict[str, Any], company: str = "") -> None:
+        """`messages` is a dict of {handle: MessageBinding-like} — the
+        runbook's per-company config. Empty dict disables the tool
+        (it'll still bind but every send returns an error)."""
+        self._messages = dict(messages or {})
+        self._company = company
+
+    def channels(self) -> List[str]:
+        return sorted(self._messages.keys())
+
+    def run(self, channel: str, body: str, target: str = "", extras: Dict[str, Any] = None) -> str:
+        binding = self._messages.get(channel)
+        if binding is None:
+            known = ", ".join(self.channels()) or "(none configured)"
+            raise ToolError(f"send_message: unknown channel {channel!r}. Known channels: {known}")
+        from briar.messaging import make_writer
+
+        kind = getattr(binding, "kind", "") or (binding.get("kind", "") if isinstance(binding, dict) else "")
+        config = getattr(binding, "config", None) or (binding.get("config", {}) if isinstance(binding, dict) else {})
+        try:
+            writer = make_writer(kind, company=self._company, config=dict(config or {}))
+        except Exception as exc:  # noqa: BLE001
+            raise ToolError(f"send_message: cannot construct writer for channel={channel} kind={kind!r}: {exc}") from exc
+
+        if not writer.is_available():
+            raise ToolError(f"send_message: channel={channel} kind={kind} has missing credentials")
+
+        result = writer.send(target=target, body=body, **(extras or {}))
+        if not result.ok:
+            raise ToolError(f"send_message: channel={channel} kind={kind} failed — {result.detail}")
+        return f"sent via channel={channel} kind={kind}" + (f" ref={result.ref}" if result.ref else "")

@@ -71,6 +71,13 @@ class PrfixOp(AgentOp):
             help="Build + print the system prompt + user message + tool list, skip the LLM call. "
             "Validates the JIT context wiring (pr-review-context) without spending tokens.",
         )
+        parser.add_argument(
+            "--runbook",
+            default="",
+            help="Optional runbook YAML to read this company's `messages:` block from. "
+            "When set, the agent gets a `send_message` tool bound to the configured channels "
+            "instead of having to shell out via `gh` / `curl`.",
+        )
 
     def run(self, agent_cmd: "CommandAgent", args: argparse.Namespace) -> int:
         return agent_cmd._run_prfix(args)
@@ -100,6 +107,11 @@ class ImplementOp(AgentOp):
             action="store_true",
             help="Build + print the system prompt + user message + tool list, skip the LLM call. "
             "Validates the JIT context wiring (ticket-context) without spending tokens.",
+        )
+        parser.add_argument(
+            "--runbook",
+            default="",
+            help="Optional runbook YAML to read this company's `messages:` block from.",
         )
 
     def run(self, agent_cmd: "CommandAgent", args: argparse.Namespace) -> int:
@@ -283,6 +295,7 @@ class CommandAgent(Command):
             pr=args.pr,
         )
 
+        messages = self._load_messages_block(args)
         runner = AgentRunner(
             company=args.company,
             task="prfix",
@@ -295,6 +308,7 @@ class CommandAgent(Command):
             extra_user_instructions=self._pr_specific_instructions(args.owner, args.repo, args.pr, args.branch),
             task_context_sections=task_sections,
             dry_run=args.dry_run,
+            messages=messages,
         )
         result = runner.run()
 
@@ -388,6 +402,7 @@ class CommandAgent(Command):
             ),
             task_context_sections=task_sections,
             dry_run=args.dry_run,
+            messages=self._load_messages_block(args),
         )
         result = runner.run()
 
@@ -446,6 +461,28 @@ class CommandAgent(Command):
         if reset.returncode != 0:
             log.warning("clone-default: remote set-url cleanup failed (token may persist in .git/config) provider=%s", provider)
         return True
+
+    @staticmethod
+    def _load_messages_block(args: argparse.Namespace):
+        """Read the company's `messages:` block from the optional
+        --runbook YAML. Returns an empty dict on any failure (the agent
+        runs fine without bound message channels — it falls back to
+        the bash escape hatch for `gh` / `curl`)."""
+        runbook_path = getattr(args, "runbook", "") or ""
+        if not runbook_path:
+            return {}
+        try:
+            from briar.iac.runbook import load_runbook_file
+
+            rb = load_runbook_file(Path(runbook_path))
+        except Exception:  # noqa: BLE001
+            log.exception("failed to load runbook=%s for messages: block — continuing without send_message tool", runbook_path)
+            return {}
+        company = rb.companies.get(args.company)
+        if company is None:
+            log.warning("runbook=%s has no company=%s — agent will run without bound messages", runbook_path, args.company)
+            return {}
+        return dict(getattr(company, "messages", {}) or {})
 
     @staticmethod
     def _fetch_ticket_context(*, company: str, tracker: str, ticket_project: str, ticket_key: str):

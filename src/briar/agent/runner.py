@@ -21,7 +21,7 @@ from typing import Any, Dict, List
 
 from briar.agent._llm import LLMProvider, LLMToolCall
 from briar.agent._llms import make_llm
-from briar.agent.tools import BashTool, EditFileTool, ReadFileTool, ToolError, WriteFileTool
+from briar.agent.tools import BashTool, EditFileTool, ReadFileTool, SendMessageTool, ToolError, WriteFileTool
 from briar.iac.scaffold.archetypes import ARCHETYPES
 from briar.log_context import log_context
 
@@ -79,6 +79,7 @@ class AgentRunner:
         llm: LLMProvider = None,  # type: ignore[assignment] — tests inject; runtime falls through
         task_context_sections: List[Any] = None,  # type: ignore[assignment]
         dry_run: bool = False,
+        messages: Dict[str, Any] = None,  # type: ignore[assignment] — runbook messages: block
     ) -> None:
         self._company = company
         self._task = task
@@ -102,6 +103,10 @@ class AgentRunner:
         self._read = ReadFileTool(allowed_roots=roots)
         self._write = WriteFileTool(allowed_roots=roots)
         self._edit = EditFileTool(allowed_roots=roots)
+        # Only bind the SendMessageTool when the runbook actually has
+        # message channels configured for this company. Empty messages
+        # dict → tool not registered → LLM falls back to bash.
+        self._send = SendMessageTool(messages=messages or {}, company=company) if messages else None
 
     def run(self) -> AgentRunResult:
         with log_context(company=self._company, task=self._task, agent=self._archetype.name):
@@ -245,12 +250,19 @@ class AgentRunner:
         return intro
 
     def _tool_specs(self) -> List[Dict[str, Any]]:
-        return [
+        specs: List[Dict[str, Any]] = [
             {"name": self._bash.name, "description": self._bash.description, "input_schema": self._bash.INPUT_SCHEMA},
             {"name": self._read.name, "description": self._read.description, "input_schema": self._read.INPUT_SCHEMA},
             {"name": self._write.name, "description": self._write.description, "input_schema": self._write.INPUT_SCHEMA},
             {"name": self._edit.name, "description": self._edit.description, "input_schema": self._edit.INPUT_SCHEMA},
         ]
+        if self._send is not None:
+            # Append the channel list to the description so the LLM sees
+            # the actual handles at agent-start time.
+            channels = self._send.channels()
+            description = self._send.description + (f"\n\nAvailable channels: {', '.join(channels)}" if channels else "")
+            specs.append({"name": self._send.name, "description": description, "input_schema": self._send.INPUT_SCHEMA})
+        return specs
 
     def _dry_run_report(self) -> AgentRunResult:
         """Build the same prompts the LLM would see, print them to
@@ -331,6 +343,8 @@ class AgentRunner:
                 return {"content": self._write.run(**raw_input), "is_error": False}
             if name == self._edit.name:
                 return {"content": self._edit.run(**raw_input), "is_error": False}
+            if self._send is not None and name == self._send.name:
+                return {"content": self._send.run(**raw_input), "is_error": False}
             return {"content": f"unknown tool {name!r}", "is_error": True}
         except ToolError as exc:
             log.warning("tool %s error: %s", name, exc)
