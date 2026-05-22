@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import ClassVar, Dict
 
 from briar.commands.base import Command
 from briar.credentials import CredentialStoreRegistry, make_credential_store
@@ -41,15 +42,70 @@ class CommandSecrets(Command):
             help="Credential store backend (default: envfile)",
         )
 
+        from briar.credentials._bootstraps import CredentialBootstrapRegistry
+
+        bootstrap = sub.add_parser(
+            "bootstrap",
+            help="One-off invocation of a credential bootstrap (e.g. Infisical fetch). "
+            "Normally runs automatically at CLI startup; this subcommand is for testing.",
+        )
+        bootstrap.add_argument(
+            "--kind",
+            default="",
+            choices=list(CredentialBootstrapRegistry.kinds()),
+            help="Force one bootstrap backend. Default: auto-detect via is_available().",
+        )
+        bootstrap.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Run the remote fetch but DON'T write to os.environ. Prints the keys that "
+            "would be set, without revealing values.",
+        )
+
+    _ACTIONS: ClassVar[Dict[str, str]] = {
+        "doctor": "_doctor",
+        "bootstrap": "_bootstrap",
+    }
+
     def run(self, args: argparse.Namespace) -> int:
-        if args.secrets_action == "doctor":
-            return self._doctor(args)
-        return 1
+        handler_name = self._ACTIONS.get(args.secrets_action)
+        if handler_name is None:
+            known = ", ".join(sorted(self._ACTIONS.keys()))
+            print(f"unknown secrets action: {args.secrets_action} (known: {known})")
+            return 1
+        return getattr(self, handler_name)(args)
+
+    @staticmethod
+    def _bootstrap(args: argparse.Namespace) -> int:
+        from briar.credentials._bootstraps import auto_bootstrap, make_bootstrap
+
+        if args.kind:
+            bs = make_bootstrap(args.kind)
+            if not bs.is_available():
+                names = ", ".join(bs.required_env_vars())
+                print(f"bootstrap kind={bs.kind} not configured — required env: {names}")
+                return 1
+            result = bs.hydrate(dry_run=args.dry_run)
+        else:
+            result = auto_bootstrap(dry_run=args.dry_run)
+
+        if not result.ok:
+            print(f"bootstrap {result.backend} failed: {result.error}")
+            return 1
+        if result.backend == "(none)":
+            print("no credential-bootstrap backend configured (auto-detect found nothing)")
+            return 0
+        marker = "would write" if args.dry_run else "wrote"
+        print(f"bootstrap {result.backend}: {marker} {result.count} env vars (preserved {len(result.skipped)} already-set)")
+        if result.written:
+            print("  keys: " + ", ".join(sorted(result.written)))
+        return 0
 
     def _doctor(self, args: argparse.Namespace) -> int:
         from briar.extract import EXTRACTORS
         from briar.iac.runbook import load_runbook_file
         from briar.iac.runbook.executor import RunbookSchedules
+        from briar.messaging import WRITERS
 
         store = make_credential_store(args.store)
         examples_dir: Path = args.examples
@@ -89,4 +145,21 @@ class CommandSecrets(Command):
                             print(f"  X  {entry.name} (provider={provider_kind}) — MISSING: {', '.join(missing)}")
                         else:
                             print(f"  ok {entry.name} (provider={provider_kind})")
+
+                # Audit the `messages:` block too — each writer has its
+                # own required_env_vars classmethod, same shape as the
+                # provider audit above.
+                for handle, binding in (getattr(company, "messages", {}) or {}).items():
+                    kind = getattr(binding, "kind", "") or (binding.get("kind", "") if isinstance(binding, dict) else "")
+                    writer_cls = WRITERS.get(kind)
+                    if writer_cls is None:
+                        print(f"  ?  messages.{handle} (kind={kind}) — unknown writer, skipping")
+                        continue
+                    required = writer_cls.required_env_vars(company=company_name)
+                    missing = [env_name for env_name in required if not store.read(env_name)]
+                    if missing:
+                        any_missing = True
+                        print(f"  X  messages.{handle} (kind={kind}) — MISSING: {', '.join(missing)}")
+                    else:
+                        print(f"  ok messages.{handle} (kind={kind})")
         return 1 if any_missing else 0
