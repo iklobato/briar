@@ -78,6 +78,7 @@ class AgentRunner:
         llm_kind: str = "anthropic",
         llm: LLMProvider = None,  # type: ignore[assignment] — tests inject; runtime falls through
         task_context_sections: List[Any] = None,  # type: ignore[assignment]
+        dry_run: bool = False,
     ) -> None:
         self._company = company
         self._task = task
@@ -93,6 +94,7 @@ class AgentRunner:
         # system prompt below the archetype's persona — sits next to the
         # scheduled knowledge sections so the agent treats them the same.
         self._task_context_sections = list(task_context_sections or [])
+        self._dry_run = dry_run
         # Tools share the same root list so the agent can read/write
         # inside the worktree but nowhere else.
         roots = [self._workdir]
@@ -103,6 +105,13 @@ class AgentRunner:
 
     def run(self) -> AgentRunResult:
         with log_context(company=self._company, task=self._task, agent=self._archetype.name):
+            # Dry-run path: build the same prompts the LLM would see,
+            # print them, and return. Don't gate on LLM creds (the
+            # whole point is to validate the prompt rendering without
+            # an LLM call) — but DO gate on JIT extractor / archetype
+            # construction having succeeded, which happens at __init__.
+            if self._dry_run:
+                return self._dry_run_report()
             if not self._llm.is_available():
                 return AgentRunResult(
                     company=self._company,
@@ -242,6 +251,56 @@ class AgentRunner:
             {"name": self._write.name, "description": self._write.description, "input_schema": self._write.INPUT_SCHEMA},
             {"name": self._edit.name, "description": self._edit.description, "input_schema": self._edit.INPUT_SCHEMA},
         ]
+
+    def _dry_run_report(self) -> AgentRunResult:
+        """Build the same prompts the LLM would see, print them to
+        stdout, and return without a single API call.
+
+        Goal: let the operator validate the JIT context wiring
+        (ticket-context / pr-review-context renders correctly, the
+        archetype's consumes order is what they expect, the tool
+        specs look right) WITHOUT spending tokens. Skips both LLM
+        availability checks and the iteration loop entirely."""
+        system = self._build_system_prompt()
+        initial_user = self._build_initial_user_message()
+        tools = self._tool_specs()
+
+        sep = "=" * 78
+        print(sep)
+        print(f"DRY RUN — archetype={self._archetype.name} task={self._task} target={self._target}")
+        print(f"company={self._company} llm={self._llm.kind}  (LLM call SKIPPED)")
+        print(sep)
+        print()
+        print("─── SYSTEM PROMPT ───────────────────────────────────────────────────────")
+        print(system)
+        print()
+        print("─── INITIAL USER MESSAGE ────────────────────────────────────────────────")
+        print(initial_user)
+        print()
+        print("─── TOOLS BOUND ─────────────────────────────────────────────────────────")
+        for t in tools:
+            print(f"  - {t['name']}: {t['description']}")
+        print()
+        print("─── TASK-SCOPED SECTIONS (count + titles) ───────────────────────────────")
+        if self._task_context_sections:
+            for section in self._task_context_sections:
+                title = getattr(section, "title", "(no title)")
+                body_bytes = len(getattr(section, "body", "") or "")
+                print(f"  - {title}  ({body_bytes} bytes)")
+        else:
+            print("  (none — pass --ticket-key / --pr to populate)")
+        print()
+        print(sep)
+        print(f"system_prompt_bytes={len(system)}  initial_user_bytes={len(initial_user)}  tool_count={len(tools)}")
+        print(sep)
+
+        return AgentRunResult(
+            company=self._company,
+            task=self._task,
+            iterations=0,
+            stop_reason="dry_run",
+            final_text="(dry run — no LLM call)",
+        )
 
     def _execute_all_tool_uses(self, tool_calls: List[LLMToolCall], result: AgentRunResult) -> List[Dict[str, Any]]:
         """Dispatch each tool call from the LLM, then format the result

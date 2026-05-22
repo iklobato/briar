@@ -48,7 +48,10 @@ class FetchPrReviewContext(TaskScopedRepoExtractor):
         number = args.pr_target_number
 
         pr = provider.get_pull(repo, number)
-        if not pr.title and not pr.head_ref:
+        # Adapter's `@swallow_errors(default=None)` returns None on any
+        # provider-side failure. The boundary that translates None →
+        # EMPTY_SECTION lives at this caller, not inside the decorator.
+        if pr is None or (not pr.title and not pr.head_ref):
             log.warning("pr-review-context: PR %s#%d not found", repo, number)
             return EMPTY_SECTION
 

@@ -62,6 +62,12 @@ class CommandAgent(Command):
             action="store_true",
             help="Leave the worktree in /tmp after the run for inspection (default: remove on success)",
         )
+        prfix.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Build + print the system prompt + user message + tool list, skip the LLM call. "
+            "Validates the JIT context wiring (pr-review-context) without spending tokens.",
+        )
 
         # ─── `implement` subcommand — engineer archetype on one ticket ─────
         implement = sub.add_parser(
@@ -94,6 +100,12 @@ class CommandAgent(Command):
             action="store_true",
             help="Leave the worktree in /tmp after the run for inspection (default: remove on success)",
         )
+        implement.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Build + print the system prompt + user message + tool list, skip the LLM call. "
+            "Validates the JIT context wiring (ticket-context) without spending tokens.",
+        )
 
     def run(self, args: argparse.Namespace) -> int:
         op = args.agent_op
@@ -117,17 +129,28 @@ class CommandAgent(Command):
         clone_url = f"https://github.com/{target}.git"
 
         worktree = Path(tempfile.mkdtemp(prefix="briar-agent-prfix-"))
-        log.info("agent-prfix: target=%s pr=%d branch=%s worktree=%s", target, args.pr, args.branch, worktree)
+        log.info(
+            "agent-prfix: target=%s pr=%d branch=%s worktree=%s dry_run=%s",
+            target,
+            args.pr,
+            args.branch,
+            worktree,
+            args.dry_run,
+        )
 
-        if not self._clone_branch(clone_url, args.branch, worktree):
-            log.error("agent-prfix: clone failed; aborting")
-            self._cleanup_worktree(worktree, keep=args.keep_worktree)
-            return 4
+        # Skip the clone in dry-run — the worktree path is only needed
+        # as a string in the system prompt (renders fine), the agent
+        # never executes against the filesystem.
+        if not args.dry_run:
+            if not self._clone_branch(clone_url, args.branch, worktree):
+                log.error("agent-prfix: clone failed; aborting")
+                self._cleanup_worktree(worktree, keep=args.keep_worktree)
+                return 4
 
-        if not self._set_git_identity(worktree, args.git_user_name, args.git_user_email):
-            log.error("agent-prfix: git identity setup failed; aborting")
-            self._cleanup_worktree(worktree, keep=args.keep_worktree)
-            return 5
+            if not self._set_git_identity(worktree, args.git_user_name, args.git_user_email):
+                log.error("agent-prfix: git identity setup failed; aborting")
+                self._cleanup_worktree(worktree, keep=args.keep_worktree)
+                return 5
 
         # JIT-fetch the PR's review comments + failing-CI context. Spliced
         # into the agent's system prompt below the archetype's persona.
@@ -151,6 +174,7 @@ class CommandAgent(Command):
             max_iterations=args.max_iter,
             extra_user_instructions=self._pr_specific_instructions(args.owner, args.repo, args.pr, args.branch),
             task_context_sections=task_sections,
+            dry_run=args.dry_run,
         )
         result = runner.run()
 
@@ -192,22 +216,24 @@ class CommandAgent(Command):
 
         worktree = Path(tempfile.mkdtemp(prefix="briar-agent-implement-"))
         log.info(
-            "agent-implement: target=%s ticket=%s tracker=%s worktree=%s",
+            "agent-implement: target=%s ticket=%s tracker=%s worktree=%s dry_run=%s",
             target,
             args.ticket_key,
             args.tracker,
             worktree,
+            args.dry_run,
         )
 
-        if not self._clone_default(clone_url, worktree):
-            log.error("agent-implement: clone failed; aborting")
-            self._cleanup_worktree(worktree, keep=args.keep_worktree)
-            return 4
+        if not args.dry_run:
+            if not self._clone_default(clone_url, worktree):
+                log.error("agent-implement: clone failed; aborting")
+                self._cleanup_worktree(worktree, keep=args.keep_worktree)
+                return 4
 
-        if not self._set_git_identity(worktree, args.git_user_name, args.git_user_email):
-            log.error("agent-implement: git identity setup failed; aborting")
-            self._cleanup_worktree(worktree, keep=args.keep_worktree)
-            return 5
+            if not self._set_git_identity(worktree, args.git_user_name, args.git_user_email):
+                log.error("agent-implement: git identity setup failed; aborting")
+                self._cleanup_worktree(worktree, keep=args.keep_worktree)
+                return 5
 
         # JIT-fetch the ticket's full body + ACs + comments. Spliced
         # into the agent's system prompt below the archetype's persona.
@@ -239,6 +265,7 @@ class CommandAgent(Command):
                 ticket_key=args.ticket_key,
             ),
             task_context_sections=task_sections,
+            dry_run=args.dry_run,
         )
         result = runner.run()
 

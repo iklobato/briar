@@ -42,7 +42,11 @@ class FetchTicketContext(TaskScopedTrackerExtractor):
     def fetch(self, args: argparse.Namespace) -> ExtractedSection:
         tracker = self._tracker(args)
         ticket = tracker.get_ticket(args.ticket_project, args.ticket_key)
-        if not ticket.title and not ticket.description:
+        # `swallow_errors(default=None)` on the provider verb means the
+        # adapter returns None on any failure (auth, network, missing
+        # ticket). The decorator is the right contract for the adapter —
+        # the boundary that converts None → EMPTY_SECTION lives here.
+        if ticket is None or (not ticket.title and not ticket.description):
             log.warning("ticket-context: %s not found or empty", args.ticket_key)
             return EMPTY_SECTION
 

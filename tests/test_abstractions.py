@@ -416,6 +416,60 @@ class AgentCommandTests(unittest.TestCase):
             )
         self.assertEqual(sections, [])
 
+    def test_dry_run_skips_llm_call_and_returns_marker(self) -> None:
+        """`AgentRunner(dry_run=True).run()` prints the rendered prompt
+        and returns without invoking the LLM. The LLM provider's
+        is_available() is NOT checked — we want to render the prompt
+        even on hosts without LLM creds (that's the whole point)."""
+        import io
+        import sys
+        from pathlib import Path
+
+        from briar.agent.runner import AgentRunner
+
+        fake_llm = mock.MagicMock()
+        fake_llm.kind = "anthropic"
+        # If the dry-run path is broken and falls through to .complete,
+        # this would fail the test instead of silently calling the API.
+        fake_llm.complete.side_effect = AssertionError("dry-run must NOT call complete()")
+
+        fake_store = mock.MagicMock()
+        # KnowledgeSplicer wraps store.list/get; let it return nothing
+        # so the prologue ends up empty (we're testing dry-run plumbing,
+        # not knowledge splicing).
+        fake_store.list.return_value = []
+        fake_store.get.return_value = ""
+
+        runner = AgentRunner(
+            company="acme",
+            task="implement",
+            archetype_name="engineer",
+            workdir=Path("/tmp/briar-test"),
+            knowledge_store=fake_store,
+            target="acme-co/acme-app",
+            llm=fake_llm,
+            dry_run=True,
+        )
+        captured = io.StringIO()
+        old_stdout = sys.stdout
+        try:
+            sys.stdout = captured
+            result = runner.run()
+        finally:
+            sys.stdout = old_stdout
+
+        self.assertEqual(result.stop_reason, "dry_run")
+        self.assertEqual(result.iterations, 0)
+        output = captured.getvalue()
+        self.assertIn("DRY RUN", output)
+        self.assertIn("SYSTEM PROMPT", output)
+        self.assertIn("INITIAL USER MESSAGE", output)
+        self.assertIn("TOOLS BOUND", output)
+        # The engineer archetype's role + goal must be in the system
+        # prompt — that's the headline thing the operator wants to
+        # validate before spending tokens.
+        self.assertIn("acme-co/acme-app", output)
+
     def test_implement_instructions_include_ticket_key_and_branch_name(self) -> None:
         """The instruction string is what the agent sees — must contain
         the ticket key + a derived branch name + the no-force constraint."""
