@@ -2,13 +2,19 @@
 
 A runbook declares which extractors to run per company and where to
 write the resulting knowledge blob. Optional fields use empty defaults
-(`""`, `[]`, sentinel empty model) instead of `Optional[X] = None`."""
+(`""`, `[]`, sentinel empty model) instead of `Optional[X] = None`.
+
+The two name-validation field validators (`_validate_extractor_name`,
+`_validate_store_name`) check against the runtime registries rather
+than a hardcoded `Literal[...]` — adding a new extractor / store
+backend doesn't require a schema edit. See ARCHITECTURE.md finding
+#5 + #6."""
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal
+from typing import Any, Dict, List
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class _Strict(BaseModel):
@@ -21,18 +27,22 @@ class _Strict(BaseModel):
 class ExtractEntry(_Strict):
     """Per-company extractor selection with its kind-specific args."""
 
-    name: Literal[
-        "pr-archaeology",
-        "aws-infra",
-        "active-work",
-        "github-deployments",
-        "codebase-conventions",
-        "active-tickets",
-        "ticket-archaeology",
-        "reviewer-profile",
-        "code-hotspots",
-    ]
+    name: str
     args: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("name")
+    @classmethod
+    def _validate_extractor_name(cls, value: str) -> str:
+        """Check against the live `EXTRACTORS` registry — single source
+        of truth. Lazy import to avoid a cycle (extract/__init__.py
+        imports the extractors, which transitively touch the runbook
+        models on test discovery)."""
+        from briar.extract import EXTRACTORS
+
+        if value not in EXTRACTORS:
+            known = ", ".join(sorted(EXTRACTORS.keys()))
+            raise ValueError(f"unknown extractor {value!r}; known: {known}")
+        return value
 
 
 class ScheduleEntry(_Strict):
@@ -50,9 +60,22 @@ class KnowledgeBinding(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    store: Literal["file", "postgres"] = "file"
+    store: str = "file"
     name: str = ""
     root: str = ""
+
+    @field_validator("store")
+    @classmethod
+    def _validate_store_name(cls, value: str) -> str:
+        """Check against the live `KnowledgeStoreRegistry.STORES`
+        registry. Adding a new backend (S3, etc.) requires zero edits
+        to this schema."""
+        from briar.storage import KnowledgeStoreRegistry
+
+        kinds = KnowledgeStoreRegistry.names()
+        if value not in kinds:
+            raise ValueError(f"unknown knowledge store {value!r}; known: {', '.join(sorted(kinds))}")
+        return value
 
 
 class CompanyEntry(BaseModel):

@@ -407,6 +407,44 @@ class AgentOpRegistryTests(unittest.TestCase):
         self.assertTrue(called.get("happened"))
 
 
+class RunbookSchemaRegistryValidationTests(unittest.TestCase):
+    """ExtractEntry.name + KnowledgeBinding.store validate against the
+    LIVE registry, not a hardcoded Literal[...]. This test pins that —
+    a regression to `Literal["pr-archaeology", ...]` would break it."""
+
+    def test_extract_entry_accepts_every_registered_extractor(self) -> None:
+        from briar.extract import EXTRACTORS
+        from briar.iac.runbook.models import ExtractEntry
+
+        for name in EXTRACTORS.keys():
+            # Should not raise — every registered extractor is a valid
+            # name by construction.
+            ExtractEntry(name=name, args={})
+
+    def test_extract_entry_rejects_unknown_name(self) -> None:
+        from pydantic import ValidationError
+
+        from briar.iac.runbook.models import ExtractEntry
+
+        with self.assertRaises((ValidationError, ValueError)):
+            ExtractEntry(name="nonsense-extractor", args={})
+
+    def test_knowledge_binding_accepts_every_registered_store(self) -> None:
+        from briar.iac.runbook.models import KnowledgeBinding
+        from briar.storage import KnowledgeStoreRegistry
+
+        for kind in KnowledgeStoreRegistry.names():
+            KnowledgeBinding(store=kind, name="x")
+
+    def test_knowledge_binding_rejects_unknown_store(self) -> None:
+        from pydantic import ValidationError
+
+        from briar.iac.runbook.models import KnowledgeBinding
+
+        with self.assertRaises((ValidationError, ValueError)):
+            KnowledgeBinding(store="dynamodb", name="x")
+
+
 class RepoClonerRegistryTests(unittest.TestCase):
     """`_clone_default` + `_implement_specific_instructions` dispatch
     via the REPO_CLONERS registry. Adding a new provider must NOT
