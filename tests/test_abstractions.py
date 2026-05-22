@@ -407,6 +407,57 @@ class AgentOpRegistryTests(unittest.TestCase):
         self.assertTrue(called.get("happened"))
 
 
+class RepoClonerRegistryTests(unittest.TestCase):
+    """`_clone_default` + `_implement_specific_instructions` dispatch
+    via the REPO_CLONERS registry. Adding a new provider must NOT
+    require editing those methods."""
+
+    def test_clone_registry_has_both_providers(self) -> None:
+        from briar.commands.agent import REPO_CLONERS
+
+        self.assertIn("github", REPO_CLONERS)
+        self.assertIn("bitbucket", REPO_CLONERS)
+
+    def test_github_cloner_uses_x_access_token_url(self) -> None:
+        from briar.commands.agent import REPO_CLONERS
+
+        c = REPO_CLONERS["github"]
+        self.assertEqual(c.clone_url("acme", "app"), "https://github.com/acme/app.git")
+        self.assertEqual(
+            c.authed_clone_url("acme", "app", "ghp_xxx"),
+            "https://x-access-token:ghp_xxx@github.com/acme/app.git",
+        )
+
+    def test_bitbucket_cloner_uses_x_token_auth_url(self) -> None:
+        from briar.commands.agent import REPO_CLONERS
+
+        c = REPO_CLONERS["bitbucket"]
+        self.assertEqual(c.clone_url("acme", "app"), "https://bitbucket.org/acme/app.git")
+        self.assertEqual(
+            c.authed_clone_url("acme", "app", "ATBB-xxx"),
+            "https://x-token-auth:ATBB-xxx@bitbucket.org/acme/app.git",
+        )
+
+    def test_pr_recipe_dispatches_to_provider(self) -> None:
+        """If anyone reverts to `if provider == 'bitbucket':` in
+        _implement_specific_instructions, this test catches it — we
+        swap the github recipe via mock.patch.dict and confirm the
+        substitution made it into the rendered instructions."""
+        from briar.commands.agent import REPO_CLONERS, CommandAgent
+
+        class FakeCloner:
+            kind = "github"
+
+            def pr_creation_recipe(self, *, owner, repo, branch, company):
+                return "  6. DO THE FAKE THING.\n  7. DONE.\n"
+
+        with mock.patch.dict(REPO_CLONERS, {"github": FakeCloner()}):
+            text = CommandAgent._implement_specific_instructions(
+                provider="github", company="acme", owner="acme", repo="app", ticket_key="ACME-1"
+            )
+        self.assertIn("DO THE FAKE THING", text)
+
+
 class AgentCommandTests(unittest.TestCase):
     """`briar agent` subcommands wire the task-scoped extractors
     correctly. These tests don't run the agent — they just verify

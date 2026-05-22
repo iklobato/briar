@@ -108,6 +108,108 @@ class ImplementOp(AgentOp):
 AGENT_OPS: Dict[str, AgentOp] = {op.name: op for op in (PrfixOp(), ImplementOp())}
 
 
+# ─── RepoCloner Strategy + Registry ─────────────────────────────────────────
+#
+# Per-provider git clone + per-provider PR-creation instructions. Adding a
+# new repo provider (GitLab, Gitea, …) = one RepoCloner subclass + one
+# entry in REPO_CLONERS. Zero edits to _run_implement or _clone_default
+# call sites.
+
+
+class RepoCloner(ABC):
+    """Vendor-specific git clone over HTTPS with a token embedded in
+    the URL (the standard CI/headless pattern when there's no git
+    credential helper). Also owns the PR-creation recipe the agent's
+    instruction string includes — different vendors have different
+    CLIs / APIs."""
+
+    kind: ClassVar[str] = ""
+
+    @abstractmethod
+    def resolve_token(self, *, company: str) -> str:
+        """Return the credential string to embed in the clone URL,
+        or empty when not configured. Caller logs + bails on empty."""
+
+    @abstractmethod
+    def clone_url(self, owner: str, repo: str) -> str:
+        """Canonical HTTPS clone URL (no auth embedded)."""
+
+    @abstractmethod
+    def authed_clone_url(self, owner: str, repo: str, token: str) -> str:
+        """The URL the actual `git clone` call uses, with the token
+        embedded per the provider's auth convention."""
+
+    @abstractmethod
+    def pr_creation_recipe(self, *, owner: str, repo: str, branch: str, company: str) -> str:
+        """Lines 6-7 of the agent's procedure instructions — how to
+        open a draft PR with this provider's tooling."""
+
+
+class GithubRepoCloner(RepoCloner):
+    kind = "github"
+
+    def resolve_token(self, *, company: str) -> str:
+        import os
+
+        return os.environ.get("GITHUB_TOKEN", "").strip()
+
+    def clone_url(self, owner: str, repo: str) -> str:
+        return f"https://github.com/{owner}/{repo}.git"
+
+    def authed_clone_url(self, owner: str, repo: str, token: str) -> str:
+        # GitHub's HTTPS auth convention: `x-access-token` as the username.
+        return f"https://x-access-token:{token}@github.com/{owner}/{repo}.git"
+
+    def pr_creation_recipe(self, *, owner: str, repo: str, branch: str, company: str) -> str:
+        return (
+            "  6. Open a draft PR via `gh pr create --draft --title '<key>: <short>' "
+            "--body '<plan + test plan + risks>'`.\n"
+            "  7. End your output with the PR URL on its own line. No fictitious URLs "
+            "— if `gh pr create` fails, surface the error.\n"
+        )
+
+
+class BitbucketRepoCloner(RepoCloner):
+    kind = "bitbucket"
+
+    def resolve_token(self, *, company: str) -> str:
+        if not company:
+            return ""
+        from briar.env_vars import CredEnv
+
+        return (CredEnv.BITBUCKET_APP_PASSWORD.read(company=company) or "").strip()
+
+    def clone_url(self, owner: str, repo: str) -> str:
+        return f"https://bitbucket.org/{owner}/{repo}.git"
+
+    def authed_clone_url(self, owner: str, repo: str, token: str) -> str:
+        # Bitbucket's workspace-token auth convention: `x-token-auth`.
+        return f"https://x-token-auth:{token}@bitbucket.org/{owner}/{repo}.git"
+
+    def pr_creation_recipe(self, *, owner: str, repo: str, branch: str, company: str) -> str:
+        env_token = f"BITBUCKET_{company.upper().replace('-', '_')}_APP_PASSWORD"
+        return (
+            "  6. Open a draft PR via the Bitbucket v2 API. The workspace access token is in env var "
+            f"`{env_token}`. Auth: `-u 'x-token-auth:${env_token}'`. Endpoint: "
+            f"`POST https://api.bitbucket.org/2.0/repositories/{owner}/{repo}/pullrequests`. "
+            f"Body JSON fields: `title`, `description`, `source.branch.name` (= `{branch}`), `draft: true`. "
+            "The response's `links.html.href` is the PR URL.\n"
+            "  7. End your output with the PR URL on its own line. No fictitious URLs — if the curl fails, "
+            "surface the error verbatim.\n"
+        )
+
+
+REPO_CLONERS: Dict[str, RepoCloner] = {c.kind: c for c in (GithubRepoCloner(), BitbucketRepoCloner())}
+
+
+def _resolve_cloner(provider: str) -> RepoCloner:
+    cloner = REPO_CLONERS.get(provider)
+    if cloner is None:
+        known = ", ".join(sorted(REPO_CLONERS.keys()))
+        raise RuntimeError(f"unknown repo provider {provider!r}; known: {known}")
+    return cloner
+
+
 class CommandAgent(Command):
     name = "agent"
     help = "Run an autonomous agent flow against a target (prfix / conflict-resolve / ci-fix)."
@@ -300,34 +402,22 @@ class CommandAgent(Command):
 
     @staticmethod
     def _clone_default(provider: str, owner: str, repo: str, dest: Path, *, company: str = "") -> bool:
-        """Clone the default branch (no `--branch` flag), embedding an
-        auth token for HTTPS in headless environments. Token-stripping
-        cleanup matches `_clone_branch`. provider='github' uses
-        ``GITHUB_TOKEN`` + the GitHub `x-access-token` username
-        convention; provider='bitbucket' uses
-        ``BITBUCKET_<COMPANY>_APP_PASSWORD`` + Bitbucket's
-        `x-token-auth` username convention."""
-        import os
-
-        if provider == "bitbucket":
-            from briar.env_vars import CredEnv
-
-            token = (CredEnv.BITBUCKET_APP_PASSWORD.read(company=company) or "").strip() if company else ""
-            if not token:
-                log.error("clone failed: BITBUCKET_<COMPANY>_APP_PASSWORD missing for company=%r", company)
-                return False
-            clone_url = f"https://bitbucket.org/{owner}/{repo}.git"
-            authed_url = clone_url.replace("https://bitbucket.org/", f"https://x-token-auth:{token}@bitbucket.org/")
-            scrub_host = "https://bitbucket.org/"
-        else:
-            token = os.environ.get("GITHUB_TOKEN", "").strip()
-            if not token:
-                log.error("clone failed: GITHUB_TOKEN env var missing")
-                return False
-            clone_url = f"https://github.com/{owner}/{repo}.git"
-            authed_url = clone_url.replace("https://github.com/", f"https://x-access-token:{token}@github.com/")
-            scrub_host = "https://github.com/"
-
+        """Clone the default branch (no `--branch` flag) via the
+        `RepoCloner` registered for `provider`. The cloner owns the
+        per-vendor token resolution + URL conventions; this method
+        only knows how to invoke `git clone` + scrub the embedded
+        token from the persisted remote afterwards."""
+        try:
+            cloner = _resolve_cloner(provider)
+        except RuntimeError as exc:
+            log.error("clone failed: %s", exc)
+            return False
+        token = cloner.resolve_token(company=company)
+        if not token:
+            log.error("clone failed: no token for provider=%s company=%r", provider, company)
+            return False
+        clone_url = cloner.clone_url(owner, repo)
+        authed_url = cloner.authed_clone_url(owner, repo, token)
         log.debug("clone-default: provider=%s dest=%s (token redacted)", provider, dest)
         proc = subprocess.run(
             ["git", "clone", "--depth", "50", authed_url, str(dest)],
@@ -346,7 +436,7 @@ class CommandAgent(Command):
             timeout=10,
         )
         if reset.returncode != 0:
-            log.warning("clone-default: remote set-url cleanup failed (token may persist in .git/config) host=%s", scrub_host)
+            log.warning("clone-default: remote set-url cleanup failed (token may persist in .git/config) provider=%s", provider)
         return True
 
     @staticmethod
@@ -379,7 +469,11 @@ class CommandAgent(Command):
 
     @staticmethod
     def _implement_specific_instructions(*, provider: str, company: str, owner: str, repo: str, ticket_key: str) -> str:
-        branch = f"briar/{ticket_key.lower().replace('#','').replace(' ', '-')}"
+        """Compose the agent's procedure instructions. Lines 1-5 are
+        provider-agnostic; lines 6-7 (the PR-creation recipe) come
+        from the provider's `RepoCloner.pr_creation_recipe(...)` so
+        adding a new vendor doesn't touch this method."""
+        branch = f"briar/{ticket_key.lower().replace('#', '').replace(' ', '-')}"
         common = (
             f"The target ticket is {ticket_key} on {owner}/{repo}. The worktree is a fresh clone of the "
             "default branch. Procedure:\n"
@@ -389,26 +483,14 @@ class CommandAgent(Command):
             "  4. Run the test command from codebase-conventions locally; only push when it's green.\n"
             "  5. Push: `git push -u origin HEAD` (NEVER --force).\n"
         )
-        if provider == "bitbucket":
-            # Bitbucket Cloud has no first-party CLI; use the v2 REST API via curl.
-            # Workspace access token lives in BITBUCKET_<COMPANY>_APP_PASSWORD;
-            # auth header is HTTP basic with username `x-token-auth`.
-            env_token = f"BITBUCKET_{company.upper().replace('-', '_')}_APP_PASSWORD"
-            return common + (
-                f"  6. Open a draft PR via the Bitbucket v2 API. The workspace access token is in env var "
-                f"`{env_token}`. Auth: `-u 'x-token-auth:$"+env_token+"'`. Endpoint: "
-                f"`POST https://api.bitbucket.org/2.0/repositories/{owner}/{repo}/pullrequests`. "
-                f"Body JSON fields: `title`, `description`, `source.branch.name` (= `{branch}`), `draft: true`. "
-                "The response's `links.html.href` is the PR URL.\n"
-                "  7. End your output with the PR URL on its own line. No fictitious URLs — if the curl fails, surface the error verbatim.\n"
-                "\n"
-                "Strict constraints: NEVER --force, --amend, rebase, squash. NEVER commit as a bot identity "
-                "(run `git config user.name` to verify it's a human). If an AC is ambiguous, stop and post a "
-                "clarifying comment on the ticket — do not guess."
-            )
-        return common + (
-            "  6. Open a draft PR via `gh pr create --draft --title '<key>: <short>' --body '<plan + test plan + risks>'`.\n"
-            "  7. End your output with the PR URL on its own line. No fictitious URLs — if `gh pr create` fails, surface the error.\n"
+        try:
+            cloner = _resolve_cloner(provider)
+        except RuntimeError:
+            # Unknown provider — degrade gracefully with the GitHub
+            # recipe rather than crashing the instruction build.
+            cloner = REPO_CLONERS["github"]
+        recipe = cloner.pr_creation_recipe(owner=owner, repo=repo, branch=branch, company=company)
+        return common + recipe + (
             "\n"
             "Strict constraints: NEVER --force, --amend, rebase, squash. NEVER commit as a bot identity "
             "(run `git config user.name` to verify it's a human). If an AC is ambiguous, stop and post a "
