@@ -36,6 +36,16 @@ class CredEnv(str, Enum):
     JIRA_EMAIL = "JIRA_{c}_EMAIL"
     JIRA_TOKEN = "JIRA_{c}_TOKEN"
     JIRA_URL = "JIRA_{c}_URL"
+    # Optional per-company override: `token` | `session` | `` (auto).
+    # When unset, JiraAuthRegistry.autodetect picks `session` if any
+    # session-token env var is present, else `token`.
+    JIRA_AUTH_KIND = "JIRA_{c}_AUTH_KIND"
+    # Session-auth (browser-cookie) credentials — paste the values
+    # from your browser's DevTools while logged into the Jira tenant:
+    JIRA_SESSION_TOKEN = "JIRA_{c}_SESSION_TOKEN"  # `cloud.session.token`
+    JIRA_TENANT_SESSION_TOKEN = "JIRA_{c}_TENANT_SESSION_TOKEN"  # newer `tenant.session.token` (optional)
+    JIRA_XSRF_TOKEN = "JIRA_{c}_XSRF_TOKEN"  # `atlassian.xsrf.token` (required for POSTs)
+    JIRA_USER_AGENT = "JIRA_{c}_USER_AGENT"  # optional UA override
 
     LINEAR_TOKEN = "LINEAR_{c}_TOKEN"
 

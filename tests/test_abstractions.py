@@ -1106,5 +1106,196 @@ class StoreBindingResolutionTests(unittest.TestCase):
         self.assertEqual(b.config["dsn_env"], "PROD_KB_PG")
 
 
+class JiraAuthStrategyTests(unittest.TestCase):
+    """`JiraAuthStrategy` registry + autodetect contract.
+
+    Two failure modes to pin:
+      - regression to a hardcoded `if email and token: ... elif cookie:`
+        chain inside JiraTracker (loses the Strategy decomposition)
+      - autodetect ordering changes (token-then-session is wrong; ops
+        users with both sets of creds would get token unexpectedly)"""
+
+    @staticmethod
+    def _clean_env():
+        return mock.patch.dict(
+            os.environ,
+            {
+                "JIRA_ACME_AUTH_KIND": "",
+                "JIRA_ACME_EMAIL": "",
+                "JIRA_ACME_TOKEN": "",
+                "JIRA_ACME_SESSION_TOKEN": "",
+                "JIRA_ACME_TENANT_SESSION_TOKEN": "",
+                "JIRA_ACME_XSRF_TOKEN": "",
+                "JIRA_ACME_USER_AGENT": "",
+                "JIRA_ACME_URL": "https://acme.atlassian.net",
+            },
+            clear=False,
+        )
+
+    def test_registry_lists_both_kinds(self) -> None:
+        from briar.extract._trackers._jira_auth import JiraAuthRegistry
+
+        kinds = JiraAuthRegistry.kinds()
+        self.assertIn("token", kinds)
+        self.assertIn("session", kinds)
+
+    def test_token_strategy_required_env_vars(self) -> None:
+        from briar.extract._trackers._jira_auth import JiraTokenAuth
+
+        names = JiraTokenAuth.required_env_vars(company="acme")
+        self.assertEqual(names, ["JIRA_ACME_EMAIL", "JIRA_ACME_TOKEN"])
+
+    def test_session_strategy_required_env_vars(self) -> None:
+        from briar.extract._trackers._jira_auth import JiraSessionAuth
+
+        names = JiraSessionAuth.required_env_vars(company="acme")
+        self.assertEqual(names, ["JIRA_ACME_SESSION_TOKEN"])
+
+    def test_token_strategy_configure_returns_basic_auth_kwargs(self) -> None:
+        from briar.extract._trackers._jira_auth import JiraTokenAuth
+
+        env = {"JIRA_ACME_EMAIL": "ops@acme.com", "JIRA_ACME_TOKEN": "tok-123"}
+        with mock.patch.dict(os.environ, env, clear=False):
+            kwargs = JiraTokenAuth().configure(company="acme", base_url="https://acme.atlassian.net")
+            self.assertEqual(kwargs, {"username": "ops@acme.com", "password": "tok-123"})
+
+    def test_session_strategy_configure_returns_cookies_and_browser_headers(self) -> None:
+        from briar.extract._trackers._jira_auth import JiraSessionAuth
+
+        env = {
+            "JIRA_ACME_SESSION_TOKEN": "cookie-val-abc",
+            "JIRA_ACME_TENANT_SESSION_TOKEN": "tenant-val-xyz",
+            "JIRA_ACME_XSRF_TOKEN": "xsrf-val-789",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            kwargs = JiraSessionAuth().configure(company="acme", base_url="https://acme.atlassian.net")
+
+        self.assertIn("cookies", kwargs)
+        self.assertEqual(kwargs["cookies"]["cloud.session.token"], "cookie-val-abc")
+        self.assertEqual(kwargs["cookies"]["tenant.session.token"], "tenant-val-xyz")
+        self.assertEqual(kwargs["cookies"]["atlassian.xsrf.token"], "xsrf-val-789")
+
+        # Browser headers mirror what the user's pasted request uses
+        h = kwargs["header"]
+        self.assertEqual(h["Origin"], "https://acme.atlassian.net")
+        self.assertEqual(h["Referer"], "https://acme.atlassian.net/")
+        self.assertIn("Chrome/147", h["User-Agent"])
+        self.assertEqual(h["sec-ch-ua-platform"], '"macOS"')
+        # XSRF cookie present → also sent as X-Atlassian-Token header
+        self.assertEqual(h["X-Atlassian-Token"], "no-check")
+
+    def test_session_strategy_omits_optional_cookies_when_unset(self) -> None:
+        from briar.extract._trackers._jira_auth import JiraSessionAuth
+
+        env = {"JIRA_ACME_SESSION_TOKEN": "only-cloud-session"}
+        with mock.patch.dict(os.environ, env, clear=False):
+            kwargs = JiraSessionAuth().configure(company="acme", base_url="https://acme.atlassian.net")
+        self.assertEqual(list(kwargs["cookies"].keys()), ["cloud.session.token"])
+
+    def test_user_agent_override_via_env(self) -> None:
+        from briar.extract._trackers._jira_auth import JiraSessionAuth
+
+        env = {
+            "JIRA_ACME_SESSION_TOKEN": "x",
+            "JIRA_ACME_USER_AGENT": "MyCustomBot/1.0",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            kwargs = JiraSessionAuth().configure(company="acme", base_url="https://acme.atlassian.net")
+        self.assertEqual(kwargs["header"]["User-Agent"], "MyCustomBot/1.0")
+
+    def test_autodetect_picks_session_when_session_token_set(self) -> None:
+        from briar.extract._trackers._jira_auth import JiraAuthRegistry, JiraSessionAuth
+
+        env = {
+            "JIRA_ACME_EMAIL": "ops@acme.com",
+            "JIRA_ACME_TOKEN": "tok-123",
+            "JIRA_ACME_SESSION_TOKEN": "cookie-val",
+            "JIRA_ACME_AUTH_KIND": "",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            auth = JiraAuthRegistry.autodetect(company="acme")
+            self.assertIsInstance(auth, JiraSessionAuth)
+
+    def test_autodetect_falls_back_to_token_when_no_session(self) -> None:
+        from briar.extract._trackers._jira_auth import JiraAuthRegistry, JiraTokenAuth
+
+        env = {
+            "JIRA_ACME_EMAIL": "ops@acme.com",
+            "JIRA_ACME_TOKEN": "tok-123",
+            "JIRA_ACME_SESSION_TOKEN": "",
+            "JIRA_ACME_AUTH_KIND": "",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            auth = JiraAuthRegistry.autodetect(company="acme")
+            self.assertIsInstance(auth, JiraTokenAuth)
+
+    def test_explicit_auth_kind_overrides_autodetect(self) -> None:
+        from briar.extract._trackers._jira_auth import JiraAuthRegistry, JiraTokenAuth
+
+        # Session token IS set, but operator forces token via env var
+        env = {
+            "JIRA_ACME_SESSION_TOKEN": "cookie-val",
+            "JIRA_ACME_AUTH_KIND": "token",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            auth = JiraAuthRegistry.autodetect(company="acme")
+            self.assertIsInstance(auth, JiraTokenAuth)
+
+    def test_jira_tracker_routes_through_strategy(self) -> None:
+        """`JiraTracker.required_env_vars` is the doctor's audit hook.
+        It must return the URL + whatever the autodetected strategy
+        needs. Pins: regression to hardcoded EMAIL+TOKEN list."""
+        from briar.extract._trackers.jira import JiraTracker
+
+        # Case 1: session credentials present → doctor sees session vars
+        env_session = {
+            "JIRA_ACME_SESSION_TOKEN": "cookie-val",
+            "JIRA_ACME_AUTH_KIND": "",
+            "JIRA_ACME_URL": "https://x",
+        }
+        with mock.patch.dict(os.environ, env_session, clear=False):
+            self.assertEqual(
+                JiraTracker.required_env_vars(company="acme"),
+                ["JIRA_ACME_URL", "JIRA_ACME_SESSION_TOKEN"],
+            )
+
+        # Case 2: no session token → doctor sees token-strategy vars
+        env_token = {
+            "JIRA_ACME_SESSION_TOKEN": "",
+            "JIRA_ACME_AUTH_KIND": "",
+            "JIRA_ACME_URL": "https://x",
+        }
+        with mock.patch.dict(os.environ, env_token, clear=False):
+            self.assertEqual(
+                JiraTracker.required_env_vars(company="acme"),
+                ["JIRA_ACME_URL", "JIRA_ACME_EMAIL", "JIRA_ACME_TOKEN"],
+            )
+
+    def test_jira_tracker_is_available_uses_strategy(self) -> None:
+        from briar.extract._trackers.jira import JiraTracker
+
+        # Session strategy: URL + session token both present
+        env = {
+            "JIRA_ACME_URL": "https://acme.atlassian.net",
+            "JIRA_ACME_SESSION_TOKEN": "cookie-val",
+            "JIRA_ACME_AUTH_KIND": "session",
+            "JIRA_ACME_EMAIL": "",
+            "JIRA_ACME_TOKEN": "",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            tracker = JiraTracker(company="acme")
+            self.assertTrue(tracker.is_available())
+
+    def test_jira_tracker_constructor_explicit_auth_kind(self) -> None:
+        """Allow callers (future YAML wiring) to pass auth_kind directly."""
+        from briar.extract._trackers._jira_auth import JiraTokenAuth, JiraSessionAuth
+        from briar.extract._trackers.jira import JiraTracker
+
+        t1 = JiraTracker(company="acme", auth_kind="session")
+        self.assertIsInstance(t1._auth, JiraSessionAuth)
+        t2 = JiraTracker(company="acme", auth_kind="token")
+        self.assertIsInstance(t2._auth, JiraTokenAuth)
+
+
 if __name__ == "__main__":
     unittest.main()
