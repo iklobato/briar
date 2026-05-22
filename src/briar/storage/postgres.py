@@ -12,9 +12,12 @@ DSN via `StorePostgres.bootstrap_admin(...)`."""
 from __future__ import annotations
 
 import logging
-from typing import List
+import os
+from pathlib import Path
+from typing import List, Optional
 
-from briar.storage.base import KnowledgeRef, KnowledgeStore
+from briar.errors import CliError
+from briar.storage.base import KnowledgeRef, KnowledgeStore, StoreBinding
 
 
 log = logging.getLogger(__name__)
@@ -74,6 +77,43 @@ class StorePostgres(KnowledgeStore):
         if not dsn:
             raise RuntimeError("StorePostgres: empty DSN — set BRIAR_DATABASE_URL")
         self._dsn = dsn
+
+    @classmethod
+    def from_binding(cls, binding: StoreBinding, *, default_root: Optional[Path] = None) -> "StorePostgres":
+        """Resolve a DSN from (in priority order):
+
+        1. ``binding.config["dsn_env"]`` — explicit YAML override:
+           ``knowledge: {store: postgres, config: {dsn_env: PROD_KB_PG}}``
+        2. ``BRIAR_{COMPANY}_DATABASE_URL`` — convention-based per-company
+           env (e.g. ``BRIAR_ACME_DATABASE_URL``)
+        3. ``BRIAR_DATABASE_URL`` — global fallback (existing single-DSN
+           deployments unchanged)
+
+        Raises ``CliError`` naming every key tried, in order, so the
+        operator sees exactly what to set."""
+        from briar.env_vars import CredEnv
+
+        tried: List[str] = []
+        dsn = ""
+
+        config_env = binding.config.get("dsn_env", "")
+        if config_env:
+            tried.append(f"${config_env} (binding.config.dsn_env)")
+            dsn = os.environ.get(config_env, "")
+
+        if not dsn and binding.company:
+            per_company_key = CredEnv.BRIAR_DATABASE_URL_FOR_COMPANY.for_company(binding.company)
+            tried.append(f"${per_company_key}")
+            dsn = os.environ.get(per_company_key, "")
+
+        if not dsn:
+            tried.append(f"${CredEnv.BRIAR_DATABASE_URL.value}")
+            dsn = CredEnv.BRIAR_DATABASE_URL.read()
+
+        if not dsn:
+            raise CliError("store 'postgres' requires a DSN; tried (in order): " + ", ".join(tried))
+
+        return cls(dsn)
 
     # ---- runtime ----------------------------------------------------------
 

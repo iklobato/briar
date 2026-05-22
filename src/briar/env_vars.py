@@ -40,6 +40,12 @@ class CredEnv(str, Enum):
     LINEAR_TOKEN = "LINEAR_{c}_TOKEN"
 
     BRIAR_DATABASE_URL = "BRIAR_DATABASE_URL"
+    # Per-company override read by `StorePostgres.from_binding`. Resolution
+    # order: explicit `config.dsn_env` (YAML) → this per-company var →
+    # `BRIAR_DATABASE_URL` (global fallback). Lets two companies on the
+    # same scheduler write to two different databases without putting any
+    # DSN string into version-controlled YAML.
+    BRIAR_DATABASE_URL_FOR_COMPANY = "BRIAR_{c}_DATABASE_URL"
 
     # Infisical credential-bootstrap machine-identity creds.
     # When all three are set, `briar.cli.main` auto-hydrates env vars

@@ -63,6 +63,11 @@ class KnowledgeBinding(BaseModel):
     store: str = "file"
     name: str = ""
     root: str = ""
+    # Backend-specific config (mirrors MessageBinding.config). Each store's
+    # `from_binding` decides which keys it understands. Today: `postgres`
+    # reads `dsn_env` (an env-var NAME holding the DSN — never the DSN
+    # itself, which stays out of version control).
+    config: Dict[str, str] = Field(default_factory=dict)
 
     @field_validator("store")
     @classmethod

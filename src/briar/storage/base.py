@@ -14,7 +14,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Dict, List
+from pathlib import Path
+from typing import Any, ClassVar, Dict, List, Mapping, Optional
 
 
 @dataclass
@@ -33,12 +34,42 @@ class KnowledgeRef:
         return head if sep else ""
 
 
+@dataclass(frozen=True)
+class StoreBinding:
+    """Storage-layer view of a knowledge binding. Decoupled from the
+    runbook YAML schema (``iac/runbook/models.py:KnowledgeBinding``) so
+    the storage layer doesn't import upward — `from_binding` accepts
+    this struct regardless of whether the caller is a runbook executor,
+    a CLI command synthesizing one from flags, or a test.
+
+    Same shape as ``messaging/_writer.py:MessageBindingResolved`` — the
+    pattern is intentional: each plugin family has a resolved binding
+    type that its `from_binding` factory consumes."""
+
+    store: str = "file"
+    name: str = ""
+    root: str = ""
+    company: str = ""
+    config: Mapping[str, str] = field(default_factory=dict)
+
+
 class KnowledgeStore(ABC):
     """Strategy contract. Each backend ships with a unique `name` that
     the registry indexes. Returning an empty string from `get()` is the
     "not found" convention — content is markdown so empty is unambiguous."""
 
     name: ClassVar[str] = ""
+
+    @classmethod
+    @abstractmethod
+    def from_binding(cls, binding: StoreBinding, *, default_root: Optional[Path] = None) -> "KnowledgeStore":
+        """Construct a store from a resolved binding.
+
+        Each backend reads what it needs from ``binding.config`` (a
+        ``Mapping[str, str]`` of free-form keys) and from ``binding.company``
+        (for per-company env-var resolution). ``default_root`` is the CLI-level
+        default file root — the file backend honours ``binding.root`` first
+        and falls back to this; other backends ignore it."""
 
     @abstractmethod
     def put(self, blob_name: str, content: str, category: str = "") -> KnowledgeRef:

@@ -973,5 +973,138 @@ class NewExtractorTests(unittest.TestCase):
         self.assertFalse(ext.is_available(args))
 
 
+class StoreBindingResolutionTests(unittest.TestCase):
+    """`KnowledgeStore.from_binding` is the construction path. Postgres
+    walks three sources in priority order: explicit config.dsn_env →
+    BRIAR_{COMPANY}_DATABASE_URL → BRIAR_DATABASE_URL.
+
+    These tests pin that contract — regressing the order would silently
+    point a company's writes at the wrong database, which is a quietly
+    catastrophic failure mode."""
+
+    @staticmethod
+    def _clean_env():
+        return mock.patch.dict(
+            os.environ,
+            {
+                "BRIAR_DATABASE_URL": "",
+                "BRIAR_ACME_DATABASE_URL": "",
+                "PROD_KB_PG": "",
+            },
+            clear=False,
+        )
+
+    def test_config_dsn_env_wins(self) -> None:
+        from briar.storage import StoreBinding
+        from briar.storage.postgres import StorePostgres
+
+        env = {
+            "PROD_KB_PG": "postgres://from-config/db",
+            "BRIAR_ACME_DATABASE_URL": "postgres://from-per-company/db",
+            "BRIAR_DATABASE_URL": "postgres://from-global/db",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            binding = StoreBinding(store="postgres", company="acme", config={"dsn_env": "PROD_KB_PG"})
+            store = StorePostgres.from_binding(binding)
+            self.assertEqual(store._dsn, "postgres://from-config/db")
+
+    def test_per_company_env_wins_over_global(self) -> None:
+        from briar.storage import StoreBinding
+        from briar.storage.postgres import StorePostgres
+
+        env = {
+            "BRIAR_ACME_DATABASE_URL": "postgres://from-per-company/db",
+            "BRIAR_DATABASE_URL": "postgres://from-global/db",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            binding = StoreBinding(store="postgres", company="acme")
+            store = StorePostgres.from_binding(binding)
+            self.assertEqual(store._dsn, "postgres://from-per-company/db")
+
+    def test_company_key_with_hyphen_normalises_to_underscore(self) -> None:
+        """`widget-co` (hyphen) → BRIAR_WIDGET_CO_DATABASE_URL —
+        same normalisation as every other CredEnv.for_company."""
+        from briar.storage import StoreBinding
+        from briar.storage.postgres import StorePostgres
+
+        env = {"BRIAR_WIDGET_CO_DATABASE_URL": "postgres://hyphenated/db"}
+        with mock.patch.dict(os.environ, env, clear=False):
+            binding = StoreBinding(store="postgres", company="widget-co")
+            store = StorePostgres.from_binding(binding)
+            self.assertEqual(store._dsn, "postgres://hyphenated/db")
+
+    def test_falls_back_to_global_dsn(self) -> None:
+        from briar.storage import StoreBinding
+        from briar.storage.postgres import StorePostgres
+
+        # No company, no config — only the global is set.
+        env = {"BRIAR_DATABASE_URL": "postgres://from-global/db", "BRIAR_ACME_DATABASE_URL": ""}
+        with mock.patch.dict(os.environ, env, clear=False):
+            binding = StoreBinding(store="postgres", company="acme")
+            store = StorePostgres.from_binding(binding)
+            self.assertEqual(store._dsn, "postgres://from-global/db")
+
+    def test_no_dsn_anywhere_raises_clierror_naming_keys_tried(self) -> None:
+        from briar.errors import CliError
+        from briar.storage import StoreBinding
+        from briar.storage.postgres import StorePostgres
+
+        env = {"BRIAR_DATABASE_URL": "", "BRIAR_ACME_DATABASE_URL": "", "PROD_KB_PG": ""}
+        with mock.patch.dict(os.environ, env, clear=False):
+            binding = StoreBinding(store="postgres", company="acme", config={"dsn_env": "PROD_KB_PG"})
+            with self.assertRaises(CliError) as cm:
+                StorePostgres.from_binding(binding)
+            # All three keys named in the order tried — operator can see
+            # exactly what to set.
+            msg = str(cm.exception)
+            self.assertIn("PROD_KB_PG", msg)
+            self.assertIn("BRIAR_ACME_DATABASE_URL", msg)
+            self.assertIn("BRIAR_DATABASE_URL", msg)
+
+    def test_file_store_honours_binding_root(self) -> None:
+        import tempfile
+        from pathlib import Path
+        from briar.storage import StoreBinding
+        from briar.storage.file import StoreFile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            binding = StoreBinding(store="file", root=tmp)
+            store = StoreFile.from_binding(binding, default_root=Path("./should-be-ignored"))
+            self.assertEqual(store._root, Path(tmp))
+
+    def test_file_store_falls_back_to_default_root(self) -> None:
+        import tempfile
+        from pathlib import Path
+        from briar.storage import StoreBinding
+        from briar.storage.file import StoreFile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            binding = StoreBinding(store="file")  # no root in binding
+            store = StoreFile.from_binding(binding, default_root=Path(tmp))
+            self.assertEqual(store._root, Path(tmp))
+
+    def test_registry_make_store_synthesizes_binding_for_cli_callers(self) -> None:
+        """CLI commands (`briar context`, `briar dashboard`) call
+        ``make_store(name, file_root=...)`` without a binding. The
+        registry synthesizes a `StoreBinding` so backends still go
+        through `from_binding` — no special case for the CLI path."""
+        import tempfile
+        from pathlib import Path
+        from briar.storage import make_store
+        from briar.storage.file import StoreFile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = make_store("file", file_root=Path(tmp))
+            self.assertIsInstance(store, StoreFile)
+            self.assertEqual(store._root, Path(tmp))
+
+    def test_knowledge_binding_accepts_config_dict(self) -> None:
+        """YAML schema must accept the new `config:` block."""
+        from briar.iac.runbook.models import KnowledgeBinding
+
+        b = KnowledgeBinding(store="postgres", name="knowledge:acme", config={"dsn_env": "PROD_KB_PG"})
+        self.assertEqual(b.config["dsn_env"], "PROD_KB_PG")
+
+
 if __name__ == "__main__":
     unittest.main()

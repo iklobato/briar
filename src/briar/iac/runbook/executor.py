@@ -173,7 +173,16 @@ class RunbookExtractor:
         file_root = Path(binding.root) if binding.root else Path("./knowledge")
         log.debug("schedule-store-open: store=%s file_root=%s", binding.store, file_root)
         try:
-            store = make_store(binding.store, file_root=file_root)
+            from briar.storage import StoreBinding
+
+            resolved = StoreBinding(
+                store=binding.store,
+                name=binding.name,
+                root=binding.root,
+                company=company_name,
+                config=dict(binding.config or {}),
+            )
+            store = make_store(binding.store, file_root=file_root, binding=resolved)
         except Exception as exc:  # noqa: BLE001
             cls._record_failure(rows, company_name=company_name, company=company, task=schedule.task, reason=f"store open raised: {binding.store}", blob_name=binding.name, exc=exc)
             return

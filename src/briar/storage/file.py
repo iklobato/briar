@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
-from briar.storage.base import KnowledgeRef, KnowledgeStore
+from briar.storage.base import KnowledgeRef, KnowledgeStore, StoreBinding
 
 
 log = logging.getLogger(__name__)
+
+_DEFAULT_ROOT = Path("./knowledge")
 
 
 class StoreFile(KnowledgeStore):
@@ -23,6 +25,11 @@ class StoreFile(KnowledgeStore):
         self._root = root
         self._root.mkdir(parents=True, exist_ok=True)
         log.debug("file-store init: root=%s", self._root)
+
+    @classmethod
+    def from_binding(cls, binding: StoreBinding, *, default_root: Optional[Path] = None) -> "StoreFile":
+        root = Path(binding.root) if binding.root else (default_root or _DEFAULT_ROOT)
+        return cls(root)
 
     def _path_for(self, blob_name: str) -> Path:
         """Three name shapes are supported:
