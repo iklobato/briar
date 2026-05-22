@@ -690,14 +690,28 @@ each blob to `./knowledge/<category>/<identifier>.md`.
 
 ## Deployment — DigitalOcean droplet
 
-The reference deployment is a single $4/mo DO droplet running two
-long-lived `briar` processes (scheduler + dashboard). Source-of-truth
-is the private GitHub repo `iklobato/briar-cli`.
+The reference deployment is a single $4/mo DO droplet
+(**briar-scheduler**, nyc1, 512MB / 1 vCPU / 10GB, Ubuntu 24.04)
+running two long-lived `briar` processes (scheduler + dashboard).
+Source-of-truth is the private GitHub repo `iklobato/briar-cli`.
+
+### Local task shortcuts (Taskfile.yml)
+
+```bash
+task ssh                       # open an interactive SSH session
+task ssh -- uptime             # one-shot: `uptime` on the droplet
+task tail                      # follow /var/log/briar/{scheduler,dashboard}.log
+task status                    # droplet state via doctl (no SSH needed)
+```
+
+The droplet IP + ID are hardcoded in `Taskfile.yml`; `task status`
+hits the DigitalOcean API via `doctl` so the token never enters the
+command line.
 
 ### One-line deploy
 
 ```bash
-git push && ssh root@<droplet> \
+git push && task ssh -- \
     'cd /opt/briar-scheduler && git pull --ff-only && .venv/bin/pip install -e . --quiet'
 ```
 
