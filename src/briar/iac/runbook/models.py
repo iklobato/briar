@@ -113,6 +113,21 @@ class MessageBinding(_Strict):
         return value
 
 
+class GitIdentity(BaseModel):
+    """Per-company commit identity used by ``briar agent`` flows.
+
+    Honoured by ``briar agent prfix`` and ``briar agent implement``.
+    Empty model = "not configured" — falls back to the agent CLI's
+    ``--git-user-name`` / ``--git-user-email`` flags or the legacy
+    hardcoded defaults. Each field resolves independently: you can
+    set ``name`` in YAML and override only ``email`` from the CLI."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    name: str = ""
+    email: str = ""
+
+
 class CompanyEntry(BaseModel):
     """Company-level extraction config. Ignores unknown keys so legacy
     YAMLs that still carry `runbooks:`, `defaults:`, etc. still load."""
@@ -130,6 +145,10 @@ class CompanyEntry(BaseModel):
     # dict means the agent cannot send messages (it falls back to
     # the bash escape hatch for `gh` / `curl`).
     messages: Dict[str, MessageBinding] = Field(default_factory=dict)
+    # Per-company commit author for `briar agent` worktree commits.
+    # Read by AgentCommand._resolve_git_identity at run time when
+    # `--runbook` points at a YAML containing this block.
+    git_identity: GitIdentity = Field(default_factory=GitIdentity)
 
 
 class RunbookFile(_Strict):

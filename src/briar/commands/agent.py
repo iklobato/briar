@@ -15,7 +15,7 @@ import subprocess
 import tempfile
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, ClassVar, Dict
+from typing import Any, ClassVar, Dict, Tuple
 
 from briar._registry import build_registry
 from briar.agent.runner import AgentRunner
@@ -62,8 +62,8 @@ class PrfixOp(AgentOp):
         parser.add_argument("--knowledge", default="./knowledge", help="File-store root (ignored for postgres)")
         parser.add_argument("--model", default="", help="Override Anthropic model (defaults to AgentRunner.DEFAULT_MODEL)")
         parser.add_argument("--max-iter", type=int, default=0, help="Iteration ceiling (defaults to AgentRunner.DEFAULT_MAX_ITERATIONS)")
-        parser.add_argument("--git-user-name", default="iklobato", help="git config user.name to set on the worktree before any commit")
-        parser.add_argument("--git-user-email", default="dev@users.noreply.github.com", help="git config user.email to set on the worktree before any commit")
+        parser.add_argument("--git-user-name", default="", help="git config user.name on the worktree. If empty: falls back to the runbook YAML's company.git_identity.name, then to `iklobato`.")
+        parser.add_argument("--git-user-email", default="", help="git config user.email on the worktree. If empty: falls back to the runbook YAML's company.git_identity.email, then to `dev@users.noreply.github.com`.")
         parser.add_argument("--keep-worktree", action="store_true", help="Leave the worktree in /tmp after the run for inspection")
         parser.add_argument(
             "--dry-run",
@@ -99,8 +99,8 @@ class ImplementOp(AgentOp):
         parser.add_argument("--knowledge", default="./knowledge", help="File-store root (ignored for postgres)")
         parser.add_argument("--model", default="", help="Override Anthropic model (defaults to AgentRunner.DEFAULT_MODEL)")
         parser.add_argument("--max-iter", type=int, default=0, help="Iteration ceiling (defaults to AgentRunner.DEFAULT_MAX_ITERATIONS)")
-        parser.add_argument("--git-user-name", default="iklobato", help="git config user.name on the worktree")
-        parser.add_argument("--git-user-email", default="dev@users.noreply.github.com", help="git config user.email on the worktree")
+        parser.add_argument("--git-user-name", default="", help="git config user.name on the worktree. If empty: falls back to the runbook YAML's company.git_identity.name, then to `iklobato`.")
+        parser.add_argument("--git-user-email", default="", help="git config user.email on the worktree. If empty: falls back to the runbook YAML's company.git_identity.email, then to `dev@users.noreply.github.com`.")
         parser.add_argument("--keep-worktree", action="store_true", help="Leave the worktree in /tmp after the run for inspection")
         parser.add_argument(
             "--dry-run",
@@ -279,7 +279,9 @@ class CommandAgent(Command):
                 self._cleanup_worktree(worktree, keep=args.keep_worktree)
                 return 4
 
-            if not self._set_git_identity(worktree, args.git_user_name, args.git_user_email):
+            git_name, git_email = self._resolve_git_identity(args)
+            log.info("agent-prfix: git identity user.name=%s user.email=%s", git_name, git_email)
+            if not self._set_git_identity(worktree, git_name, git_email):
                 log.error("agent-prfix: git identity setup failed; aborting")
                 self._cleanup_worktree(worktree, keep=args.keep_worktree)
                 return 5
@@ -364,7 +366,9 @@ class CommandAgent(Command):
                 self._cleanup_worktree(worktree, keep=args.keep_worktree)
                 return 4
 
-            if not self._set_git_identity(worktree, args.git_user_name, args.git_user_email):
+            git_name, git_email = self._resolve_git_identity(args)
+            log.info("agent-implement: git identity user.name=%s user.email=%s", git_name, git_email)
+            if not self._set_git_identity(worktree, git_name, git_email):
                 log.error("agent-implement: git identity setup failed; aborting")
                 self._cleanup_worktree(worktree, keep=args.keep_worktree)
                 return 5
@@ -483,6 +487,43 @@ class CommandAgent(Command):
             log.warning("runbook=%s has no company=%s — agent will run without bound messages", runbook_path, args.company)
             return {}
         return dict(getattr(company, "messages", {}) or {})
+
+    @staticmethod
+    def _resolve_git_identity(args: argparse.Namespace) -> Tuple[str, str]:
+        """Resolve (user_name, user_email) for the worktree's commit identity.
+
+        Priority (per-field, independent):
+          1. CLI flag — ``--git-user-name`` / ``--git-user-email`` (non-empty)
+          2. Runbook YAML — ``companies.<name>.git_identity.{name, email}``
+          3. Hardcoded legacy default — ``iklobato`` / ``dev@users.noreply.github.com``
+
+        Per-field resolution means you can set the name via CLI and let
+        the email fall through to YAML (or vice versa). YAML lookup
+        runs only when ``--runbook`` was passed; failures during YAML
+        load are non-fatal — the resolver logs and falls through."""
+        cli_name = (getattr(args, "git_user_name", "") or "").strip()
+        cli_email = (getattr(args, "git_user_email", "") or "").strip()
+
+        yaml_name = ""
+        yaml_email = ""
+        runbook_path = getattr(args, "runbook", "") or ""
+        if runbook_path:
+            try:
+                from briar.iac.runbook import load_runbook_file
+
+                rb = load_runbook_file(Path(runbook_path))
+                company = rb.companies.get(getattr(args, "company", ""))
+                if company is not None:
+                    gi = getattr(company, "git_identity", None)
+                    if gi is not None:
+                        yaml_name = (gi.name or "").strip()
+                        yaml_email = (gi.email or "").strip()
+            except Exception:  # noqa: BLE001
+                log.exception("failed to load runbook=%s for git_identity — falling back", runbook_path)
+
+        resolved_name = cli_name or yaml_name or "iklobato"
+        resolved_email = cli_email or yaml_email or "dev@users.noreply.github.com"
+        return resolved_name, resolved_email
 
     @staticmethod
     def _fetch_ticket_context(*, company: str, tracker: str, ticket_project: str, ticket_key: str):

@@ -1324,5 +1324,160 @@ class JiraAuthStrategyTests(unittest.TestCase):
         self.assertIsInstance(t2._auth, JiraTokenAuth)
 
 
+class GitIdentityResolutionTests(unittest.TestCase):
+    """`CommandAgent._resolve_git_identity` resolves commit author from
+    (priority order): CLI flag → runbook YAML → hardcoded default.
+
+    Pins the precedence so future refactors can't silently change
+    which identity ends up on production commits. Per-field
+    resolution is independently asserted — a regression to
+    "all-or-nothing" pickup would break the partial-override use case."""
+
+    @staticmethod
+    def _ns(**overrides) -> argparse.Namespace:
+        """Build a Namespace mirroring what argparse would emit, with
+        the new empty-default git fields."""
+        base = {
+            "company": "",
+            "runbook": "",
+            "git_user_name": "",
+            "git_user_email": "",
+        }
+        base.update(overrides)
+        return argparse.Namespace(**base)
+
+    def _yaml(self, name: str, email: str) -> str:
+        """Minimal valid runbook YAML with a git_identity block."""
+        return (
+            "version: 1\n"
+            "companies:\n"
+            "  acme:\n"
+            "    knowledge:\n"
+            "      store: file\n"
+            "      name: knowledge:acme\n"
+            "    git_identity:\n"
+            f"      name: {name}\n"
+            f"      email: {email}\n"
+            "    schedules: []\n"
+        )
+
+    def test_yaml_parses_git_identity_block(self) -> None:
+        """Round-trip the new field through Pydantic."""
+        from briar.iac.runbook.models import CompanyEntry, GitIdentity
+
+        gi = GitIdentity(name="briar-bot", email="briar@acme.com")
+        self.assertEqual(gi.name, "briar-bot")
+        self.assertEqual(gi.email, "briar@acme.com")
+
+        ce = CompanyEntry(git_identity=GitIdentity(name="x", email="y@z"))
+        self.assertEqual(ce.git_identity.name, "x")
+
+    def test_empty_block_is_unconfigured(self) -> None:
+        """Missing block → empty GitIdentity with both fields ``""``."""
+        from briar.iac.runbook.models import CompanyEntry
+
+        ce = CompanyEntry()
+        self.assertEqual(ce.git_identity.name, "")
+        self.assertEqual(ce.git_identity.email, "")
+
+    def test_resolve_falls_back_to_hardcoded_default_when_nothing_set(self) -> None:
+        from briar.commands.agent import CommandAgent
+
+        name, email = CommandAgent._resolve_git_identity(self._ns())
+        self.assertEqual(name, "iklobato")
+        self.assertEqual(email, "dev@users.noreply.github.com")
+
+    def test_cli_flag_wins_over_default(self) -> None:
+        from briar.commands.agent import CommandAgent
+
+        ns = self._ns(git_user_name="cli-name", git_user_email="cli@e.x")
+        name, email = CommandAgent._resolve_git_identity(ns)
+        self.assertEqual(name, "cli-name")
+        self.assertEqual(email, "cli@e.x")
+
+    def test_yaml_used_when_cli_empty(self) -> None:
+        import tempfile
+        from briar.commands.agent import CommandAgent
+
+        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
+            f.write(self._yaml("yaml-name", "yaml@e.x"))
+            path = f.name
+        try:
+            ns = self._ns(company="acme", runbook=path)
+            name, email = CommandAgent._resolve_git_identity(ns)
+            self.assertEqual(name, "yaml-name")
+            self.assertEqual(email, "yaml@e.x")
+        finally:
+            os.unlink(path)
+
+    def test_cli_flag_wins_over_yaml(self) -> None:
+        import tempfile
+        from briar.commands.agent import CommandAgent
+
+        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
+            f.write(self._yaml("yaml-name", "yaml@e.x"))
+            path = f.name
+        try:
+            ns = self._ns(
+                company="acme",
+                runbook=path,
+                git_user_name="cli-name",
+                git_user_email="cli@e.x",
+            )
+            name, email = CommandAgent._resolve_git_identity(ns)
+            self.assertEqual(name, "cli-name")
+            self.assertEqual(email, "cli@e.x")
+        finally:
+            os.unlink(path)
+
+    def test_per_field_resolution_is_independent(self) -> None:
+        """CLI sets only name; YAML provides both → CLI's name + YAML's email."""
+        import tempfile
+        from briar.commands.agent import CommandAgent
+
+        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
+            f.write(self._yaml("yaml-name", "yaml@e.x"))
+            path = f.name
+        try:
+            ns = self._ns(
+                company="acme",
+                runbook=path,
+                git_user_name="cli-name",
+                git_user_email="",  # not passed
+            )
+            name, email = CommandAgent._resolve_git_identity(ns)
+            self.assertEqual(name, "cli-name")
+            self.assertEqual(email, "yaml@e.x")
+        finally:
+            os.unlink(path)
+
+    def test_missing_company_in_runbook_falls_through_to_default(self) -> None:
+        """Runbook loads but company key absent → fall through, no crash."""
+        import tempfile
+        from briar.commands.agent import CommandAgent
+
+        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
+            f.write(self._yaml("yaml-name", "yaml@e.x"))
+            path = f.name
+        try:
+            ns = self._ns(company="other-company", runbook=path)
+            name, email = CommandAgent._resolve_git_identity(ns)
+            # Falls through to hardcoded default
+            self.assertEqual(name, "iklobato")
+            self.assertEqual(email, "dev@users.noreply.github.com")
+        finally:
+            os.unlink(path)
+
+    def test_unreadable_runbook_is_non_fatal(self) -> None:
+        """YAML load failure logs and falls through — never raises."""
+        from briar.commands.agent import CommandAgent
+
+        ns = self._ns(company="acme", runbook="/nonexistent/runbook.yaml")
+        # Must not raise
+        name, email = CommandAgent._resolve_git_identity(ns)
+        self.assertEqual(name, "iklobato")
+        self.assertEqual(email, "dev@users.noreply.github.com")
+
+
 if __name__ == "__main__":
     unittest.main()
