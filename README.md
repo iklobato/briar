@@ -13,12 +13,21 @@ store.
 
 ```
 briar version
-briar-cli 1.1.0
+briar-cli 1.1.1
 ```
 
 ---
 
 ## Install
+
+From PyPI (recommended):
+
+```bash
+pip install briar-cli
+briar version
+```
+
+From source (for development):
 
 ```bash
 git clone git@github.com:iklobato/briar-cli.git
@@ -34,14 +43,17 @@ adapter fails loudly if its SDK is missing, with the right install
 command in the error message:
 
 ```bash
-pip install -e '.[openai]'         # OpenAI LLM
-pip install -e '.[gemini]'         # Google Gemini LLM
-pip install -e '.[vault]'          # HashiCorp Vault credential store
-pip install -e '.[gcp]'            # GCP cloud provider
-pip install -e '.[azure]'          # Azure cloud provider
-pip install -e '.[infisical]'      # Infisical credential bootstrap
-pip install -e '.[all]'            # everything above
+pip install 'briar-cli[openai]'         # OpenAI LLM
+pip install 'briar-cli[gemini]'         # Google Gemini LLM
+pip install 'briar-cli[vault]'          # HashiCorp Vault credential store
+pip install 'briar-cli[gcp]'            # GCP cloud provider
+pip install 'briar-cli[azure]'          # Azure cloud provider
+pip install 'briar-cli[infisical]'      # Infisical credential bootstrap
+pip install 'briar-cli[all]'            # everything above
 ```
+
+Replace `pip install` with `pip install -e` and quote the source-tree
+path (`-e '.[openai]'`) when working from a local checkout.
 
 Base install always works for: GitHub + Bitbucket extractors, AWS
 infra, Jira/Linear/GitHub-Issues/Bitbucket-Issues trackers,
@@ -101,7 +113,7 @@ Prints client version. Takes no arguments.
 
 ```bash
 briar version
-# briar-cli 1.1.0
+# briar-cli 1.1.1
 ```
 
 ---
@@ -928,6 +940,28 @@ enum value + one branch in `_effective_store_kind`.
 | `src/briar/` (editable install) | yes | imported modules are cached |
 | Postgres `briar_knowledge` table | no | scheduler reads fresh on each fire |
 | Jira session-token cookie | no — but log it | scheduler reads from env at startup; restart picks up rotation |
+
+---
+
+## Releases
+
+Releases are fully automated. Every push to `main` triggers
+[`.github/workflows/release.yml`](.github/workflows/release.yml), which:
+
+1. Bumps the patch version in `pyproject.toml` (1.1.1 → 1.1.2 → …).
+2. Builds the sdist + wheel with `uv build`.
+3. Publishes to PyPI via `pypa/gh-action-pypi-publish` using the
+   `PYPI_API_TOKEN` repo secret.
+4. Commits the bump as `chore(release): vX.Y.Z` and pushes a matching
+   `vX.Y.Z` tag back to `main`.
+
+The workflow guards against its own bump commit re-triggering itself by
+skipping when `github.event.head_commit.message` starts with
+`chore(release):`. `concurrency: release` serializes overlapping merges.
+
+No manual `git tag` or `twine upload` step. To publish a release without
+a merge, use the workflow's `workflow_dispatch` trigger from the Actions
+tab.
 
 ---
 

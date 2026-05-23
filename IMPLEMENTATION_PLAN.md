@@ -86,8 +86,8 @@ git clone git@github.com:iklobato/briar-cli.git
 cd briar-cli
 python3.12 -m venv .venv
 source .venv/bin/activate
-pip install -e .                       # base install
-briar version                          # should print briar-cli 1.1.0
+pip install -e .                       # base install (or: pip install briar-cli)
+briar version                          # should print briar-cli 1.1.1 (or newer)
 ```
 
 Optional extras — install only what you'll actually use. Each adapter
