@@ -1169,7 +1169,9 @@ class JiraAuthStrategyTests(unittest.TestCase):
         with mock.patch.dict(os.environ, env, clear=False):
             self.assertTrue(JiraSessionAuth.is_available(company="acme"))
             kwargs = JiraSessionAuth().configure(company="acme", base_url="https://acme.atlassian.net")
-        self.assertEqual(kwargs["cookies"], {"tenant.session.token": "tenant-jwt-blob"})
+        # New shape: cookies + headers bundled into a requests.Session
+        session = kwargs["session"]
+        self.assertEqual(dict(session.cookies), {"tenant.session.token": "tenant-jwt-blob"})
 
     def test_token_strategy_configure_returns_basic_auth_kwargs(self) -> None:
         from briar.extract._trackers._jira_auth import JiraTokenAuth
@@ -1190,13 +1192,18 @@ class JiraAuthStrategyTests(unittest.TestCase):
         with mock.patch.dict(os.environ, env, clear=False):
             kwargs = JiraSessionAuth().configure(company="acme", base_url="https://acme.atlassian.net")
 
-        self.assertIn("cookies", kwargs)
-        self.assertEqual(kwargs["cookies"]["cloud.session.token"], "cookie-val-abc")
-        self.assertEqual(kwargs["cookies"]["tenant.session.token"], "tenant-val-xyz")
-        self.assertEqual(kwargs["cookies"]["atlassian.xsrf.token"], "xsrf-val-789")
+        # New shape: configure returns {"session": requests.Session(...)}
+        # with cookies + headers pre-applied. This bundling is required
+        # because atlassian-python-api 3.41.x rejects a `header=` kwarg
+        # (only the 4.x line accepts it).
+        session = kwargs["session"]
+        cookies = dict(session.cookies)
+        self.assertEqual(cookies["cloud.session.token"], "cookie-val-abc")
+        self.assertEqual(cookies["tenant.session.token"], "tenant-val-xyz")
+        self.assertEqual(cookies["atlassian.xsrf.token"], "xsrf-val-789")
 
         # Browser headers mirror what the user's pasted request uses
-        h = kwargs["header"]
+        h = session.headers
         self.assertEqual(h["Origin"], "https://acme.atlassian.net")
         self.assertEqual(h["Referer"], "https://acme.atlassian.net/")
         self.assertIn("Chrome/147", h["User-Agent"])
@@ -1210,7 +1217,7 @@ class JiraAuthStrategyTests(unittest.TestCase):
         env = {"JIRA_ACME_SESSION_TOKEN": "only-cloud-session"}
         with mock.patch.dict(os.environ, env, clear=False):
             kwargs = JiraSessionAuth().configure(company="acme", base_url="https://acme.atlassian.net")
-        self.assertEqual(list(kwargs["cookies"].keys()), ["cloud.session.token"])
+        self.assertEqual(list(kwargs["session"].cookies.keys()), ["cloud.session.token"])
 
     def test_user_agent_override_via_env(self) -> None:
         from briar.extract._trackers._jira_auth import JiraSessionAuth
@@ -1221,7 +1228,7 @@ class JiraAuthStrategyTests(unittest.TestCase):
         }
         with mock.patch.dict(os.environ, env, clear=False):
             kwargs = JiraSessionAuth().configure(company="acme", base_url="https://acme.atlassian.net")
-        self.assertEqual(kwargs["header"]["User-Agent"], "MyCustomBot/1.0")
+        self.assertEqual(kwargs["session"].headers["User-Agent"], "MyCustomBot/1.0")
 
     def test_autodetect_picks_session_when_session_token_set(self) -> None:
         from briar.extract._trackers._jira_auth import JiraAuthRegistry, JiraSessionAuth

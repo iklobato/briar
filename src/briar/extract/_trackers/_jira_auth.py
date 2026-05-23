@@ -191,7 +191,17 @@ class JiraSessionAuth(JiraAuthStrategy):
             # write paths working.
             headers["X-Atlassian-Token"] = "no-check"
 
-        return {"cookies": cookies, "header": headers}
+        # Bundle cookies + headers into a `requests.Session` and pass
+        # that as `session=` to the Atlassian client. The 4.x library
+        # accepts a separate `header=` kwarg, but 3.41.x (our pinned
+        # range) doesn't — a pre-configured Session is the only path
+        # that's stable across both major versions.
+        import requests
+
+        session = requests.Session()
+        session.cookies.update(cookies)
+        session.headers.update(headers)
+        return {"session": session}
 
 
 _JIRA_AUTHS: Dict[str, Type[JiraAuthStrategy]] = build_registry(
