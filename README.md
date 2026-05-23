@@ -358,14 +358,18 @@ Issue → plan → human approval → implement / comment.
 | Flag | Required | Purpose |
 |---|---|---|
 | `--prefix <name>` | ✓ | prepended to every resource key |
-| `--source {github,bitbucket,jira,aws}` | | repeatable; selects which sources contribute |
+| `--source {github,bitbucket,jira,aws,sentry}` | | repeatable; selects which sources contribute |
 | `--archetype <name>` | | default `engineer`; one of `engineer`, `pr-fixer`, `pr-ci-fixer`, `pr-conflict-resolver`, `triager` |
 | `--shape <name>` | | default `plan-approve-act`; one of `plan-approve-act`, `one-shot`, `triage` |
 | `--trigger-kind <name>` | | default `github_webhook`; one of `github_webhook`, `bitbucket_webhook`, `schedule_cron`, `manual` |
 | `--owner` / `--repo` | when `--source github` | GitHub identity |
 | `--bitbucket-workspace` / `--bitbucket-repo` | when `--source bitbucket` | Bitbucket identity |
-| `--auth-mode {oauth,pat}` | | default `oauth` |
-| `--github-secret-id` / `--bitbucket-secret-id` | with `--auth-mode pat` | |
+| `--jira-project` / `--jira-jql` | when `--source jira` | project key (repeatable) + optional JQL filter |
+| `--aws-role-arn` / `--aws-external-id` / `--aws-region` / `--aws-services` | when `--source aws` | STS AssumeRole binding + which services to gather |
+| `--sentry-org` / `--sentry-project` | when `--source sentry` | org slug + project slug (repeatable; at least one) |
+| `--sentry-environment` / `--sentry-level` / `--sentry-query` | with `--source sentry` | optional filters: env list, severity list (`fatal`/`error`/`warning`/`info`/`debug`), Sentry search syntax |
+| `--auth-mode {oauth,pat}` | | default `oauth`. Sentry ignores this and always requires a PAT (`--sentry-secret-id`); OAuth not yet supported. |
+| `--github-secret-id` / `--bitbucket-secret-id` / `--jira-secret-id` / `--sentry-secret-id` | with `--auth-mode pat` (Sentry: always) | secret UUID holding the source's token |
 | `--company <name>` | | splice the company's extracted knowledge into the agent's system_prompt |
 | `--model <name>` / `--llm-provider-key <key>` | | LLM defaults baked into the bundle |
 | `--out <path>` | | write to file (default: stdout) |
@@ -385,6 +389,19 @@ briar scaffold implementation \
     --auth-mode pat --bitbucket-secret-id <uuid> \
     --trigger-kind schedule_cron --schedule "0 * * * *"
 
+# Sentry source (PAT-only), 15-min poll, triage flow.
+# Sentry contributes 4 action tools: sentry.{comment_on_issue,resolve_issue,
+# assign_issue,ignore_issue}. The triager archetype keeps only the
+# comment tool; engineer (default) keeps all four.
+briar scaffold implementation \
+    --prefix acme-onerror \
+    --source sentry \
+    --sentry-org acme --sentry-project backend --sentry-project worker \
+    --sentry-environment prod --sentry-level error --sentry-level fatal \
+    --sentry-secret-id <uuid> \
+    --shape triage --archetype triager \
+    --trigger-kind schedule_cron --schedule "*/15 * * * *"
+
 # Multi-source (GitHub + Jira + AWS), one-shot agent
 briar scaffold implementation \
     --prefix acme-hourly \
@@ -392,6 +409,15 @@ briar scaffold implementation \
     --owner iklobato --repo lightapi \
     --shape one-shot --out acme-hourly.json
 ```
+
+> **Source families.** Each source declares one of two families. `tracker`
+> sources (`github`, `bitbucket`, `jira`, `sentry`) read items and contribute
+> mutation tools (comment / resolve / assign / open-PR / commit / …). `cloud`
+> sources (`aws`) are read-only context — the agent inspects resource state
+> but doesn't write through tools. The archetype's `tool_filter` is a
+> substring match against `implementation_ref`, so naming verbs consistently
+> across sources (e.g. `comment_on_issue`) makes archetype filters compose
+> uniformly.
 
 ### `briar scaffold pr-fixes`
 

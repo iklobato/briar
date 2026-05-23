@@ -14,10 +14,11 @@ from briar.iac.scaffold.sources.base import SourceTemplate
 from briar.iac.scaffold.sources.bitbucket import SourceBitbucket
 from briar.iac.scaffold.sources.github import SourceGithub
 from briar.iac.scaffold.sources.jira import SourceJira
+from briar.iac.scaffold.sources.sentry import SourceSentry
 
 
 SOURCE_TEMPLATES: Dict[str, SourceTemplate] = build_registry(
-    (SourceGithub(), SourceBitbucket(), SourceJira(), SourceAws()),
+    (SourceGithub(), SourceBitbucket(), SourceJira(), SourceAws(), SourceSentry()),
     kind="scaffold source",
     name_attr="kind",
 )

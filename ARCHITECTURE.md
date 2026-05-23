@@ -150,7 +150,7 @@ flowchart LR
     WS([WorkflowShape]):::abc
     AA([AgentArchetype]):::abc
     Rul([Rule]):::abc
-    ST -.4 concretes.- ST
+    ST -.5 concretes.- ST
     TT -.4 concretes.- TT
     WS -.3 concretes.- WS
     AA -.5 concretes.- AA
@@ -315,6 +315,6 @@ be added without changing existing classes:
 | `ErrorPolicy` | per-provider `default_error_policies()` | anthropic: 6 policies covering 429/connect/503/529/401/403 | one tuple entry per (error class, decision) |
 | `AgentArchetype` | `iac/scaffold/archetypes/` | engineer, pr-fixer, pr-ci-fixer, pr-conflict-resolver, triager | one archetype |
 | `WorkflowShape` | `iac/scaffold/workflows/` | plan-approve-act, one-shot, triage | one shape |
-| `SourceTemplate` | `iac/scaffold/sources/` | github, bitbucket, jira, aws | one template |
+| `SourceTemplate` | `iac/scaffold/sources/` | github, bitbucket, jira, aws, sentry | one template |
 | `TriggerTemplate` | `iac/scaffold/triggers/` | github_webhook, bitbucket_webhook, schedule_cron, manual | one template |
 | `Rule` | `iac/scaffold/rules/` | 7 markdown rule snippets | one .md file |

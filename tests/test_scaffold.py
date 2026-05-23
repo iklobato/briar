@@ -45,6 +45,12 @@ def _ns(**kwargs) -> argparse.Namespace:
         "bitbucket_assignees_block": [],
         "bitbucket_webhook_events": [],
         "bitbucket_webhook_labels": ["briar"],
+        "sentry_org": None,
+        "sentry_project": [],
+        "sentry_environment": [],
+        "sentry_query": None,
+        "sentry_level": [],
+        "sentry_secret_id": None,
         "schedule": "0 * * * *",
     }
     defaults.update(kwargs)
@@ -191,11 +197,106 @@ class BitbucketSourceTests(unittest.TestCase):
         self.assertEqual(trigger["payload_to_context_mapping"]["issue_number"], "$.issue.id")
 
 
+class SentrySourceTests(unittest.TestCase):
+    """Sentry is a tracker-family source: read issues + mutate them
+    (resolve / assign / ignore / comment). PAT-only for now."""
+
+    def _sentry_ns(self, **overrides) -> argparse.Namespace:
+        ns = _ns(
+            source=["sentry"],
+            owner=None,
+            repo=None,
+            trigger_kind="schedule_cron",
+            sentry_org="acme",
+            sentry_project=["backend"],
+            sentry_secret_id="11111111-2222-3333-4444-555555555555",
+        )
+        for k, v in overrides.items():
+            setattr(ns, k, v)
+        return ns
+
+    def test_emits_sentry_source_with_org_and_projects(self) -> None:
+        tmpl = TEMPLATES["implementation"]
+        bundle = tmpl.build(self._sentry_ns(sentry_project=["backend", "worker"]))
+        sources = bundle["sources"]
+        self.assertEqual([s["kind"] for s in sources], ["sentry"])
+        config = sources[0]["config"]
+        self.assertEqual(config["org"], "acme")
+        self.assertEqual(config["projects"], ["backend", "worker"])
+        self.assertEqual(config["include"], "unresolved")
+
+    def test_optional_filters_only_appear_when_set(self) -> None:
+        tmpl = TEMPLATES["implementation"]
+        bundle = tmpl.build(self._sentry_ns())
+        config = bundle["sources"][0]["config"]
+        self.assertNotIn("environments", config)
+        self.assertNotIn("levels", config)
+        self.assertNotIn("query", config)
+
+        bundle = tmpl.build(
+            self._sentry_ns(
+                sentry_environment=["prod", "staging"],
+                sentry_level=["error", "fatal"],
+                sentry_query="is:unresolved age:-24h",
+            )
+        )
+        config = bundle["sources"][0]["config"]
+        self.assertEqual(config["environments"], ["prod", "staging"])
+        self.assertEqual(config["levels"], ["error", "fatal"])
+        self.assertEqual(config["query"], "is:unresolved age:-24h")
+
+    def test_emits_four_sentry_action_tools(self) -> None:
+        tmpl = TEMPLATES["implementation"]
+        bundle = tmpl.build(self._sentry_ns())
+        refs = sorted(t["implementation_ref"] for t in bundle["tools"])
+        self.assertEqual(
+            refs,
+            [
+                "sentry.assign_issue",
+                "sentry.comment_on_issue",
+                "sentry.ignore_issue",
+                "sentry.resolve_issue",
+            ],
+        )
+
+    def test_triager_archetype_keeps_only_comment_tool(self) -> None:
+        # triager.tool_filter = ("comment_on_issue", "add_labels", "comment")
+        # — only sentry.comment_on_issue matches.
+        tmpl = TEMPLATES["implementation"]
+        bundle = tmpl.build(self._sentry_ns(archetype="triager"))
+        refs = [t["implementation_ref"] for t in bundle["tools"]]
+        self.assertIn("sentry.comment_on_issue", refs)
+        self.assertNotIn("sentry.resolve_issue", refs)
+        self.assertNotIn("sentry.assign_issue", refs)
+        self.assertNotIn("sentry.ignore_issue", refs)
+
+    def test_target_interpolation_uses_org_and_first_project(self) -> None:
+        tmpl = TEMPLATES["implementation"]
+        bundle = tmpl.build(self._sentry_ns(sentry_project=["backend", "worker"]))
+        backstory = bundle["agents"][0]["backstory"]
+        self.assertIn("acme/backend", backstory)
+
+    def test_requires_org_and_at_least_one_project(self) -> None:
+        tmpl = TEMPLATES["implementation"]
+        with self.assertRaises(SystemExit):
+            tmpl.build(self._sentry_ns(sentry_org=None))
+        with self.assertRaises(SystemExit):
+            tmpl.build(self._sentry_ns(sentry_project=[]))
+
+    def test_requires_secret_id_regardless_of_auth_mode(self) -> None:
+        tmpl = TEMPLATES["implementation"]
+        # Even with auth_mode=oauth, Sentry still demands a PAT today.
+        with self.assertRaises(SystemExit):
+            tmpl.build(self._sentry_ns(sentry_secret_id=None, auth_mode="oauth"))
+        with self.assertRaises(SystemExit):
+            tmpl.build(self._sentry_ns(sentry_secret_id=None, auth_mode="pat"))
+
+
 class RegistryShapesTests(unittest.TestCase):
     """Every registry is non-empty and self-consistent."""
 
     def test_sources_registered(self) -> None:
-        for kind in ("github", "bitbucket", "jira", "aws"):
+        for kind in ("github", "bitbucket", "jira", "aws", "sentry"):
             self.assertIn(kind, SOURCE_TEMPLATES)
 
     def test_archetypes_registered(self) -> None:
