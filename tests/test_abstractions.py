@@ -1751,5 +1751,231 @@ class ErrorPolicyTests(unittest.TestCase):
         self.assertIsInstance(auth_policy.decision, Abort)
 
 
+class CredentialAcquirerTests(unittest.TestCase):
+    """`briar.auth` — interactive credential acquisition.
+
+    Pins the registry surface + each acquirer's happy-path
+    interactive flow via MockPromptIO. The flows that hit external
+    APIs (github-device, aws-sso) are tested with mocked HTTP."""
+
+    def test_registry_has_all_eight_acquirers(self) -> None:
+        from briar.auth import AcquirerRegistry
+
+        kinds = AcquirerRegistry.kinds()
+        expected = {
+            "github-device",
+            "github-pat",
+            "bitbucket-app-password",
+            "aws-static",
+            "aws-sso",
+            "jira-token",
+            "jira-session",
+            "linear-api-key",
+        }
+        self.assertEqual(set(kinds), expected)
+
+    def test_registry_rejects_unknown_kind(self) -> None:
+        from briar.auth import AcquirerRegistry
+        from briar.errors import CliError
+
+        with self.assertRaises(CliError):
+            AcquirerRegistry.make("not-a-real-provider")
+
+    def test_github_pat_flow_writes_github_token(self) -> None:
+        from briar.auth import AcquirerRegistry, MockPromptIO
+
+        acquirer = AcquirerRegistry.make("github-pat")
+        prompt = MockPromptIO(answers=["ghp_test_xyz"])
+        creds = acquirer.acquire(company="acme", prompt=prompt)
+        self.assertEqual(creds.provider_kind, "github-pat")
+        self.assertEqual(creds.entries, {"GITHUB_TOKEN": "ghp_test_xyz"})
+        self.assertIn("github.com/settings/tokens", prompt.opened_urls[0])
+
+    def test_jira_token_flow_writes_url_email_token_and_auth_kind(self) -> None:
+        from briar.auth import AcquirerRegistry, MockPromptIO
+
+        acquirer = AcquirerRegistry.make("jira-token")
+        prompt = MockPromptIO(answers=[
+            "https://acme.atlassian.net/",  # URL (trailing / stripped)
+            "ops@acme.com",
+            "atlassian-api-token-xyz",
+        ])
+        creds = acquirer.acquire(company="acme", prompt=prompt)
+        self.assertEqual(creds.entries["JIRA_ACME_URL"], "https://acme.atlassian.net")
+        self.assertEqual(creds.entries["JIRA_ACME_EMAIL"], "ops@acme.com")
+        self.assertEqual(creds.entries["JIRA_ACME_TOKEN"], "atlassian-api-token-xyz")
+        # AUTH_KIND=token so JiraAuthRegistry.autodetect picks this strategy
+        self.assertEqual(creds.entries["JIRA_ACME_AUTH_KIND"], "token")
+
+    def test_jira_session_flow_decodes_jwt_exp(self) -> None:
+        """`expires_at` should be populated from the JWT's exp claim."""
+        import base64
+        import json
+        import time
+        from briar.auth import AcquirerRegistry, MockPromptIO
+
+        # Build a tiny 3-segment JWT with exp = now + 1 hour
+        exp = int(time.time()) + 3600
+        payload = json.dumps({"exp": exp, "email": "h@acme.com"}).encode("utf-8")
+        b64 = base64.urlsafe_b64encode(payload).rstrip(b"=").decode("ascii")
+        jwt = f"eyJhbGciOiJIUzI1NiJ9.{b64}.fake-sig"
+
+        acquirer = AcquirerRegistry.make("jira-session")
+        prompt = MockPromptIO(answers=[
+            "https://acme.atlassian.net",
+            jwt,
+            "",  # skip cloud.session.token
+            "",  # skip atlassian.xsrf.token
+        ])
+        creds = acquirer.acquire(company="acme", prompt=prompt)
+        self.assertEqual(creds.entries["JIRA_ACME_TENANT_SESSION_TOKEN"], jwt)
+        self.assertEqual(creds.entries["JIRA_ACME_AUTH_KIND"], "session")
+        # cloud / xsrf NOT in entries because they were left empty
+        self.assertNotIn("JIRA_ACME_SESSION_TOKEN", creds.entries)
+        self.assertNotIn("JIRA_ACME_XSRF_TOKEN", creds.entries)
+        # JWT exp parsed
+        self.assertIsNotNone(creds.expires_at)
+
+    def test_aws_static_writes_all_four_env_vars(self) -> None:
+        from briar.auth import AcquirerRegistry, MockPromptIO
+
+        acquirer = AcquirerRegistry.make("aws-static")
+        prompt = MockPromptIO(answers=["AKIATEST123", "secret-xyz", ""])  # region empty → default
+        creds = acquirer.acquire(company="acme", prompt=prompt)
+        self.assertEqual(creds.entries["AWS_ACME_ACCESS_KEY_ID"], "AKIATEST123")
+        self.assertEqual(creds.entries["AWS_ACME_SECRET_ACCESS_KEY"], "secret-xyz")
+        self.assertEqual(creds.entries["AWS_ACME_REGION"], "us-east-1")  # default
+
+    def test_bitbucket_writes_workspace_username_password(self) -> None:
+        from briar.auth import AcquirerRegistry, MockPromptIO
+
+        acquirer = AcquirerRegistry.make("bitbucket-app-password")
+        prompt = MockPromptIO(answers=["acme-ws", "alice", "app-pwd-secret"])
+        creds = acquirer.acquire(company="acme", prompt=prompt)
+        self.assertEqual(creds.entries["BITBUCKET_ACME_WORKSPACE"], "acme-ws")
+        self.assertEqual(creds.entries["BITBUCKET_ACME_USERNAME"], "alice")
+        self.assertEqual(creds.entries["BITBUCKET_ACME_APP_PASSWORD"], "app-pwd-secret")
+
+    def test_linear_writes_company_token(self) -> None:
+        from briar.auth import AcquirerRegistry, MockPromptIO
+
+        acquirer = AcquirerRegistry.make("linear-api-key")
+        prompt = MockPromptIO(answers=["lin_api_xyz"])
+        creds = acquirer.acquire(company="bitspark", prompt=prompt)
+        self.assertEqual(creds.entries, {"LINEAR_BITSPARK_TOKEN": "lin_api_xyz"})
+
+    def test_empty_company_rejected_by_per_company_acquirers(self) -> None:
+        """Acquirers that write per-company env vars must reject ``company=""``
+        instead of silently writing ``AWS__ACCESS_KEY_ID``."""
+        from briar.auth import AcquirerRegistry, MockPromptIO
+
+        for kind in ("aws-static", "bitbucket-app-password", "jira-token", "jira-session", "linear-api-key"):
+            acquirer = AcquirerRegistry.make(kind)
+            with self.assertRaises(ValueError):
+                acquirer.acquire(company="", prompt=MockPromptIO(answers=[]))
+
+    def test_paste_acquirers_refresh_raises_credential_expired(self) -> None:
+        """Default ``refresh()`` for paste-flow acquirers must raise
+        ``CredentialExpired`` so the CLI knows to ask for a fresh login."""
+        from briar.auth import AcquirerRegistry, CredentialExpired, Credentials
+
+        empty = Credentials(provider_kind="x", entries={})
+        for kind in ("github-pat", "jira-token", "jira-session", "linear-api-key", "aws-static", "bitbucket-app-password"):
+            with self.assertRaises(CredentialExpired):
+                AcquirerRegistry.make(kind).refresh(company="x", existing=empty)
+
+    def test_writes_classmethod_matches_acquire_keys(self) -> None:
+        """``writes()`` is the doctor's audit hook — must list the
+        same keys that ``acquire()`` returns. Drift here means
+        ``briar auth status`` reports wrong missing-vars."""
+        from briar.auth import AcquirerRegistry, MockPromptIO
+
+        cases = {
+            "github-pat": (["ghp_x"], "acme"),
+            "jira-token": (["https://u.atlassian.net", "e@u.com", "tok"], "acme"),
+            "linear-api-key": (["lin_x"], "acme"),
+            "aws-static": (["AKIA1", "sec1", "us-west-2"], "acme"),
+            "bitbucket-app-password": (["ws", "user", "pwd"], "acme"),
+        }
+        for kind, (answers, company) in cases.items():
+            acquirer = AcquirerRegistry.make(kind)
+            creds = acquirer.acquire(company=company, prompt=MockPromptIO(answers=answers))
+            declared = set(type(acquirer).writes(company=company))
+            # `writes` must be a subset of what `acquire` returns —
+            # acquirers may write optional extras (xsrf, AUTH_KIND)
+            # beyond the mandatory set the doctor audits.
+            self.assertTrue(
+                declared.issubset(set(creds.entries.keys())),
+                f"{kind}: writes() {declared} not subset of acquire() {set(creds.entries.keys())}",
+            )
+
+
+class EnvFileStoreWriteTests(unittest.TestCase):
+    """``EnvFileStore.write/delete`` — file persistence + os.environ
+    update, idempotent replace-in-place."""
+
+    def setUp(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.path = Path(self.tmpdir.name) / "secrets.env"
+        self._patcher = mock.patch.dict(os.environ, {"BRIAR_SECRETS_FILE": str(self.path)}, clear=False)
+        self._patcher.start()
+
+    def tearDown(self) -> None:
+        self._patcher.stop()
+        self.tmpdir.cleanup()
+        # Clean up any test keys we leaked into os.environ
+        for k in list(os.environ.keys()):
+            if k.startswith("TEST_BRIAR_"):
+                del os.environ[k]
+
+    def test_write_creates_file_and_updates_environ(self) -> None:
+        from briar.credentials.envfile import EnvFileStore
+
+        store = EnvFileStore()
+        store.write("TEST_BRIAR_FOO", "bar")
+        self.assertEqual(os.environ["TEST_BRIAR_FOO"], "bar")
+        self.assertIn("TEST_BRIAR_FOO=bar", self.path.read_text())
+
+    def test_write_replaces_in_place_no_duplicate(self) -> None:
+        from briar.credentials.envfile import EnvFileStore
+
+        store = EnvFileStore()
+        store.write("TEST_BRIAR_FOO", "first")
+        store.write("TEST_BRIAR_FOO", "second")
+        contents = self.path.read_text()
+        # Only ONE TEST_BRIAR_FOO= line, with the latest value
+        self.assertEqual(contents.count("TEST_BRIAR_FOO="), 1)
+        self.assertIn("TEST_BRIAR_FOO=second", contents)
+        self.assertNotIn("TEST_BRIAR_FOO=first", contents)
+
+    def test_write_validates_env_var_name(self) -> None:
+        from briar.credentials.envfile import EnvFileStore
+
+        store = EnvFileStore()
+        with self.assertRaises(ValueError):
+            store.write("lowercase-bad", "x")
+        with self.assertRaises(ValueError):
+            store.write("123_LEADING_DIGIT", "x")
+
+    def test_delete_removes_from_environ_and_file(self) -> None:
+        from briar.credentials.envfile import EnvFileStore
+
+        store = EnvFileStore()
+        store.write("TEST_BRIAR_FOO", "bar")
+        removed = store.delete("TEST_BRIAR_FOO")
+        self.assertTrue(removed)
+        self.assertNotIn("TEST_BRIAR_FOO", os.environ)
+        self.assertNotIn("TEST_BRIAR_FOO=", self.path.read_text())
+
+    def test_delete_returns_false_when_missing(self) -> None:
+        from briar.credentials.envfile import EnvFileStore
+
+        store = EnvFileStore()
+        self.assertFalse(store.delete("TEST_BRIAR_DOES_NOT_EXIST"))
+
+
 if __name__ == "__main__":
     unittest.main()

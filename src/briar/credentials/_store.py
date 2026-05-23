@@ -30,6 +30,19 @@ class CredentialStore(ABC):
         """Return the value for `name`, or ``""`` if missing."""
 
     @abstractmethod
+    def write(self, name: str, value: str) -> None:
+        """Persist a credential. Overwrites existing values of the
+        same name. Used by ``briar auth login`` after a successful
+        acquire. Failures raise — callers propagate so the operator
+        sees the underlying SDK error."""
+
+    @abstractmethod
+    def delete(self, name: str) -> bool:
+        """Remove a credential. Returns True if a value existed and was
+        removed, False if the name was unknown. Used by
+        ``briar auth logout``."""
+
+    @abstractmethod
     def list(self) -> List[str]:
         """Enumerate every credential name this store knows."""
 

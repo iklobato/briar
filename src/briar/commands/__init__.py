@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Dict, List, Type
 
 from briar.commands.agent import CommandAgent
+from briar.commands.auth import CommandAuth
 from briar.commands.base import Command, confirm
 from briar.commands.context import ContextCommand
 from briar.commands.dashboard import CommandDashboard
@@ -30,6 +31,7 @@ class CommandRegistry:
         ContextCommand,
         CommandDashboard,
         CommandAgent,
+        CommandAuth,
         CommandSecrets,
         CommandVersion,
     ]

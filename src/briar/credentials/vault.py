@@ -72,6 +72,32 @@ class VaultStore(CredentialStore):
         self._cache[name] = value
         return value
 
+    def write(self, name: str, value: str) -> None:
+        """KV v2 create-or-update. Stores as ``{value: ...}`` so
+        ``read`` can find it regardless of the operator's preferred
+        key convention."""
+        client = self._build_client()
+        client.secrets.kv.v2.create_or_update_secret(
+            path=f"{self.PATH_PREFIX}{name}",
+            secret={"value": value},
+            mount_point=self.MOUNT_POINT,
+        )
+        self._cache[name] = value
+
+    def delete(self, name: str) -> bool:
+        client = self._build_client()
+        try:
+            client.secrets.kv.v2.delete_metadata_and_all_versions(
+                path=f"{self.PATH_PREFIX}{name}",
+                mount_point=self.MOUNT_POINT,
+            )
+        except Exception as exc:  # noqa: BLE001
+            if "404" in str(exc):
+                return False
+            raise
+        self._cache.pop(name, None)
+        return True
+
     def list(self) -> List[str]:
         client = self._build_client()
         try:

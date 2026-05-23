@@ -62,6 +62,34 @@ class AwsSecretsManagerStore(CredentialStore):
         self._cache[name] = value
         return value
 
+    def write(self, name: str, value: str) -> None:
+        """Upsert via PutSecretValue; falls through to CreateSecret on
+        first-time write."""
+        client = self._make_client()
+        secret_id = f"{self.PREFIX}{name}"
+        try:
+            client.put_secret_value(SecretId=secret_id, SecretString=value)
+        except Exception as exc:  # noqa: BLE001
+            if "resourcenotfoundexception" in str(exc).lower() or "not found" in str(exc).lower():
+                client.create_secret(Name=secret_id, SecretString=value)
+            else:
+                log.exception("aws-secretsmanager write name=%s", name)
+                raise
+        self._cache[name] = value
+
+    def delete(self, name: str) -> bool:
+        """Force-delete with no recovery window."""
+        client = self._make_client()
+        secret_id = f"{self.PREFIX}{name}"
+        try:
+            client.delete_secret(SecretId=secret_id, ForceDeleteWithoutRecovery=True)
+        except Exception as exc:  # noqa: BLE001
+            if "resourcenotfoundexception" in str(exc).lower():
+                return False
+            raise
+        self._cache.pop(name, None)
+        return True
+
     def list(self) -> List[str]:
         client = self._make_client()
         out: List[str] = []

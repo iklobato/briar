@@ -48,6 +48,29 @@ class SsmParameterStore(CredentialStore):
         self._cache[name] = value
         return value
 
+    def write(self, name: str, value: str) -> None:
+        """Upsert via PutParameter with Overwrite=True. SecureString
+        type forces KMS encryption (default key under the account)."""
+        client = self._make_client()
+        client.put_parameter(
+            Name=f"{self.PREFIX}{name}",
+            Value=value,
+            Type="SecureString",
+            Overwrite=True,
+        )
+        self._cache[name] = value
+
+    def delete(self, name: str) -> bool:
+        client = self._make_client()
+        try:
+            client.delete_parameter(Name=f"{self.PREFIX}{name}")
+        except Exception as exc:  # noqa: BLE001
+            if "parameternotfound" in str(exc).lower():
+                return False
+            raise
+        self._cache.pop(name, None)
+        return True
+
     def list(self) -> List[str]:
         client = self._make_client()
         out: List[str] = []
