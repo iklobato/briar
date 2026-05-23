@@ -1149,7 +1149,27 @@ class JiraAuthStrategyTests(unittest.TestCase):
         from briar.extract._trackers._jira_auth import JiraSessionAuth
 
         names = JiraSessionAuth.required_env_vars(company="acme")
-        self.assertEqual(names, ["JIRA_ACME_SESSION_TOKEN"])
+        # Either token is sufficient; doctor lists both so operator
+        # knows the choices.
+        self.assertEqual(
+            names,
+            ["JIRA_ACME_SESSION_TOKEN", "JIRA_ACME_TENANT_SESSION_TOKEN"],
+        )
+
+    def test_session_strategy_is_available_with_tenant_token_only(self) -> None:
+        """Atlassian's `tenant.session.token` alone is sufficient for
+        tenant-scoped REST calls — `cloud.session.token` is not
+        always set in newer browser sessions."""
+        from briar.extract._trackers._jira_auth import JiraSessionAuth
+
+        env = {
+            "JIRA_ACME_SESSION_TOKEN": "",
+            "JIRA_ACME_TENANT_SESSION_TOKEN": "tenant-jwt-blob",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            self.assertTrue(JiraSessionAuth.is_available(company="acme"))
+            kwargs = JiraSessionAuth().configure(company="acme", base_url="https://acme.atlassian.net")
+        self.assertEqual(kwargs["cookies"], {"tenant.session.token": "tenant-jwt-blob"})
 
     def test_token_strategy_configure_returns_basic_auth_kwargs(self) -> None:
         from briar.extract._trackers._jira_auth import JiraTokenAuth
@@ -1256,7 +1276,7 @@ class JiraAuthStrategyTests(unittest.TestCase):
         with mock.patch.dict(os.environ, env_session, clear=False):
             self.assertEqual(
                 JiraTracker.required_env_vars(company="acme"),
-                ["JIRA_ACME_URL", "JIRA_ACME_SESSION_TOKEN"],
+                ["JIRA_ACME_URL", "JIRA_ACME_SESSION_TOKEN", "JIRA_ACME_TENANT_SESSION_TOKEN"],
             )
 
         # Case 2: no session token → doctor sees token-strategy vars

@@ -125,31 +125,42 @@ class JiraSessionAuth(JiraAuthStrategy):
     def required_env_vars(cls, *, company: str) -> List[str]:
         if not company:
             return []
-        # SESSION_TOKEN is the only hard requirement; the other three
-        # are optional but listed so `briar secrets doctor` surfaces
-        # them as expected configuration knobs.
+        # Either SESSION_TOKEN (cloud.session.token) OR
+        # TENANT_SESSION_TOKEN (tenant.session.token) is sufficient —
+        # Atlassian uses both shapes depending on the scope of the
+        # logged-in session. We list both so `briar secrets doctor`
+        # tells the operator what the choices are; `is_available`
+        # accepts either.
         return [
             CredEnv.JIRA_SESSION_TOKEN.for_company(company),
+            CredEnv.JIRA_TENANT_SESSION_TOKEN.for_company(company),
         ]
 
     @classmethod
     def is_available(cls, *, company: str) -> bool:
         if not company:
             return False
-        return bool(CredEnv.JIRA_SESSION_TOKEN.read(company))
+        return bool(
+            CredEnv.JIRA_SESSION_TOKEN.read(company)
+            or CredEnv.JIRA_TENANT_SESSION_TOKEN.read(company)
+        )
 
     def configure(self, *, company: str, base_url: str) -> Dict[str, Any]:
         cloud_session = CredEnv.JIRA_SESSION_TOKEN.read(company)
-        if not cloud_session:
-            raise CliError(
-                f"JiraSessionAuth: missing {CredEnv.JIRA_SESSION_TOKEN.for_company(company)} "
-                f"— paste the `cloud.session.token` cookie value from your browser's DevTools"
-            )
         tenant_session = CredEnv.JIRA_TENANT_SESSION_TOKEN.read(company)
+        if not (cloud_session or tenant_session):
+            raise CliError(
+                f"JiraSessionAuth: need at least one of "
+                f"{CredEnv.JIRA_SESSION_TOKEN.for_company(company)} (cloud.session.token) or "
+                f"{CredEnv.JIRA_TENANT_SESSION_TOKEN.for_company(company)} (tenant.session.token) "
+                f"— paste either cookie value from your browser's DevTools"
+            )
         xsrf = CredEnv.JIRA_XSRF_TOKEN.read(company)
         user_agent = CredEnv.JIRA_USER_AGENT.read(company) or _DEFAULT_UA
 
-        cookies: Dict[str, str] = {"cloud.session.token": cloud_session}
+        cookies: Dict[str, str] = {}
+        if cloud_session:
+            cookies["cloud.session.token"] = cloud_session
         if tenant_session:
             cookies["tenant.session.token"] = tenant_session
         if xsrf:
@@ -212,7 +223,8 @@ class JiraAuthRegistry:
 
         Priority:
           1. ``JIRA_{COMPANY}_AUTH_KIND`` env var (explicit override)
-          2. session auth — picked when any session-token env var is set
+          2. session auth — picked when either ``JIRA_{c}_SESSION_TOKEN``
+             or ``JIRA_{c}_TENANT_SESSION_TOKEN`` is set
           3. token auth — final fallback
 
         Returns an instance, never None. The instance may not be
