@@ -10,13 +10,14 @@ from briar._registry import build_registry
 from briar.credentials._store import CredentialStore
 from briar.credentials.aws_secrets import AwsSecretsManagerStore
 from briar.credentials.envfile import EnvFileStore
+from briar.credentials.infisical import InfisicalStore
 from briar.credentials.ssm import SsmParameterStore
 from briar.credentials.vault import VaultStore
 from briar.errors import CliError
 
 
 STORES: Dict[str, Type[CredentialStore]] = build_registry(
-    (EnvFileStore, AwsSecretsManagerStore, SsmParameterStore, VaultStore),
+    (EnvFileStore, AwsSecretsManagerStore, SsmParameterStore, VaultStore, InfisicalStore),
     kind="credential store",
     name_attr="kind",
 )

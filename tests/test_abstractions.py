@@ -1758,7 +1758,7 @@ class CredentialAcquirerTests(unittest.TestCase):
     interactive flow via MockPromptIO. The flows that hit external
     APIs (github-device, aws-sso) are tested with mocked HTTP."""
 
-    def test_registry_has_all_eight_acquirers(self) -> None:
+    def test_registry_has_all_acquirers(self) -> None:
         from briar.auth import AcquirerRegistry
 
         kinds = AcquirerRegistry.kinds()
@@ -1771,8 +1771,184 @@ class CredentialAcquirerTests(unittest.TestCase):
             "jira-token",
             "jira-session",
             "linear-api-key",
+            "infisical",
         }
         self.assertEqual(set(kinds), expected)
+
+    def test_infisical_acquirer_writes_machine_identity_triplet(self) -> None:
+        """The "log into Infisical" bootstrap flow. Captures the
+        three machine-identity creds + the env-slug + host. Company
+        is irrelevant (Infisical is workspace-wide)."""
+        from briar.auth import AcquirerRegistry, MockPromptIO
+
+        acquirer = AcquirerRegistry.make("infisical")
+        prompt = MockPromptIO(answers=[
+            "client-id-uuid",
+            "client-secret-very-long",
+            "project-id-uuid",
+            "",  # env slug — accept default "prod"
+            "",  # host — accept default
+        ])
+        creds = acquirer.acquire(company="", prompt=prompt)
+        self.assertEqual(creds.entries["INFISICAL_CLIENT_ID"], "client-id-uuid")
+        self.assertEqual(creds.entries["INFISICAL_CLIENT_SECRET"], "client-secret-very-long")
+        self.assertEqual(creds.entries["INFISICAL_PROJECT_ID"], "project-id-uuid")
+        self.assertEqual(creds.entries["INFISICAL_ENV"], "prod")
+        self.assertEqual(creds.entries["INFISICAL_HOST"], "https://app.infisical.com")
+        self.assertIn("machine-identities", prompt.opened_urls[0])
+
+    def test_infisical_acquirer_rejects_missing_required_triplet(self) -> None:
+        from briar.auth import AcquirerRegistry, MockPromptIO
+
+        acquirer = AcquirerRegistry.make("infisical")
+        prompt = MockPromptIO(answers=["", "", "", "", ""])  # all empty
+        with self.assertRaises(ValueError):
+            acquirer.acquire(company="", prompt=prompt)
+
+    def test_default_destination_policy_is_external(self) -> None:
+        """Vendor acquirers (github, aws, jira, …) should let --store
+        decide where their result lands."""
+        from briar.auth import AcquirerRegistry
+        from briar.auth._acquirer import DestinationPolicy
+
+        for kind in ("github-pat", "github-device", "aws-static", "aws-sso",
+                     "jira-token", "jira-session", "linear-api-key",
+                     "bitbucket-app-password"):
+            acquirer = AcquirerRegistry.make(kind)
+            self.assertIs(type(acquirer).destination_policy, DestinationPolicy.EXTERNAL,
+                          f"{kind} should be EXTERNAL")
+
+    def test_infisical_acquirer_is_bootstrap_local(self) -> None:
+        """Store-bootstrap acquirers must persist to envfile only —
+        you can't store the credentials for a store inside that store."""
+        from briar.auth import AcquirerRegistry
+        from briar.auth._acquirer import DestinationPolicy
+
+        self.assertIs(
+            type(AcquirerRegistry.make("infisical")).destination_policy,
+            DestinationPolicy.BOOTSTRAP_LOCAL,
+        )
+
+
+class CommandAuthStoreResolutionTests(unittest.TestCase):
+    """`briar auth` CLI surface — positional target + destination policy."""
+
+    def test_resolve_default_store_uses_env_when_known(self) -> None:
+        from briar.commands.auth import _resolve_default_store
+
+        with mock.patch.dict(os.environ, {"BRIAR_DEFAULT_STORE": "infisical"}, clear=False):
+            self.assertEqual(_resolve_default_store(["envfile", "infisical", "vault"]), "infisical")
+
+    def test_resolve_default_store_ignores_unknown_env(self) -> None:
+        from briar.commands.auth import _resolve_default_store
+
+        with mock.patch.dict(os.environ, {"BRIAR_DEFAULT_STORE": "not-a-real-store"}, clear=False):
+            # Unknown → fall back to envfile (safe default)
+            self.assertEqual(_resolve_default_store(["envfile", "vault"]), "envfile")
+
+    def test_resolve_default_store_falls_back_to_envfile(self) -> None:
+        from briar.commands.auth import _resolve_default_store
+
+        with mock.patch.dict(os.environ, {"BRIAR_DEFAULT_STORE": ""}, clear=False):
+            self.assertEqual(_resolve_default_store(["envfile", "vault"]), "envfile")
+
+    def test_effective_store_forces_envfile_for_bootstrap(self) -> None:
+        """If the operator types `--store infisical` with target
+        `infisical`, the bootstrap policy must override that — you'd
+        be trying to store Infisical's machine identity INSIDE the
+        Infisical store, which is impossible."""
+        from briar.auth import AcquirerRegistry
+        from briar.commands.auth import _effective_store_kind
+
+        acquirer = AcquirerRegistry.make("infisical")
+        self.assertEqual(_effective_store_kind(acquirer, requested="infisical"), "envfile")
+        self.assertEqual(_effective_store_kind(acquirer, requested="vault"), "envfile")
+        # envfile + envfile is fine
+        self.assertEqual(_effective_store_kind(acquirer, requested="envfile"), "envfile")
+
+    def test_effective_store_honours_request_for_external(self) -> None:
+        """Vendor acquirers go wherever --store says."""
+        from briar.auth import AcquirerRegistry
+        from briar.commands.auth import _effective_store_kind
+
+        for kind in ("github-pat", "jira-session", "aws-static"):
+            acquirer = AcquirerRegistry.make(kind)
+            self.assertEqual(_effective_store_kind(acquirer, requested="infisical"), "infisical")
+            self.assertEqual(_effective_store_kind(acquirer, requested="vault"), "vault")
+            self.assertEqual(_effective_store_kind(acquirer, requested="envfile"), "envfile")
+
+
+class InfisicalStoreTests(unittest.TestCase):
+    """`InfisicalStore` — read/write/delete/list against the Infisical
+    Secrets API. SDK calls are mocked — these tests pin the contract
+    surface (what we call into the SDK with), not the SDK's behaviour."""
+
+    def setUp(self) -> None:
+        self._env_patch = mock.patch.dict(
+            os.environ,
+            {
+                "INFISICAL_CLIENT_ID": "test-cid",
+                "INFISICAL_CLIENT_SECRET": "test-cs",
+                "INFISICAL_PROJECT_ID": "test-pid",
+                "INFISICAL_ENV": "prod",
+                "INFISICAL_HOST": "https://app.infisical.com",
+            },
+            clear=False,
+        )
+        self._env_patch.start()
+
+    def tearDown(self) -> None:
+        self._env_patch.stop()
+
+    def test_registered_in_credential_store_registry(self) -> None:
+        from briar.credentials import CredentialStoreRegistry
+
+        self.assertIn("infisical", CredentialStoreRegistry.kinds())
+
+    def test_read_returns_empty_when_creds_missing(self) -> None:
+        """Silent miss matches EnvFileStore semantics — the doctor can
+        audit without forcing operators to install the extra."""
+        from briar.credentials.infisical import InfisicalStore
+
+        env = {"INFISICAL_CLIENT_ID": "", "INFISICAL_CLIENT_SECRET": "", "INFISICAL_PROJECT_ID": ""}
+        with mock.patch.dict(os.environ, env, clear=False):
+            store = InfisicalStore()
+            self.assertEqual(store.read("ANYTHING"), "")
+
+    def test_write_calls_update_then_falls_back_to_create_on_not_found(self) -> None:
+        """Symmetric to AwsSecretsManagerStore — try update first, fall
+        through to create on the SDK's not-found error."""
+        from briar.credentials.infisical import InfisicalStore
+
+        store = InfisicalStore()
+        fake_client = mock.MagicMock()
+        # First call (update) raises a "not found" — second call (create) succeeds
+        fake_client.secrets.update_secret_by_name.side_effect = RuntimeError("Secret not found")
+        fake_client.secrets.create_secret_by_name.return_value = None
+        store._client = fake_client  # bypass _build_client
+
+        store.write("GITHUB_TOKEN", "ghp_xyz")
+        fake_client.secrets.update_secret_by_name.assert_called_once()
+        fake_client.secrets.create_secret_by_name.assert_called_once()
+        # cached
+        self.assertEqual(store._cache["GITHUB_TOKEN"], "ghp_xyz")
+
+    def test_delete_returns_false_on_not_found(self) -> None:
+        from briar.credentials.infisical import InfisicalStore
+
+        store = InfisicalStore()
+        fake_client = mock.MagicMock()
+        fake_client.secrets.delete_secret_by_name.side_effect = RuntimeError("404 not found")
+        store._client = fake_client
+        self.assertFalse(store.delete("DOES_NOT_EXIST"))
+
+    def test_list_empty_when_creds_missing(self) -> None:
+        from briar.credentials.infisical import InfisicalStore
+
+        env = {"INFISICAL_CLIENT_ID": "", "INFISICAL_CLIENT_SECRET": "", "INFISICAL_PROJECT_ID": ""}
+        with mock.patch.dict(os.environ, env, clear=False):
+            store = InfisicalStore()
+            self.assertEqual(store.list(), [])
 
     def test_registry_rejects_unknown_kind(self) -> None:
         from briar.auth import AcquirerRegistry
