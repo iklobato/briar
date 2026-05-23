@@ -698,12 +698,12 @@ predict the blast radius of a change.
 
 ```
             ┌──────────────────────────────────────────┐
-            │ briar runbook serve companies/ --tick 5  │
+            │ briar runbook serve runbooks/ --tick 5  │
             └─────────────────────┬────────────────────┘
                                   │
         reads at startup          │           reads at every fire
    ┌──────────────────────┐       │       ┌────────────────────────┐
-   │ companies/*.yaml     │       │       │ /etc/briar/secrets.env │
+   │ runbooks/*.yaml     │       │       │ /etc/briar/secrets.env │
    │  (CompanyEntry +     │◄──────┴──────►│  per-fire env vars     │
    │   ScheduleEntry)     │               │  (GITHUB_TOKEN,        │
    └──────────────────────┘               │   JIRA_*, AWS_*, ...)  │
@@ -743,7 +743,7 @@ predict the blast radius of a change.
    └────────────────┘                          ./knowledge/*.md
 ```
 
-A change in `companies/*.yaml` is picked up on the **next** schedule
+A change in `runbooks/*.yaml` is picked up on the **next** schedule
 fire because the executor re-loads the YAML on every iteration. Code
 changes need a scheduler restart (the `briar` Python process caches
 imported modules).
@@ -751,7 +751,7 @@ imported modules).
 ### `briar runbook extract <file.yaml>` — one-shot
 
 ```
-   briar runbook extract companies/acme.yaml [--task tickets]
+   briar runbook extract runbooks/acme.yaml [--task tickets]
                               │
                               ▼
                   Same executor path as `serve`,
@@ -770,13 +770,13 @@ verifying Jira session auth before letting the scheduler run for
        │ briar agent prfix --company acme                  │
        │   --owner acme-co --repo acme-app              │
        │   --pr 42 --branch feature/x                        │
-       │   --runbook companies/acme.yaml                   │
+       │   --runbook runbooks/acme.yaml                   │
        └────────────────────────┬────────────────────────────┘
                                 │
         ┌───────────────────────┼────────────────────────┐
         ▼                       ▼                        ▼
    ┌──────────┐         ┌────────────┐         ┌─────────────────┐
-   │ secrets  │         │ companies/ │         │ KnowledgeStore  │
+   │ secrets  │         │ runbooks/ │         │ KnowledgeStore  │
    │ .env     │         │ acme.yaml│         │ .get("knowledge:│
    │ • GITHUB │         │ • messages │         │      acme")   │
    │ • JIRA_* │         │ • git_id   │         │  (previously    │
@@ -961,7 +961,7 @@ enum value + one branch in `_effective_store_kind`.
 
 | You changed... | Restart needed | Effect |
 |---|---|---|
-| `companies/*.yaml` | no (next fire) | scheduler re-reads on every tick |
+| `runbooks/*.yaml` | no (next fire) | scheduler re-reads on every tick |
 | `/etc/briar/secrets.env` | yes | scheduler holds env in process memory |
 | `src/briar/` (editable install) | yes | imported modules are cached |
 | Postgres `briar_knowledge` table | no | scheduler reads fresh on each fire |
@@ -993,20 +993,19 @@ tab.
 
 ## Examples + further reading
 
-- `companies/` (gitignored — keep your real runbooks here so they
+- `runbooks/` (gitignored — keep your real runbooks here so they
   don't leak into the public repo). Recommended pattern: one YAML
   per company, all with `knowledge.config.dsn_env: BRIAR_KB_DATABASE_URL`
   so they share a managed-Postgres knowledge store with row-level
-  partitioning by the `company` column.
+  partitioning by the `company` column. Real-company planning docs
+  (e.g. project roadmaps) belong here too.
 - [`examples/all_features.yaml`](examples/all_features.yaml) — every
   abstraction × provider × writer combination across 4 companies.
   Schema reference for `knowledge.config`, `messages:`, `git_identity:`,
   and the Jira auth-strategy selector.
 - [`examples/multi_company.yaml`](examples/multi_company.yaml) +
   [`.env.example`](examples/multi_company.env.example) — 3-company
-  tutorial without the `messages:` block
-- [`examples/acme.yaml`](examples/acme.yaml) — real deployment
-  (Bitbucket workspace token + AWS instance role)
+  tutorial without the `messages:` block.
 - [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) — per-provider
   credential acquisition guide (incl. Jira API token AND
   browser-session-cookie paths)

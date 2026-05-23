@@ -24,7 +24,6 @@ config.json
 .DS_Store
 .idea/
 .vscode/
-acme-roadmap.md
 
-# Real-company runbooks — kept local, not for public repo
-companies/
+# Real-company runbooks + planning docs — kept local, not for public repo
+runbooks/

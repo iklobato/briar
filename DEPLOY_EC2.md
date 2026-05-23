@@ -227,7 +227,7 @@ GITHUB_TOKEN=<paste-pat>
 #   3. BRIAR_DATABASE_URL (global fallback)
 # Recommended for multi-company deploys sharing one cluster:
 #   BRIAR_KB_DATABASE_URL=postgresql://briar_kb:<pwd>@<host>:25060/<db>?sslmode=require
-# Then point each `companies/*.yaml`'s knowledge.config.dsn_env at it.
+# Then point each `runbooks/*.yaml`'s knowledge.config.dsn_env at it.
 # BRIAR_KB_DATABASE_URL=...
 # BRIAR_DATABASE_URL=...
 
