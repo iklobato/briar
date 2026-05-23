@@ -1,9 +1,9 @@
 # briar — local extraction + scheduling CLI
 
 Python CLI that mines live state from external systems (GitHub,
-Bitbucket, AWS, GCP, Azure, Jira, Linear, …), schedules per-company
-extraction in-process, and runs autonomous LLM-driven agents
-against the resulting knowledge.
+Bitbucket, AWS, GCP, Azure, Jira, Linear, Fireflies, …), schedules
+per-company extraction in-process, and runs autonomous LLM-driven
+agents against the resulting knowledge.
 
 Everything runs locally — no `api.usebriar.com` service, no remote
 workspace. Each command shells out to the external APIs directly
@@ -57,10 +57,11 @@ path (`-e '.[openai]'`) when working from a local checkout.
 
 Base install always works for: GitHub + Bitbucket extractors, AWS
 infra, Jira/Linear/GitHub-Issues/Bitbucket-Issues trackers,
-Anthropic LLM, AWS Bedrock LLM, all 6 message writers (jira-comment,
-jira-transition, slack-channel, telegram-chat, github-pr-comment,
-bitbucket-pr-comment), all 4 notification sinks, file + postgres
-knowledge stores, AWS Secrets Manager / SSM credential stores.
+Fireflies meeting transcripts, Anthropic LLM, AWS Bedrock LLM,
+all 6 message writers (jira-comment, jira-transition, slack-channel,
+telegram-chat, github-pr-comment, bitbucket-pr-comment), all 4
+notification sinks, file + postgres knowledge stores, AWS Secrets
+Manager / SSM credential stores.
 
 Python 3.10+. Tested through 3.12.
 
@@ -73,6 +74,7 @@ briar version
 briar extract       — one-shot extraction
 briar runbook       — scheduled extraction (extract / sweep / serve)
 briar agent         — autonomous LLM-driven flows (prfix / implement)
+briar plan          — sequenced implementation plans from a tracker board (build / show / next / advance / list / clear)
 briar scaffold      — emit JSON config bundles for downstream tools
 briar context       — read/write local markdown blobs
 briar dashboard     — read-only HTML status page
@@ -109,6 +111,7 @@ briar journal       — inspect decision-journal sessions (list / show / export)
 | `JIRA_{COMPANY}_EMAIL` + `JIRA_{COMPANY}_TOKEN` | token-auth credentials (Atlassian-recommended) |
 | `JIRA_{COMPANY}_SESSION_TOKEN` / `JIRA_{COMPANY}_TENANT_SESSION_TOKEN` | session-auth credentials (browser-extracted cookies). Either one alone is sufficient. |
 | `JIRA_{COMPANY}_XSRF_TOKEN` / `JIRA_{COMPANY}_USER_AGENT` | optional session-auth extras |
+| `FIREFLIES_{COMPANY}_API_KEY` | Fireflies.ai personal API key — drives both the scheduled `meeting-digest` extractor and the JIT `meeting-context` extractor. Acquire from your Fireflies workspace dashboard. |
 
 ---
 
@@ -134,6 +137,7 @@ briar extract --company <name> [--include <extractor>] ...
               [--provider {github,bitbucket}]
               [--tracker {jira,github-issues,bitbucket-issues,linear}]
               [--cloud {aws,gcp,azure}]
+              [--meeting {fireflies}]
               [extractor-specific flags]
 ```
 
@@ -153,6 +157,7 @@ briar extract --company <name> [--include <extractor>] ...
 | `active-tickets` | open tickets per project | tracker |
 | `ticket-archaeology` | closed-ticket patterns, top assignees | tracker |
 | `aws-infra` | cloud resources (compute, databases, queues, logs) | cloud |
+| `meeting-digest` | recent meetings: summaries + action items | meeting |
 
 **Extractor-specific flags** (only relevant when the matching `--include` is set):
 
@@ -179,6 +184,10 @@ briar extract --company <name> [--include <extractor>] ...
 | `--aws-extract-region <region>` | `aws-infra` | default `us-east-1` |
 | `--aws-extract-service <svc>` | `aws-infra` | one of `ecs lambda logs rds sqs`; repeatable |
 | `--aws-extract-profile <name>` | `aws-infra` | local AWS profile; falls back to per-company env vars |
+| `--meeting {fireflies}` | `meeting-digest` (and `meeting-context` JIT) | default `fireflies` |
+| `--meeting-since-days <N>` | `meeting-digest` | how many days back to scan; default 7 |
+| `--meeting-max <N>` | `meeting-digest` | cap on meetings in the digest; default 25 |
+| `--meeting-attendee-allow <email>` | `meeting-digest` | repeatable; only include meetings whose attendees overlap. Empty = no filter |
 
 **Storage flags** (apply to every extraction):
 
@@ -222,6 +231,14 @@ briar extract --company acme \
 BRIAR_DATABASE_URL=postgresql://... briar extract --company acme \
     --include active-work --active-repo acme-co/acme-app \
     --storage postgres
+
+# Pull last 14 days of Fireflies meeting summaries for an attendee list
+FIREFLIES_ACME_API_KEY=ff_xxx briar extract --company acme \
+    --include meeting-digest \
+    --meeting fireflies \
+    --meeting-since-days 14 --meeting-max 50 \
+    --meeting-attendee-allow alice@acme.com \
+    --meeting-attendee-allow bob@acme.com
 ```
 
 ---
@@ -301,6 +318,11 @@ Address unresolved review comments + failing CI on one PR.
 | `--max-iter <N>` | | iteration ceiling |
 | `--git-user-name` / `--git-user-email` | | commit identity. Per-field resolution: CLI flag > YAML `companies.<name>.git_identity.{name,email}` (when `--runbook` is set) > hardcoded `iklobato` default. |
 | `--keep-worktree` | | leave `/tmp/...` after run |
+| `--meeting {fireflies}` | | meeting provider (default `fireflies`); requires `FIREFLIES_{c}_API_KEY` |
+| `--meeting-key <id>` | | splice ONE specific meeting's full transcript into the agent prompt |
+| `--meeting-query <text>` | | keyword search across transcripts. When omitted, defaults to `owner/repo#pr` so meetings that mentioned the PR surface automatically |
+| `--meeting-top-k <N>` | | max meetings to fetch in search mode (default 3) |
+| `--meeting-max-bytes <N>` | | per-meeting transcript byte cap (default 50 000) |
 
 ```bash
 briar agent prfix \
@@ -313,6 +335,14 @@ briar agent prfix \
     --company acme --owner acme-co --repo acme-app \
     --pr 42 --branch fix-typo \
     --dry-run
+
+# Pin a specific meeting transcript into the agent's context
+# (use when a reviewer's comment cites "as discussed Thursday")
+briar agent prfix \
+    --company acme --owner acme-co --repo acme-app \
+    --pr 42 --branch fix-typo \
+    --runbook examples/all_features.yaml \
+    --meeting-key 01HABCDEF...
 ```
 
 ### `briar agent implement`
@@ -333,6 +363,11 @@ ticket-context, agent branches + commits + opens a draft PR.
 | `--dry-run` | | print rendered prompt, skip LLM call |
 | `--store` / `--knowledge` / `--model` / `--max-iter` | | as above |
 | `--git-user-name` / `--git-user-email` / `--keep-worktree` | | as above |
+| `--meeting {fireflies}` | | meeting provider (default `fireflies`); requires `FIREFLIES_{c}_API_KEY` |
+| `--meeting-key <id>` | | splice ONE specific meeting's full transcript into the agent prompt |
+| `--meeting-query <text>` | | keyword search across transcripts. When omitted, defaults to the ticket key so meetings that mentioned `ACME-123` surface automatically |
+| `--meeting-top-k <N>` | | max meetings to fetch in search mode (default 3) |
+| `--meeting-max-bytes <N>` | | per-meeting transcript byte cap (default 50 000) |
 
 ```bash
 briar agent implement \
@@ -347,6 +382,200 @@ briar agent implement \
     --ticket-project ENG --ticket-key ENG-7 \
     --provider bitbucket --tracker linear \
     --runbook examples/all_features.yaml
+
+# Override the auto-derived meeting query (default = the ticket key)
+# when the standup discussed the topic by feature name, not key
+briar agent implement \
+    --company acme --owner acme-co --repo acme-app \
+    --ticket-project ACME --ticket-key ACME-42 \
+    --runbook examples/all_features.yaml \
+    --meeting-query "oauth refresh token rollout"
+```
+
+---
+
+## `briar plan` — sequenced implementation plans
+
+Take a tracker board (Jira board or GitHub Projects v2), pull every
+card, synthesise per-card scope / out-of-scope / risks / dependencies,
+topologically sort them, and persist the result as a markdown +
+JSON blob in the chosen `KnowledgeStore`. The implementer flow
+(`briar agent implement`) and any operator can then ask `briar plan
+next` for the next pending card whose dependencies are all done.
+
+A plan is stored under `plan:<name>` in whichever store you pick —
+local file (default) or postgres. The blob is human-readable markdown
+with the canonical JSON payload in a fenced block at the end, so the
+file backend doubles as a review surface.
+
+### URL shapes
+
+| Form | Example | Reader |
+|---|---|---|
+| Jira board URL | `https://acme.atlassian.net/jira/software/projects/KAN/boards/34` | `jira` |
+| Jira short form | `jira:KAN` | `jira` |
+| GitHub Projects v2 (org) | `https://github.com/orgs/bitspark-co/projects/34` | `github-project` |
+| GitHub Projects v2 (user) | `https://github.com/users/iklobato/projects/2` | `github-project` |
+
+Adding another tracker (Linear, Trello, …) is one module under
+`src/briar/plan/_boards/` plus one entry in the registry — the
+`build` subcommand has no per-vendor branching.
+
+### Common flags (every subcommand)
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `--store {file,postgres}` | `file` | KnowledgeStore backend used to persist + reload the plan |
+| `--root <dir>` | `./knowledge` | File-store root (only when `--store=file`) |
+| `--company <name>` | `""` | Used by the postgres store for DSN resolution and by tracker providers for per-company credentials (e.g. `JIRA_{COMPANY}_*`) |
+
+### `briar plan build <board>`
+
+Fetch the board, enrich each card, sort by deps, and (optionally)
+chain branches in cascade mode.
+
+| Flag | Required | Default | Purpose |
+|---|---|---|---|
+| `board` | ✓ | — | Board URL or short form (see table above) |
+| `--name <slug>` | | derived from URL | Plan name (becomes blob `plan:<name>`) |
+| `--cascade` | | off | Chain branches: each card's `branch_parent` is its latest dep's branch instead of `--default-branch` |
+| `--default-branch <name>` | | `main` | Branch the first (and every non-cascade) card branches from |
+| `--max-cards <N>` | | 50 | Cap on cards pulled from the board |
+| `--llm {anthropic,openai,gemini,bedrock}` | | `""` | LLM provider for per-card synthesis. Empty = heuristics only. When unavailable (no creds), silently falls back to heuristics |
+| `--model <name>` | | provider default | Override the LLM's default model |
+| `--with-knowledge` | | off | Splice the company's existing `knowledge:<company>` + `active-tickets:<company>` + `active-work:<company>` blobs into each card's synthesis context |
+| `--print` | | off | After building, print the markdown plan to stdout |
+| `--dry-run` | | off | Build the plan but do NOT persist it. Implies `--print` |
+
+```bash
+# Jira board, heuristic synthesis only, cascade so each card branches off the last
+briar plan build \
+    https://acme.atlassian.net/jira/software/projects/KAN/boards/34 \
+    --name acme-q3 --company acme --cascade
+
+# GitHub Projects v2, LLM synthesis with the company's knowledge spliced in
+briar plan build \
+    https://github.com/orgs/bitspark-co/projects/34 \
+    --name bitspark-roadmap --company bitspark \
+    --llm anthropic --with-knowledge --cascade
+
+# Persistent postgres-backed plan
+BRIAR_DATABASE_URL=postgresql://... briar plan build \
+    jira:ACME --name acme-impl --company acme \
+    --store postgres --cascade
+
+# One-off, no persistence — print the synthesised markdown and exit
+briar plan build jira:ENG --name preview --dry-run
+```
+
+### `briar plan show <name>`
+
+Print the stored plan's markdown body to stdout (header + ordered
+cards + raw JSON payload). No extra flags beyond the common store
+flags.
+
+```bash
+briar plan show acme-q3
+briar plan show bitspark-roadmap --store postgres --company bitspark
+```
+
+### `briar plan next <name>`
+
+Print the next pending card whose dependencies are all `done`. Emits
+a single record (table or JSON depending on `--format`) so the
+implementer agent can pipe it into the next step. Returns the
+`status: complete` sentinel when every card is done.
+
+```bash
+# What should I implement next?
+briar plan next acme-q3 --format json
+
+# Human-readable
+briar plan next acme-q3
+```
+
+The card record includes `branch_name` + `branch_parent` so the
+implementer agent can `git checkout -b <branch_name> origin/<branch_parent>`
+without recomputing cascade order.
+
+### `briar plan advance <name>`
+
+Mark a card done (or set any other status) and persist the updated
+plan. Defaults to advancing the next pending card so an operator
+can loop `briar plan advance && briar plan next` without naming
+keys explicitly.
+
+| Flag | Required | Default | Purpose |
+|---|---|---|---|
+| `--card <key>` | | next pending | Specific card key (e.g. `KAN-7`, `acme/api#42`) |
+| `--status {pending,in_progress,done,blocked}` | | `done` | Status to set |
+
+```bash
+# I just merged the first card
+briar plan advance acme-q3
+
+# Mark a specific card in_progress (the implementer agent picked it up)
+briar plan advance acme-q3 --card KAN-7 --status in_progress
+
+# A card got blocked on an external dep
+briar plan advance acme-q3 --card KAN-9 --status blocked
+```
+
+### `briar plan list`
+
+Enumerate stored plans (blob name only). Same store flags as above.
+
+```bash
+briar plan list
+briar plan list --store postgres --company bitspark
+```
+
+### `briar plan clear <name>`
+
+Remove a stored plan. Confirms by default; pass `--yes` to skip.
+
+```bash
+briar plan clear preview --yes
+```
+
+### What's in a `PlanCard`
+
+Each card the synthesiser emits carries:
+
+| Field | Source |
+|---|---|
+| `key` | tracker (Jira issue key, GH `owner/repo#N`, draft slug) |
+| `title` / `url` | tracker |
+| `summary` | LLM ➜ heuristic (first paragraph of the body) |
+| `in_scope` / `out_of_scope` / `risks` | LLM ➜ heuristic (parses `## In Scope` / `## Out of Scope` / `## Risks` blocks) |
+| `depends_on` | tracker explicit links + body lines (`Depends on KAN-1`, `Blocked by #42`) + LLM judgement (only when the LLM names a real card key on the same board — never invented) |
+| `branch_name` | derived (`briar/<key-slug>`) |
+| `branch_parent` | `--default-branch`, or — with `--cascade` — the `branch_name` of the latest dependency in topological order |
+| `status` | starts `pending`; mutated by `briar plan advance` |
+| `sources` | best-effort URLs the card was assembled from |
+
+The LLM pass is strictly optional and degrades gracefully when no
+provider is configured (or the configured provider returns an
+unparseable response). The heuristic pass always runs second to
+guarantee deterministic defaults.
+
+### Cascade semantics
+
+Without cascade, every card's `branch_parent` is `--default-branch`
+(usually `main` or `dev`). With `--cascade`, card B that depends on
+A gets `branch_parent = briar/a` so PRs stack instead of competing
+for `main`. When a card has multiple dependencies, the parent is the
+one that appears latest in the topological order — i.e. the most
+recently merged ancestor at implementation time.
+
+```
+       --cascade off                       --cascade on
+       ────────────────────                ──────────────────────
+       main ←── briar/a                    main ←── briar/a
+       main ←── briar/b                              ↑
+       main ←── briar/c                              briar/b
+                                                     ↑
+                                                     briar/c
 ```
 
 ---
@@ -903,6 +1132,62 @@ verifying Jira session auth before letting the scheduler run for
 `briar agent implement` is the same shape, replacing
 `FetchPrContext` with `FetchTicketContext` (which reads from the
 TrackerProvider for the company's chosen tracker).
+
+Both `prfix` and `implement` *also* fire `FetchMeetingContext` when
+`--meeting-key` or `--meeting-query` resolves to something — for
+`implement` the default query is the ticket key; for `prfix` it's
+`owner/repo#pr`. Reads from the `MeetingProvider` registry
+(`extract/_meetings/`, today: `fireflies`). Spliced into the agent's
+system prompt alongside the ticket/PR context so decisions captured
+in standups land in the code path that touches them.
+
+### `briar plan build` / `briar plan next` — sequenced implementation
+
+```
+   ┌─────────────────────────────────────────────────────┐
+   │ briar plan build <board> --name X --cascade        │
+   │   [--llm anthropic] [--with-knowledge]             │
+   └────────────────────────┬────────────────────────────┘
+                            │
+        ┌───────────────────┼───────────────────────────┐
+        ▼                   ▼                           ▼
+  ┌────────────┐    ┌────────────────┐         ┌────────────────┐
+  │ secrets    │    │ BoardReader    │         │ KnowledgeStore │
+  │ .env       │    │   .matches/    │         │  (existing     │
+  │ • GITHUB   │    │   .parse/      │         │   knowledge:X  │
+  │ • JIRA_*   │    │   .fetch       │         │   blobs spliced│
+  │ • CLAUDE   │    │ ├── JiraBoard  │         │   in when      │
+  └────┬───────┘    │ └── GhProjectV2│         │  --with-knowledge)│
+       │            └────────┬───────┘         └────────┬───────┘
+       ▼                     ▼                          ▼
+  ┌──────────────────────────────────────────────────────────┐
+  │ CardSynthesiser (Composite: LLM → Heuristic)             │
+  │   LLM pass:    summary, scope, out-of-scope, risks       │
+  │   Heuristic:   parses ## In Scope / Depends on lines     │
+  └────────────────────────────┬─────────────────────────────┘
+                               │
+                               ▼
+  ┌──────────────────────────────────────────────────────────┐
+  │ topological_sort + apply_cascade                         │
+  │   • Kahn's algorithm (stable, cycle-detecting)           │
+  │   • branch_parent = default-branch                       │
+  │     OR (in cascade) latest dep's branch_name             │
+  └────────────────────────────┬─────────────────────────────┘
+                               │
+                               ▼
+       save_plan(store, plan)   ──▶ plan:<name> blob
+                               │
+                               ▼
+       briar plan next <name>   ──▶ first card whose deps are all done
+       briar plan advance       ──▶ updates status, persists, repeat
+```
+
+The implementer agent (`briar agent implement`) is the natural
+downstream consumer: `briar plan next --format json | jq …` yields
+the `key` to pass as `--ticket-key`, the `branch_name` to use as
+the feature branch, and the `branch_parent` to clone from. Cascade
+mode is what lets a long sequence of dependent tickets be shipped
+without each card sitting on `main` until the previous merges.
 
 ### DSN resolution — `knowledge.store: postgres`
 

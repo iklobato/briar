@@ -31,6 +31,7 @@ they show the same three example companies (`acme`, `bitspark`,
    11. [PagerDuty integration key](#411-pagerduty-integration-key)
    12. [LLM auth (Anthropic / OpenAI / Gemini / Bedrock)](#412-llm-auth)
    13. [Credential-store backends (Vault / AWS Secrets Manager / SSM)](#413-credential-store-backends)
+   14. [Fireflies.ai API key](#414-firefliesai-api-key)
 5. [Wire up `secrets.env`](#5-wire-up-secretsenv)
 6. [Write the runbook YAML](#6-write-the-runbook-yaml)
 7. [Validate with `briar secrets doctor`](#7-validate-with-briar-secrets-doctor)
@@ -104,9 +105,9 @@ pip install -e '.[all]'       # everything above
 ```
 
 Base install always works for: Anthropic LLM, AWS Bedrock LLM,
-GitHub/Bitbucket repo + tracker, Jira, Linear, AWS cloud, AWS
-Secrets Manager / SSM, file + Postgres storage, Telegram/Slack/Email/PagerDuty
-notifications.
+GitHub/Bitbucket repo + tracker, Jira, Linear, AWS cloud, Fireflies
+meeting transcripts, AWS Secrets Manager / SSM, file + Postgres
+storage, Telegram/Slack/Email/PagerDuty notifications.
 
 ---
 
@@ -584,6 +585,56 @@ export VAULT_TOKEN=hvs.xxx
 vault kv put secret/briar/GITHUB_TOKEN value="$GITHUB_TOKEN"
 ```
 
+### 4.14 Fireflies.ai API key
+
+| Env var | Used by |
+|---|---|
+| `FIREFLIES_{c}_API_KEY` | `FirefliesMeetingProvider` — backs both the scheduled `meeting-digest` extractor and the JIT `meeting-context` extractor consumed by `briar agent implement` / `prfix` |
+
+**Obtain:**
+
+1. Sign in at https://app.fireflies.ai/.
+2. Settings → Developer Settings → **API Key** → copy the personal
+   workspace key.
+3. Per-workspace billing means each company's transcripts are scoped
+   to that workspace's key — the `{c}` namespacing is mandatory.
+
+**Quirk:** Fireflies expects `Authorization: Bearer <key>` (unlike
+Linear's prefix-less header). `transcripts(...)` `limit` caps at 50
+per request; `keyword` arg caps at 255 chars. Briar's
+`FirefliesMeetingProvider` already clamps both.
+
+**Verify:**
+
+```bash
+curl -s https://api.fireflies.ai/graphql \
+  -H "Authorization: Bearer $FIREFLIES_ACME_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"{ user { name email } }"}' \
+  | jq .data.user
+```
+
+A `data.user` object means the key is good; a `{"errors":[...]}`
+response means re-acquire.
+
+**What it unlocks:**
+
+- `briar extract --include meeting-digest --meeting fireflies` —
+  pulls last N days of meetings (default 7) into the per-company
+  knowledge blob as a `## Meeting digest` section. Agents on every
+  run see it.
+- `briar agent implement ... --meeting-query "<topic>"` (or the
+  default-derived `--ticket-key`) — JIT-fetches the top-K matching
+  transcripts at agent-invocation time, capped at
+  `--meeting-max-bytes 50000` per meeting. Spliced into the engineer
+  archetype's system prompt right after `ticket-context`.
+- Same wiring for `briar agent prfix` — default query is
+  `owner/repo#pr`.
+
+The Fireflies key is OPTIONAL — when unset, both extractors return
+`EMPTY_SECTION` and the rest of the pipeline runs unchanged. Skipping
+Fireflies imposes zero cost.
+
 ---
 
 ## 5. Wire up `secrets.env`
@@ -650,6 +701,32 @@ company you keep:
    `send_message` tool to the configured handles. Without the block,
    the agent falls back to the bash escape hatch (`gh pr comment`,
    `curl`).
+
+7. **Optional:** add a `meetings` schedule when `FIREFLIES_{c}_API_KEY`
+   is set, so daily standup decisions land in `implement` / `prfix`
+   automatically:
+
+   ```yaml
+   schedules:
+     - task: meetings
+       every: "hour"
+       extract:
+         - name: meeting-digest
+           args:
+             meeting: fireflies
+             meeting_since_days: 7
+             meeting_max: 25
+             meeting_attendee_allow:
+               - alice@acme.com
+               - bob@acme.com
+   ```
+
+   Each refresh rewrites the `## Meeting digest` section of the
+   per-company knowledge blob; agents read it on every run. The JIT
+   `meeting-context` extractor is NOT scheduled — it fires at
+   `briar agent` invocation time, using `--meeting-key` (specific
+   meeting) or `--meeting-query` (keyword search; default = ticket
+   key for `implement`, `owner/repo#pr` for `prfix`).
 
 Validate the YAML against the schema BEFORE running:
 
@@ -756,6 +833,42 @@ briar agent implement \
 the agent's `send_message` tool. Without it, the agent falls back
 to the bash escape hatch (`gh pr comment`, `curl`).
 
+### Planning a whole board first
+
+`briar plan` is the natural upstream of `briar agent implement` when
+you have a board's worth of tickets, not just one. It fetches the
+cards, synthesises per-card scope + dependencies (LLM-assisted when
+configured, deterministic heuristics otherwise), and persists an
+ordered queue you can walk one step at a time:
+
+```bash
+# Build the plan from a Jira board (or a GitHub Projects v2 URL)
+briar plan build \
+    https://acme.atlassian.net/jira/software/projects/KAN/boards/34 \
+    --name acme-q3 --company acme --cascade \
+    --llm anthropic --with-knowledge
+
+# Ask: what's the next pending card with all deps satisfied?
+briar plan next acme-q3 --format json | jq '.key, .branch_name, .branch_parent'
+
+# Pipe straight into the engineer flow
+NEXT=$(briar plan next acme-q3 --format json)
+briar agent implement \
+    --company acme --owner acme --repo platform \
+    --ticket-project KAN --ticket-key "$(jq -r .key <<<"$NEXT")" \
+    --tracker jira --runbook examples/all_features.yaml
+
+# After the agent's PR merges:
+briar plan advance acme-q3 --card "$(jq -r .key <<<"$NEXT")"
+```
+
+`--cascade` is what makes a long dependency chain shippable without
+each card sitting on `main` until the previous merges — card B's
+branch is created from card A's branch (`briar/kan-1`), so PRs
+stack. Plans live as `plan:<name>` blobs in the same `KnowledgeStore`
+as the per-company knowledge blobs, so `--store postgres` works the
+same way it does for `briar extract`.
+
 ---
 
 ## 9. Run the scheduler 24/7
@@ -843,11 +956,11 @@ restart cycle — schedules don't reload at runtime.
 
 ## 12. Adding a new vendor
 
-Beyond the six already shipped (GitHub, Bitbucket, Jira, Linear, AWS,
-GCP, Azure, Telegram, Slack, Email, PagerDuty, Anthropic, OpenAI,
-Gemini, Bedrock, Vault, etc.) — the Strategy + Registry pattern
-makes adding more a one-file change. Example for a hypothetical
-GitLab repo provider:
+Beyond the vendors already shipped (GitHub, Bitbucket, Jira, Linear,
+AWS, GCP, Azure, Fireflies, Telegram, Slack, Email, PagerDuty,
+Anthropic, OpenAI, Gemini, Bedrock, Vault, etc.) — the Strategy +
+Registry pattern makes adding more a one-file change. Example for a
+hypothetical GitLab repo provider:
 
 ```
 src/briar/extract/_providers/gitlab.py     # new: GitlabProvider(RepositoryProvider)
@@ -877,9 +990,26 @@ Then add `GITLAB_TOKEN = "GITLAB_{c}_TOKEN"` to `CredEnv`, register
 the cred requirement in `commands/secrets.py:_EXTRACTOR_REQUIREMENTS`,
 and you're done. Zero edits to any extractor or the executor.
 
-Tracker / Cloud / LLM / NotificationSink / CredentialStore additions
-follow the exact same shape — see [`README.md § The provider ABCs`](README.md)
-for the full inventory.
+Tracker / Cloud / Meeting / LLM / NotificationSink / CredentialStore
+additions follow the exact same shape — see
+[`README.md § The provider ABCs`](README.md) for the full inventory.
+The `Meeting` family is the most recent example (Fireflies adapter
+landed under `extract/_meetings/`); adding Otter or Granola = one
+module + one tuple entry.
+
+Adding a new **board reader** (for `briar plan`) follows the same
+recipe:
+
+```
+src/briar/plan/_boards/trello.py        # new: TrelloBoardReader(BoardReader)
+src/briar/plan/_boards/__init__.py      # tuple += (TrelloBoardReader(),)
+```
+
+Inside `trello.py` implement `matches(url)` (regex against the
+Trello board-URL shape), `parse(url)` (return a `BoardRef`), and
+`fetch(ref, company, max_cards)` (return a list of `PlanCard`s).
+Topological sort, cascade chaining, synthesis, and storage all
+reuse the existing helpers — the new reader doesn't touch them.
 
 ---
 

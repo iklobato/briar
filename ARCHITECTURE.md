@@ -7,7 +7,7 @@ Reference diagram + the design-pattern violations found during the
 
 ## Module + abstraction map
 
-Twelve Strategy + Registry families, plus one-off helpers. Adapter
+Thirteen Strategy + Registry families, plus one-off helpers. Adapter
 files live under `_<plural>/` subpackages; registries are dicts in
 the package `__init__.py`.
 
@@ -25,13 +25,14 @@ flowchart LR
     CmdExtract[CommandExtract]:::cls
     CmdRunbook[CommandRunbook]:::cls
     CmdAgent[CommandAgent]:::cls
+    CmdPlan[CommandPlan]:::cls
     CmdScaffold[CommandScaffold]:::cls
     CmdContext[CommandContext]:::cls
     CmdDashboard[CommandDashboard]:::cls
     CmdSecrets[CommandSecrets]:::cls
     CmdVersion[CommandVersion]:::cls
     CLI --> CMD
-    CMD --> CmdExtract & CmdRunbook & CmdAgent & CmdScaffold & CmdContext & CmdDashboard & CmdSecrets & CmdVersion
+    CMD --> CmdExtract & CmdRunbook & CmdAgent & CmdPlan & CmdScaffold & CmdContext & CmdDashboard & CmdSecrets & CmdVersion
   end
 
   subgraph extract["extract/ — KnowledgeExtractor family"]
@@ -39,10 +40,12 @@ flowchart LR
     RBE([RepoBackedExtractor]):::abc
     TBE([TrackerBackedExtractor]):::abc
     CBE([CloudBackedExtractor]):::abc
+    MBE([MeetingBackedExtractor]):::abc
     TSE([TaskScopedExtractor]):::abc
     KE --> RBE
     KE --> TBE
     KE --> CBE
+    KE --> MBE
     EXTREG[/EXTRACTORS dict/]:::reg
     TSEREG[/TASK_SCOPED_EXTRACTORS dict/]:::reg
 
@@ -55,17 +58,21 @@ flowchart LR
     ERP[ExtractReviewerProfile]:::cls
     ECH[ExtractCodeHotspots]:::cls
     EAI[ExtractAwsInfra]:::bad
+    EMD[ExtractMeetingDigest]:::cls
     RBE --> EAW & EPA & EGD & ECC & ERP & ECH
     TBE --> EAT & ETA
     CBE --> EAI
+    MBE --> EMD
 
     FTC[FetchTicketContext]:::cls
     FPR[FetchPrReviewContext]:::cls
+    FMC[FetchMeetingContext]:::cls
     TSE --> FTC
     TSE --> FPR
+    TSE --> FMC
 
-    EAW & EPA & EGD & ECC & EAI & EAT & ETA & ERP & ECH -.-> EXTREG
-    FTC & FPR -.-> TSEREG
+    EAW & EPA & EGD & ECC & EAI & EAT & ETA & ERP & ECH & EMD -.-> EXTREG
+    FTC & FPR & FMC -.-> TSEREG
   end
 
   subgraph providers["extract/_provider* — vendor adapters"]
@@ -87,12 +94,18 @@ flowchart LR
     AZP[AzureCloudProvider]:::cls
     CP --> ACP & GCP & AZP
 
+    MP([MeetingProvider]):::abc
+    FMP[FirefliesMeetingProvider]:::cls
+    MP --> FMP
+
     PR[/PROVIDERS dict/]:::reg
     TR[/TRACKERS dict/]:::reg
     CR[/CLOUDS dict/]:::reg
+    MR[/MEETINGS dict/]:::reg
     GHP & BBP -.-> PR
     JT & GIT & BIT & LT -.-> TR
     ACP & GCP & AZP -.-> CR
+    FMP -.-> MR
   end
 
   subgraph llms["agent/_llm* — LLM adapters"]
@@ -136,6 +149,32 @@ flowchart LR
     SB -.from_binding.-> SF & SP
   end
 
+  subgraph plan["plan/ — BoardReader + CardSynthesiser"]
+    BR([BoardReader]):::abc
+    JBR[JiraBoardReader]:::cls
+    GBR[GithubProjectBoardReader]:::cls
+    BR --> JBR & GBR
+    BRREG[/BOARD_READERS dict/]:::reg
+    JBR & GBR -.-> BRREG
+
+    CSyn([CardSynthesiser]):::abc
+    LSyn[LLMSynthesiser]:::cls
+    HSyn[HeuristicSynthesiser]:::cls
+    XSyn[CompositeSynthesiser]:::cls
+    CSyn --> LSyn & HSyn & XSyn
+
+    PlanOp([PlanOp]):::abc
+    BuildOp[BuildOp]:::cls
+    ShowOp[ShowOp]:::cls
+    NextOp[NextOp]:::cls
+    AdvOp[AdvanceOp]:::cls
+    ListOp[ListOp]:::cls
+    ClrOp[ClearOp]:::cls
+    PlanOp --> BuildOp & ShowOp & NextOp & AdvOp & ListOp & ClrOp
+    POPREG[/PLAN_OPS dict/]:::reg
+    BuildOp & ShowOp & NextOp & AdvOp & ListOp & ClrOp -.-> POPREG
+  end
+
   subgraph jira_auth["extract/_trackers/_jira_auth.py — JiraAuthStrategy"]
     JA([JiraAuthStrategy]):::abc
     JTA[JiraTokenAuth]:::cls
@@ -167,6 +206,12 @@ flowchart LR
   CmdAgent --> TSE
   CmdAgent --> LLM
   CmdAgent --> KS
+  CmdPlan --> BR
+  CmdPlan --> CSyn
+  CmdPlan --> KS
+  JBR -. uses .-> TP
+  GBR -. uses .-> RP
+  LSyn -. uses .-> LLM
   CmdRunbook --> RBM
   CmdRunbook --> EXTREG
   CmdSecrets --> CS
@@ -175,8 +220,10 @@ flowchart LR
   RBE -. uses .-> RP
   TBE -. uses .-> TP
   CBE -. uses .-> CP
+  MBE -. uses .-> MP
   FTC -. uses .-> TP
   FPR -. uses .-> RP
+  FMC -. uses .-> MP
   ECC -. uses .-> RP
 ```
 
@@ -287,6 +334,8 @@ the same Strategy + Registry shape as every other plugin family.
 | `PromptIO` (Protocol) | `TerminalPromptIO` (real: input/getpass/webbrowser), `MockPromptIO` (tests) | Testable interactive I/O surface. Every acquirer's prompt/info/open_url/poll funnels through here — no direct stdin/stdout calls. Lets `MockPromptIO` drive every login flow in unit tests with scripted answers. See commit `984641d`. |
 | `InfisicalStore` (`CredentialStore` impl) | n/a — single concrete | Per-name read/write/delete/list against the Infisical Secrets API. Counterpart to `InfisicalBootstrap` (bulk-hydrate at startup). Same machine-identity credentials, opposite direction. Makes Infisical a first-class `--store` destination. See commit `fae64ae`. |
 | `EnvFileStore` path-resolution chain | `_secrets_path()` | Three-step resolution: `$BRIAR_SECRETS_FILE` → `/etc/briar/secrets.env` (if exists) → `$XDG_CONFIG_HOME/briar/secrets.env`. Plus auto-create-parent-dir + raise-on-real-failure (replaces silent-fallback-to-os.environ that masked file-write failures). Same backend, two deploy shapes (droplet + laptop). See commit `89089b3`. |
+| `MeetingProvider` + `MeetingBackedExtractor` + `TaskScopedMeetingExtractor` | `FirefliesMeetingProvider`; `ExtractMeetingDigest` (scheduled, last-N-days summaries + action items); `FetchMeetingContext` (JIT — fetch one meeting by id OR keyword-search top-K relevant transcripts) | Third source family alongside `RepositoryProvider` and `TrackerProvider`. Meetings are transcript-centric, time-windowed, identifier-less — different verbs from PRs / tickets, so a separate ABC keeps each contract honest (LSP). `engineer` and `pr-fixer` archetypes both consume `meeting-context` + `meeting-digest`, so decisions captured in standups land in `implement` / `prfix` flows automatically. Adding Otter / Granola / Read.ai = one module + one tuple entry. |
+| `BoardReader` + `CardSynthesiser` + `PlanOp` (three ABCs) + `ImplementationPlan` / `PlanCard` (dataclasses) | `JiraBoardReader`, `GithubProjectBoardReader`; `LLMSynthesiser`, `HeuristicSynthesiser`, `CompositeSynthesiser`; `BuildOp` / `ShowOp` / `NextOp` / `AdvanceOp` / `ListOp` / `ClearOp` | Powers the new `briar plan` command. `BoardReader` parses tracker board URLs (Jira boards, GitHub Projects v2) and returns raw `PlanCard`s; the composite synthesiser fills in scope / out-of-scope / risks / inferred deps (LLM judgement first, deterministic heuristic second); `topological_sort` + `apply_cascade` produce the ordered queue. Plans persist as `plan:<name>` blobs through the existing `KnowledgeStore` (file or postgres), so `briar plan next` / `advance` work against either backend with no extra wiring. Adding Linear/Trello = one `_boards/*.py` + one registry entry. |
 
 The pattern recurs: when you spot 2+ ways to do the same job (two DSN
 sources, two auth modes), split into a Strategy + Registry rather
@@ -299,10 +348,12 @@ be added without changing existing classes:
 
 | Family | Registry location | Concretes today | Adding one |
 |---|---|---|---|
-| `Command` | `commands/__init__.py:CommandRegistry.COMMANDS` | extract, runbook, scaffold, context, dashboard, agent, **auth**, secrets, version | one class + list entry |
-| `KnowledgeExtractor` | `extract/__init__.py:EXTRACTORS` | pr-archaeology, active-work, github-deployments, codebase-conventions, reviewer-profile, code-hotspots, active-tickets, ticket-archaeology, aws-infra | one module + registry tuple |
+| `Command` | `commands/__init__.py:CommandRegistry.COMMANDS` | extract, runbook, scaffold, context, dashboard, agent, **plan**, auth, secrets, version | one class + list entry |
+| `KnowledgeExtractor` | `extract/__init__.py:EXTRACTORS` | pr-archaeology, active-work, github-deployments, codebase-conventions, reviewer-profile, code-hotspots, active-tickets, ticket-archaeology, aws-infra, **meeting-digest** | one module + registry tuple |
+| `TaskScopedExtractor` | `extract/__init__.py:TASK_SCOPED_EXTRACTORS` | ticket-context, pr-review-context, **meeting-context** | one module + registry tuple |
 | `RepositoryProvider` | `extract/_providers/` | github, bitbucket | one adapter |
 | `TrackerProvider` | `extract/_trackers/` | jira, github-issues, bitbucket-issues, linear | one adapter |
+| `MeetingProvider` | `extract/_meetings/` | **fireflies** | one adapter |
 | `JiraAuthStrategy` | `extract/_trackers/_jira_auth.py` | token, session | one strategy class |
 | `CloudProvider` | `extract/_clouds/` | aws, gcp, azure | one adapter |
 | `LLMProvider` | `agent/_llms/` | anthropic, openai, gemini, bedrock | one adapter; `default_error_policies()` declares retry shape |
@@ -318,3 +369,6 @@ be added without changing existing classes:
 | `SourceTemplate` | `iac/scaffold/sources/` | github, bitbucket, jira, aws, sentry | one template |
 | `TriggerTemplate` | `iac/scaffold/triggers/` | github_webhook, bitbucket_webhook, schedule_cron, manual | one template |
 | `Rule` | `iac/scaffold/rules/` | 7 markdown rule snippets | one .md file |
+| **`BoardReader`** | `plan/_boards/` | jira, github-project | one module + registry tuple |
+| **`CardSynthesiser`** | `plan/_synthesize.py` | heuristic, llm, composite | one class (e.g. for a new provider's structured-output mode) |
+| **`PlanOp`** | `commands/plan.py:PLAN_OPS` | build, show, next, advance, list, clear | one subclass + registry tuple |

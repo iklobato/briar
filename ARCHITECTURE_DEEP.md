@@ -29,7 +29,8 @@ flowchart TB
   iac_scaff[iac/scaffold/]:::pkg
   iac_run[iac/runbook/]:::pkg
   extr[extract/]:::hub
-  prov[extract/_provider* + _trackers + _clouds]:::pkg
+  prov[extract/_provider* + _trackers + _clouds + _meetings]:::pkg
+  plan[plan/]:::pkg
   store[storage/]:::leaf
   cred[credentials/]:::leaf
   notify[notify/]:::leaf
@@ -44,10 +45,15 @@ flowchart TB
   cmd --> iac_run
   cmd --> iac_scaff
   cmd --> extr
+  cmd --> plan
   cmd --> store
   cmd --> cred
   cmd --> dash
   cmd --> fmt
+
+  plan --> prov
+  plan --> llms
+  plan --> store
 
   agentpkg --> llms
   agentpkg --> extr
@@ -201,7 +207,9 @@ sequenceDiagram
   participant Op as ImplementOp
   participant CA as CommandAgent
   participant TS as FetchTicketContext (JIT)
+  participant MS as FetchMeetingContext (JIT)
   participant T as TrackerProvider (Jira/Linear/…)
+  participant M as MeetingProvider (Fireflies/…)
   participant R as AgentRunner (dry_run=True)
 
   User->>Op: AGENT_OPS["implement"].run(args)
@@ -213,7 +221,14 @@ sequenceDiagram
   T-->>TS: Ticket with full body
   TS-->>CA: ExtractedSection (title + AC + comments + status history)
 
-  CA->>R: AgentRunner(archetype=engineer, task_context_sections=[…], dry_run=True)
+  CA->>MS: fetch(meeting_query = ticket_key)
+  Note over MS: search OR by-id; bytes-capped
+  MS->>M: search_meetings(query=ACME-42) → top-K
+  MS->>M: get_meeting(id) per match → MeetingDetail (full transcript)
+  M-->>MS: MeetingDetails (summary + action items + transcript)
+  MS-->>CA: ExtractedSection (one section, K matches inline)
+
+  CA->>R: AgentRunner(archetype=engineer, task_context_sections=[ticket, meeting], dry_run=True)
   R->>R: build_system_prompt + build_initial_user_message + tool_specs
   R->>R: _dry_run_report() prints to stdout, returns AgentRunResult(stop_reason="dry_run")
   Note over R: LLM IS NOT INVOKED — no tokens spent
@@ -221,7 +236,78 @@ sequenceDiagram
   CA-->>User: prints the rendered prompt; exit 0
 ```
 
-### 2.4 `briar scaffold implementation --source bitbucket`
+Meeting-context is **non-fatal enrichment** — when
+`FIREFLIES_{c}_API_KEY` is unset or the search returns no matches,
+`FetchMeetingContext` returns `EMPTY_SECTION` and the agent runs with
+only the ticket-context. Same defensive contract as
+`pr-review-context` in §2.2.
+
+### 2.4 `briar plan build <board> --cascade --llm anthropic`
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant User
+  participant CLI as briar plan build
+  participant Reg as BoardReaderRegistry
+  participant BR as BoardReader (Jira / GhProjectV2)
+  participant TP as TrackerProvider (or GH GraphQL)
+  participant Sy as CompositeSynthesiser
+  participant L as LLMSynthesiser
+  participant H as HeuristicSynthesiser
+  participant G as graph (topological_sort + apply_cascade)
+  participant S as KnowledgeStore
+
+  User->>CLI: briar plan build <url> --name X --cascade --llm anthropic --with-knowledge
+  CLI->>Reg: resolve(url)
+  Reg-->>CLI: BoardReader (first .matches(url) wins)
+  CLI->>BR: parse(url) → BoardRef(project, owner, extras)
+  CLI->>BR: fetch(ref, company, max_cards)
+  alt Jira board
+    BR->>TP: list_tickets(project, state=open, max_count)
+    BR->>TP: get_ticket(project, key)  per-ticket body fetch
+  else GitHub Projects v2
+    BR->>BR: POST api.github.com/graphql with projectV2 query
+  end
+  BR-->>CLI: List[PlanCard] (key, title, summary, explicit deps from body)
+
+  CLI->>S: get("knowledge:<company>") + active-tickets, active-work (if --with-knowledge)
+  S-->>CLI: prior context sections
+
+  loop per card
+    CLI->>Sy: enrich(card, board_keys, context)
+    Sy->>L: enrich(...) [LLM judgement: scope, out-of-scope, risks, deps]
+    Note over L: best-effort; swallows API failures, falls through unchanged
+    L-->>Sy: card with LLM-filled fields (or untouched)
+    Sy->>H: enrich(...) [parses ## In Scope / Depends on lines]
+    H-->>Sy: card with deterministic defaults filled
+    Sy-->>CLI: enriched PlanCard
+  end
+
+  CLI->>G: topological_sort(cards)
+  Note over G: Kahn's algorithm; raises CliError on cycle
+  G-->>CLI: ordered cards (trims out-of-board deps)
+  CLI->>G: apply_cascade(cards, cascade=True, default_branch="main")
+  Note over G: card.branch_parent = latest dep's branch_name (cascade)<br/>or default_branch (non-cascade)
+  G-->>CLI: cards with branch_name + branch_parent set
+
+  CLI->>S: save_plan(plan) → put("plan:<name>", md+json blob)
+  S-->>CLI: stored
+
+  rect rgb(240,253,244)
+    Note over User,S: Downstream consumer: briar plan next → first pending card whose deps are all done<br/>briar plan advance → set status, persist; loop.
+  end
+```
+
+Two things to note about the flow: (1) the LLM pass is strictly
+best-effort — if the model returns malformed JSON or the call fails,
+the card is unchanged and the heuristic pass still runs, so the
+operator gets a deterministic minimum every time. (2) `depends_on`
+keys the LLM emits are filtered against the board's actual card
+keys before they hit the dep graph — the LLM cannot invent
+upstreams that don't exist on the board.
+
+### 2.5 `briar scaffold implementation --source bitbucket`
 
 ```mermaid
 sequenceDiagram
@@ -266,6 +352,8 @@ Inbound dependency count (rough — measured by importing modules):
 | `briar.errors.CliError` | 8 | shared exception type; correct usage. |
 | `briar.extract._providers.PROVIDERS` | 4 | extractors + tests. |
 | `briar.commands.agent.AGENT_OPS` | 1 (commands/agent.py self) + tests | newly added. |
+| `briar.plan.BOARD_READERS` | 2 (commands/plan.py, build_plan) + tests | small, cohesive. |
+| `briar.commands.plan.PLAN_OPS` | 1 (commands/plan.py self) + tests | mirrors AGENT_OPS shape. |
 
 No single class is over-coupled. The hub-ness of `extract/` is justified.
 
