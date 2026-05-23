@@ -220,8 +220,28 @@ GITHUB_TOKEN=<paste-pat>
 # Optional — only if running `briar agent` from this box
 # CLAUDE_CODE_OAUTH_TOKEN=...
 
-# Optional — only if switching to postgres-backed store
-# BRIAR_DATABASE_URL=postgresql://briar:<pw>@<host>:5432/briar
+# ── Knowledge store DSN ──
+# Three resolution layers; first non-empty wins:
+#   1. YAML `knowledge.config.dsn_env: <NAME>` → reads ${NAME}
+#   2. BRIAR_{COMPANY}_DATABASE_URL (auto-detected per company)
+#   3. BRIAR_DATABASE_URL (global fallback)
+# Recommended for multi-company deploys sharing one cluster:
+#   BRIAR_KB_DATABASE_URL=postgresql://briar_kb:<pwd>@<host>:25060/<db>?sslmode=require
+# Then point each `companies/*.yaml`'s knowledge.config.dsn_env at it.
+# BRIAR_KB_DATABASE_URL=...
+# BRIAR_DATABASE_URL=...
+
+# ── Jira credentials (per-company, pick ONE auth strategy) ──
+# Token auth (Atlassian-recommended):
+# JIRA_ACME_URL=https://acme.atlassian.net
+# JIRA_ACME_EMAIL=bot@acme.com
+# JIRA_ACME_TOKEN=<api-token>
+# Session-cookie auth (browser-extracted; either token alone is enough):
+# JIRA_ACME_AUTH_KIND=session            # force this strategy
+# JIRA_ACME_TENANT_SESSION_TOKEN=<value of tenant.session.token cookie>
+# JIRA_ACME_SESSION_TOKEN=<value of cloud.session.token cookie>
+# JIRA_ACME_XSRF_TOKEN=<value of atlassian.xsrf.token cookie>  # optional
+# JIRA_ACME_USER_AGENT=<override>                              # optional
 EOF
 
 sudo chmod 600 /etc/briar/secrets.env

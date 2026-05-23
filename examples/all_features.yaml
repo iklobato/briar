@@ -70,6 +70,15 @@ companies:
       store: file
       name: ./knowledge/acme.md
 
+    # Per-company commit identity used by `briar agent prfix` and
+    # `briar agent implement`. Resolved per-field with priority:
+    #   1. CLI flag --git-user-name / --git-user-email (non-empty)
+    #   2. This block (when --runbook points at this YAML)
+    #   3. Legacy default `iklobato` / `dev@users.noreply.github.com`
+    git_identity:
+      name:  acme-briar-bot
+      email: briar-bot@acme.com
+
     # Outbound message channels. The agent's `send_message` tool resolves
     # these handles at run time. Adding a channel = one line here + the
     # corresponding env vars in /etc/briar/secrets.env. Doctor verifies.
@@ -162,6 +171,35 @@ companies:
         every: "2 hours"
         extract:
 
+          # Jira authentication is pluggable per-company. Either:
+          #
+          #   A) Token auth (Atlassian-recommended)
+          #      Required env vars per company:
+          #        JIRA_ACME_URL    → https://acme.atlassian.net
+          #        JIRA_ACME_EMAIL  → bot user email
+          #        JIRA_ACME_TOKEN  → API token from
+          #          https://id.atlassian.com/manage-profile/security/api-tokens
+          #
+          #   B) Session-cookie auth (browser-extracted)
+          #      Required env vars per company:
+          #        JIRA_ACME_URL                    (same as token mode)
+          #        JIRA_ACME_TENANT_SESSION_TOKEN   (value of `tenant.session.token`
+          #                                          cookie from DevTools)
+          #        — OR —
+          #        JIRA_ACME_SESSION_TOKEN          (value of `cloud.session.token`)
+          #      Optional:
+          #        JIRA_ACME_XSRF_TOKEN
+          #        JIRA_ACME_USER_AGENT             (override browser UA)
+          #
+          # Selection:
+          #   • JIRA_{COMPANY}_AUTH_KIND=token|session  → explicit pick
+          #   • Otherwise auto-detect: session wins when either session-
+          #     token env var is set; else falls back to token auth.
+          #
+          # The same auth applies to BOTH the active-tickets /
+          # ticket-archaeology extractors AND the jira-comment /
+          # jira-transition message writers — one credential set, both
+          # paths.
           - name: active-tickets
             args:
               tracker: jira
@@ -210,6 +248,14 @@ companies:
     knowledge:
       store: postgres
       name: knowledge:bitspark         # blob name in the briar_knowledge table
+      config:
+        # Per-company DSN override. Resolution at extract time:
+        #   1. config.dsn_env (this line) → ${BRIAR_BITSPARK_KB_PG}
+        #   2. BRIAR_{COMPANY}_DATABASE_URL (auto) → ${BRIAR_BITSPARK_DATABASE_URL}
+        #   3. BRIAR_DATABASE_URL (global fallback) → ${BRIAR_DATABASE_URL}
+        # Use this explicit form when you don't want bitspark to share
+        # the global DSN with another company.
+        dsn_env: BRIAR_BITSPARK_KB_PG
 
     messages:
       # Bitbucket write path (top-level OR inline review reply)

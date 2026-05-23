@@ -173,7 +173,20 @@ curl -su "$BITBUCKET_USERNAME:$BITBUCKET_APP_PASSWORD" \
   https://api.bitbucket.org/2.0/user | jq .username
 ```
 
-### 4.3 Jira API token
+### 4.3 Jira — two auth strategies
+
+Jira is the only tracker with **pluggable authentication**. Pick
+**one** path; either alone is sufficient.
+
+`JIRA_{COMPANY}_AUTH_KIND` env var forces a strategy
+(`token` | `session`). When unset, auto-detect picks `session` if
+any session-token env var is present, else `token`.
+
+The chosen strategy applies to BOTH the extractors
+(`active-tickets`, `ticket-archaeology`) AND the message writers
+(`jira-comment`, `jira-transition`).
+
+#### 4.3a Token auth (Atlassian-recommended for headless bots)
 
 | Env var | Used by |
 |---|---|
@@ -199,6 +212,47 @@ on every project you'll extract from.
 curl -su "$JIRA_EMAIL:$JIRA_TOKEN" \
   "$JIRA_URL/rest/api/3/myself" | jq .displayName
 ```
+
+#### 4.3b Session-cookie auth (browser-extracted)
+
+For tenants where the user cannot generate an API token (SSO policy,
+restricted account types), the browser's authenticated-session
+cookies authenticate the same REST endpoints.
+
+| Env var | Used by |
+|---|---|
+| `JIRA_{c}_URL` | same as token auth |
+| `JIRA_{c}_TENANT_SESSION_TOKEN` | `tenant.session.token` cookie value — usually sufficient on its own |
+| `JIRA_{c}_SESSION_TOKEN` | `cloud.session.token` cookie value — sufficient on its own |
+| `JIRA_{c}_XSRF_TOKEN` | `atlassian.xsrf.token` cookie value — needed only for POSTs |
+| `JIRA_{c}_USER_AGENT` | optional UA override; default mimics Brave/Chromium 147 on macOS |
+
+**Obtain (Chrome / Brave / Edge / Firefox):**
+
+1. Log into your Jira tenant in the browser (e.g. `https://acme.atlassian.net`).
+2. Open **DevTools → Application → Cookies → `https://acme.atlassian.net`**.
+3. Click the **`tenant.session.token`** row.
+4. Copy the **Value** column **completely** by double-clicking the
+   cell — drag-selecting often truncates the start. The full value
+   starts with `eyJ` and contains 2 dots (standard 3-segment JWT).
+
+**Verify (raw `curl`, no library):**
+
+```bash
+curl -sS -o /dev/null -w "%{http_code}\n" \
+  -H "Cookie: tenant.session.token=$JIRA_TENANT_SESSION_TOKEN" \
+  -H "Origin: $JIRA_URL" \
+  -H "Referer: $JIRA_URL/" \
+  -H "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36" \
+  "$JIRA_URL/rest/api/3/myself"
+# expects 200; 401 means the cookie was truncated/expired
+```
+
+**Rotation:** the JWT inside the cookie has an `exp` claim, typically
+30 days from issue. When `briar runbook serve` logs `401 Client must
+be authenticated`, re-extract the cookie via DevTools and restart the
+scheduler. The cookie's `refreshTimeout` claim (10 minutes) is NOT
+the relevant expiration — the auth layer checks `exp`.
 
 ### 4.4 Linear API key
 

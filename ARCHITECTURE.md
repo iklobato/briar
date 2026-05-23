@@ -132,6 +132,16 @@ flowchart LR
     SP[StorePostgres]:::cls
     KS --> SF & SP
     KSREG[/STORES dict/]:::reg
+    SB[/StoreBinding<br/>resolved YAML config/]:::reg
+    SB -.from_binding.-> SF & SP
+  end
+
+  subgraph jira_auth["extract/_trackers/_jira_auth.py — JiraAuthStrategy"]
+    JA([JiraAuthStrategy]):::abc
+    JTA[JiraTokenAuth]:::cls
+    JSA[JiraSessionAuth]:::cls
+    JA --> JTA & JSA
+    JAREG[/JIRA_AUTHS dict/]:::reg
   end
 
   subgraph scaffold["iac/scaffold/ — generator plumbing"]
@@ -259,3 +269,20 @@ the cheaper outcome.
 - **E:** fix violations 5 + 6 — runbook Literal[] → field_validator against registries
 
 Each commit stays independently revertable.
+
+---
+
+## Later additions (post-original-audit)
+
+These ABCs landed after the original audit table above. They follow
+the same Strategy + Registry shape as every other plugin family.
+
+| ABC | Concretes | Purpose |
+|---|---|---|
+| `StoreBinding` (frozen dataclass) + `KnowledgeStore.from_binding` | `StoreFile`, `StorePostgres` | Per-company DSN resolution. Closed an OCP violation in `KnowledgeStoreRegistry.build()` (the old `if store_cls is StorePostgres: dsn = ENV ...` if-chain). See commit `c8e58d1`. |
+| `JiraAuthStrategy` | `JiraTokenAuth`, `JiraSessionAuth` | Splits Jira's authentication concern out of `JiraTracker`. Lets one tracker support API-token AND browser-session-cookie auth without a 3-branch if-by-mode inside the tracker. See commit `d896d56`. |
+| `GitIdentity` (Pydantic model) | n/a — pure config | Per-company commit author for `briar agent` flows. Read from YAML `companies.<name>.git_identity.{name,email}`. CLI flags still win per-field. See commit `ba91dde`. |
+
+The pattern recurs: when you spot 2+ ways to do the same job (two DSN
+sources, two auth modes), split into a Strategy + Registry rather
+than growing an if-chain.

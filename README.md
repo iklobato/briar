@@ -80,9 +80,15 @@ briar secrets       — credential coverage (doctor / bootstrap)
 |---|---|
 | `BRIAR_VERBOSE=1` | same as `--verbose` |
 | `BRIAR_LIB_DEBUG=1` | also surface third-party loggers (httpx, boto3) |
-| `BRIAR_DATABASE_URL` | switch the default knowledge store from `file` to `postgres` |
+| `BRIAR_DATABASE_URL` | switch the default knowledge store from `file` to `postgres` — also the final fallback DSN when no per-company override is set |
+| `BRIAR_{COMPANY}_DATABASE_URL` | per-company Postgres DSN. Auto-detected when the YAML has no `knowledge.config.dsn_env`. Hyphens in company keys are uppercased + replaced with `_` (e.g. `widget-co` → `BRIAR_WIDGET_CO_DATABASE_URL`). |
+| `<custom>` (when YAML sets `knowledge.config.dsn_env: MY_PG`) | reads the named env var as the DSN — fully explicit override |
 | `BRIAR_NOTIFY_SINKS=telegram,slack` | scheduler failure alerts |
 | `INFISICAL_CLIENT_ID` / `_SECRET` / `_PROJECT_ID` | auto-hydrate env vars from Infisical at startup |
+| `JIRA_{COMPANY}_AUTH_KIND={token,session}` | force a Jira auth strategy. Default = auto-detect (session wins when a session-token env var is set) |
+| `JIRA_{COMPANY}_EMAIL` + `JIRA_{COMPANY}_TOKEN` | token-auth credentials (Atlassian-recommended) |
+| `JIRA_{COMPANY}_SESSION_TOKEN` / `JIRA_{COMPANY}_TENANT_SESSION_TOKEN` | session-auth credentials (browser-extracted cookies). Either one alone is sufficient. |
+| `JIRA_{COMPANY}_XSRF_TOKEN` / `JIRA_{COMPANY}_USER_AGENT` | optional session-auth extras |
 
 ---
 
@@ -273,7 +279,7 @@ Address unresolved review comments + failing CI on one PR.
 | `--dry-run` | | print rendered prompt + tool list, skip LLM call |
 | `--model <name>` | | override Anthropic model |
 | `--max-iter <N>` | | iteration ceiling |
-| `--git-user-name` / `--git-user-email` | | commit identity |
+| `--git-user-name` / `--git-user-email` | | commit identity. Per-field resolution: CLI flag > YAML `companies.<name>.git_identity.{name,email}` (when `--runbook` is set) > hardcoded `iklobato` default. |
 | `--keep-worktree` | | leave `/tmp/...` after run |
 
 ```bash
@@ -543,17 +549,243 @@ keys are preserved (reported as `skipped`).
 
 ---
 
+## How the pieces fit together
+
+Three command families, three concerns. Each diagram shows what a
+command reads, what it invokes, and what comes out — so you can
+predict the blast radius of a change.
+
+### `briar runbook serve <dir>` — the long-running scheduler
+
+```
+            ┌──────────────────────────────────────────┐
+            │ briar runbook serve companies/ --tick 5  │
+            └─────────────────────┬────────────────────┘
+                                  │
+        reads at startup          │           reads at every fire
+   ┌──────────────────────┐       │       ┌────────────────────────┐
+   │ companies/*.yaml     │       │       │ /etc/briar/secrets.env │
+   │  (CompanyEntry +     │◄──────┴──────►│  per-fire env vars     │
+   │   ScheduleEntry)     │               │  (GITHUB_TOKEN,        │
+   └──────────────────────┘               │   JIRA_*, AWS_*, ...)  │
+                                          └────────────────────────┘
+                                  │
+                                  ▼
+                     ┌─────────────────────────┐
+                     │  scheduler loop (tick)  │
+                     │  • registers cron-ish   │
+                     │    jobs per ScheduleEntry│
+                     │  • fires due jobs       │
+                     └────────────┬────────────┘
+                                  │
+                                  ▼
+                     ┌─────────────────────────┐
+                     │ RunbookExecutor.extract │
+                     └────────────┬────────────┘
+                                  │
+            ┌─────────────────────┼─────────────────────┐
+            ▼                     ▼                     ▼
+   ┌────────────────┐  ┌────────────────────┐  ┌──────────────────┐
+   │ EXTRACTORS[..] │  │ KnowledgeComposer  │  │ make_store(...)  │
+   │  for each      │──▶  .markdown(...)    │──▶  .put_if_changed │
+   │  ExtractEntry  │  │ assembles sections │  │   (md5 compare-  │
+   │  in schedule   │  │ into one blob      │  │    and-set)      │
+   └───────┬────────┘  └────────────────────┘  └────────┬─────────┘
+           │                                            │
+           ▼                                            ▼
+   ┌────────────────┐                          ┌──────────────────┐
+   │ provider_class │                          │ KnowledgeStore   │
+   │   _for(args)   │                          │  • StoreFile     │
+   │  ┌────────────┐│                          │  • StorePostgres │
+   │  │ Repository ││                          └──────────────────┘
+   │  │ Tracker    ││                                   │
+   │  │ Cloud      ││                                   ▼
+   │  └────────────┘│                          DO managed PG / files
+   └────────────────┘                          ./knowledge/*.md
+```
+
+A change in `companies/*.yaml` is picked up on the **next** schedule
+fire because the executor re-loads the YAML on every iteration. Code
+changes need a scheduler restart (the `briar` Python process caches
+imported modules).
+
+### `briar runbook extract <file.yaml>` — one-shot
+
+```
+   briar runbook extract companies/acme.yaml [--task tickets]
+                              │
+                              ▼
+                  Same executor path as `serve`,
+                  but runs once and exits.
+                  --task filters which ScheduleEntry to fire.
+```
+
+Useful for manual smoke tests against a specific task (e.g.
+verifying Jira session auth before letting the scheduler run for
+24h on its own cadence).
+
+### `briar agent prfix` / `briar agent implement` — autonomous LLM
+
+```
+       ┌─────────────────────────────────────────────────────┐
+       │ briar agent prfix --company acme                  │
+       │   --owner acme-co --repo acme-app              │
+       │   --pr 42 --branch feature/x                        │
+       │   --runbook companies/acme.yaml                   │
+       └────────────────────────┬────────────────────────────┘
+                                │
+        ┌───────────────────────┼────────────────────────┐
+        ▼                       ▼                        ▼
+   ┌──────────┐         ┌────────────┐         ┌─────────────────┐
+   │ secrets  │         │ companies/ │         │ KnowledgeStore  │
+   │ .env     │         │ acme.yaml│         │ .get("knowledge:│
+   │ • GITHUB │         │ • messages │         │      acme")   │
+   │ • JIRA_* │         │ • git_id   │         │  (previously    │
+   │ • CLAUDE │         └─────┬──────┘         │  written by     │
+   └────┬─────┘               │                │  serve)         │
+        │                     ▼                └────────┬────────┘
+        │           ┌─────────────────┐                 │
+        │           │_resolve_git_id  │                 │
+        │           │  (CLI > YAML >  │                 │
+        │           │   default)      │                 │
+        │           └────────┬────────┘                 │
+        │                    │                          │
+        ▼                    ▼                          ▼
+   ┌──────────────────────────────────────────────────────────┐
+   │ RepoCloner.clone(branch) → /tmp/<worktree>               │
+   │   • sets user.name + user.email on the clone             │
+   └────────────────────────────┬─────────────────────────────┘
+                                │
+                                ▼
+   ┌──────────────────────────────────────────────────────────┐
+   │ FetchPrContext (JIT extractor: reads PR + review thread) │
+   └────────────────────────────┬─────────────────────────────┘
+                                │
+                                ▼
+   ┌──────────────────────────────────────────────────────────┐
+   │ AgentRunner (Anthropic API + tool-use loop)              │
+   │   tools available:                                       │
+   │     • bash, read_file, write_file, edit_file             │
+   │     • send_message ←──┐                                  │
+   └────────────┬──────────│──────────────────────────────────┘
+                │          │
+                │          │ resolved via messages: block:
+                │          │   handle → MessageWriter
+                │          │     ├── jira-comment / jira-transition
+                │          │     │     (uses JiraAuthStrategy)
+                │          │     ├── github-pr-comment
+                │          │     ├── bitbucket-pr-comment
+                │          │     ├── slack-channel
+                │          │     └── telegram-chat
+                │          │
+                ▼
+       commits + push via the same RepositoryProvider
+       used in the scheduler — closes the loop.
+```
+
+`briar agent implement` is the same shape, replacing
+`FetchPrContext` with `FetchTicketContext` (which reads from the
+TrackerProvider for the company's chosen tracker).
+
+### DSN resolution — `knowledge.store: postgres`
+
+```
+KnowledgeBinding (from YAML)
+   │
+   │   knowledge:
+   │     store: postgres
+   │     config:
+   │       dsn_env: BRIAR_KB_DATABASE_URL   ← explicit
+   │
+   ▼
+StoreBinding(company="acme", config={...})
+   │
+   ▼
+StorePostgres.from_binding(binding):
+   ┌──────────────────────────────────────────────────────────┐
+   │ 1. binding.config["dsn_env"]      → ${BRIAR_KB_DATABASE_URL}
+   │ 2. BRIAR_{COMPANY}_DATABASE_URL   → ${BRIAR_ACME_DATABASE_URL}
+   │ 3. BRIAR_DATABASE_URL             → ${BRIAR_DATABASE_URL}
+   │ 4. CliError naming all 3 keys tried, in order
+   └──────────────────────────────────────────────────────────┘
+   │
+   ▼
+returns psycopg-backed StorePostgres instance
+```
+
+The first non-empty env var wins. Every downstream caller
+(`scheduler`, `briar context`, `briar agent`'s `KnowledgeStore.get`)
+goes through the same factory — no parallel resolution paths.
+
+### Jira auth strategy chain
+
+```
+JiraTracker(company="acme")
+   │
+   ▼
+JiraAuthRegistry.autodetect(company="acme"):
+   ┌──────────────────────────────────────────────────────────┐
+   │ 1. JIRA_{COMPANY}_AUTH_KIND env (explicit override)      │
+   │     "token"   → JiraTokenAuth                            │
+   │     "session" → JiraSessionAuth                          │
+   │ 2. JIRA_{COMPANY}_SESSION_TOKEN OR _TENANT_SESSION_TOKEN │
+   │    set        → JiraSessionAuth                          │
+   │ 3. fallback   → JiraTokenAuth                            │
+   └──────────────────────────────────────────────────────────┘
+   │
+   ▼
+strategy.configure(company, base_url)
+   │
+   ├── token   →  {username, password}        ── HTTP Basic
+   │
+   └── session →  {session: requests.Session(
+                    cookies={cloud.session.token, tenant.session.token,
+                             atlassian.xsrf.token},
+                    headers={Origin, Referer, User-Agent,
+                             sec-ch-ua-*, sec-fetch-*,
+                             X-Atlassian-Token: no-check})}
+                  ── browser-mimicking
+   │
+   ▼
+atlassian.Jira(url=..., cloud=True, **kwargs)
+```
+
+The same `JiraTracker` is used by both the scheduler's
+`active-tickets` / `ticket-archaeology` extractors AND the agent's
+`jira-comment` / `jira-transition` message writers — so a working
+session auth for one path is a working session auth for the other.
+
+### What invalidates what
+
+| You changed... | Restart needed | Effect |
+|---|---|---|
+| `companies/*.yaml` | no (next fire) | scheduler re-reads on every tick |
+| `/etc/briar/secrets.env` | yes | scheduler holds env in process memory |
+| `src/briar/` (editable install) | yes | imported modules are cached |
+| Postgres `briar_knowledge` table | no | scheduler reads fresh on each fire |
+| Jira session-token cookie | no — but log it | scheduler reads from env at startup; restart picks up rotation |
+
+---
+
 ## Examples + further reading
 
+- [`companies/`](companies/) — production-grade runbooks for real
+  companies (`acme.yaml`, `widgets.yaml`). Each uses
+  `knowledge.config.dsn_env: BRIAR_KB_DATABASE_URL` to share the
+  same managed-Postgres knowledge store with row-level partitioning
+  by `company` column.
 - [`examples/all_features.yaml`](examples/all_features.yaml) — every
-  abstraction × provider × writer combination across 4 companies
+  abstraction × provider × writer combination across 4 companies.
+  Schema reference for `knowledge.config`, `messages:`, `git_identity:`,
+  and the Jira auth-strategy selector.
 - [`examples/multi_company.yaml`](examples/multi_company.yaml) +
   [`.env.example`](examples/multi_company.env.example) — 3-company
   tutorial without the `messages:` block
 - [`examples/acme.yaml`](examples/acme.yaml) — real deployment
   (Bitbucket workspace token + AWS instance role)
 - [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) — per-provider
-  credential acquisition guide
+  credential acquisition guide (incl. Jira API token AND
+  browser-session-cookie paths)
 - [`DEPLOY_EC2.md`](DEPLOY_EC2.md) — systemd deployment recipe
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) +
   [`ARCHITECTURE_DEEP.md`](ARCHITECTURE_DEEP.md) — abstraction
