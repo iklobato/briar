@@ -1,0 +1,62 @@
+name: Release to PyPI
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: "!startsWith(github.event.head_commit.message, 'chore(release):')"
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Bump patch version in pyproject.toml
+        id: bump
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import re, pathlib
+          p = pathlib.Path("pyproject.toml")
+          txt = p.read_text()
+          m = re.search(r'^version = "([^"]+)"', txt, flags=re.M)
+          if not m:
+              raise SystemExit("version not found in pyproject.toml")
+          major, minor, patch = (int(x) for x in m.group(1).split("."))
+          nxt = f"{major}.{minor}.{patch + 1}"
+          p.write_text(re.sub(r'^version = "[^"]+"', f'version = "{nxt}"', txt, count=1, flags=re.M))
+          print(f"current={m.group(1)}")
+          print(f"next={nxt}")
+          PY
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
+
+      - name: Commit bump and tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml
+          git commit -m "chore(release): v${{ steps.bump.outputs.next }}"
+          git tag "v${{ steps.bump.outputs.next }}"
+          git push origin HEAD:main
+          git push origin "v${{ steps.bump.outputs.next }}"
