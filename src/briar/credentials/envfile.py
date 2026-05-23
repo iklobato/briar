@@ -21,11 +21,24 @@ from briar.credentials._store import CredentialStore
 log = logging.getLogger(__name__)
 
 
-# Where the secrets file lives. Overridable via env var so tests and
-# laptop installs can target a different path. systemd reads the same
-# path on the droplet via EnvironmentFile=.
+# Where the secrets file lives. Resolution chain (first match wins):
+#   1. $BRIAR_SECRETS_FILE       — explicit operator override
+#   2. /etc/briar/secrets.env    — if already present (droplet convention,
+#                                  systemd reads it via EnvironmentFile=)
+#   3. $XDG_CONFIG_HOME/briar/secrets.env  (or ~/.config/briar/secrets.env)
+#                                — laptop default (XDG-compliant)
+# The chain "just works" on both deploy shapes without requiring the
+# laptop user to set BRIAR_SECRETS_FILE manually.
 def _secrets_path() -> Path:
-    return Path(os.environ.get("BRIAR_SECRETS_FILE") or "/etc/briar/secrets.env")
+    explicit = os.environ.get("BRIAR_SECRETS_FILE", "").strip()
+    if explicit:
+        return Path(explicit)
+    system = Path("/etc/briar/secrets.env")
+    if system.exists():
+        return system
+    base_str = os.environ.get("XDG_CONFIG_HOME", "").strip()
+    base = Path(base_str) if base_str else Path.home() / ".config"
+    return base / "briar" / "secrets.env"
 
 
 _NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
@@ -65,37 +78,39 @@ class EnvFileStore(CredentialStore):
         return os.environ.get(name, "")
 
     def write(self, name: str, value: str) -> None:
-        """Update ``os.environ`` for the running process AND persist to
-        the secrets file so the next process restart picks it up.
+        """Update ``os.environ`` for the running process AND persist
+        durably to the secrets file. Atomic via temp-file + rename.
 
-        Idempotent: an existing line with the same KEY is replaced
-        in-place; a new key is appended at the end. Atomic via
-        write-to-temp-then-rename — partial writes never leak.
+        Idempotent: a line with the same KEY is replaced in-place;
+        new keys are appended at the end.
 
-        The secrets file is created with mode 0600 if missing. Parent
-        directory is NOT auto-created — that should be an explicit
-        deploy-time step (with the right ownership). If the file is
-        unwritable, ``os.environ`` is still updated so the current
-        process can proceed; the caller decides whether to surface the
-        persistence failure."""
+        Parent directory is auto-created (``mkdir(parents=True,
+        exist_ok=True)``) — the XDG default path
+        (``~/.config/briar/``) doesn't exist on first use.
+
+        File-write failures **raise** ``OSError`` AFTER ``os.environ``
+        has been updated. Two reasons: (1) the calling process still
+        benefits from the in-memory update; (2) the caller (typically
+        ``briar auth login``) needs the exception so the per-key
+        ok/FAIL summary reflects what was actually durable. Previous
+        behaviour was to swallow the error and lie — fixed."""
         _validate_name(name)
         os.environ[name] = value
 
         path = _secrets_path()
-        if not path.exists():
-            try:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if not path.exists():
                 path.touch(mode=0o600)
-            except OSError as exc:
-                log.warning("envfile-store: could not create %s — value held in os.environ only: %s", path, exc)
-                return
+        except OSError as exc:
+            raise OSError(f"envfile-store: could not prepare {path}: {exc}") from exc
 
-        new_line = f"{name}={value}\n"
         try:
             existing = path.read_text()
         except OSError as exc:
-            log.warning("envfile-store: could not read %s — appending new value blindly: %s", path, exc)
-            existing = ""
+            raise OSError(f"envfile-store: could not read {path}: {exc}") from exc
 
+        new_line = f"{name}={value}\n"
         # Match `KEY=value` (possibly with leading whitespace, possibly
         # `export KEY=value`) so we replace in place rather than appending
         # a duplicate that shadows the first one.
@@ -112,7 +127,7 @@ class EnvFileStore(CredentialStore):
             os.chmod(tmp, 0o600)
             tmp.replace(path)
         except OSError as exc:
-            log.warning("envfile-store: could not persist %s to %s — value held in os.environ only: %s", name, path, exc)
+            raise OSError(f"envfile-store: could not persist {name} to {path}: {exc}") from exc
 
     def delete(self, name: str) -> bool:
         """Remove from both ``os.environ`` and the persisted file.
