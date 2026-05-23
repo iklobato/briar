@@ -20,11 +20,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: main
 
       - name: Install uv
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
+
+      # Sync to the very latest main BEFORE bumping. A previous failed
+      # release run may have left main moved underneath us; without
+      # this re-sync the bump computes against stale pyproject.toml
+      # and we collide with whatever already shipped to PyPI.
+      - name: Sync to latest origin/main
+        run: |
+          git fetch origin main
+          git reset --hard origin/main
 
       - name: Bump patch version in pyproject.toml
         id: bump
@@ -46,17 +56,39 @@ jobs:
       - name: Build sdist and wheel
         run: uv build
 
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_API_TOKEN }}
-
-      - name: Commit bump and tag
+      # Push commit + tag BEFORE uploading to PyPI. The push is the
+      # race gate: if main moved while we were bumping, rebase-retry
+      # serializes us against the conflict and we land cleanly. If
+      # rebase still loses after retries, we abort — no orphaned PyPI
+      # wheels, no half-released versions.
+      - name: Commit, tag, push (with rebase-retry)
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add pyproject.toml
           git commit -m "chore(release): v${{ steps.bump.outputs.next }}"
           git tag "v${{ steps.bump.outputs.next }}"
-          git push origin HEAD:main
+          for attempt in 1 2 3; do
+            if git pull --rebase origin main && git push origin HEAD:main; then
+              echo "push succeeded on attempt $attempt"
+              break
+            fi
+            if [ "$attempt" = "3" ]; then
+              echo "push failed after 3 attempts; aborting before PyPI upload"
+              exit 1
+            fi
+            echo "push attempt $attempt lost the race; rebasing and retrying"
+            sleep 5
+          done
           git push origin "v${{ steps.bump.outputs.next }}"
+
+      # `skip-existing: true` is belt-and-suspenders. The push gate
+      # above should already prevent two runs from racing to the same
+      # version. If a previous failed run somehow uploaded the wheel
+      # but never committed the bump, this lets a manual re-run
+      # recover instead of hard-failing.
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          skip-existing: true
