@@ -78,6 +78,7 @@ briar context       — read/write local markdown blobs
 briar dashboard     — read-only HTML status page
 briar auth          — interactive credential acquisition (login / logout / refresh / list / status)
 briar secrets       — credential coverage (doctor / bootstrap)
+briar journal       — inspect decision-journal sessions (list / show / export)
 ```
 
 **Global flags** (apply to every subcommand):
@@ -97,6 +98,10 @@ briar secrets       — credential coverage (doctor / bootstrap)
 | `BRIAR_{COMPANY}_DATABASE_URL` | per-company Postgres DSN. Auto-detected when the YAML has no `knowledge.config.dsn_env`. Hyphens in company keys are uppercased + replaced with `_` (e.g. `widget-co` → `BRIAR_WIDGET_CO_DATABASE_URL`). |
 | `<custom>` (when YAML sets `knowledge.config.dsn_env: MY_PG`) | reads the named env var as the DSN — fully explicit override |
 | `BRIAR_NOTIFY_SINKS=telegram,slack` | scheduler failure alerts |
+| `BRIAR_JOURNAL=off` | disable the decision journal entirely (default: on) |
+| `BRIAR_JOURNAL_STORE={file}` | system-of-record backend (default `file`) |
+| `BRIAR_JOURNAL_SINKS=file` | comma-separated publish sinks (default `file`, writes a markdown summary per session) |
+| `BRIAR_JOURNAL_ROOT=./journal` | filesystem root for the file store + file sink |
 | `BRIAR_DEFAULT_STORE={envfile,infisical,vault,aws-secretsmanager,ssm}` | default `--store` for `briar auth login`. When set, credentials acquired interactively land here without `--store` on every invocation. |
 | `BRIAR_SECRETS_FILE=/path/to/secrets.env` | override the secrets file path. Resolution order: this env var → `/etc/briar/secrets.env` (if exists) → `$XDG_CONFIG_HOME/briar/secrets.env` (or `~/.config/briar/secrets.env`) |
 | `INFISICAL_CLIENT_ID` / `_SECRET` / `_PROJECT_ID` (+ optional `_ENV`, `_HOST`) | Infisical machine-identity. Drives both bootstrap (auto-hydrate at startup) AND `InfisicalStore` (`--store infisical` writes). Acquire interactively via `briar auth login infisical`. |
@@ -685,6 +690,79 @@ briar secrets bootstrap --kind infisical
 
 Operator-supplied env vars take precedence over the vault — already-set
 keys are preserved (reported as `skipped`).
+
+---
+
+## `briar journal` — decision journal
+
+Every instrumented command records a *session* — a tree of decisions
+(which source, which archetype, which trigger, which tools survived the
+archetype filter, …) tagged with rationale and the alternatives that
+were on the table. Sessions persist to a configurable *store* (system
+of record) and fan out to one-or-more *sinks* (publish destinations).
+
+Today the only instrumented command is `briar scaffold`, and the only
+store + sink are file-backed. Adding NotionSink / SlackSink to surface
+sessions to a team channel is one new module each (Open/Closed —
+`JournalSink` ABC + one tuple entry in `briar.journal.sinks`).
+
+### Subcommands
+
+```bash
+# Enumerate recent sessions (newest first)
+briar journal list [--command scaffold.] [--limit 50]
+
+# Pretty-print one session as markdown
+briar journal show <session-id>
+
+# Export one session to a file or stdout
+briar journal export <session-id> [--format {markdown,json}] [--out PATH]
+```
+
+`--store` and `--root` flags accept the same conventions as the rest
+of the CLI (`--store file`, `--root ./journal`). Defaults match the
+env-var configuration so an invocation with no flags reads from the
+same place the recording side wrote to.
+
+### What gets recorded
+
+Each session captures: session id, command label (`scaffold.implementation`),
+target (`acme/widgets`), start + end timestamps, and an ordered list
+of `DecisionEvent`s. Each event has:
+
+- `choice` — stable dotted slug (`scaffold.sources`, `scaffold.archetype`, …)
+- `value` — what was selected (`["github", "jira"]`, `"engineer"`, …)
+- `rationale` — one-sentence why
+- `alternatives` — what else was on the menu
+- `artifacts` — optional key→value bag (file paths, urls, ids)
+
+### Where it goes
+
+```
+./journal/                          ← BRIAR_JOURNAL_ROOT
+├── sessions/<YYYY-MM-DD>/<id>.json  ← system of record (FileJournalStore)
+└── published/<id>.md                ← human-readable summary (FileSink)
+```
+
+The store is queryable (`briar journal list / show / export`); the
+sink is a "leave it on disk for the next reader" artifact, ideal for
+pasting into a PR description.
+
+### Design
+
+Two abstractions, deliberately separate (Single Responsibility):
+
+| Concern | Pattern | Where |
+|---|---|---|
+| **Store** — system of record, queryable | Strategy + Registry | `briar/journal/store/` — `JournalStore` ABC, `FileJournalStore`, registered via `build_registry` |
+| **Sinks** — publish fan-out, format owned per-destination | Adapter + Registry | `briar/journal/sinks/` — `JournalSink` ABC, `FileSink`, registered via `build_registry` |
+| **Lifecycle** — open / record / close | Context manager + Null Object | `briar/journal/_journal.py` — `Journal` façade, `_NoOpJournal` default, `session(...)` context manager |
+| **Recording** — what callers do | Façade function | `briar.journal.record(choice, value=..., rationale=...)` — one-liner per decision; goes through the active journal |
+
+Instrumenting a new command = wrap it in `with session(...)` at the
+boundary and call `record(...)` at each decision point. The composer's
+existing branching is the natural surface — see
+`src/briar/iac/scaffold/_composer.py` for the reference pattern.
 
 ---
 

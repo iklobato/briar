@@ -57,6 +57,12 @@ class Cli:
         elif result.count:
             log.info("credential-bootstrap: %s hydrated %d env vars", result.backend, result.count)
 
+        # Install the default journal. Commands that use
+        # `with briar.journal.session(...)` will record + persist;
+        # uninstrumented commands are unaffected (null-object default
+        # protects every call site from "is journaling active" guards).
+        cls._install_default_journal(log)
+
         commands = build_registry()
         parser = cls._build_parser(commands)
 
@@ -81,6 +87,37 @@ class Cli:
         except Exception:  # noqa: BLE001 — top-level catch-all logs the trace
             log.exception("command %s crashed unexpectedly", args.command)
             return 2
+
+    @staticmethod
+    def _install_default_journal(log: logging.Logger) -> None:
+        """Install the process-wide default journal. Honours
+        BRIAR_JOURNAL=off to disable entirely; otherwise wires the
+        configured store (BRIAR_JOURNAL_STORE, default `file`) and the
+        sinks listed in BRIAR_JOURNAL_SINKS (default `file`).
+
+        Failures here are warnings, not errors — journaling is a
+        cross-cutting concern and a misconfigured store should not
+        block the actual command the user wanted to run."""
+        import os
+
+        if os.environ.get("BRIAR_JOURNAL", "").lower() in {"off", "0", "no"}:
+            return
+        try:
+            from pathlib import Path
+
+            from briar.journal import Journal, make_journal_store
+            from briar.journal.sinks import JOURNAL_SINKS
+            from briar.journal._journal import set_active_journal
+
+            store_name = os.environ.get("BRIAR_JOURNAL_STORE", "file")
+            root = Path(os.environ.get("BRIAR_JOURNAL_ROOT", "./journal"))
+            store = make_journal_store(store_name, file_root=root)
+            sink_names = [s.strip() for s in os.environ.get("BRIAR_JOURNAL_SINKS", "file").split(",") if s.strip()]
+            sinks = [JOURNAL_SINKS[name] for name in sink_names if name in JOURNAL_SINKS]
+            set_active_journal(Journal(store, sinks=sinks))
+            log.debug("journal: store=%s sinks=%s root=%s", store_name, sink_names, root)
+        except Exception:  # noqa: BLE001 — journaling is best-effort
+            log.exception("journal: install failed; continuing without journaling")
 
     @classmethod
     def _extract_global_flags(cls, argv: List[str]) -> Tuple[Dict[str, str], Set[str], List[str]]:

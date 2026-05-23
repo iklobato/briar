@@ -16,6 +16,7 @@ from briar.iac.scaffold.archetypes import ARCHETYPES, AgentArchetype
 from briar.iac.scaffold.shapes import WORKFLOW_SHAPES, WorkflowShape
 from briar.iac.scaffold.sources import SOURCE_TEMPLATES, SourceTemplate
 from briar.iac.scaffold.triggers import TRIGGER_TEMPLATES, TriggerTemplate
+from briar.journal import record
 
 
 log = logging.getLogger(__name__)
@@ -32,20 +33,44 @@ class ScaffoldComposer:
         prefix = args.prefix
 
         source_templates = cls._resolved_sources(args.source)
+        record(
+            "scaffold.sources",
+            value=list(args.source),
+            rationale="user-selected source kinds (--source repeatable)",
+            alternatives=tuple(sorted(SOURCE_TEMPLATES.keys())),
+        )
         archetype: AgentArchetype = cls._resolved(
             args.archetype,
             ARCHETYPES,
             "archetype",
+        )
+        record(
+            "scaffold.archetype",
+            value=archetype.name,
+            rationale=archetype.description,
+            alternatives=tuple(sorted(ARCHETYPES.keys())),
         )
         shape: WorkflowShape = cls._resolved(
             args.shape,
             WORKFLOW_SHAPES,
             "shape",
         )
+        record(
+            "scaffold.shape",
+            value=shape.name,
+            rationale="workflow shape — controls human-checkpoint placement",
+            alternatives=tuple(sorted(WORKFLOW_SHAPES.keys())),
+        )
         trigger_template: TriggerTemplate = cls._resolved(
             args.trigger_kind,
             TRIGGER_TEMPLATES,
             "trigger_kind",
+        )
+        record(
+            "scaffold.trigger",
+            value=trigger_template.kind,
+            rationale="entry condition for the workflow",
+            alternatives=tuple(sorted(TRIGGER_TEMPLATES.keys())),
         )
 
         sources_block: List[Dict[str, Any]] = []
@@ -54,7 +79,14 @@ class ScaffoldComposer:
             sources_block.append(tmpl.build_source(args, prefix))
             tools_block.extend(tmpl.build_tools(args, prefix))
 
+        unfiltered_count = len(tools_block)
         tools_block = archetype.filter_tools(tools_block)
+        record(
+            "scaffold.tools.filtered",
+            value={"kept": len(tools_block), "dropped": unfiltered_count - len(tools_block)},
+            rationale=f"archetype {archetype.name!r} tool_filter applied to source-emitted tools",
+            artifacts={"kept_tools": ",".join(t["implementation_ref"] for t in tools_block)},
+        )
 
         persona = archetype.build_persona(target)
         agent_key = f"{prefix}-{archetype.name}"
