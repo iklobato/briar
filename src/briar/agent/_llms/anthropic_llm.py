@@ -1,16 +1,24 @@
 """Anthropic `LLMProvider`. Captures the call shape that
 `agent/runner.py` previously inlined: OAuth `auth_token` + the
-`oauth-2025-04-20` beta header, the 5-attempt rate-limit retry
-schedule, and the `tool_use` block normalisation."""
+`oauth-2025-04-20` beta header, the rate-limit retry schedule
+(now expressed declaratively via the error-policy registry), and
+the `tool_use` block normalisation."""
 
 from __future__ import annotations
 
 import logging
 import os
-import time
 from typing import Any, Dict, List
 
 from briar.agent._llm import LLMProvider, LLMResponse, LLMToolCall
+from briar.error_policy import (
+    Abort,
+    ErrorPolicyRegistry,
+    ExceptionTypePolicy,
+    HttpStatusPolicy,
+    RetryAfter,
+    RetryingExecutor,
+)
 
 
 log = logging.getLogger(__name__)
@@ -19,14 +27,75 @@ log = logging.getLogger(__name__)
 class AnthropicLLM(LLMProvider):
     kind = "anthropic"
     DEFAULT_MODEL = "claude-sonnet-4-5"
-    # Backoff: 30s, 60s, 120s, 240s, 480s — 5 attempts total.
-    RETRY_WAITS = (0, 30, 60, 120, 240)
+
+    @classmethod
+    def default_error_policies(cls) -> ErrorPolicyRegistry:
+        """Anthropic's SDK exception taxonomy → retry/abort strategy.
+
+        Order is intentional — more-specific matches come first. The
+        ``HttpStatusPolicy(APIStatusError, status=…)`` entries fire
+        before the broad ``ExceptionTypePolicy(APIStatusError, …)``
+        fallback, so specific status codes get tailored waits.
+
+        Tunable: edit the ``wait_seconds`` values below or compose an
+        overlay via ``registry.with_(extra_policy)`` from a company's
+        YAML if/when that lands."""
+        import anthropic
+
+        return ErrorPolicyRegistry(
+            policies=(
+                # 429 — account-level rate limit. Anthropic resets on
+                # the hour; wait 1h then retry rather than the old
+                # 30s-doubling schedule, which never recovers when the
+                # quota itself is exhausted.
+                ExceptionTypePolicy(
+                    exception_type=anthropic.RateLimitError,
+                    decision=RetryAfter(wait_seconds=3600, reason="anthropic rate limit"),
+                ),
+                # Transient TCP-level / DNS / TLS errors.
+                ExceptionTypePolicy(
+                    exception_type=anthropic.APIConnectionError,
+                    decision=RetryAfter(wait_seconds=10, reason="anthropic transient connect"),
+                ),
+                # Targeted 503 (service-unavailable) — short retry.
+                HttpStatusPolicy(
+                    exception_type=anthropic.APIStatusError,
+                    status=503,
+                    decision=RetryAfter(wait_seconds=30, reason="anthropic 503 service unavailable"),
+                ),
+                # 529 — Anthropic's "overloaded" signal. Longer wait.
+                HttpStatusPolicy(
+                    exception_type=anthropic.APIStatusError,
+                    status=529,
+                    decision=RetryAfter(wait_seconds=120, reason="anthropic 529 overloaded"),
+                ),
+                # 401 / 403 — auth misconfig. No amount of retrying
+                # will fix it; abort fast so the operator sees it.
+                HttpStatusPolicy(
+                    exception_type=anthropic.APIStatusError,
+                    status=401,
+                    decision=Abort(reason="anthropic 401 — check CLAUDE_CODE_OAUTH_TOKEN / ANTHROPIC_API_KEY"),
+                ),
+                HttpStatusPolicy(
+                    exception_type=anthropic.APIStatusError,
+                    status=403,
+                    decision=Abort(reason="anthropic 403 — forbidden (model access / billing)"),
+                ),
+            ),
+        )
 
     def __init__(self, *, model: str = "") -> None:
         self._model = model or self.DEFAULT_MODEL
         self._oauth_token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "")
         self._api_key = os.environ.get("ANTHROPIC_API_KEY", "")
         self._client = None
+        # Build the executor once per provider instance. The registry
+        # is immutable; reusing the same executor across .complete()
+        # calls preserves the agent's retry budget across one task.
+        self._executor = RetryingExecutor(
+            registry=self.default_error_policies(),
+            max_attempts=5,
+        )
 
     def _build_client(self):
         if self._client is not None:
@@ -58,29 +127,23 @@ class AnthropicLLM(LLMProvider):
         tools: List[Dict[str, Any]],
         max_tokens: int,
     ) -> LLMResponse:
-        import anthropic
-
+        """One turn. The executor handles every retryable failure mode
+        declared in ``default_error_policies()`` — this method has zero
+        ``try / except`` of its own. Adding a new error class is a
+        registry entry, not a code change here."""
         client = self._build_client()
-        last_exc: Exception = RuntimeError("unreachable")
-        for attempt, wait in enumerate(self.RETRY_WAITS, start=1):
-            if wait > 0:
-                log.info("anthropic-rate-limit: sleeping %ds before attempt %d", wait, attempt)
-                time.sleep(wait)
-            try:
-                response = client.messages.create(
-                    model=self._model,
-                    max_tokens=max_tokens,
-                    system=system,
-                    tools=tools,
-                    messages=messages,
-                )
-                return self._normalise(response)
-            except anthropic.RateLimitError as exc:
-                log.warning("anthropic-429: attempt=%d/%d err=%s", attempt, len(self.RETRY_WAITS), exc)
-                last_exc = exc
-                continue
-        log.error("anthropic-429-exhausted: %d retries", len(self.RETRY_WAITS))
-        raise last_exc
+
+        def _call() -> LLMResponse:
+            response = client.messages.create(
+                model=self._model,
+                max_tokens=max_tokens,
+                system=system,
+                tools=tools,
+                messages=messages,
+            )
+            return self._normalise(response)
+
+        return self._executor.run(_call)
 
     def format_tool_result(self, tool_call_id: str, output: str, is_error: bool = False) -> Dict[str, Any]:
         result: Dict[str, Any] = {

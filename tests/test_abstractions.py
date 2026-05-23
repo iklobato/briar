@@ -1479,5 +1479,277 @@ class GitIdentityResolutionTests(unittest.TestCase):
         self.assertEqual(email, "dev@users.noreply.github.com")
 
 
+class ErrorPolicyTests(unittest.TestCase):
+    """`briar.error_policy` — pluggable error-response strategies.
+
+    Two-level Strategy: ``ErrorPolicy`` picks a policy by exception
+    shape; ``ErrorDecision`` polymorphically encodes the action
+    (retry, abort, escalate). Pins these so a future "consolidate
+    the dispatch" refactor can't reintroduce if-by-type branching
+    inside the executor body."""
+
+    def test_retry_after_sleeps_and_signals_retry(self) -> None:
+        from briar.error_policy import FollowUp, RetryAfter
+
+        with mock.patch("briar.error_policy.time.sleep") as sleep:
+            result = RetryAfter(wait_seconds=5, reason="test").apply(
+                exc=RuntimeError("x"), attempt=1
+            )
+        self.assertIs(result, FollowUp.RETRY)
+        sleep.assert_called_once_with(5)
+
+    def test_retry_after_zero_wait_skips_sleep(self) -> None:
+        from briar.error_policy import RetryAfter
+
+        with mock.patch("briar.error_policy.time.sleep") as sleep:
+            RetryAfter(wait_seconds=0, reason="test").apply(exc=RuntimeError("x"), attempt=1)
+        sleep.assert_not_called()
+
+    def test_abort_signals_raise_without_sleep(self) -> None:
+        from briar.error_policy import Abort, FollowUp
+
+        with mock.patch("briar.error_policy.time.sleep") as sleep:
+            result = Abort(reason="auth").apply(exc=RuntimeError("x"), attempt=2)
+        self.assertIs(result, FollowUp.RAISE)
+        sleep.assert_not_called()
+
+    def test_escalate_calls_dispatcher_and_honours_then(self) -> None:
+        from briar.error_policy import Escalate, FollowUp
+
+        calls = []
+        with mock.patch("briar.error_policy.time.sleep"):
+            result = Escalate(
+                dispatcher=lambda msg: calls.append(msg),
+                message="quota exhausted",
+                then=FollowUp.RAISE,
+            ).apply(exc=RuntimeError("x"), attempt=1)
+        self.assertEqual(calls, ["quota exhausted"])
+        self.assertIs(result, FollowUp.RAISE)
+
+    def test_escalate_dispatcher_failure_is_non_fatal(self) -> None:
+        """A misbehaving dispatcher must NOT mask the underlying error
+        path — the executor should still see the chosen ``.then``."""
+        from briar.error_policy import Escalate, FollowUp
+
+        def bad_dispatcher(msg):
+            raise OSError("notify backend down")
+
+        with mock.patch("briar.error_policy.time.sleep"):
+            result = Escalate(
+                dispatcher=bad_dispatcher,
+                message="x",
+                then=FollowUp.RETRY,
+            ).apply(exc=RuntimeError("x"), attempt=1)
+        self.assertIs(result, FollowUp.RETRY)
+
+    def test_exception_type_policy_matches_class_and_subclass(self) -> None:
+        from briar.error_policy import Abort, ExceptionTypePolicy
+
+        class BaseErr(Exception):
+            pass
+
+        class SubErr(BaseErr):
+            pass
+
+        policy = ExceptionTypePolicy(exception_type=BaseErr, decision=Abort())
+        self.assertTrue(policy.matches(BaseErr()))
+        self.assertTrue(policy.matches(SubErr()))
+        self.assertFalse(policy.matches(ValueError()))
+
+    def test_http_status_policy_requires_both_class_and_status(self) -> None:
+        from briar.error_policy import Abort, HttpStatusPolicy
+
+        class StatusErr(Exception):
+            def __init__(self, status_code):
+                self.status_code = status_code
+
+        policy = HttpStatusPolicy(exception_type=StatusErr, status=429, decision=Abort())
+        self.assertTrue(policy.matches(StatusErr(429)))
+        self.assertFalse(policy.matches(StatusErr(500)))
+        self.assertFalse(policy.matches(ValueError()))
+
+    def test_registry_returns_first_matching_policy(self) -> None:
+        """Order is intentional — the policy at index 0 wins even if a
+        later policy also matches."""
+        from briar.error_policy import (
+            Abort,
+            ErrorPolicyRegistry,
+            ExceptionTypePolicy,
+            RetryAfter,
+        )
+
+        first = ExceptionTypePolicy(exception_type=ValueError, decision=RetryAfter(1))
+        second = ExceptionTypePolicy(exception_type=Exception, decision=Abort())
+        registry = ErrorPolicyRegistry(policies=(first, second))
+        self.assertIs(registry.resolve(ValueError("x")), first)
+
+    def test_registry_falls_back_to_propagate_null_object(self) -> None:
+        """No match → null-object policy that decides Abort. Caller
+        never sees None."""
+        from briar.error_policy import ErrorPolicyRegistry, FollowUp
+
+        registry = ErrorPolicyRegistry(policies=())
+        policy = registry.resolve(ValueError("x"))
+        self.assertTrue(policy.matches(RuntimeError("y")))
+        decision = policy.decide(ValueError("x"), attempt=1)
+        with mock.patch("briar.error_policy.time.sleep"):
+            self.assertIs(decision.apply(exc=ValueError("x"), attempt=1), FollowUp.RAISE)
+
+    def test_registry_with_prepends_higher_priority(self) -> None:
+        """``registry.with_(override)`` returns a new registry with the
+        override at index 0. Per-company overlays use this."""
+        from briar.error_policy import (
+            Abort,
+            ErrorPolicyRegistry,
+            ExceptionTypePolicy,
+            RetryAfter,
+        )
+
+        base = ErrorPolicyRegistry(
+            policies=(ExceptionTypePolicy(exception_type=ValueError, decision=Abort()),)
+        )
+        overlay = ExceptionTypePolicy(
+            exception_type=ValueError, decision=RetryAfter(60, reason="override")
+        )
+        merged = base.with_(overlay)
+        # Base unchanged (immutable)
+        self.assertIsInstance(base.resolve(ValueError()).decision, Abort)
+        # Overlay wins
+        self.assertEqual(merged.resolve(ValueError()).decision.reason, "override")
+
+    def test_executor_returns_first_success_no_retry(self) -> None:
+        from briar.error_policy import ErrorPolicyRegistry, RetryingExecutor
+
+        calls = [0]
+
+        def fn():
+            calls[0] += 1
+            return "ok"
+
+        result = RetryingExecutor(ErrorPolicyRegistry()).run(fn)
+        self.assertEqual(result, "ok")
+        self.assertEqual(calls[0], 1)
+
+    def test_executor_retries_then_succeeds(self) -> None:
+        from briar.error_policy import (
+            ErrorPolicyRegistry,
+            ExceptionTypePolicy,
+            RetryAfter,
+            RetryingExecutor,
+        )
+
+        calls = [0]
+
+        def fn():
+            calls[0] += 1
+            if calls[0] < 3:
+                raise ValueError("transient")
+            return "ok"
+
+        registry = ErrorPolicyRegistry(
+            policies=(
+                ExceptionTypePolicy(exception_type=ValueError, decision=RetryAfter(0, reason="t")),
+            )
+        )
+        with mock.patch("briar.error_policy.time.sleep"):
+            result = RetryingExecutor(registry, max_attempts=5).run(fn)
+        self.assertEqual(result, "ok")
+        self.assertEqual(calls[0], 3)
+
+    def test_executor_raises_when_decision_is_abort(self) -> None:
+        """First attempt fails with a class matched by an Abort policy →
+        executor MUST propagate immediately, no retry."""
+        from briar.error_policy import (
+            Abort,
+            ErrorPolicyRegistry,
+            ExceptionTypePolicy,
+            RetryingExecutor,
+        )
+
+        calls = [0]
+
+        def fn():
+            calls[0] += 1
+            raise ValueError("auth-failed")
+
+        registry = ErrorPolicyRegistry(
+            policies=(ExceptionTypePolicy(exception_type=ValueError, decision=Abort()),)
+        )
+        with self.assertRaises(ValueError):
+            RetryingExecutor(registry).run(fn)
+        self.assertEqual(calls[0], 1)
+
+    def test_executor_propagates_unmatched_exception(self) -> None:
+        from briar.error_policy import ErrorPolicyRegistry, RetryingExecutor
+
+        calls = [0]
+
+        def fn():
+            calls[0] += 1
+            raise RuntimeError("oops")
+
+        with self.assertRaises(RuntimeError):
+            RetryingExecutor(ErrorPolicyRegistry()).run(fn)
+        self.assertEqual(calls[0], 1)
+
+    def test_executor_exhausts_max_attempts_then_raises(self) -> None:
+        from briar.error_policy import (
+            ErrorPolicyRegistry,
+            ExceptionTypePolicy,
+            RetryAfter,
+            RetryingExecutor,
+        )
+
+        def always_fail():
+            raise ValueError("always")
+
+        registry = ErrorPolicyRegistry(
+            policies=(
+                ExceptionTypePolicy(exception_type=ValueError, decision=RetryAfter(0, reason="t")),
+            )
+        )
+        with mock.patch("briar.error_policy.time.sleep"):
+            with self.assertRaises(ValueError) as cm:
+                RetryingExecutor(registry, max_attempts=3).run(always_fail)
+        self.assertEqual(str(cm.exception), "always")
+
+    def test_executor_rejects_invalid_max_attempts(self) -> None:
+        from briar.error_policy import ErrorPolicyRegistry, RetryingExecutor
+
+        with self.assertRaises(ValueError):
+            RetryingExecutor(ErrorPolicyRegistry(), max_attempts=0)
+
+    def test_anthropic_default_policies_include_rate_limit_with_hour_wait(self) -> None:
+        """Pins the specific contract the user asked for: Anthropic 429
+        → wait ~1 hour. Regression here would degrade recovery from
+        quota exhaustion."""
+        import anthropic
+        from briar.agent._llms.anthropic_llm import AnthropicLLM
+        from briar.error_policy import ExceptionTypePolicy, RetryAfter
+
+        registry = AnthropicLLM.default_error_policies()
+        rate_limit_policy = next(
+            p for p in registry.policies
+            if isinstance(p, ExceptionTypePolicy) and p.exception_type is anthropic.RateLimitError
+        )
+        self.assertIsInstance(rate_limit_policy.decision, RetryAfter)
+        # 1 hour (3600s) — Anthropic resets hourly
+        self.assertEqual(rate_limit_policy.decision.wait_seconds, 3600)
+
+    def test_anthropic_aborts_on_401_immediately(self) -> None:
+        """401 auth errors should NOT retry — they won't fix
+        themselves and they burn the retry budget."""
+        import anthropic
+        from briar.agent._llms.anthropic_llm import AnthropicLLM
+        from briar.error_policy import Abort, HttpStatusPolicy
+
+        registry = AnthropicLLM.default_error_policies()
+        auth_policy = next(
+            p for p in registry.policies
+            if isinstance(p, HttpStatusPolicy) and p.status == 401
+        )
+        self.assertIsInstance(auth_policy.decision, Abort)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -18,6 +18,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Dict, List
 
+from briar.error_policy import ErrorPolicyRegistry
+
 
 log = logging.getLogger(__name__)
 
@@ -53,6 +55,17 @@ class LLMProvider(ABC):
     these two verbs."""
 
     kind: ClassVar[str] = ""
+
+    @classmethod
+    def default_error_policies(cls) -> ErrorPolicyRegistry:
+        """The provider's default error-response policies — consumed
+        by the agent runner's RetryingExecutor. Subclasses override to
+        encode their SDK's exception taxonomy (rate limits, transient
+        errors, 5xx, etc.). Base returns an empty registry — the
+        executor will Abort on every exception, preserving the original
+        "propagate everything" behaviour for providers that haven't yet
+        declared their own policies."""
+        return ErrorPolicyRegistry()
 
     @abstractmethod
     def is_available(self) -> bool:
