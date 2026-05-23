@@ -64,6 +64,7 @@ briar agent         — autonomous LLM-driven flows (prfix / implement)
 briar scaffold      — emit JSON config bundles for downstream tools
 briar context       — read/write local markdown blobs
 briar dashboard     — read-only HTML status page
+briar auth          — interactive credential acquisition (login / logout / refresh / list / status)
 briar secrets       — credential coverage (doctor / bootstrap)
 ```
 
@@ -84,7 +85,9 @@ briar secrets       — credential coverage (doctor / bootstrap)
 | `BRIAR_{COMPANY}_DATABASE_URL` | per-company Postgres DSN. Auto-detected when the YAML has no `knowledge.config.dsn_env`. Hyphens in company keys are uppercased + replaced with `_` (e.g. `widget-co` → `BRIAR_WIDGET_CO_DATABASE_URL`). |
 | `<custom>` (when YAML sets `knowledge.config.dsn_env: MY_PG`) | reads the named env var as the DSN — fully explicit override |
 | `BRIAR_NOTIFY_SINKS=telegram,slack` | scheduler failure alerts |
-| `INFISICAL_CLIENT_ID` / `_SECRET` / `_PROJECT_ID` | auto-hydrate env vars from Infisical at startup |
+| `BRIAR_DEFAULT_STORE={envfile,infisical,vault,aws-secretsmanager,ssm}` | default `--store` for `briar auth login`. When set, credentials acquired interactively land here without `--store` on every invocation. |
+| `BRIAR_SECRETS_FILE=/path/to/secrets.env` | override the secrets file path. Resolution order: this env var → `/etc/briar/secrets.env` (if exists) → `$XDG_CONFIG_HOME/briar/secrets.env` (or `~/.config/briar/secrets.env`) |
+| `INFISICAL_CLIENT_ID` / `_SECRET` / `_PROJECT_ID` (+ optional `_ENV`, `_HOST`) | Infisical machine-identity. Drives both bootstrap (auto-hydrate at startup) AND `InfisicalStore` (`--store infisical` writes). Acquire interactively via `briar auth login infisical`. |
 | `JIRA_{COMPANY}_AUTH_KIND={token,session}` | force a Jira auth strategy. Default = auto-detect (session wins when a session-token env var is set) |
 | `JIRA_{COMPANY}_EMAIL` + `JIRA_{COMPANY}_TOKEN` | token-auth credentials (Atlassian-recommended) |
 | `JIRA_{COMPANY}_SESSION_TOKEN` / `JIRA_{COMPANY}_TENANT_SESSION_TOKEN` | session-auth credentials (browser-extracted cookies). Either one alone is sufficient. |
@@ -492,6 +495,104 @@ briar dashboard --once > /tmp/dashboard.html
 
 ---
 
+## `briar auth` — interactive credential acquisition
+
+Five subcommands. The thing-you're-logging-into is the **positional
+target** (like `gh auth login`, `vault login`, `op signin`). `--store`
+controls *where the resulting credentials are persisted* and defaults
+to `$BRIAR_DEFAULT_STORE` then to `envfile`.
+
+### Targets (registered acquirers)
+
+| Target | Flow | Writes (per company) |
+|---|---|---|
+| `github-pat` | Paste a Personal Access Token | `GITHUB_TOKEN` |
+| `github-device` | OAuth device flow (needs `BRIAR_GITHUB_CLIENT_ID`) | `GITHUB_TOKEN` |
+| `bitbucket-app-password` | Paste workspace + username + app password | `BITBUCKET_{c}_WORKSPACE` / `_USERNAME` / `_APP_PASSWORD` |
+| `aws-static` | Paste static IAM access key | `AWS_{c}_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` / `_REGION` |
+| `aws-sso` | IAM Identity Center OIDC device-code flow → STS vend | `AWS_{c}_*` (+ records expiry) |
+| `jira-token` | Paste API token | `JIRA_{c}_URL` / `_EMAIL` / `_TOKEN` / `_AUTH_KIND=token` |
+| `jira-session` | DevTools cookie extraction walkthrough | `JIRA_{c}_URL` / `_TENANT_SESSION_TOKEN` / `_AUTH_KIND=session` |
+| `linear-api-key` | Paste personal API key | `LINEAR_{c}_TOKEN` |
+| `infisical` | Bootstrap — paste machine-identity creds. Always persists to envfile regardless of `--store`. | `INFISICAL_CLIENT_ID` / `_CLIENT_SECRET` / `_PROJECT_ID` / `_ENV` / `_HOST` |
+
+### Stores (registered persistence backends)
+
+| Store | Notes |
+|---|---|
+| `envfile` | Resolves to `$BRIAR_SECRETS_FILE` → `/etc/briar/secrets.env` (if exists) → `~/.config/briar/secrets.env`. Atomic replace-in-place. |
+| `infisical` | Universal-auth machine identity (configure via `briar auth login infisical` first) |
+| `vault` | HashiCorp Vault KV v2 (needs `VAULT_ADDR` + `VAULT_TOKEN`) |
+| `aws-secretsmanager` | One secret per name under `briar/` prefix |
+| `ssm` | SSM Parameter Store, `SecureString`, `/briar/` prefix |
+
+### `briar auth login <target>`
+
+```
+briar auth login <target> [--company <name>] [--store <kind>]
+```
+
+| Flag | Purpose |
+|---|---|
+| `target` (positional, required) | What to log into — one of the targets above |
+| `--company <name>` | Per-company namespace (required for vendor targets; ignored for `infisical`) |
+| `--store <kind>` | Destination. Default = `$BRIAR_DEFAULT_STORE` or `envfile`. **Ignored** when target is a bootstrap flow (`infisical`) — those always land in envfile, with a warning if you passed something else. |
+
+```bash
+# Bootstrap a password manager (one-time, per laptop)
+briar auth login infisical
+briar auth login vault    # (when VaultLoginFlow lands — placeholder for now)
+
+# Vendor credentials → land in envfile
+briar auth login github-pat --company acme
+briar auth login aws-sso --company acme
+
+# Vendor credentials → land in Infisical
+briar auth login github-pat --company acme --store infisical
+briar auth login aws-sso --company acme --store infisical
+
+# Pick a default store once, never re-type --store
+export BRIAR_DEFAULT_STORE=infisical
+briar auth login jira-session --company acme
+```
+
+### `briar auth logout <target>`
+
+Removes every env-var name the target would write. Confirms unless `--yes`.
+
+```bash
+briar auth logout aws-sso --company acme --yes
+briar auth logout infisical                   # removes the machine identity (forgets the connection)
+```
+
+### `briar auth refresh <target>`
+
+Renews short-lived bundles without re-prompting. Paste-based targets (PATs, app passwords, Jira API tokens, Jira session cookies, Infisical machine identity) raise `CredentialExpired` → re-run `login`.
+
+```bash
+briar auth refresh aws-sso --company acme   # vends fresh STS creds from cached SSO token
+```
+
+### `briar auth list [--store <kind>] [--company <name>]`
+
+Enumerates the credential names held in the chosen store. Names only — never values.
+
+```bash
+briar auth list --store envfile
+briar auth list --store infisical --company acme
+```
+
+### `briar auth status <target>`
+
+Per-key `ok` / `MISS` report for the bundle a target writes. Exits non-zero on any miss.
+
+```bash
+briar auth status aws-sso --company acme
+briar auth status jira-session --company acme --store infisical
+```
+
+---
+
 ## `briar secrets` — credential coverage + remote-vault hydrate
 
 Two subcommands.
@@ -754,6 +855,69 @@ The same `JiraTracker` is used by both the scheduler's
 `active-tickets` / `ticket-archaeology` extractors AND the agent's
 `jira-comment` / `jira-transition` message writers — so a working
 session auth for one path is a working session auth for the other.
+
+### `briar auth login <target>` — acquisition + persistence
+
+```
+                briar auth login <target> [--company X] [--store Y]
+                                  │
+              positional target   │   --store decides persistence
+                  resolves to     │   IF the target's policy is EXTERNAL
+                  ▼               │   (forced to envfile if BOOTSTRAP_LOCAL)
+          ┌─────────────────┐     │
+          │ AcquirerRegistry│     │
+          │  .make(target)  │     │
+          └────────┬────────┘     │
+                   │              │
+                   ▼              │
+          ┌─────────────────┐     │
+          │ acquirer.acquire│     │
+          │  (company,      │     │
+          │   prompt)       │     │
+          └────────┬────────┘     │
+                   │              │
+                   ▼              │
+              Credentials         │
+            (provider_kind,       │
+             entries dict,        │
+             expires_at)          │
+                   │              │
+                   ▼              │
+        ┌───────────────────┐     │
+        │ _effective_store  │◄────┘
+        │ honours policy:   │
+        │  EXTERNAL → as-is │
+        │  BOOTSTRAP_LOCAL  │
+        │   → "envfile"     │
+        └─────────┬─────────┘
+                  │
+                  ▼
+        ┌──────────────────────┐
+        │ CredentialStore      │
+        │  .write(name, value) │
+        │   for each entry     │
+        │                      │
+        │ Backends:            │
+        │  • EnvFileStore      │
+        │  • InfisicalStore    │
+        │  • VaultStore        │
+        │  • AwsSecretsMgr     │
+        │  • SsmParameterStore │
+        └──────────────────────┘
+```
+
+The target's `destination_policy` ClassVar splits two flavours:
+- **EXTERNAL** (default) — vendor credentials (GitHub, AWS, Jira,
+  Linear, Bitbucket). The operator picks `--store` freely.
+- **BOOTSTRAP_LOCAL** — the credentials *describe how to reach a
+  store* (Infisical machine identity; future `VaultLoginFlow`).
+  Must persist to envfile or the bootstrap is unrecoverable
+  (chicken-and-egg). The CLI logs a warning if `--store` is ignored.
+
+Adding a new acquirer = one class + one registry entry. Adding a
+new store = one class + one registry entry. Adding a new
+destination policy (rare — e.g. "must persist to keychain") = one
+enum value + one branch in `_effective_store_kind`.
 
 ### What invalidates what
 

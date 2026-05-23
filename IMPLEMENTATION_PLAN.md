@@ -121,6 +121,32 @@ to grant.
 > So a company named `widget-co` resolves to
 > `AWS_WIDGET_CO_ACCESS_KEY_ID`.
 
+> **Two ways to get the values in place.** Every subsection in §4
+> documents the manual flow (open the vendor's UI, paste into
+> `secrets.env`). For every vendor below, an equivalent **`briar auth
+> login`** target walks the same steps interactively and writes the
+> resulting env-vars directly into your chosen store (env-file by
+> default; Infisical / Vault / AWS Secrets Manager / SSM if
+> configured). The manual flow stays the source-of-truth for what
+> the env vars need to contain; `briar auth login` is the
+> guided UX on top:
+>
+> | Vendor section | `briar auth login` target | Notes |
+> |---|---|---|
+> | §4.1 GitHub PAT | `briar auth login github-pat` | paste flow |
+> |                 | `briar auth login github-device` | OAuth device flow (needs `BRIAR_GITHUB_CLIENT_ID`) |
+> | §4.2 Bitbucket app password | `briar auth login bitbucket-app-password --company X` | |
+> | §4.3a Jira API token | `briar auth login jira-token --company X` | |
+> | §4.3b Jira session cookie | `briar auth login jira-session --company X` | parses JWT `exp` for expiry |
+> | §4.4 Linear API key | `briar auth login linear-api-key --company X` | |
+> | §4.5 AWS static keys | `briar auth login aws-static --company X` | |
+> |               (AWS SSO) | `briar auth login aws-sso --company X` | OIDC device flow → STS vend, records expiry |
+> | Infisical machine identity | `briar auth login infisical` | bootstrap — always envfile |
+>
+> Pick `--store infisical` (or `--store vault`, etc.) on any of these
+> to persist into a password manager instead of the local file. See
+> the `briar auth` section of README.md for the full surface.
+
 ### 4.1 GitHub PAT
 
 | Env var | Used by |

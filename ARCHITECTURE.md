@@ -282,7 +282,39 @@ the same Strategy + Registry shape as every other plugin family.
 | `StoreBinding` (frozen dataclass) + `KnowledgeStore.from_binding` | `StoreFile`, `StorePostgres` | Per-company DSN resolution. Closed an OCP violation in `KnowledgeStoreRegistry.build()` (the old `if store_cls is StorePostgres: dsn = ENV ...` if-chain). See commit `c8e58d1`. |
 | `JiraAuthStrategy` | `JiraTokenAuth`, `JiraSessionAuth` | Splits Jira's authentication concern out of `JiraTracker`. Lets one tracker support API-token AND browser-session-cookie auth without a 3-branch if-by-mode inside the tracker. See commit `d896d56`. |
 | `GitIdentity` (Pydantic model) | n/a — pure config | Per-company commit author for `briar agent` flows. Read from YAML `companies.<name>.git_identity.{name,email}`. CLI flags still win per-field. See commit `ba91dde`. |
+| `ErrorPolicy` + `ErrorDecision` (two ABCs) + `RetryingExecutor` | `ExceptionTypePolicy`, `HttpStatusPolicy` (leaf policies); `RetryAfter`, `Abort`, `Escalate` (decision types) | Pluggable error-response strategy for any external-API call. Anthropic 429 → `RetryAfter(3600s)`, 401 → `Abort`. Two ABCs eliminate if-by-type cascades in both directions (which error matched + what action to take). Adding "X provider rate limit → wait Y" = one tuple entry, not a code branch. Wired into `AnthropicLLM.complete`; same pattern available for GitHub/Bitbucket/Jira call sites. See commit `d001026`. |
+| `CredentialAcquirer` (ABC) + `DestinationPolicy` enum + 9 concrete acquirers + new `briar auth` command | `GithubPatAcquirer`, `GithubDeviceAcquirer`, `BitbucketAppPasswordAcquirer`, `AwsStaticAcquirer`, `AwsSsoAcquirer`, `JiraTokenAcquirer`, `JiraSessionAcquirer`, `LinearApiKeyAcquirer`, `InfisicalAcquirer` | Interactive *write* side of credential management. Symmetric to `CredentialStore` (read side) and `CredentialBootstrap` (bulk-hydrate side). `DestinationPolicy` (EXTERNAL vs BOOTSTRAP_LOCAL) tells the CLI whether `--store` applies (vendor flows) or is forced to envfile (store-bootstrap flows). Closes the "how does the operator log in?" gap. See commits `984641d` + `fae64ae`. |
+| `PromptIO` (Protocol) | `TerminalPromptIO` (real: input/getpass/webbrowser), `MockPromptIO` (tests) | Testable interactive I/O surface. Every acquirer's prompt/info/open_url/poll funnels through here — no direct stdin/stdout calls. Lets `MockPromptIO` drive every login flow in unit tests with scripted answers. See commit `984641d`. |
+| `InfisicalStore` (`CredentialStore` impl) | n/a — single concrete | Per-name read/write/delete/list against the Infisical Secrets API. Counterpart to `InfisicalBootstrap` (bulk-hydrate at startup). Same machine-identity credentials, opposite direction. Makes Infisical a first-class `--store` destination. See commit `fae64ae`. |
+| `EnvFileStore` path-resolution chain | `_secrets_path()` | Three-step resolution: `$BRIAR_SECRETS_FILE` → `/etc/briar/secrets.env` (if exists) → `$XDG_CONFIG_HOME/briar/secrets.env`. Plus auto-create-parent-dir + raise-on-real-failure (replaces silent-fallback-to-os.environ that masked file-write failures). Same backend, two deploy shapes (droplet + laptop). See commit `89089b3`. |
 
 The pattern recurs: when you spot 2+ ways to do the same job (two DSN
 sources, two auth modes), split into a Strategy + Registry rather
 than growing an if-chain.
+
+## Plug-in family inventory (current)
+
+For at-a-glance discovery — every place a new behaviour-by-data can
+be added without changing existing classes:
+
+| Family | Registry location | Concretes today | Adding one |
+|---|---|---|---|
+| `Command` | `commands/__init__.py:CommandRegistry.COMMANDS` | extract, runbook, scaffold, context, dashboard, agent, **auth**, secrets, version | one class + list entry |
+| `KnowledgeExtractor` | `extract/__init__.py:EXTRACTORS` | pr-archaeology, active-work, github-deployments, codebase-conventions, reviewer-profile, code-hotspots, active-tickets, ticket-archaeology, aws-infra | one module + registry tuple |
+| `RepositoryProvider` | `extract/_providers/` | github, bitbucket | one adapter |
+| `TrackerProvider` | `extract/_trackers/` | jira, github-issues, bitbucket-issues, linear | one adapter |
+| `JiraAuthStrategy` | `extract/_trackers/_jira_auth.py` | token, session | one strategy class |
+| `CloudProvider` | `extract/_clouds/` | aws, gcp, azure | one adapter |
+| `LLMProvider` | `agent/_llms/` | anthropic, openai, gemini, bedrock | one adapter; `default_error_policies()` declares retry shape |
+| `NotificationSink` | `notify/` | telegram, slack, email, pagerduty | one adapter |
+| `MessageWriter` | `messaging/` | jira-comment, jira-transition, slack-channel, telegram-chat, github-pr-comment, bitbucket-pr-comment | one writer |
+| `KnowledgeStore` | `storage/` | file, postgres | one backend |
+| `CredentialStore` | `credentials/` | envfile, aws-secretsmanager, ssm, vault, **infisical** | one backend |
+| `CredentialBootstrap` | `credentials/_bootstraps/` | infisical | one bootstrap |
+| **`CredentialAcquirer`** | `auth/_acquirers/` | 9 (see "Later additions" table above) | one acquirer |
+| `ErrorPolicy` | per-provider `default_error_policies()` | anthropic: 6 policies covering 429/connect/503/529/401/403 | one tuple entry per (error class, decision) |
+| `AgentArchetype` | `iac/scaffold/archetypes/` | engineer, pr-fixer, pr-ci-fixer, pr-conflict-resolver, triager | one archetype |
+| `WorkflowShape` | `iac/scaffold/workflows/` | plan-approve-act, one-shot, triage | one shape |
+| `SourceTemplate` | `iac/scaffold/sources/` | github, bitbucket, jira, aws | one template |
+| `TriggerTemplate` | `iac/scaffold/triggers/` | github_webhook, bitbucket_webhook, schedule_cron, manual | one template |
+| `Rule` | `iac/scaffold/rules/` | 7 markdown rule snippets | one .md file |
