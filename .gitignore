@@ -25,3 +25,6 @@ config.json
 .idea/
 .vscode/
 acme-roadmap.md
+
+# Real-company runbooks — kept local, not for public repo
+companies/

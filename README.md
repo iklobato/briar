@@ -933,11 +933,11 @@ enum value + one branch in `_effective_store_kind`.
 
 ## Examples + further reading
 
-- [`companies/`](companies/) — production-grade runbooks for real
-  companies (`acme.yaml`, `widgets.yaml`). Each uses
-  `knowledge.config.dsn_env: BRIAR_KB_DATABASE_URL` to share the
-  same managed-Postgres knowledge store with row-level partitioning
-  by `company` column.
+- `companies/` (gitignored — keep your real runbooks here so they
+  don't leak into the public repo). Recommended pattern: one YAML
+  per company, all with `knowledge.config.dsn_env: BRIAR_KB_DATABASE_URL`
+  so they share a managed-Postgres knowledge store with row-level
+  partitioning by the `company` column.
 - [`examples/all_features.yaml`](examples/all_features.yaml) — every
   abstraction × provider × writer combination across 4 companies.
   Schema reference for `knowledge.config`, `messages:`, `git_identity:`,

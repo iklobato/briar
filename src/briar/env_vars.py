@@ -4,8 +4,8 @@
 substitutes with the upper-cased, underscore-normalised name.
 
 Examples:
-    CredEnv.AWS_KEY_ID.for_company("widget-co")
-        -> "AWS_WIDGET_CO_ACCESS_KEY_ID"
+    CredEnv.AWS_KEY_ID.for_company("acme-co")
+        -> "AWS_ACME_CO_ACCESS_KEY_ID"
 
     CredEnv.GITHUB_TOKEN.value
         -> "GITHUB_TOKEN"
