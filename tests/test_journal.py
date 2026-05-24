@@ -158,6 +158,13 @@ class FileStoreTests(unittest.TestCase):
         self.assertIsInstance(store, FileJournalStore)
         self.assertIn("file", JOURNAL_STORE_NAMES)
 
+    def test_construction_does_not_touch_filesystem(self) -> None:
+        # Same regression contract as FileSink: building the store
+        # must not mkdir until something is actually written.
+        nonexistent = self.tmp / "no-such-dir"
+        store = FileJournalStore(nonexistent)
+        self.assertFalse(nonexistent.exists())
+
 
 class FileSinkTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -165,6 +172,16 @@ class FileSinkTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_construction_does_not_touch_filesystem(self) -> None:
+        # Regression: `FileSink()` used to mkdir at __init__ time,
+        # which crashed every CLI invocation from a non-writable
+        # cwd (e.g. `briar` running under a service user). Build a
+        # path that DOES NOT exist; construction must succeed.
+        nonexistent = self.tmp / "does-not-exist-yet"
+        sink = FileSink(root=nonexistent)
+        self.assertFalse(nonexistent.exists())
+        self.assertTrue(sink.is_available())
 
     def test_publishes_markdown(self) -> None:
         sink = FileSink(root=self.tmp)

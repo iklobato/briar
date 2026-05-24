@@ -29,8 +29,12 @@ class FileJournalStore(JournalStore):
     name = "file"
 
     def __init__(self, root: Path) -> None:
+        # Construction is filesystem-free — same discipline as `FileSink`.
+        # `put()` lazily creates the dated directory on first write. The
+        # store is built via `make_journal_store("file")` which can be
+        # called from non-writable cwds (e.g., `briar` running under a
+        # service user); a mkdir at init crashed everything.
         self._root = root
-        (self._root / "sessions").mkdir(parents=True, exist_ok=True)
         log.debug("file-journal-store init: root=%s", self._root)
 
     @classmethod

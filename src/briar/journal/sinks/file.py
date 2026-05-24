@@ -32,8 +32,14 @@ class FileSink(JournalSink):
     name = "file"
 
     def __init__(self, root: Optional[Path] = None) -> None:
+        # Construction must NOT touch the filesystem. `FileSink()` is
+        # instantiated at module import (the `JOURNAL_SINKS` registry
+        # builds it eagerly). If the cwd isn't writable — e.g., running
+        # `briar` as a non-root user whose home isn't the working
+        # directory — a `mkdir` here crashed every command, not just
+        # the ones that actually journal. Filesystem state is lazy now:
+        # `publish()` creates the directory on first write.
         self._root = root or _DEFAULT_ROOT
-        (self._root / "published").mkdir(parents=True, exist_ok=True)
 
     def is_available(self) -> bool:
         return True
@@ -43,6 +49,7 @@ class FileSink(JournalSink):
         if not session.closed:
             raise RuntimeError(f"session {session.session_id} is open; close before publishing")
         path = self._root / "published" / f"{session.session_id}.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(render_markdown(session))
         log.debug("file-sink published: session=%s path=%s", session.session_id, path)
         return True
