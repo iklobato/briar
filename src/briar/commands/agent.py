@@ -230,6 +230,21 @@ def _resolve_cloner(provider: str) -> RepoCloner:
     return cloner
 
 
+def run_implement(args: argparse.Namespace) -> int:
+    """Public seam — drive one `agent implement` run from outside this
+    module without depending on CommandAgent's private API.
+
+    `briar plan run` calls this in its iteration loop; CommandAgent's
+    own dispatch path calls `_run_implement` directly. Both produce the
+    same return code (0 = success; 3-6 = various failure modes).
+
+    The arg-shape stays argparse.Namespace because that's the existing
+    contract — a future refactor to a typed `ImplementRequest` dataclass
+    would land separately. Today's caller (CommandPlan.RunOp) builds the
+    Namespace by hand from the loop's plan card."""
+    return CommandAgent()._run_implement(args)
+
+
 class CommandAgent(Command):
     name = "agent"
     help = "Run an autonomous agent flow against a target (prfix / conflict-resolve / ci-fix)."

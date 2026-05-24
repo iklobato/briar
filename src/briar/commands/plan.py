@@ -26,6 +26,7 @@ from briar.agent._llms import LLMRegistry, make_llm
 from briar.commands.base import Command, confirm
 from briar.errors import CliError
 from briar.formatting import render
+from briar.journal import record, session
 from briar.plan import (
     ImplementationPlan,
     PlanCard,
@@ -292,8 +293,183 @@ class ClearOp(PlanOp):
         return 0 if removed else 1
 
 
+class RunOp(PlanOp):
+    name = "run"
+    help = "Iterate the plan: for each pending card, run `agent implement` then advance."
+
+    # ── Loop control ────────────────────────────────────────────────────
+    # `--limit` caps how many cards this invocation will process — useful
+    # for a smoke run against one card before letting the loop go wide.
+    # `--continue-on-failure` flips the default "stop on first failure"
+    # discipline; when set, failed cards are marked `blocked` and the
+    # loop keeps moving so a long batch can make partial progress.
+
+    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument("name", help="Plan name (the slug used at build time).")
+        # Loop-specific:
+        parser.add_argument(
+            "--limit",
+            type=int,
+            default=0,
+            help="Stop after N cards (0 = unlimited).",
+        )
+        parser.add_argument(
+            "--continue-on-failure",
+            action="store_true",
+            help="On implement failure, mark card blocked and continue. Default: stop.",
+        )
+        # Per-card implement args — same shape as `briar agent implement`
+        # minus --ticket-key / --ticket-project (those come from the card
+        # / the operator-supplied --tracker-project) and --company (added
+        # by `_add_store_arguments` below; validated as required in run()
+        # because `implement` needs it for credential resolution).
+        parser.add_argument("--owner", required=True, help="Repository owner (GitHub) or workspace (Bitbucket).")
+        parser.add_argument("--repo", required=True, help="Repository name / slug.")
+        parser.add_argument(
+            "--tracker-project",
+            default="",
+            help="Tracker project key passed to `agent implement` (Jira: PROJ; Linear: ENG; GH/BB: owner/repo). Defaults to <owner>/<repo>.",
+        )
+        parser.add_argument("--tracker", default="github-issues", help="Tracker provider (default: github-issues).")
+        parser.add_argument("--provider", default="github", help="Repository provider (default: github).")
+        parser.add_argument("--model", default="", help="Anthropic model override.")
+        parser.add_argument("--max-iter", type=int, default=0, help="Iteration ceiling per card.")
+        parser.add_argument("--git-user-name", default="")
+        parser.add_argument("--git-user-email", default="")
+        parser.add_argument("--keep-worktree", action="store_true")
+        parser.add_argument("--dry-run", action="store_true", help="Propagate --dry-run to every implement call.")
+        parser.add_argument("--runbook", default="", help="Runbook YAML for this company's messages block.")
+        parser.add_argument("--knowledge", default="./knowledge", help="File-store root for `agent implement` (postgres ignores).")
+        # Meeting-context flags are accepted but defaulted off — implement
+        # reads them with `getattr(..., default)` so we only need to set
+        # them when explicitly overriding.
+        parser.add_argument("--meeting", default="fireflies")
+        parser.add_argument("--meeting-key", default="")
+        parser.add_argument("--meeting-query", default="")
+        parser.add_argument("--meeting-top-k", type=int, default=3)
+        parser.add_argument("--meeting-max-bytes", type=int, default=50_000)
+        _add_store_arguments(parser)
+
+    def run(self, plan_cmd: "CommandPlan", args: argparse.Namespace) -> int:
+        # Local import keeps the agent module out of plan's import-time
+        # graph (agent.py pulls in PyGithub + boto3 + anthropic etc.).
+        from briar.commands.agent import run_implement
+
+        if not (args.company or "").strip():
+            raise CliError("--company is required for `briar plan run` (agent implement needs it for credential resolution)")
+
+        store = plan_cmd._open_store(args)
+        plan = load_plan(store, args.name)
+
+        tracker_project = (args.tracker_project or f"{args.owner}/{args.repo}").strip()
+        target = f"{args.owner}/{args.repo}"
+
+        outcomes: Dict[str, int] = {"done": 0, "blocked": 0, "skipped": 0}
+        processed = 0
+
+        with session(command="plan.run", target=f"{plan.name}@{target}"):
+            record(
+                "plan.run.start",
+                value={"plan": plan.name, "target": target, "cascade": plan.cascade},
+                rationale="loop entry",
+            )
+
+            while True:
+                if args.limit and processed >= args.limit:
+                    record("plan.run.stopped", value="limit_reached", rationale=f"--limit={args.limit}")
+                    break
+                card = plan.next_pending()
+                if card is None:
+                    record("plan.run.completed", value="all_done")
+                    break
+
+                processed += 1
+                impl_args = self._build_implement_args(args, card, tracker_project)
+                record(
+                    "plan.run.card.start",
+                    value=card.key,
+                    rationale=f"deps satisfied; branch_parent={card.branch_parent or '(default)'}",
+                    artifacts={"branch_name": card.branch_name, "summary": (card.summary or "")[:200]},
+                )
+
+                try:
+                    rc = run_implement(impl_args)
+                except Exception:  # noqa: BLE001 — surface the failure into the journal + plan
+                    log.exception("plan run: implement raised for card=%s", card.key)
+                    rc = 1
+
+                if rc == 0:
+                    card.status = "done"
+                    outcomes["done"] += 1
+                    record("plan.run.card.completed", value=card.key, rationale="implement rc=0")
+                else:
+                    card.status = "blocked"
+                    outcomes["blocked"] += 1
+                    record("plan.run.card.failed", value=card.key, rationale=f"implement rc={rc}")
+                save_plan(store, plan)
+
+                if rc != 0 and not args.continue_on_failure:
+                    record(
+                        "plan.run.stopped",
+                        value="first_failure",
+                        rationale="--continue-on-failure not set",
+                    )
+                    self._render_summary(args, plan, outcomes, stopped_early=True)
+                    return rc
+
+            self._render_summary(args, plan, outcomes, stopped_early=False)
+            return 0 if outcomes["blocked"] == 0 else 1
+
+    @staticmethod
+    def _build_implement_args(args: argparse.Namespace, card: PlanCard, tracker_project: str) -> argparse.Namespace:
+        """Translate the run-loop args + one plan card → an
+        `agent implement` argparse.Namespace. Adapter pattern: this
+        method is the single seam between the plan-loop model and the
+        implement op's contract."""
+        impl = argparse.Namespace()
+        impl.company = args.company
+        impl.owner = args.owner
+        impl.repo = args.repo
+        impl.ticket_project = tracker_project
+        impl.ticket_key = card.key
+        impl.tracker = args.tracker
+        impl.provider = args.provider
+        impl.store = args.store
+        impl.knowledge = args.knowledge
+        impl.model = args.model
+        impl.max_iter = args.max_iter
+        impl.git_user_name = args.git_user_name
+        impl.git_user_email = args.git_user_email
+        impl.keep_worktree = args.keep_worktree
+        impl.dry_run = args.dry_run
+        impl.runbook = args.runbook
+        impl.meeting = args.meeting
+        impl.meeting_key = args.meeting_key
+        impl.meeting_query = args.meeting_query
+        impl.meeting_top_k = args.meeting_top_k
+        impl.meeting_max_bytes = args.meeting_max_bytes
+        # Carry format/verbose through so any inner `render(...)` call
+        # honours the parent invocation's --format choice.
+        impl.format = getattr(args, "format", "table")
+        impl.verbose = getattr(args, "verbose", False)
+        return impl
+
+    @staticmethod
+    def _render_summary(args: argparse.Namespace, plan: ImplementationPlan, outcomes: Dict[str, int], stopped_early: bool) -> None:
+        render(
+            {
+                "plan": plan.name,
+                "done": outcomes["done"],
+                "blocked": outcomes["blocked"],
+                "stopped_early": stopped_early,
+                "remaining_pending": sum(1 for c in plan.cards if c.status == "pending"),
+            },
+            args.format,
+        )
+
+
 PLAN_OPS: Dict[str, PlanOp] = build_registry(
-    (BuildOp(), ShowOp(), NextOp(), AdvanceOp(), ListOp(), ClearOp()),
+    (BuildOp(), ShowOp(), NextOp(), AdvanceOp(), ListOp(), ClearOp(), RunOp()),
     kind="plan op",
 )
 

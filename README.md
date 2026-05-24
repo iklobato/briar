@@ -74,7 +74,7 @@ briar version
 briar extract       — one-shot extraction
 briar runbook       — scheduled extraction (extract / sweep / serve)
 briar agent         — autonomous LLM-driven flows (prfix / implement)
-briar plan          — sequenced implementation plans from a tracker board (build / show / next / advance / list / clear)
+briar plan          — sequenced implementation plans from a tracker board (build / show / next / advance / run / list / clear)
 briar scaffold      — emit JSON config bundles for downstream tools
 briar context       — read/write local markdown blobs
 briar dashboard     — read-only HTML status page
@@ -520,6 +520,66 @@ briar plan advance acme-q3 --card KAN-7 --status in_progress
 # A card got blocked on an external dep
 briar plan advance acme-q3 --card KAN-9 --status blocked
 ```
+
+### `briar plan run <name>` — orchestrate the next/implement/advance loop
+
+Iterate the plan end-to-end: for each pending card, run `briar agent
+implement`, then advance the card to `done` (or `blocked` on
+failure). The loop reads the next card via the same dependency-aware
+ordering as `briar plan next`, so cascade-built plans process cards
+in the right sequence automatically.
+
+The implement step is invoked through the public `run_implement` seam
+in `briar.commands.agent` — same code path as `briar agent implement`
+on the command line, so the engineer-archetype behaviour is identical
+(JIT ticket-context, knowledge splice, draft-PR opening). No shelling
+out, no duplication.
+
+| Flag | Required | Default | Purpose |
+|---|---|---|---|
+| `name` (positional) | ✓ | — | Plan name (slug used at build time) |
+| `--company <key>` | ✓ | — | Credential-resolution key (matches a runbook YAML) |
+| `--owner <slug>` | ✓ | — | Repository owner / workspace |
+| `--repo <slug>` | ✓ | — | Repository name |
+| `--tracker-project <key>` | | `<owner>/<repo>` | Tracker project key passed to `agent implement` |
+| `--tracker <kind>` | | `github-issues` | Tracker provider (matches `briar agent implement`) |
+| `--provider <kind>` | | `github` | Repository provider |
+| `--limit <N>` | | `0` (unlimited) | Stop after N cards — useful for a smoke run |
+| `--continue-on-failure` | | off | Mark failed cards `blocked` and keep going (default: stop on first failure) |
+| `--dry-run` | | off | Propagate `--dry-run` to every implement call (prints prompts, skips LLM) |
+| `--model` / `--max-iter` / `--git-user-name` / `--git-user-email` / `--keep-worktree` / `--runbook` / `--meeting*` | | (defaults from `briar agent implement`) | Pass-through to each implement call |
+
+```bash
+# Walk the full plan against bitspark-co/widgets on the DO box
+briar plan run bitspark-roadmap-v1 \
+    --company bitspark \
+    --owner bitspark-co --repo widgets \
+    --tracker github-issues --provider github \
+    --store postgres \
+    --model claude-sonnet-4-6
+
+# Smoke a single card with dry-run before letting the loop go wide
+briar plan run bitspark-roadmap-v1 --limit 1 --dry-run \
+    --company bitspark --owner bitspark-co --repo widgets
+
+# Batch run that tolerates individual card failures
+briar plan run bitspark-roadmap-v1 --continue-on-failure \
+    --company bitspark --owner bitspark-co --repo widgets
+```
+
+**Per-card journal entries.** Each run opens one journal session
+(`plan.run`) and records: `plan.run.card.start` for every card picked
+up, `plan.run.card.completed` on success, `plan.run.card.failed` on
+non-zero exit, and `plan.run.stopped` if the loop terminates early
+(limit reached, first failure, all done). Inspect with `briar journal
+show <session-id>` after the run.
+
+**Branch-parent caveat.** The cascade-built `branch_parent` on each
+card is shown in the journal but `briar agent implement` currently
+checks out the repo's default branch, not the parent card's branch.
+Cascade today gives you *ordering* (dependents wait for deps); making
+each implement actually branch off the prior card's branch is a small
+follow-up patch to `GithubRepoCloner.clone_default`.
 
 ### `briar plan list`
 
