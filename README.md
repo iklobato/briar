@@ -13,7 +13,7 @@ store.
 
 ```
 briar version
-briar-cli 1.1.1
+briar-cli 1.1.7   # or whatever the installed version is — read from package metadata
 ```
 
 ---
@@ -121,7 +121,7 @@ Prints client version. Takes no arguments.
 
 ```bash
 briar version
-# briar-cli 1.1.1
+# briar-cli 1.1.7   (or whichever version the installed wheel was built from)
 ```
 
 ---
