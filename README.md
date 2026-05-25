@@ -13,7 +13,7 @@ store.
 
 ```
 briar version
-briar-cli 1.1.7   # or whatever the installed version is — read from package metadata
+briar-cli 1.1.11   # or whatever the installed version is — read from package metadata
 ```
 
 ---
@@ -121,7 +121,7 @@ Prints client version. Takes no arguments.
 
 ```bash
 briar version
-# briar-cli 1.1.7   (or whichever version the installed wheel was built from)
+# briar-cli 1.1.11   (or whichever version the installed wheel was built from)
 ```
 
 ---
@@ -1414,6 +1414,80 @@ categories; `10+` is reserved for future LLM/agent runtime failures.
 The enum is wire-compatible — `return ExitCode.CLONE_FAILED` is
 identical to `return 4` at the OS level, so existing shell scripts
 that check `$?` against integer literals keep working.
+
+---
+
+## Testing
+
+The suite lives under `tests/` and runs under stdlib `unittest` (for the
+older modules) and `pytest` (for the recent additions). Both pass under
+`pytest` — `pytest discover` finds all 824+ tests.
+
+```bash
+uv sync --extra test       # installs pytest + plugins + hypothesis + moto
+uv run pytest              # ~10s; 824 passed, 1 xfailed
+uv run pytest -n auto      # parallel via pytest-xdist
+uv run pytest -m property  # hypothesis-only lane (slower, deeper search)
+```
+
+**What's covered** (see `tests/unit/` and `tests/integration/`):
+
+- Every cross-cutting leaf module — `pagination`, `error_policy`,
+  `log_context`, `decorators`, `env_vars`, `errors`, `formatting` —
+  with hypothesis property tests asserting totality and roundtrips.
+- Every CLI subcommand happy + failure path via the `cli` fixture
+  (which sandboxes env vars, patches `configure_logging` so caplog
+  survives, and routes through `briar.cli.main`).
+- Every external-IO adapter (Slack/Telegram/Jira writers, PagerDuty
+  /email/Slack/Telegram sinks, the envfile credential store, the file
+  knowledge store) with `urllib.request.urlopen` / `smtplib.SMTP`
+  mocked at the seam.
+- A parametrized **registry-shape contract** that asserts the same
+  invariants (no-duplicate-name, key-matches-ClassVar, factory returns
+  instance) across all 10 plugin registries — `EXTRACTORS`, `STORES`,
+  `ACQUIRERS`, `WRITERS`, `SINKS`, `BOARD_READERS`, `FORMATTERS`,
+  `JOURNAL_SINKS`, `ARCHETYPES`, `BOOTSTRAPS`.
+- `tests/unit/test_log_context.py` and `tests/unit/test_pagination.py`
+  hold the `pytest.mark.property` hypothesis tests.
+
+**Mutation testing** lives at [`tools/mutation_test.py`](tools/mutation_test.py).
+It applies 7 representative mutations to the leaf modules (operator
+flips, type narrowings, broad-except changes), runs the focused test
+suite, and reports killed vs. survived. Current score: **7/7 killed**.
+
+```bash
+uv run python tools/mutation_test.py
+#   [KILLED  ] error_policy:wait>0 → wait>=0 (would call sleep(0))
+#   [KILLED  ] error_policy:max_attempts<1 → <=1 (rejects 1 as well)
+#   [KILLED  ] pagination:type(page) is list → is tuple
+#   [KILLED  ] decorators:except Exception → except ValueError
+#   [KILLED  ] errors:HTML detection 9 chars → 8 chars
+#   [KILLED  ] env_vars:str.upper → str.lower in for_company
+#   [KILLED  ] log_context:always-empty filter (return True early)
+# Mutation score: 7/7 killed (100%)
+```
+
+**CI lanes** ([`.github/workflows/tests.yml`](.github/workflows/tests.yml)):
+
+| Lane | Triggers | Purpose |
+|---|---|---|
+| `unit` | every push + PR | `pytest -n auto` on Python 3.10 / 3.11 / 3.12 |
+| `property` | every push + PR | `pytest -m property` (longer hypothesis budget) |
+| `mutation` | `main` + manual dispatch only | `tools/mutation_test.py` — does not gate PRs |
+
+A few documented quirks the suite asserts so they're visible as
+warnings, not silent drift:
+
+- `swallow_errors(default=[])` returns the same list object every time
+  — mutable defaults alias across calls. A future change to copy them
+  must also flip the corresponding test assertion.
+- Empty-company `CredEnv.AWS_KEY_ID.for_company("")` produces
+  `AWS__ACCESS_KEY_ID` (double underscore). Reject-or-correct would
+  need to flip the documented assertion.
+- The global `--format` flag collides with `briar journal export
+  --format` because argparse always overwrites the global with the
+  subparser's default — pinned as `xfail(strict=True)` until the
+  global is renamed.
 
 ---
 

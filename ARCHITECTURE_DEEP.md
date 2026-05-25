@@ -475,3 +475,66 @@ any hand-maintained `(extractor × provider) → creds` table. The
 build_registry helper means a future duplicate-name collision in any
 of the 13 plugin registries fails loudly at import time instead of
 silently dropping an adapter.
+
+---
+
+## 7. Test infrastructure (added 2026-05-25, v1.1.11)
+
+See [`ARCHITECTURE.md`](ARCHITECTURE.md#testing-infrastructure) for the
+full picture. Quick map at the file-by-file level:
+
+```
+tests/
+├── test_*.py                       — original unittest suite (~355 tests)
+├── conftest.py                     — env_sandbox autouse, cli invoker,
+│                                     fake_subprocess, store/caplog fixtures
+├── unit/
+│   ├── test_pagination.py          — Payload.items_of + looks_like_list
+│   ├── test_error_policy.py        — RetryAfter/Abort/Escalate + executor loop
+│   ├── test_log_context.py         — ContextVar push/pop balance + filter
+│   ├── test_decorators.py          — swallow_errors + mutable-default doc
+│   ├── test_env_vars.py            — CredEnv.for_company + read
+│   ├── test_errors.py              — ApiError._short_body HTML detection
+│   ├── test_formatting.py          — 5 formatters + property roundtrips
+│   ├── commands/                   — every CLI subcommand via `cli` fixture
+│   ├── storage/test_backends.py    — KnowledgeStore parity contract
+│   ├── messaging/                  — Slack/Telegram writers
+│   ├── notify/                     — PagerDuty/Email/Slack/Telegram sinks
+│   ├── credentials/test_envfile.py — atomic-rename + 0600 perms + regex
+│   ├── plan/                       — topological_sort, apply_cascade, models
+│   ├── iac/test_every_parser.py    — `every:` DSL parser
+│   ├── journal/test_facade.py      — store-vs-sink fault isolation
+│   └── dashboard/                  — collector failure isolation
+└── integration/
+    └── test_registry_contract.py   — one parametrized contract over all
+                                      10 plug-in registries (~98 cases)
+tools/
+└── mutation_test.py                — 7 mutations against leaf modules,
+                                      100% killed
+.github/workflows/
+└── tests.yml                       — 3 lanes: unit (py3.10/11/12) +
+                                      property + mutation
+```
+
+### Pytest config delta vs default
+
+The strict-warnings policy (`filterwarnings = ["error", ...]`) surfaced
+zero existing `DeprecationWarning`s — confirming the source tree is
+clean of `datetime.utcnow()` and similar bait. The `pytest-randomly`
+plugin runs first and surfaced zero order-coupling bugs; the
+`env_sandbox` autouse fixture is what made that clean. Without it,
+cross-test env leaks would manifest as flakes only under specific seed
+values.
+
+### One real bug surfaced and pinned
+
+`xfail(strict=True)` on `tests/unit/commands/test_journal.py::TestJournalExport::test_export_json_parseable_blocked_by_global_format_collision`.
+
+`briar` has a global `--format {table,json,yaml,csv,quiet}` flag and
+`briar journal export` also defines a local `--format {markdown,json}`.
+argparse semantics: the global value is overwritten by the subparser's
+default when both share the same `dest`. There is no argv shape that
+selects JSON for the journal export — only the `markdown` default is
+reachable. Fix is a rename (global → `--out-format`, or subcommand
+→ `--export-format`); the assertion is `strict=True` so it'll fail
+green on the fix and force the doc update at the same time.

@@ -88,7 +88,7 @@ cd briar-cli
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -e .                       # base install (or: pip install briar-cli)
-briar version                          # should print briar-cli 1.1.1 (or newer)
+briar version                          # should print briar-cli 1.1.11 (or newer)
 ```
 
 Optional extras — install only what you'll actually use. Each adapter
@@ -99,9 +99,11 @@ in the error message:
 pip install -e '.[openai]'    # OpenAI LLM
 pip install -e '.[gemini]'    # Google Gemini LLM
 pip install -e '.[vault]'     # HashiCorp Vault credential store
+pip install -e '.[infisical]' # Infisical credential bootstrap + store
 pip install -e '.[gcp]'       # GCP cloud provider (~80 MB)
 pip install -e '.[azure]'     # Azure cloud provider (~40 MB)
 pip install -e '.[all]'       # everything above
+pip install -e '.[test]'      # pytest + hypothesis + moto + plugins (dev only)
 ```
 
 Base install always works for: Anthropic LLM, AWS Bedrock LLM,
@@ -986,9 +988,11 @@ class GitlabProvider(RepositoryProvider):
         ...
 ```
 
-Then add `GITLAB_TOKEN = "GITLAB_{c}_TOKEN"` to `CredEnv`, register
-the cred requirement in `commands/secrets.py:_EXTRACTOR_REQUIREMENTS`,
-and you're done. Zero edits to any extractor or the executor.
+Then add `GITLAB_TOKEN = "GITLAB_{c}_TOKEN"` to `CredEnv` and override
+`required_env_vars(company)` on `GitlabProvider` so `briar secrets
+doctor` knows what to look for. Zero edits to any extractor, the
+executor, or the secrets command — the doctor reads requirements
+from the provider class itself.
 
 Tracker / Cloud / Meeting / LLM / NotificationSink / CredentialStore
 additions follow the exact same shape — see

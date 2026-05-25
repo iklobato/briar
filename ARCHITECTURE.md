@@ -1,7 +1,13 @@
 # Architecture — class + function map, with SOLID findings
 
 Reference diagram + the design-pattern violations found during the
-2026-05-22 audit. Follow-up commits fix violations 1–6.
+2026-05-22 audit. **All seven violations were resolved by the follow-up
+commits listed at the bottom of this file** — the "Violations found"
+section below is retained as historical record so the audit-and-fix
+trail stays in one place.
+
+For the test infrastructure that pins these invariants going forward,
+see the "Testing infrastructure" section near the end.
 
 ---
 
@@ -408,3 +414,113 @@ be added without changing existing classes:
 | **`BoardReader`** | `plan/_boards/` | jira, github-project | one module + registry tuple |
 | **`CardSynthesiser`** | `plan/_synthesize.py` | heuristic, llm, composite | one class (e.g. for a new provider's structured-output mode) |
 | **`PlanOp`** | `commands/plan.py:PLAN_OPS` | build, show, next, advance, list, clear | one subclass + registry tuple |
+| **`AgentOp`** | `commands/agent.py:AGENT_OPS` | prfix, implement | one subclass + registry tuple |
+| **`RepoCloner`** | `commands/agent.py:REPO_CLONERS` | github, bitbucket | one subclass + registry tuple |
+
+---
+
+## Testing infrastructure
+
+Two concentric test suites against the same source tree. Both run
+under `pytest` cleanly; the older one also works under stdlib
+`unittest discover`.
+
+- **Existing unittest suite** (~355 tests in `tests/test_*.py` at
+  repo root) — subsystem-focused: extract registry, scaffold composer,
+  journal lifecycle, scheduler DSL, dashboard collectors. Predates the
+  pytest infrastructure; collected by both runners.
+- **New pytest suite** (~469 tests under `tests/unit/` and
+  `tests/integration/`) — leaf-module property tests, CLI dispatch
+  via the `cli` fixture, every external-IO adapter against mocked
+  `urllib.request.urlopen` / `smtplib.SMTP`, parametrized
+  registry-shape contract across all 10 plugin registries.
+
+Total: **824 tests pass + 1 documented `xfail` in ~10 seconds.**
+
+### Pytest config (`pyproject.toml [tool.pytest.ini_options]`)
+
+- `--strict-markers --strict-config`
+- `xfail_strict = true` — an `xfail` that passes is an error
+- `filterwarnings = ["error", ...]` — `DeprecationWarning` surfaces as a test failure
+- `timeout = 30` — kills hung tests via `pytest-timeout`
+- Eight named markers: `unit`, `integration`, `slow`, `needs_pg`, `needs_aws_creds`, `registry`, `boundary`, `property`
+
+### Shared fixtures (`tests/conftest.py`)
+
+| Fixture | Scope | What it does |
+|---|---|---|
+| `env_sandbox` | function, **autouse** | Scrubs every credential-shaped env var prefix before each test. Kills the order-coupling bugs `pytest-randomly` would surface. |
+| `cli` | function | Invokes `briar.cli.main([...argv])` and returns `(code, out, err)`. Patches `configure_logging` to no-op so `caplog` survives. |
+| `fake_subprocess` | function | Replaces `subprocess.run`; records argv lists, asserts `shell=False`. |
+| `file_store` / `pg_store` / `store` | function (`store` parametrized) | `KnowledgeStore` instances against tmp dirs / `BRIAR_TEST_PG_DSN`. |
+| `tmp_root` | function | `tmp_path` with the dir shape commands expect (`knowledge/`, `journal/`, `examples/`, `worktree/`, `runbooks/`). |
+| `caplog_briar` | function | `caplog` scoped to the `briar.*` logger tree at DEBUG. |
+
+### Property tests (`hypothesis`)
+
+Located in `tests/unit/test_pagination.py`, `tests/unit/test_log_context.py`,
+`tests/unit/test_formatting.py`. Markers: `pytest.mark.property`.
+
+- `Payload.items_of` is a total function over any JSON-ish payload (recursive `st.recursive`).
+- `log_context` push/pop balances under any depth + exception (`st.lists(st.text())`).
+- JSON and YAML formatters roundtrip on any list of dicts.
+
+Hypothesis caught one real library quirk: YAML's NEL (`\x85`) and LS
+(` `) character normalisation breaks roundtrips. Worked around
+by restricting text strategies to printable ASCII.
+
+### Mutation testing (`tools/mutation_test.py`)
+
+Standalone script — applies 7 representative mutations to the leaf
+modules (operator flips, type narrowings, broad-except changes), runs
+the focused suite, reports killed vs. survived.
+
+```
+[KILLED  ] error_policy:wait>0 → wait>=0 (would call sleep(0))
+[KILLED  ] error_policy:max_attempts<1 → <=1 (rejects 1 as well)
+[KILLED  ] pagination:type(page) is list → is tuple
+[KILLED  ] decorators:except Exception → except ValueError
+[KILLED  ] errors:HTML detection 9 chars → 8 chars
+[KILLED  ] env_vars:str.upper → str.lower in for_company
+[KILLED  ] log_context:always-empty filter (return True early)
+Mutation score: 7/7 killed (100%)
+```
+
+Tried `mutmut` 3.x first — has packaging issues with the
+hatch + uv editable-install layout; the hand-rolled script does
+the same job with fewer moving parts.
+
+### CI (`.github/workflows/tests.yml`)
+
+| Lane | Triggers | What runs |
+|---|---|---|
+| `unit` | every push + PR | `pytest -n auto` on py3.10 / 3.11 / 3.12 |
+| `property` | every push + PR | `pytest -m property` (longer hypothesis budget) |
+| `mutation` | `main` + manual dispatch only | `tools/mutation_test.py` — not PR-gating |
+
+### Registry-shape contract
+
+`tests/integration/test_registry_contract.py` runs one contract
+parametrized over all 10 plug-in registries (`EXTRACTORS`, `STORES`,
+`ACQUIRERS`, `WRITERS`, `SINKS`, `BOARD_READERS`, `FORMATTERS`,
+`JOURNAL_SINKS`, `ARCHETYPES`, `BOOTSTRAPS`). Asserts:
+
+- No duplicate names within a registry.
+- Every name nonempty.
+- Each entry's class `name`/`kind` ClassVar matches its registry key.
+- Factory `make(kind)` returns an instance whose ClassVar matches.
+
+This contract replaced 6 hand-rolled per-registry test classes —
+one harness, ~98 generated test cases.
+
+### Documented behaviours (intentional `xfail` and asserted current state)
+
+The suite uses `xfail(strict=True)` and "documented behavior" tests to
+pin behaviours that *will* change but haven't yet — so a future fix
+must also update the assertion, preventing silent drift.
+
+| Site | What's documented |
+|---|---|
+| `tests/unit/commands/test_journal.py` | Global `--format` collides with `briar journal export --format`; argparse always overwrites the global with the subparser default. Pinned `xfail strict=True`. |
+| `tests/unit/test_decorators.py::test_mutable_default_shared_documented_behavior` | `swallow_errors(default=[])` returns the same list object every call (aliasing). A move to `default.copy()` requires flipping this assertion. |
+| `tests/unit/test_env_vars.py::test_empty_company_yields_double_underscore_documented` | `CredEnv.AWS_KEY_ID.for_company("")` produces `AWS__ACCESS_KEY_ID` (double underscore). |

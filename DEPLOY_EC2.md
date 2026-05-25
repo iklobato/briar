@@ -35,6 +35,7 @@ Stop and ask the operator if any of these are missing — do NOT guess values.
    - `CLAUDE_CODE_OAUTH_TOKEN` — only if you plan to run `briar agent` from the box. Not needed if the box only runs the scheduler + dashboard.
    - `BRIAR_DATABASE_URL` — only if you want the postgres-backed knowledge store instead of file-backed.
    - Per-company AWS credentials (`AWS_<COMPANY>_ACCESS_KEY_ID` / `SECRET_ACCESS_KEY` / `SESSION_TOKEN` / `REGION`) — only required if any runbook YAML uses the `aws-infra` extractor AND you are NOT using the cross-account IAM-role path (see §4).
+   - Per-company Fireflies API key (`FIREFLIES_<COMPANY>_API_KEY`) — only required if the runbook includes a `meeting-digest` schedule OR `briar agent` is invoked with `--meeting-key` / `--meeting-query`. Optional; absent key = meeting extractors return empty and the rest of the pipeline runs unchanged.
 
 If the operator cannot produce items 1, 2, 3, 5, and a `GITHUB_TOKEN` for §6, halt and ask.
 
@@ -242,6 +243,13 @@ GITHUB_TOKEN=<paste-pat>
 # JIRA_ACME_SESSION_TOKEN=<value of cloud.session.token cookie>
 # JIRA_ACME_XSRF_TOKEN=<value of atlassian.xsrf.token cookie>  # optional
 # JIRA_ACME_USER_AGENT=<override>                              # optional
+
+# ── Fireflies.ai (per-company, optional) ──
+# Drives the meeting-digest extractor + the JIT meeting-context
+# extractor consumed by `briar agent implement` / `prfix`. Skip the
+# whole block if you don't use Fireflies — both extractors degrade to
+# EMPTY_SECTION and the rest of the pipeline runs unchanged.
+# FIREFLIES_ACME_API_KEY=<personal API key from Fireflies → Developer Settings>
 EOF
 
 sudo chmod 600 /etc/briar/secrets.env
