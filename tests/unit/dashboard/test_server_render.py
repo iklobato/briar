@@ -26,6 +26,7 @@ _TEMPLATE_KEYS = [
     "dashboard_process", "deploy", "connectivity", "cycle_outcomes",
     "commands", "extractors", "archetypes", "aws_services", "language_detectors",
     "source_templates", "trigger_templates", "workflow_shapes", "secrets",
+    "plans", "journal_sessions",
 ]
 
 

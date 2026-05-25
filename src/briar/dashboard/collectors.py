@@ -15,13 +15,12 @@ import socket
 import subprocess
 import time
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from dataclasses import dataclass, field
 from typing import Any, Callable, ClassVar, Dict, List, Tuple
 
 import yaml
-
 
 log = logging.getLogger(__name__)
 
@@ -100,6 +99,16 @@ class KnowledgeCollector(Collector):
         ("repos_covered", re.compile(r"###\s+([A-Za-z0-9_\-]+/[A-Za-z0-9_\-]+)")),
     )
 
+    # Per-blob body cap when rendered into the dashboard. Set high enough
+    # to show the full content of a typical knowledge blob (~10–40 KB)
+    # but low enough to keep the page bounded if someone parks a giant
+    # transcript dump in there. Truncation is marked in `body_truncated`.
+    _BODY_CAP_BYTES = 40_000
+
+    # Pattern that identifies a plan-scoped shard: `knowledge:<company>.<plan>`.
+    # The cold-rebuild parent is `knowledge:<company>` (everything before the dot).
+    _SHARD_RE = re.compile(r"^knowledge:(?P<company>[^.]+)\.(?P<plan>.+)$")
+
     def __init__(self, store) -> None:  # KnowledgeStore — typed in storage/base
         self._store = store
 
@@ -111,6 +120,11 @@ class KnowledgeCollector(Collector):
             sections_detail = self._split_sections(content)
             signals, repos = self._mine_signals(content)
             head = "\n".join(content.splitlines()[:3])
+            body_truncated = len(content) > self._BODY_CAP_BYTES
+            body = content[: self._BODY_CAP_BYTES] if body_truncated else content
+            shard_match = self._SHARD_RE.match(ref.name)
+            shard_of = f"knowledge:{shard_match.group('company')}" if shard_match else ""
+            shard_plan = shard_match.group("plan") if shard_match else ""
             fingerprint = ""
             try:
                 fingerprint = self._store.fingerprint(ref.name) or ""
@@ -123,6 +137,10 @@ class KnowledgeCollector(Collector):
                     "modified": ref.updated_at or "",
                     "age_human": self._age_human(ref.updated_at, now),
                     "head": head,
+                    "body": body,
+                    "body_truncated": body_truncated,
+                    "shard_of": shard_of,
+                    "shard_plan": shard_plan,
                     "sections": len(sections_detail),
                     "sections_detail": sections_detail,
                     "token_estimate": ref.byte_count // self._CHARS_PER_TOKEN,
@@ -266,6 +284,172 @@ class KnowledgeAggregatesCollector(Collector):
 
 
 # ---------------------------------------------------------------------------
+# Plans + journal — surfaces the LLM-driven planning subsystem
+# ---------------------------------------------------------------------------
+
+
+class PlansCollector(Collector):
+    """Enumerate every `plan:<name>` blob, count cards by status, and
+    pair each plan with the most recent `plan.run` session from the
+    journal (last decision action + rationale).
+
+    Best-effort: a malformed plan blob renders as one row with an
+    `error` field instead of breaking the section."""
+
+    name = "plans"
+
+    def __init__(self, knowledge_store: Any, journal_store: Any = None) -> None:
+        self._kstore = knowledge_store
+        self._jstore = journal_store
+
+    def collect(self) -> Dict[str, Any]:
+        # Local imports so the dashboard module doesn't drag the plan
+        # subsystem into its import-time graph (board readers pull in
+        # PyGithub, etc.).
+        from briar.errors import CliError
+        from briar.plan import list_plans, load_plan
+        from briar.plan._enums import PlanCardStatus
+
+        rows: List[Dict[str, Any]] = []
+        try:
+            plan_names = list_plans(self._kstore)
+        except Exception:  # noqa: BLE001
+            log.exception("plans-collector: list_plans failed")
+            return {"rows": [], "count": 0, "_error": "list_plans failed; see scheduler.log"}
+
+        journal_by_plan = self._index_journal_by_plan(plan_names)
+        for blob_name in sorted(plan_names):
+            plan_name = blob_name.split(":", 1)[1] if blob_name.startswith("plan:") else blob_name
+            try:
+                plan = load_plan(self._kstore, plan_name)
+            except CliError as exc:
+                rows.append({"name": plan_name, "error": str(exc)})
+                continue
+            except Exception as exc:  # noqa: BLE001
+                log.exception("plans-collector: load_plan %s failed", plan_name)
+                rows.append({"name": plan_name, "error": f"{type(exc).__name__}: {exc}"})
+                continue
+
+            counts = {status.value: 0 for status in PlanCardStatus}
+            for c in plan.cards:
+                key = c.status.value if hasattr(c.status, "value") else str(c.status)
+                counts[key] = counts.get(key, 0) + 1
+            jrow = journal_by_plan.get(plan_name, {})
+            rows.append(
+                {
+                    "name": plan.name,
+                    "blob": blob_name,
+                    "company": plan.company,
+                    "board_url": plan.board_url,
+                    "tracker": plan.tracker,
+                    "project": plan.project,
+                    "default_branch": plan.default_branch,
+                    "created_at": plan.created_at,
+                    "total_cards": len(plan.cards),
+                    "counts": counts,
+                    "knowledge_shard": (f"knowledge:{plan.company}.{plan.name}" if plan.company else ""),
+                    "last_session_id": jrow.get("session_id", ""),
+                    "last_session_started": jrow.get("started_at", ""),
+                    "last_session_ended": jrow.get("ended_at", ""),
+                    "last_decision_action": jrow.get("last_decision_action", ""),
+                    "last_decision_why": jrow.get("last_decision_why", ""),
+                    "last_completed_count": jrow.get("completed_count", 0),
+                    "last_failed_count": jrow.get("failed_count", 0),
+                }
+            )
+        return {"rows": rows, "count": len(rows)}
+
+    def _index_journal_by_plan(self, plan_names: List[str]) -> Dict[str, Dict[str, Any]]:
+        """Map `<plan-name>` → most-recent plan.run session summary.
+
+        Returns `{}` when no journal store was configured or the store
+        is unreachable."""
+        if self._jstore is None:
+            return {}
+        try:
+            refs = self._jstore.list(command_prefix="plan.run")
+        except Exception:  # noqa: BLE001
+            log.exception("plans-collector: journal list failed")
+            return {}
+        # plan names as bare slugs (without `plan:` prefix)
+        bare = {n.split(":", 1)[1] if n.startswith("plan:") else n for n in plan_names}
+        out: Dict[str, Dict[str, Any]] = {}
+        for ref in refs:
+            target = getattr(ref, "target", "") or ""
+            # target shape: "<plan>@<owner>/<repo>"
+            plan_name = target.split("@", 1)[0] if "@" in target else ""
+            if not plan_name or plan_name not in bare or plan_name in out:
+                continue
+            try:
+                session = self._jstore.get(ref.session_id)
+            except Exception:  # noqa: BLE001
+                continue
+            if session is None:
+                continue
+            last_action = ""
+            last_why = ""
+            completed = 0
+            failed = 0
+            for ev in session.decisions:
+                if ev.choice == "plan.next.decision":
+                    last_action = str(ev.value or "")
+                    last_why = ev.rationale or ""
+                elif ev.choice == "plan.run.card.completed":
+                    completed += 1
+                elif ev.choice == "plan.run.card.failed":
+                    failed += 1
+            out[plan_name] = {
+                "session_id": ref.session_id,
+                "started_at": ref.started_at,
+                "ended_at": ref.ended_at,
+                "last_decision_action": last_action,
+                "last_decision_why": last_why,
+                "completed_count": completed,
+                "failed_count": failed,
+            }
+        return out
+
+
+class JournalSessionsCollector(Collector):
+    """Recent decision-journal sessions, grouped by command family.
+
+    The journal records every briar command's decisions (plan.run.*,
+    agent.run.*, scaffold.*, runbook.*, etc.). This section surfaces
+    the last N across all commands so an operator can see what the
+    droplet has been doing without SSH'ing in to read the log."""
+
+    name = "journal_sessions"
+
+    def __init__(self, journal_store: Any, limit: int = 50) -> None:
+        self._jstore = journal_store
+        self._limit = limit
+
+    def collect(self) -> Dict[str, Any]:
+        if self._jstore is None:
+            return {"groups": [], "total": 0, "_error": "no journal store configured"}
+        try:
+            refs = self._jstore.list(limit=self._limit)
+        except Exception:  # noqa: BLE001
+            log.exception("journal-sessions-collector: list failed")
+            return {"groups": [], "total": 0, "_error": "journal list failed"}
+
+        groups: Dict[str, List[Dict[str, Any]]] = {}
+        for ref in refs:
+            family = (ref.command or "").split(".", 1)[0] or "(none)"
+            row = {
+                "session_id": ref.session_id,
+                "command": ref.command,
+                "target": ref.target or "",
+                "started_at": ref.started_at,
+                "ended_at": ref.ended_at,
+                "decisions": ref.decision_count,
+            }
+            groups.setdefault(family, []).append(row)
+        ordered = [{"prefix": prefix, "count": len(rows), "sessions": rows} for prefix, rows in sorted(groups.items())]
+        return {"groups": ordered, "total": len(refs)}
+
+
+# ---------------------------------------------------------------------------
 # Schedulers + cycle outcomes + cron health
 # ---------------------------------------------------------------------------
 
@@ -283,11 +467,8 @@ class SchedulesCollector(Collector):
 
     def collect(self) -> Dict[str, Any]:
         import schedule as schedule_mod
-        from briar.iac.runbook import (
-            EveryParser,
-            RunbookSchedules,
-            load_runbook_file,
-        )
+
+        from briar.iac.runbook import EveryParser, RunbookSchedules, load_runbook_file
 
         # Private scheduler so .do() doesn't pollute the global registry.
         local = schedule_mod.Scheduler()
@@ -510,11 +691,8 @@ class ScheduleCalendarCollector(Collector):
     def _future_fires(self, now: datetime, window_end: datetime) -> List[Dict[str, Any]]:
         """Simulate each schedule forward to enumerate fires inside the window."""
         import schedule as schedule_mod
-        from briar.iac.runbook import (
-            EveryParser,
-            RunbookSchedules,
-            load_runbook_file,
-        )
+
+        from briar.iac.runbook import EveryParser, RunbookSchedules, load_runbook_file
 
         out: List[Dict[str, Any]] = []
         for path in sorted(self._dir.glob("*.yaml")):
@@ -1187,7 +1365,12 @@ class DashboardPaths:
     """Container for the filesystem paths + knowledge store the
     dashboard's collectors read from. Bundling them into one struct
     keeps the registry's `from_paths` constructor at a reasonable
-    arity."""
+    arity.
+
+    `journal_store` is optional — when `None`, the plan and journal
+    collectors degrade gracefully (the plan collector still lists
+    plans; the journal-sessions collector renders an `_error` panel
+    instead of breaking)."""
 
     examples_dir: Path
     knowledge_store: Any  # KnowledgeStore — Any avoids a cycle
@@ -1196,6 +1379,7 @@ class DashboardPaths:
     repo_path: Path
     secrets_path: Path
     du_paths: List[Path] = field(default_factory=list)
+    journal_store: Any = None  # JournalStore | None
 
 
 @dataclass
@@ -1215,6 +1399,8 @@ class CollectorRegistry:
         return [
             SystemCollector(disk_path=paths.disk_path),
             GitDeployCollector(repo_path=paths.repo_path),
+            PlansCollector(knowledge_store=paths.knowledge_store, journal_store=paths.journal_store),
+            JournalSessionsCollector(journal_store=paths.journal_store),
             SchedulesCollector(examples_dir=paths.examples_dir),
             ScheduleCalendarCollector(
                 examples_dir=paths.examples_dir,

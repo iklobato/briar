@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -18,9 +19,69 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from briar.dashboard.collectors import Collector, CollectorRegistry
 
-
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 log = logging.getLogger(__name__)
+
+
+# ─── Jinja filters ──────────────────────────────────────────────────
+# Registered on the Environment in DashboardServer.__init__. Each one
+# is a pure function; templates use them as `{{ value | filter_name }}`.
+# Keeping these here (rather than spreading inline math across the
+# template) is the canonical Jinja simplification.
+
+
+def _human_bytes(value) -> str:
+    """`3725` → `3.6 KB`. Robust against non-numeric / None inputs."""
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return ""
+    if n < 0:
+        n = 0
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if n < 1024:
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024
+    return f"{n:.1f} PB"
+
+
+def _human_age(value) -> str:
+    """ISO-8601 timestamp → human chunk ('3m ago' / '2h ago' / '4d ago').
+    Empty string when the timestamp is missing or unparseable."""
+    if not value:
+        return ""
+    try:
+        ts = datetime.fromisoformat(str(value))
+    except ValueError:
+        return ""
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    delta = datetime.now(timezone.utc) - ts
+    seconds = int(delta.total_seconds())
+    if seconds < 0:
+        return "in the future"
+    if seconds < 60:
+        return f"{seconds}s ago"
+    if seconds < 3600:
+        return f"{seconds // 60}m ago"
+    if seconds < 86400:
+        return f"{seconds // 3600}h ago"
+    return f"{seconds // 86400}d ago"
+
+
+def _short_id(value) -> str:
+    """First 8 chars of a long id (session id, fingerprint). Templates
+    use it so the full id stays available for click-through but the
+    rendered cell stays tabular."""
+    s = str(value or "")
+    return s[:8]
+
+
+_JINJA_FILTERS = {
+    "human_bytes": _human_bytes,
+    "human_age": _human_age,
+    "short_id": _short_id,
+}
 
 
 class DashboardServer:
@@ -36,6 +97,9 @@ class DashboardServer:
             trim_blocks=True,
             lstrip_blocks=True,
         )
+        # Register custom filters in one shot — the template uses them
+        # as `{{ value | human_bytes }}` etc.
+        self._env.filters.update(_JINJA_FILTERS)
         self._req_lock = Lock()
         self._request_count = 0
         self._last_render_ms = 0.0

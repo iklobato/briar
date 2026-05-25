@@ -109,6 +109,7 @@
 </style>
 </head>
 <body>
+{% import "_macros.html" as m %}
 
 <header>
   <div class="hdr-left">
@@ -160,6 +161,103 @@
       </div>
     </div>
   </div>
+</section>
+
+<!-- PLANS -->
+<section>
+  {{ m.section_header("plans", plans.count|string + " stored") }}
+  {% if m.error_panel(plans) %}
+  {% elif plans.rows %}
+  <table>
+    <thead>
+      <tr>
+        <th>plan</th>
+        <th>company</th>
+        <th>tracker</th>
+        <th>cards</th>
+        <th>status</th>
+        <th>last run</th>
+        <th>last decision</th>
+        <th>knowledge shard</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in plans.rows %}
+      <tr>
+        <td>
+          <strong>{{ r.name }}</strong>
+          {% if r.error %}<br><span class="pill bad">parse error</span> <em>{{ r.error }}</em>{% endif %}
+        </td>
+        <td>{{ r.company or "—" }}</td>
+        <td>{{ r.tracker or "—" }}{% if r.project %} · {{ r.project }}{% endif %}</td>
+        <td>{{ r.total_cards }}</td>
+        <td>{{ m.plan_status_pills(r.counts) }}</td>
+        <td>
+          {% if r.last_session_started %}
+            {{ m.time_cell(r.last_session_started) }}
+            <br><span class="pill">done {{ r.last_completed_count }}</span>
+            <span class="pill bad">fail {{ r.last_failed_count }}</span>
+          {% else %}
+            <span class="empty">never</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if r.last_decision_action %}
+            <span class="pill">{{ r.last_decision_action }}</span>
+            {% if r.last_decision_why %}<br><em>{{ r.last_decision_why }}</em>{% endif %}
+          {% else %}
+            <span class="empty">—</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if r.knowledge_shard %}<code>{{ r.knowledge_shard }}</code>{% else %}<span class="empty">—</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">no plans stored. <code>briar plan build &lt;board&gt; --name &lt;slug&gt; --company &lt;name&gt;</code></p>
+  {% endif %}
+</section>
+
+<!-- JOURNAL SESSIONS -->
+<section>
+  {{ m.section_header("recent journal sessions", journal_sessions.total|string + " session(s)") }}
+  {% if m.error_panel(journal_sessions) %}
+  {% elif journal_sessions.groups %}
+    {% for g in journal_sessions.groups %}
+    <details {% if loop.first %}open{% endif %}>
+      <summary>
+        <strong>{{ g.prefix }}</strong> <span class="count">{{ g.count }} session(s)</span>
+      </summary>
+      <table>
+        <thead>
+          <tr>
+            <th>started</th>
+            <th>command</th>
+            <th>target</th>
+            <th>decisions</th>
+            <th>id</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in g.sessions %}
+          <tr>
+            <td>{{ m.time_cell(s.started_at) }}</td>
+            <td><code>{{ s.command }}</code></td>
+            <td>{{ s.target or "—" }}</td>
+            <td>{{ s.decisions }}</td>
+            <td><code>{{ s.session_id | short_id }}</code></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </details>
+    {% endfor %}
+  {% else %}
+  <p class="empty">no journal sessions recorded yet.</p>
+  {% endif %}
 </section>
 
 <!-- CONNECTIVITY + CRON -->
@@ -219,7 +317,28 @@
     {% if schedule_calendar.fail_count %}<span class="pill bad">✗ {{ schedule_calendar.fail_count }} failed</span>{% else %}<span class="pill">✗ 0 failed</span>{% endif %}
     <span class="pill">skip-rate {{ schedule_calendar.skip_pct }}%</span>
   </div>
-  <div class="cal-grid">
+  {# Per-task filter: derive the distinct (company, task) pairs from
+     every fire across every bucket, then render a select. Empty value
+     means "show all" and is the default. Client-side JS toggles a
+     CSS class to hide non-matching fires (rows stay visible so the
+     hour-grid alignment doesn't shift). #}
+  {% set _seen = [] %}
+  {% for b in schedule_calendar.buckets %}
+    {% for f in b.fires %}
+      {% set key = f.company + "/" + f.task %}
+      {% if key not in _seen %}{% if _seen.append(key) %}{% endif %}{% endif %}
+    {% endfor %}
+  {% endfor %}
+  {% if _seen %}
+  <div style="margin-bottom:0.6rem;">
+    <label style="color:var(--dim);font-size:0.75rem;margin-right:0.5rem;">filter</label>
+    <select id="cal-filter" style="background:#0a0c10;color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:0.2rem 0.4rem;font-family:inherit;font-size:0.8rem;">
+      <option value="">all ({{ _seen|length }} tasks)</option>
+      {% for key in _seen|sort %}<option value="{{ key }}">{{ key }}</option>{% endfor %}
+    </select>
+  </div>
+  {% endif %}
+  <div class="cal-grid" id="cal-grid">
     {% for b in schedule_calendar.buckets %}
     <div class="cal-row {% if b.is_now %}cal-now{% elif b.is_past %}cal-past{% else %}cal-future{% endif %}">
       <div class="cal-hour">
@@ -229,7 +348,7 @@
       <div class="cal-fires">
         {% if b.is_now %}<span class="cal-now-marker">↳ now</span>{% endif %}
         {% for f in b.fires %}
-          <span class="cal-fire cal-fire-{{ f.kind }} cal-status-{{ f.status }}" title="{{ f.company }} / {{ f.task }} at {{ f.when }} — {{ f.status or f.kind }}{% if f.bytes %} · {{ f.bytes }} bytes{% endif %}{% if f.elapsed_ms %} · {{ f.elapsed_ms }} ms{% endif %}">
+          <span class="cal-fire cal-fire-{{ f.kind }} cal-status-{{ f.status }}" data-key="{{ f.company }}/{{ f.task }}" title="{{ f.company }} / {{ f.task }} at {{ f.when }} — {{ f.status or f.kind }}{% if f.bytes %} · {{ f.bytes }} bytes{% endif %}{% if f.elapsed_ms %} · {{ f.elapsed_ms }} ms{% endif %}">
             <span class="cal-fire-when">{{ f.when }}</span>
             <span class="cal-fire-company">{{ f.company }}</span>
             <span class="cal-fire-task">{{ f.task }}</span>
@@ -246,6 +365,21 @@
     </div>
     {% endfor %}
   </div>
+  <script>
+    (function () {
+      var select = document.getElementById('cal-filter');
+      var grid = document.getElementById('cal-grid');
+      if (!select || !grid) return;
+      select.addEventListener('change', function () {
+        var q = this.value;
+        var fires = grid.querySelectorAll('.cal-fire');
+        for (var f of fires) {
+          var key = f.getAttribute('data-key') || '';
+          f.style.display = (!q || key === q) ? '' : 'none';
+        }
+      });
+    })();
+  </script>
 </section>
 
 <!-- GITHUB API QUOTA + ETAG CACHE -->
@@ -326,32 +460,37 @@
 
 <!-- KNOWLEDGE FILES + CHART -->
 <section>
-  <h2>knowledge files <span class="count">{{ knowledge.rows|length }} via {{ knowledge.root }}</span></h2>
+  {{ m.section_header("knowledge files", knowledge.rows|length|string + " via " + knowledge.root) }}
   {% if knowledge.missing %}
     <p class="empty">root {{ knowledge.root }} does not exist yet — run a sweep</p>
   {% elif not knowledge.rows %}
     <p class="empty">no markdown files under {{ knowledge.root }}</p>
   {% else %}
-    <div class="kn-grid">
+    <input id="kn-filter" type="search"
+           placeholder="filter by blob name (case-insensitive)..."
+           autocomplete="off"
+           style="width:100%;background:#0a0c10;color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:0.4rem 0.6rem;font-family:inherit;font-size:0.82rem;margin-bottom:0.75rem;">
+    <div class="kn-grid" id="kn-grid">
       {% for r in knowledge.rows %}
-      <div class="kn-card">
+      <div class="kn-card" data-path="{{ r.path }}">
         <div class="kn-card-head">
           <code class="kn-path">{{ r.path }}</code>
           <span class="kn-fingerprint" title="md5 of content (first 8 chars)">#{{ r.fingerprint or "????????" }}</span>
         </div>
         <div class="kn-meta">
-          <span><strong>{{ r.byte_count }}</strong> bytes</span>
+          <span><strong>{{ r.byte_count | human_bytes }}</strong></span>
           <span>~<strong>{{ r.token_estimate }}</strong> tokens</span>
           <span><strong>{{ r.sections }}</strong> sections</span>
           {% if r.age_human %}<span>{{ r.age_human }}</span>{% endif %}
+          {% if r.shard_of %}<span class="pill">shard of <code>{{ r.shard_of }}</code></span>{% endif %}
         </div>
         {% if r.signals or r.repos_covered %}
         <div class="kn-signals">
-          {% if r.signals.merged_prs %}<span class="pill good">{{ r.signals.merged_prs }} merged PRs</span>{% endif %}
-          {% if r.signals.open_prs %}<span class="pill warn">{{ r.signals.open_prs }} open PRs</span>{% endif %}
-          {% if r.signals.rds_instances %}<span class="pill">{{ r.signals.rds_instances }} RDS</span>{% endif %}
-          {% if r.signals.sqs_queues %}<span class="pill">{{ r.signals.sqs_queues }} SQS</span>{% endif %}
-          {% if r.signals.log_groups %}<span class="pill">{{ r.signals.log_groups }} log groups</span>{% endif %}
+          {{ m.status_pill("merged PRs", r.signals.merged_prs, "good") }}
+          {{ m.status_pill("open PRs", r.signals.open_prs, "warn") }}
+          {{ m.status_pill("RDS", r.signals.rds_instances) }}
+          {{ m.status_pill("SQS", r.signals.sqs_queues) }}
+          {{ m.status_pill("log groups", r.signals.log_groups) }}
           {% for repo in r.repos_covered[:6] %}<span class="pill">{{ repo }}</span>{% endfor %}
           {% if r.repos_covered|length > 6 %}<span class="pill">+{{ r.repos_covered|length - 6 }} more</span>{% endif %}
         </div>
@@ -371,9 +510,26 @@
           </tbody>
         </table>
         {% endif %}
+        {% if r.body %}
+          {{ m.details_panel("read full body (" + (r.byte_count | human_bytes) + ")", r.body, r.body_truncated) }}
+        {% endif %}
       </div>
       {% endfor %}
     </div>
+    <script>
+      (function () {
+        var input = document.getElementById('kn-filter');
+        var grid = document.getElementById('kn-grid');
+        if (!input || !grid) return;
+        input.addEventListener('input', function () {
+          var q = this.value.trim().toLowerCase();
+          for (var card of grid.children) {
+            var path = (card.getAttribute('data-path') || '').toLowerCase();
+            card.style.display = (!q || path.indexOf(q) !== -1) ? '' : 'none';
+          }
+        });
+      })();
+    </script>
   {% endif %}
 </section>
 

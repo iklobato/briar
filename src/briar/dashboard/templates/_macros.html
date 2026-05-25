@@ -1,0 +1,63 @@
+{#
+  Reusable Jinja macros for the dashboard template.
+
+  Pattern: any HTML the template repeats more than twice belongs here.
+  The macros are imported into index.html with
+      {% import "_macros.html" as m %}
+  and used as `{{ m.section_header("plans", "12 plans") }}` etc.
+
+  Keep these macros narrow — they should each render one well-defined
+  block, not a whole section.
+#}
+
+{# section header with the standard "title · count" shape #}
+{% macro section_header(title, count="") %}
+  <h2>{{ title }}{% if count %} <span class="count">{{ count }}</span>{% endif %}</h2>
+{% endmacro %}
+
+{# status pill — used for plan card-status counts, journal session states, etc. #}
+{% macro status_pill(label, value, kind="") %}
+  {% if value or value == 0 %}
+    <span class="pill{% if kind %} {{ kind }}{% endif %}">{{ label }} {{ value }}</span>
+  {% endif %}
+{% endmacro %}
+
+{# Plan card-status row: done / in_progress / blocked / pending as colored pills.
+   Takes a dict like {"done": N, "in_progress": N, "blocked": N, "pending": N}. #}
+{% macro plan_status_pills(counts) %}
+  {{ status_pill("done", counts.done, "good") }}
+  {{ status_pill("in_progress", counts.in_progress, "warn") }}
+  {{ status_pill("blocked", counts.blocked, "bad") }}
+  {{ status_pill("pending", counts.pending) }}
+{% endmacro %}
+
+{# Render a `_error` panel when a collector failed; returns nothing otherwise.
+   The if-guard at the call site is intentional — callers use
+       {% if m.error_panel(plans) %}{% else %}...{% endif %}
+   to fall through to the real content. #}
+{% macro error_panel(payload) %}
+  {% if payload._error %}
+    <p class="empty">collector failed: {{ payload._error }}</p>
+  {% endif %}
+{% endmacro %}
+
+{# Short timestamp cell: hh:mm UTC + an age tooltip. Used by every
+   recent-activity table where the full iso is overkill. #}
+{% macro time_cell(iso) %}
+  {% if iso %}
+    <span title="{{ iso }}">{{ iso[11:16] }}<span class="dim"> · {{ iso | human_age }}</span></span>
+  {% else %}
+    <span class="empty">—</span>
+  {% endif %}
+{% endmacro %}
+
+{# Click-to-expand `<details>` panel — used for full knowledge bodies. #}
+{% macro details_panel(summary, body, truncated=False) %}
+  <details>
+    <summary>{{ summary }}</summary>
+    <pre>{{ body }}</pre>
+    {% if truncated %}
+      <p class="empty">… body truncated at the dashboard cap.</p>
+    {% endif %}
+  </details>
+{% endmacro %}
