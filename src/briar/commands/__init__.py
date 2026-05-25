@@ -19,6 +19,7 @@ from briar.commands.journal import CommandJournal
 from briar.commands.plan import CommandPlan
 from briar.commands.runbook import CommandRunbook
 from briar.commands.secrets import CommandSecrets
+from briar.commands.telemetry import CommandTelemetry
 from briar.commands.version import CommandVersion
 
 
@@ -37,6 +38,7 @@ class CommandRegistry:
         CommandPlan,
         CommandSecrets,
         CommandJournal,
+        CommandTelemetry,
         CommandVersion,
     ]
 

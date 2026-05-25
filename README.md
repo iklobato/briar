@@ -81,7 +81,16 @@ briar dashboard     — read-only HTML status page
 briar auth          — interactive credential acquisition (login / logout / refresh / list / status)
 briar secrets       — credential coverage (doctor / bootstrap)
 briar journal       — inspect decision-journal sessions (list / show / export)
+briar telemetry     — error + usage analytics to Sentry (status / preview / off / errors-only / full / reset)
 ```
+
+**Telemetry quick note.** briar ships with opt-out telemetry enabled
+by default (errors + usage analytics, sent to Sentry). The first run
+prints a one-time banner. Disable via `briar telemetry off`,
+`BRIAR_TELEMETRY=off`, or `DO_NOT_TRACK=1`. No prompts, file contents,
+ticket keys, repo names, paths, or env values ever leave the machine.
+See [`agents/telemetry.md`](agents/telemetry.md) for the full
+collected/never-collected matrix.
 
 **Global flags** (apply to every subcommand):
 

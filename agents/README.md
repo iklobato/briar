@@ -99,6 +99,7 @@ secrets doctor --examples examples/` to see what's missing.
 | [auth.md](auth.md) | `briar auth` — interactive credential acquisition |
 | [creds.md](creds.md) | `briar secrets` — credential coverage (`doctor`, `bootstrap`) |
 | [journal.md](journal.md) | `briar journal` — inspect decision sessions |
+| [telemetry.md](telemetry.md) | `briar telemetry` — error + usage analytics (Sentry); opt-out gradient |
 
 ## Rules you must not violate
 

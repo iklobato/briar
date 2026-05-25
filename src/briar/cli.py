@@ -14,8 +14,8 @@ from typing import Dict, List, Set, Tuple
 from briar.commands import Command, build_registry
 from briar.errors import CliError
 from briar.formatting import FORMATTERS
-from briar.logging import configure as configure_logging, env_verbose
-
+from briar.logging import configure as configure_logging
+from briar.logging import env_verbose
 
 # Two flag families:
 #   GLOBAL_FLAGS_WITH_VALUE: `--format yaml` / `--format=yaml`
@@ -63,6 +63,17 @@ class Cli:
         # protects every call site from "is journaling active" guards).
         cls._install_default_journal(log)
 
+        # Install telemetry — opt-out via BRIAR_TELEMETRY / DO_NOT_TRACK.
+        # Default is `full` (errors + usage); no PII / no values / no
+        # prompts ever leave the machine. See `briar.telemetry`.
+        try:
+            from briar import telemetry
+
+            telemetry.install()
+            telemetry.banner_if_needed()
+        except Exception:  # noqa: BLE001 — telemetry NEVER blocks the CLI
+            log.debug("telemetry: install failed", exc_info=True)
+
         commands = build_registry()
         parser = cls._build_parser(commands)
 
@@ -74,8 +85,16 @@ class Cli:
         args = parser.parse_args(normalised)
         log.debug("dispatching command=%s args=%r", args.command, vars(args))
 
+        # Wrap dispatch in a telemetry span so duration + outcome land
+        # in one place. The span captures uncaught exceptions, scrubs
+        # them, and ships an error event — then re-raises into the
+        # existing CliError / KeyboardInterrupt / catch-all flow.
+        from briar import telemetry
+
         try:
-            return commands[args.command].run(args)
+            with telemetry.command_span(args.command, args):
+                rc = commands[args.command].run(args)
+            return rc
         except CliError as exc:
             log.error("command %s failed: %s", args.command, exc)
             print(f"error: {exc}", file=sys.stderr)
@@ -87,6 +106,8 @@ class Cli:
         except Exception:  # noqa: BLE001 — top-level catch-all logs the trace
             log.exception("command %s crashed unexpectedly", args.command)
             return 2
+        finally:
+            telemetry.shutdown()
 
     @staticmethod
     def _install_default_journal(log: logging.Logger) -> None:
@@ -106,8 +127,8 @@ class Cli:
             from pathlib import Path
 
             from briar.journal import Journal, make_journal_store
-            from briar.journal.sinks import JOURNAL_SINKS
             from briar.journal._journal import set_active_journal
+            from briar.journal.sinks import JOURNAL_SINKS
 
             store_name = os.environ.get("BRIAR_JOURNAL_STORE", "file")
             root = Path(os.environ.get("BRIAR_JOURNAL_ROOT", "./journal"))

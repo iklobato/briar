@@ -36,6 +36,7 @@ dependencies = [
     "anthropic>=0.40,<1",  # `briar agent` runner — autonomous prfix loop
     "PyGithub>=2.5,<3",    # GitHub API — backs the GithubProvider adapter
     "atlassian-python-api>=3.41,<4",  # Bitbucket Cloud — backs the BitbucketProvider adapter
+    "sentry-sdk>=2.0,<3", # error + performance telemetry; on by default, opt-out via `briar telemetry off`
 ]
 
 [project.optional-dependencies]
