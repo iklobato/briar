@@ -217,10 +217,18 @@ class PlanContext:
         knowledge = ""
         company_knowledge = ""
         try:
-            if plan.company and plan.name:
-                knowledge = (knowledge_store.get(f"knowledge:{plan.company}.{plan.name}") or "")[:max_knowledge_bytes]
-            if plan.company:
-                company_knowledge = (knowledge_store.get(f"knowledge:{plan.company}") or "")[:max_knowledge_bytes]
+            wanted: List[str] = []
+            plan_key = f"knowledge:{plan.company}.{plan.name}" if (plan.company and plan.name) else ""
+            company_key = f"knowledge:{plan.company}" if plan.company else ""
+            if plan_key:
+                wanted.append(plan_key)
+            if company_key:
+                wanted.append(company_key)
+            blobs = knowledge_store.get_many(wanted) if wanted else {}
+            if plan_key:
+                knowledge = blobs.get(plan_key, "")[:max_knowledge_bytes]
+            if company_key:
+                company_knowledge = blobs.get(company_key, "")[:max_knowledge_bytes]
         except Exception:  # noqa: BLE001
             pass
 

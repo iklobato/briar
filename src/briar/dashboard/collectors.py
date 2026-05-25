@@ -115,8 +115,13 @@ class KnowledgeCollector(Collector):
     def collect(self) -> Dict[str, Any]:
         rows: List[Dict[str, Any]] = []
         now = datetime.now(timezone.utc)
-        for ref in self._store.list():
-            content = self._store.get(ref.name)
+        refs = self._store.list()
+        # Bulk-fetch every blob's content in one round-trip on backends
+        # that support it (Postgres). Avoids one DB connection per blob
+        # under the previous `for ref in list: store.get(ref.name)` loop.
+        blobs = self._store.get_many([ref.name for ref in refs])
+        for ref in refs:
+            content = blobs.get(ref.name, "")
             sections_detail = self._split_sections(content)
             signals, repos = self._mine_signals(content)
             head = "\n".join(content.splitlines()[:3])
@@ -256,8 +261,10 @@ class KnowledgeAggregatesCollector(Collector):
         rds = 0
         sqs = 0
         log_groups = 0
-        for ref in self._store.list():
-            text = self._store.get(ref.name)
+        refs = self._store.list()
+        blobs = self._store.get_many([ref.name for ref in refs])
+        for ref in refs:
+            text = blobs.get(ref.name, "")
             if not text:
                 continue
             total_files += 1

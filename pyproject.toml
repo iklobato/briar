@@ -33,6 +33,7 @@ dependencies = [
     "schedule>=1.2,<2",    # in-process scheduler (replaces cron)
     "pytz",                # `schedule`'s tz support for `at("HH:MM", tz)`
     "psycopg[binary]>=3.1,<4",  # postgres KnowledgeStore backend (lazy-imported)
+    "SQLAlchemy>=2.0,<3", # ORM + pooled Engine for the postgres KnowledgeStore
     "anthropic>=0.40,<1",  # `briar agent` runner — autonomous prfix loop
     "PyGithub>=2.5,<3",    # GitHub API — backs the GithubProvider adapter
     "atlassian-python-api>=3.41,<4",  # Bitbucket Cloud — backs the BitbucketProvider adapter

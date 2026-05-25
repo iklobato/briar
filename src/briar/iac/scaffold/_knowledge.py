@@ -57,10 +57,15 @@ class KnowledgeSplicer:
         """Concatenate every blob whose name starts with `knowledge:<company>`
         and parse out `## <heading>` sections. The most-recent section for
         each extractor wins (later blob overwrites earlier — irrelevant in
-        practice since each extractor only appears in one task's blob)."""
+        practice since each extractor only appears in one task's blob).
+
+        Bulk-fetches via `get_many` so a Postgres-backed store opens one
+        connection for the whole prologue instead of one per blob."""
         prefix = f"knowledge:{self._company}"
-        for ref in self._store.list(prefix=prefix):
-            text = self._store.get(ref.name)
+        refs = self._store.list(prefix=prefix)
+        blobs = self._store.get_many([ref.name for ref in refs])
+        for ref in refs:
+            text = blobs.get(ref.name, "")
             if not text:
                 continue
             for heading, body in self._parse_sections(text).items():

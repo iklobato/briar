@@ -345,6 +345,9 @@ class _FakeStore:
     def get(self, name):
         return self._data.get(name, "")
 
+    def get_many(self, names):
+        return {n: self._data[n] for n in names if n in self._data}
+
     def put(self, name, content, category=""):
         self._data[name] = content
 

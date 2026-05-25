@@ -15,7 +15,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Mapping, Optional
+from typing import Any, ClassVar, Dict, Iterable, List, Mapping, Optional
 
 
 @dataclass
@@ -78,6 +78,22 @@ class KnowledgeStore(ABC):
     @abstractmethod
     def get(self, blob_name: str) -> str:
         """Return the markdown content, or `""` when the blob is missing."""
+
+    def get_many(self, names: Iterable[str]) -> Dict[str, str]:
+        """Bulk fetch — `{name: content}` for every name found. Names
+        that miss are omitted from the result (callers use `.get(name, "")`).
+
+        Default implementation just calls `get()` per-name. Backends that
+        can do this in one round-trip (Postgres uses `WHERE blob_name = ANY(%s)`)
+        should override — that's the point of having this on the ABC, it lets
+        callers (KnowledgeSplicer, dashboard collectors, plan context) be
+        backend-agnostic while still avoiding the N+1 connection pattern."""
+        out: Dict[str, str] = {}
+        for name in names:
+            content = self.get(name)
+            if content:
+                out[name] = content
+        return out
 
     @abstractmethod
     def list(self, prefix: str = "") -> List[KnowledgeRef]:
