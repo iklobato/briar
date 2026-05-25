@@ -181,22 +181,24 @@ sequenceDiagram
   P-->>TS: normalised dataclasses
   TS-->>CA: ExtractedSection (rich PR context)
 
-  CA->>R: AgentRunner(archetype=pr-fixer, task_context_sections=[section], dry_run=False)
+  CA->>R: AgentRunner(AgentRunConfig(archetype_name=pr-fixer, task_context_sections=[section], dry_run=False, …))
   R->>R: build_system_prompt (persona + knowledge prologue + task sections)
   R->>R: build_initial_user_message
-  loop until end_turn or max_iter
+  loop until StopReason.END_TURN or max_iter
     R->>LLM: complete(system, messages, tools, max_tokens)
     LLM-->>R: LLMResponse (text + tool_calls + stop_reason)
-    alt stop_reason == "end_turn"
+    alt stop == StopReason.END_TURN
       R-->>CA: AgentRunResult(final_text, …)
-    else stop_reason == "tool_use"
+    else stop == StopReason.TOOL_USE
       R->>R: dispatch tool calls (bash, read_file, …)
       R->>LLM: format_tool_result for each call
     end
   end
   CA->>CA: cleanup_worktree (unless --keep)
-  CA-->>CLI: exit code
+  CA-->>CLI: ExitCode (OK / AGENT_ERROR)
 ```
+
+> **Note (post-§17 refactor):** `AgentRunner` now takes one `AgentRunConfig` value object instead of 13 keyword-only kwargs. LLM stop reasons go through the `StopReason` enum (`agent/_enums.py`) — each provider adapter translates its vendor-specific stop into the canonical set. CLI exit codes go through `ExitCode` (`commands/_enums.py`). See [`ARCHITECTURE.md`](ARCHITECTURE.md) "Post-§17 additions" and [`ARCHITECTURE_MAP.md`](ARCHITECTURE_MAP.md) §17–§21.
 
 ### 2.3 `briar agent implement --ticket-key ACME-42 --dry-run`
 
@@ -228,12 +230,12 @@ sequenceDiagram
   M-->>MS: MeetingDetails (summary + action items + transcript)
   MS-->>CA: ExtractedSection (one section, K matches inline)
 
-  CA->>R: AgentRunner(archetype=engineer, task_context_sections=[ticket, meeting], dry_run=True)
+  CA->>R: AgentRunner(AgentRunConfig(archetype_name=engineer, task_context_sections=[ticket, meeting], dry_run=True, …))
   R->>R: build_system_prompt + build_initial_user_message + tool_specs
-  R->>R: _dry_run_report() prints to stdout, returns AgentRunResult(stop_reason="dry_run")
+  R->>R: _dry_run_report() prints to stdout, returns AgentRunResult(stop_reason=StopReason.DRY_RUN)
   Note over R: LLM IS NOT INVOKED — no tokens spent
   R-->>CA: AgentRunResult
-  CA-->>User: prints the rendered prompt; exit 0
+  CA-->>User: prints the rendered prompt; exit ExitCode.OK
 ```
 
 Meeting-context is **non-fatal enrichment** — when

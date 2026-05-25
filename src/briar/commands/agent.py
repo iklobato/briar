@@ -18,9 +18,9 @@ from pathlib import Path
 from typing import Any, ClassVar, Dict, Tuple
 
 from briar._registry import build_registry
-from briar.agent.runner import AgentRunner
+from briar.agent.runner import AgentRunner, AgentRunConfig
+from briar.commands._enums import ExitCode
 from briar.commands.base import Command
-
 
 log = logging.getLogger(__name__)
 
@@ -78,6 +78,18 @@ class PrfixOp(AgentOp):
             "When set, the agent gets a `send_message` tool bound to the configured channels "
             "instead of having to shell out via `gh` / `curl`.",
         )
+        # Meeting-context wiring (Fireflies + future vendors). All optional —
+        # absent flags = no meeting fetch, agent runs with PR review context only.
+        parser.add_argument("--meeting", default="fireflies", help="Meeting provider for transcript fetch (default: fireflies)")
+        parser.add_argument("--meeting-key", default="", help="Specific meeting ID to splice into the agent prompt")
+        parser.add_argument(
+            "--meeting-query",
+            default="",
+            help="Keyword search across recent meetings. When omitted, defaults to the PR's owner/repo#pr — "
+            "set explicitly to override (e.g. the reviewer's name or a topic).",
+        )
+        parser.add_argument("--meeting-top-k", type=int, default=3, help="Max meetings to fetch in search mode (default: 3)")
+        parser.add_argument("--meeting-max-bytes", type=int, default=50_000, help="Per-meeting transcript byte cap (default: 50000)")
 
     def run(self, agent_cmd: "CommandAgent", args: argparse.Namespace) -> int:
         return agent_cmd._run_prfix(args)
@@ -113,6 +125,17 @@ class ImplementOp(AgentOp):
             default="",
             help="Optional runbook YAML to read this company's `messages:` block from.",
         )
+        # Meeting-context wiring (Fireflies + future vendors).
+        parser.add_argument("--meeting", default="fireflies", help="Meeting provider for transcript fetch (default: fireflies)")
+        parser.add_argument("--meeting-key", default="", help="Specific meeting ID to splice into the agent prompt")
+        parser.add_argument(
+            "--meeting-query",
+            default="",
+            help="Keyword search across recent meetings. When omitted, defaults to the ticket key — "
+            "set explicitly to override (e.g. a topic or feature name).",
+        )
+        parser.add_argument("--meeting-top-k", type=int, default=3, help="Max meetings to fetch in search mode (default: 3)")
+        parser.add_argument("--meeting-max-bytes", type=int, default=50_000, help="Per-meeting transcript byte cap (default: 50000)")
 
     def run(self, agent_cmd: "CommandAgent", args: argparse.Namespace) -> int:
         return agent_cmd._run_implement(args)
@@ -260,7 +283,7 @@ class CommandAgent(Command):
         if op is None:
             known = ", ".join(sorted(AGENT_OPS.keys()))
             log.error("unknown agent op: %s (known: %s)", args.agent_op, known)
-            return 2
+            return ExitCode.USAGE_ERROR
         return op.run(self, args)
 
     def _run_prfix(self, args: argparse.Namespace) -> int:
@@ -270,7 +293,7 @@ class CommandAgent(Command):
             store = make_store(args.store, file_root=Path(args.knowledge))
         except Exception:  # noqa: BLE001
             log.exception("agent-prfix: failed to open store=%s", args.store)
-            return 3
+            return ExitCode.STORE_OPEN_FAILED
 
         target = f"{args.owner}/{args.repo}"
         clone_url = f"https://github.com/{target}.git"
@@ -292,14 +315,14 @@ class CommandAgent(Command):
             if not self._clone_branch(clone_url, args.branch, worktree):
                 log.error("agent-prfix: clone failed; aborting")
                 self._cleanup_worktree(worktree, keep=args.keep_worktree)
-                return 4
+                return ExitCode.CLONE_FAILED
 
             git_name, git_email = self._resolve_git_identity(args)
             log.info("agent-prfix: git identity user.name=%s user.email=%s", git_name, git_email)
             if not self._set_git_identity(worktree, git_name, git_email):
                 log.error("agent-prfix: git identity setup failed; aborting")
                 self._cleanup_worktree(worktree, keep=args.keep_worktree)
-                return 5
+                return ExitCode.GIT_CONFIG_FAILED
 
         # JIT-fetch the PR's review comments + failing-CI context. Spliced
         # into the agent's system prompt below the archetype's persona.
@@ -312,8 +335,20 @@ class CommandAgent(Command):
             pr=args.pr,
         )
 
+        # Default meeting query = PR identifier so the prfix flow finds
+        # any meeting that mentioned the PR or its feature by string match.
+        meeting_query = (getattr(args, "meeting_query", "") or "").strip() or f"{args.owner}/{args.repo}#{args.pr}"
+        task_sections += self._fetch_meeting_context(
+            company=args.company,
+            meeting_kind=getattr(args, "meeting", "fireflies"),
+            meeting_key=getattr(args, "meeting_key", ""),
+            meeting_query=meeting_query,
+            meeting_top_k=getattr(args, "meeting_top_k", 3),
+            meeting_max_bytes=getattr(args, "meeting_max_bytes", 50_000),
+        )
+
         messages = self._load_messages_block(args)
-        runner = AgentRunner(
+        runner = AgentRunner(AgentRunConfig(
             company=args.company,
             task="prfix",
             archetype_name="pr-fixer",
@@ -323,10 +358,10 @@ class CommandAgent(Command):
             model=args.model,
             max_iterations=args.max_iter,
             extra_user_instructions=self._pr_specific_instructions(args.owner, args.repo, args.pr, args.branch),
-            task_context_sections=task_sections,
+            task_context_sections=tuple(task_sections),
             dry_run=args.dry_run,
             messages=messages,
-        )
+        ))
         result = runner.run()
 
         log.info(
@@ -344,7 +379,7 @@ class CommandAgent(Command):
         if result.commits:
             print(f"--- commits: {', '.join(result.commits)} ---")
         self._cleanup_worktree(worktree, keep=args.keep_worktree or bool(result.error))
-        return 0 if not result.error else 6
+        return ExitCode.OK if not result.error else ExitCode.AGENT_ERROR
 
     def _run_implement(self, args: argparse.Namespace) -> int:
         """Implement one ticket end-to-end via the engineer archetype.
@@ -360,7 +395,7 @@ class CommandAgent(Command):
             store = make_store(args.store, file_root=Path(args.knowledge))
         except Exception:  # noqa: BLE001
             log.exception("agent-implement: failed to open store=%s", args.store)
-            return 3
+            return ExitCode.STORE_OPEN_FAILED
 
         target = f"{args.owner}/{args.repo}"
 
@@ -379,14 +414,14 @@ class CommandAgent(Command):
             if not self._clone_default(args.provider, args.owner, args.repo, worktree, company=args.company):
                 log.error("agent-implement: clone failed; aborting")
                 self._cleanup_worktree(worktree, keep=args.keep_worktree)
-                return 4
+                return ExitCode.CLONE_FAILED
 
             git_name, git_email = self._resolve_git_identity(args)
             log.info("agent-implement: git identity user.name=%s user.email=%s", git_name, git_email)
             if not self._set_git_identity(worktree, git_name, git_email):
                 log.error("agent-implement: git identity setup failed; aborting")
                 self._cleanup_worktree(worktree, keep=args.keep_worktree)
-                return 5
+                return ExitCode.GIT_CONFIG_FAILED
 
         # JIT-fetch the ticket's full body + ACs + comments. Spliced
         # into the agent's system prompt below the archetype's persona.
@@ -403,7 +438,22 @@ class CommandAgent(Command):
         if not task_sections:
             log.warning("agent-implement: ticket-context was empty — agent will rely on ticket key alone")
 
-        runner = AgentRunner(
+        # JIT-fetch relevant meeting transcripts. Default query is the
+        # ticket key — Fireflies' keyword search matches it in titles
+        # and inside transcripts, so a meeting that mentioned ACME-123
+        # surfaces automatically. Operator can override --meeting-query
+        # with a topic / feature name if the ticket key isn't spoken.
+        meeting_query = (getattr(args, "meeting_query", "") or "").strip() or args.ticket_key
+        task_sections += self._fetch_meeting_context(
+            company=args.company,
+            meeting_kind=getattr(args, "meeting", "fireflies"),
+            meeting_key=getattr(args, "meeting_key", ""),
+            meeting_query=meeting_query,
+            meeting_top_k=getattr(args, "meeting_top_k", 3),
+            meeting_max_bytes=getattr(args, "meeting_max_bytes", 50_000),
+        )
+
+        runner = AgentRunner(AgentRunConfig(
             company=args.company,
             task="implement",
             archetype_name="engineer",
@@ -419,10 +469,10 @@ class CommandAgent(Command):
                 repo=args.repo,
                 ticket_key=args.ticket_key,
             ),
-            task_context_sections=task_sections,
+            task_context_sections=tuple(task_sections),
             dry_run=args.dry_run,
             messages=self._load_messages_block(args),
-        )
+        ))
         result = runner.run()
 
         log.info(
@@ -440,7 +490,7 @@ class CommandAgent(Command):
         if result.commits:
             print(f"--- commits: {', '.join(result.commits)} ---")
         self._cleanup_worktree(worktree, keep=args.keep_worktree or bool(result.error))
-        return 0 if not result.error else 6
+        return ExitCode.OK if not result.error else ExitCode.AGENT_ERROR
 
     @staticmethod
     def _clone_default(provider: str, owner: str, repo: str, dest: Path, *, company: str = "") -> bool:
@@ -584,12 +634,11 @@ class CommandAgent(Command):
             "  4. Run the test command from codebase-conventions locally; only push when it's green.\n"
             "  5. Push: `git push -u origin HEAD` (NEVER --force).\n"
         )
-        try:
-            cloner = _resolve_cloner(provider)
-        except RuntimeError:
-            # Unknown provider — degrade gracefully with the GitHub
-            # recipe rather than crashing the instruction build.
-            cloner = REPO_CLONERS["github"]
+        # Unknown provider raises RuntimeError — desired loud failure.
+        # Argparse-level choices= on --provider (Step 0b / via extractor
+        # add_arguments) prevents typos from reaching this method via
+        # the CLI; this propagates programmer errors from non-CLI callers.
+        cloner = _resolve_cloner(provider)
         recipe = cloner.pr_creation_recipe(owner=owner, repo=repo, branch=branch, company=company)
         return common + recipe + (
             "\n"
@@ -683,6 +732,49 @@ class CommandAgent(Command):
         if getattr(section, "is_empty", True):
             return []
         log.info("pr-review-context: title=%r body_bytes=%d", section.title, len(section.body or ""))
+        return [section]
+
+    @staticmethod
+    def _fetch_meeting_context(
+        *,
+        company: str,
+        meeting_kind: str,
+        meeting_key: str,
+        meeting_query: str,
+        meeting_top_k: int,
+        meeting_max_bytes: int,
+    ):
+        """Run the `meeting-context` task-scoped extractor. Returns a
+        list with one ExtractedSection or empty on failure / empty
+        result. Symmetric to `_fetch_ticket_context` / `_fetch_pr_context`.
+
+        Failure here is non-fatal — meetings are enrichment, not the
+        primary input. The agent runs fine without them."""
+        import argparse as _ap
+
+        from briar.extract import TASK_SCOPED_EXTRACTORS
+
+        extractor = TASK_SCOPED_EXTRACTORS.get("meeting-context")
+        if extractor is None:
+            return []
+        if not meeting_key and not meeting_query:
+            return []
+        ns = _ap.Namespace(
+            company=company,
+            meeting=meeting_kind or "fireflies",
+            meeting_key=meeting_key,
+            meeting_query=meeting_query,
+            meeting_top_k=meeting_top_k,
+            meeting_max_bytes=meeting_max_bytes,
+        )
+        try:
+            section = extractor.fetch(ns)
+        except Exception:  # noqa: BLE001
+            log.exception("meeting-context fetch failed; agent continues without it")
+            return []
+        if getattr(section, "is_empty", True):
+            return []
+        log.info("meeting-context: title=%r body_bytes=%d", section.title, len(section.body or ""))
         return [section]
 
     @staticmethod

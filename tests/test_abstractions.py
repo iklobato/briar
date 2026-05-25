@@ -867,7 +867,7 @@ class AgentCommandTests(unittest.TestCase):
         import sys
         from pathlib import Path
 
-        from briar.agent.runner import AgentRunner
+        from briar.agent.runner import AgentRunner, AgentRunConfig
 
         fake_llm = mock.MagicMock()
         fake_llm.kind = "anthropic"
@@ -883,14 +883,16 @@ class AgentCommandTests(unittest.TestCase):
         fake_store.get.return_value = ""
 
         runner = AgentRunner(
-            company="acme",
-            task="implement",
-            archetype_name="engineer",
-            workdir=Path("/tmp/briar-test"),
-            knowledge_store=fake_store,
-            target="acme-co/acme-app",
+            AgentRunConfig(
+                company="acme",
+                task="implement",
+                archetype_name="engineer",
+                workdir=Path("/tmp/briar-test"),
+                knowledge_store=fake_store,
+                target="acme-co/acme-app",
+                dry_run=True,
+            ),
             llm=fake_llm,
-            dry_run=True,
         )
         captured = io.StringIO()
         old_stdout = sys.stdout

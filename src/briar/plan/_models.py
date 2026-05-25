@@ -15,6 +15,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List
 
+from briar.plan._enums import PlanCardStatus
+
 
 PLAN_SCHEMA_VERSION = 1
 
@@ -36,7 +38,7 @@ class PlanCard:
     depends_on: List[str] = field(default_factory=list)
     branch_name: str = ""
     branch_parent: str = ""
-    status: str = "pending"  # pending | in_progress | done | blocked
+    status: PlanCardStatus = PlanCardStatus.PENDING
     notes: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
@@ -57,7 +59,7 @@ class PlanCard:
             depends_on=list(raw.get("depends_on") or []),
             branch_name=str(raw.get("branch_name") or ""),
             branch_parent=str(raw.get("branch_parent") or ""),
-            status=str(raw.get("status") or "pending"),
+            status=PlanCardStatus(raw.get("status") or PlanCardStatus.PENDING.value),
             notes=str(raw.get("notes") or ""),
         )
 
@@ -117,9 +119,9 @@ class ImplementationPlan:
     def next_pending(self) -> "PlanCard | None":
         """First card whose deps are all `done`. Returns None when the
         plan is finished or fully blocked."""
-        done = {c.key for c in self.cards if c.status == "done"}
+        done = {c.key for c in self.cards if c.status == PlanCardStatus.DONE}
         for card in self.cards:
-            if card.status != "pending":
+            if card.status != PlanCardStatus.PENDING:
                 continue
             if all(dep in done for dep in card.depends_on):
                 return card

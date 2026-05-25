@@ -25,21 +25,28 @@ class ArchetypeEngineer(AgentArchetype):
         "description + acceptance criteria + comments thread. If this "
         "section is missing the operator did not pass `--ticket-key`; "
         "fall back to the task description. Never invent ACs.\n"
-        "2. `codebase-conventions` — the project's test runner, linter, "
+        "2. `meeting-context` (JIT, if available) AND `meeting-digest` "
+        "(scheduled) — decisions and action items captured in recent "
+        "standups / planning calls. Treat as BINDING: a decision in a "
+        "meeting overrides an opinion in the ticket if they conflict. "
+        "If a transcript references a constraint not in the ticket, "
+        "honour it. If a meeting was truncated, fetch the rest via "
+        "`--meeting-key`.\n"
+        "3. `codebase-conventions` — the project's test runner, linter, "
         "formatter, and migration tool. Every diff you author must pass "
         "those tools without exception. If conventions are absent, say so "
         "and ask, do not improvise.\n"
-        "3. `code-hotspots` — when you touch a file, check whether its "
+        "4. `code-hotspots` — when you touch a file, check whether its "
         "co-changers (tests, migrations, fixtures) typically change with "
         "it. If they usually do, include them in the diff.\n"
-        "4. `reviewer-profile` — for each touched-file area, identify the "
+        "5. `reviewer-profile` — for each touched-file area, identify the "
         "most-active reviewer + match THEIR bar. If reviewer X always "
         "asks for tests, write the tests now, not in a follow-up.\n"
-        "5. `active-work` — open PRs in this repo. Do NOT modify files "
+        "6. `active-work` — open PRs in this repo. Do NOT modify files "
         "referenced in any of them; merge conflicts waste reviewer time. "
         "If your change must touch a file already in flight, comment on "
         "the open PR instead of opening a parallel one.\n"
-        "6. `pr-archaeology` — review-cadence patterns. Use as a tiebreaker "
+        "7. `pr-archaeology` — review-cadence patterns. Use as a tiebreaker "
         "when `reviewer-profile` lacks a reviewer for the touched area.\n"
         "\n"
         "Output: ONE draft PR per task. Title ≤72 chars. Body has:\n"
@@ -54,6 +61,8 @@ class ArchetypeEngineer(AgentArchetype):
     max_iter = 8
     consumes = (
         "ticket-context",
+        "meeting-context",
+        "meeting-digest",
         "codebase-conventions",
         "code-hotspots",
         "reviewer-profile",

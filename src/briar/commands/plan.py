@@ -23,10 +23,12 @@ from typing import ClassVar, Dict, List, Optional
 
 from briar._registry import build_registry
 from briar.agent._llms import LLMRegistry, make_llm
+from briar.commands._enums import ExitCode
 from briar.commands.base import Command, confirm
 from briar.errors import CliError
 from briar.formatting import render
 from briar.journal import record, session
+from briar.plan._enums import PlanCardStatus
 from briar.plan import (
     ImplementationPlan,
     PlanCard,
@@ -167,7 +169,7 @@ class BuildOp(PlanOp):
         if args.dry_run:
             sys.stdout.write(render_markdown(plan))
             sys.stdout.write("\n")
-            return 0
+            return ExitCode.OK
 
         blob = save_plan(store, plan)
         render(
@@ -185,7 +187,7 @@ class BuildOp(PlanOp):
             sys.stdout.write("\n")
             sys.stdout.write(render_markdown(plan))
             sys.stdout.write("\n")
-        return 0
+        return ExitCode.OK
 
 
 class ShowOp(PlanOp):
@@ -201,7 +203,7 @@ class ShowOp(PlanOp):
         plan = load_plan(store, args.name)
         sys.stdout.write(render_markdown(plan))
         sys.stdout.write("\n")
-        return 0
+        return ExitCode.OK
 
 
 class NextOp(PlanOp):
@@ -218,9 +220,9 @@ class NextOp(PlanOp):
         card = plan.next_pending()
         if card is None:
             render({"status": "complete", "plan": plan.name}, args.format)
-            return 0
+            return ExitCode.OK
         render(plan_cmd._card_to_dict(plan, card), args.format)
-        return 0
+        return ExitCode.OK
 
 
 class AdvanceOp(PlanOp):
@@ -254,10 +256,10 @@ class AdvanceOp(PlanOp):
         target: Optional[PlanCard] = next((c for c in plan.cards if c.key == target_key), None)
         if target is None:
             raise CliError(f"card {target_key!r} not in plan {plan.name!r}")
-        target.status = args.status
+        target.status = PlanCardStatus(args.status)
         save_plan(store, plan)
         render(plan_cmd._card_to_dict(plan, target), args.format)
-        return 0
+        return ExitCode.OK
 
 
 class ListOp(PlanOp):
@@ -271,7 +273,7 @@ class ListOp(PlanOp):
         store = plan_cmd._open_store(args)
         items = [{"name": name} for name in sorted(list_plans(store))]
         render(items, args.format, ["name"])
-        return 0
+        return ExitCode.OK
 
 
 class ClearOp(PlanOp):
@@ -287,10 +289,10 @@ class ClearOp(PlanOp):
         store = plan_cmd._open_store(args)
         if not args.yes and not confirm(f"Delete plan {args.name!r}? [y/N] "):
             print("aborted")
-            return 1
+            return ExitCode.GENERAL_ERROR
         removed = delete_plan(store, args.name)
         print(f"{'deleted' if removed else 'not found'} {args.name}")
-        return 0 if removed else 1
+        return ExitCode.OK if removed else ExitCode.GENERAL_ERROR
 
 
 class RunOp(PlanOp):
@@ -399,11 +401,11 @@ class RunOp(PlanOp):
                     rc = 1
 
                 if rc == 0:
-                    card.status = "done"
+                    card.status = PlanCardStatus.DONE
                     outcomes["done"] += 1
                     record("plan.run.card.completed", value=card.key, rationale="implement rc=0")
                 else:
-                    card.status = "blocked"
+                    card.status = PlanCardStatus.BLOCKED
                     outcomes["blocked"] += 1
                     record("plan.run.card.failed", value=card.key, rationale=f"implement rc={rc}")
                 save_plan(store, plan)
@@ -418,7 +420,7 @@ class RunOp(PlanOp):
                     return rc
 
             self._render_summary(args, plan, outcomes, stopped_early=False)
-            return 0 if outcomes["blocked"] == 0 else 1
+            return ExitCode.OK if outcomes["blocked"] == 0 else ExitCode.GENERAL_ERROR
 
     @staticmethod
     def _build_implement_args(args: argparse.Namespace, card: PlanCard, tracker_project: str) -> argparse.Namespace:
@@ -462,7 +464,7 @@ class RunOp(PlanOp):
                 "done": outcomes["done"],
                 "blocked": outcomes["blocked"],
                 "stopped_early": stopped_early,
-                "remaining_pending": sum(1 for c in plan.cards if c.status == "pending"),
+                "remaining_pending": sum(1 for c in plan.cards if c.status == PlanCardStatus.PENDING),
             },
             args.format,
         )
@@ -492,7 +494,7 @@ class CommandPlan(Command):
         if op is None:
             known = ", ".join(sorted(PLAN_OPS.keys()))
             log.error("unknown plan op: %s (known: %s)", args.plan_op, known)
-            return 2
+            return ExitCode.USAGE_ERROR
         return op.run(self, args)
 
     # ─── shared helpers ─────────────────────────────────────────────────

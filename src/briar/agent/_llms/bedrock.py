@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List
 
+from briar.agent._enums import StopReason
 from briar.agent._llm import LLMProvider, LLMResponse, LLMToolCall
 
 
@@ -139,11 +140,13 @@ class BedrockLLM(LLMProvider):
         usage = resp.get("usage") or {}
         # Bedrock reports `end_turn` / `tool_use` / `max_tokens` / `stop_sequence`
         # in `stopReason` — same vocabulary as Anthropic, snake-cased.
-        stop = str(resp.get("stopReason") or "")
-        if stop == "endTurn":
-            stop = "end_turn"
-        elif stop == "toolUse":
-            stop = "tool_use"
+        raw_stop = str(resp.get("stopReason") or "")
+        if raw_stop == "endTurn":
+            stop = StopReason.END_TURN
+        elif raw_stop == "toolUse":
+            stop = StopReason.TOOL_USE
+        else:
+            stop = raw_stop
         return LLMResponse(
             text="".join(text_parts),
             tool_calls=tool_calls,

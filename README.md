@@ -1392,6 +1392,31 @@ enum value + one branch in `_effective_store_kind`.
 
 ---
 
+## Exit codes
+
+`briar` returns conventional exit codes so it slots cleanly into CI
+pipelines and shell glue. The canonical list lives in
+`src/briar/commands/_enums.py:ExitCode`:
+
+| Code | Symbol | Meaning |
+|---|---|---|
+| `0` | `OK` | Success — the requested operation completed without an error path. |
+| `1` | `GENERAL_ERROR` | Soft failure that doesn't fit a more specific code (e.g. `briar plan clear` aborted at the confirm prompt, or `briar plan run` finished with one or more blocked cards). |
+| `2` | `USAGE_ERROR` | Unknown subcommand / op (e.g. `briar agent typo`). Also the conventional code argparse returns on bad flags, so `briar agent prfix --pr abc` will exit `2` automatically without code in `briar` itself. |
+| `3` | `STORE_OPEN_FAILED` | The `KnowledgeStore` couldn't be opened (typically Postgres DSN missing/invalid, or filesystem permissions on the file backend). |
+| `4` | `CLONE_FAILED` | The agent's `git clone` step failed (network, missing token, wrong branch name, etc.). |
+| `5` | `GIT_CONFIG_FAILED` | The worktree clone succeeded but setting `user.name` / `user.email` / `commit.gpgsign=false` failed inside it. |
+| `6` | `AGENT_ERROR` | The agent run itself failed — LLM call raised, iteration ceiling hit, tool dispatch errored. `AgentRunResult.error` carries the detail in the log. |
+
+Codes 1–6 are stable; `7–9` are reserved for future pre-LLM failure
+categories; `10+` is reserved for future LLM/agent runtime failures.
+
+The enum is wire-compatible — `return ExitCode.CLONE_FAILED` is
+identical to `return 4` at the OS level, so existing shell scripts
+that check `$?` against integer literals keep working.
+
+---
+
 ## Releases
 
 Releases are fully automated. Every push to `main` triggers

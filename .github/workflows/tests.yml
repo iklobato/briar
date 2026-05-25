@@ -1,0 +1,64 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: pytest (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Sync deps
+        run: uv sync --extra test
+      - name: Run pytest (parallel + randomised)
+        run: uv run pytest -n auto -ra --strict-markers
+        env:
+          # pytest-randomly seeds itself differently per run; pin in CI
+          # only when reproducing a failure locally.
+          PYTHONHASHSEED: random
+
+  property:
+    name: hypothesis property tests (extended)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - run: uv sync --extra test
+      - name: Run hypothesis-marked tests with deeper search
+        run: uv run pytest -m property -ra
+        env:
+          # Longer hypothesis budget than the default.
+          HYPOTHESIS_PROFILE: ci
+
+  mutation:
+    name: mutation testing (leaf modules)
+    runs-on: ubuntu-latest
+    # Don't gate PRs on mutation score; nightly + manual only.
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - run: uv sync --extra test
+      - name: Run targeted mutation test
+        run: uv run python tools/mutation_test.py

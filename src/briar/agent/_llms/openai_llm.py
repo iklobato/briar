@@ -13,6 +13,7 @@ import logging
 import os
 from typing import Any, Dict, List, Optional
 
+from briar.agent._enums import StopReason
 from briar.agent._llm import LLMProvider, LLMResponse, LLMToolCall
 
 
@@ -113,9 +114,9 @@ class OpenAILLM(LLMProvider):
         # Map OpenAI's `finish_reason` onto the abstraction's vocabulary.
         finish_reason = choice.finish_reason or ""
         if finish_reason == "stop":
-            stop = "end_turn"
+            stop = StopReason.END_TURN
         elif finish_reason == "tool_calls":
-            stop = "tool_use"
+            stop = StopReason.TOOL_USE
         else:
             stop = finish_reason
         usage = getattr(resp, "usage", None)

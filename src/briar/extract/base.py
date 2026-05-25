@@ -203,6 +203,67 @@ class TaskScopedTrackerExtractor(TaskScopedExtractor):
         return make_tracker(kind, company=company)
 
 
+class MeetingBackedExtractor(KnowledgeExtractor):
+    """Base class for extractors that talk to a meeting-transcription
+    tool (Fireflies, future Otter / Granola / …). Symmetric to
+    `TrackerBackedExtractor` — same `--meeting` flag + `_meeting(args)`
+    helper, just a different ABC behind it."""
+
+    requires_meeting_provider: ClassVar[bool] = True
+
+    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        from briar.extract._meetings import MeetingProviderRegistry
+
+        try:
+            parser.add_argument(
+                "--meeting",
+                default="fireflies",
+                choices=list(MeetingProviderRegistry.kinds()),
+                help="Meeting provider this extractor uses (default: fireflies)",
+            )
+        except argparse.ArgumentError:
+            pass
+
+    def _meeting(self, args: argparse.Namespace):
+        from briar.extract._meetings import make_meeting
+
+        ns = vars(args)
+        kind = ns.get("meeting") or "fireflies"
+        company = ns.get("company") or ""
+        return make_meeting(kind, company=company)
+
+    def provider_class_for(self, args: argparse.Namespace):
+        from briar.extract._meetings import MEETINGS
+
+        return MEETINGS.get(vars(args).get("meeting") or "fireflies")
+
+
+class TaskScopedMeetingExtractor(TaskScopedExtractor):
+    """TaskScoped + meeting-backed. Same shape as
+    `MeetingBackedExtractor` but for the JIT lifecycle."""
+
+    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        from briar.extract._meetings import MeetingProviderRegistry
+
+        try:
+            parser.add_argument(
+                "--meeting",
+                default="fireflies",
+                choices=list(MeetingProviderRegistry.kinds()),
+                help="Meeting provider this extractor uses (default: fireflies)",
+            )
+        except argparse.ArgumentError:
+            pass
+
+    def _meeting(self, args: argparse.Namespace):
+        from briar.extract._meetings import make_meeting
+
+        ns = vars(args)
+        kind = ns.get("meeting") or "fireflies"
+        company = ns.get("company") or ""
+        return make_meeting(kind, company=company)
+
+
 class TaskScopedRepoExtractor(TaskScopedExtractor):
     """TaskScoped + repo-backed."""
 

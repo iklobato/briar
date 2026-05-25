@@ -49,6 +49,10 @@ class CredEnv(str, Enum):
 
     LINEAR_TOKEN = "LINEAR_{c}_TOKEN"
 
+    # Fireflies.ai personal API key. Per-company because workspaces are
+    # billed separately and each owns its own transcript corpus.
+    FIREFLIES_API_KEY = "FIREFLIES_{c}_API_KEY"
+
     BRIAR_DATABASE_URL = "BRIAR_DATABASE_URL"
     # Per-company override read by `StorePostgres.from_binding`. Resolution
     # order: explicit `config.dsn_env` (YAML) → this per-company var →

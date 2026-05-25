@@ -17,8 +17,9 @@ import logging
 import textwrap
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
+from briar.agent._enums import StopReason
 from briar.agent._llm import LLMProvider, LLMToolCall
 from briar.agent._llms import make_llm
 from briar.agent.tools import BashTool, EditFileTool, ReadFileTool, SendMessageTool, ToolError, WriteFileTool
@@ -50,6 +51,34 @@ class AgentRunResult:
         return f"in={self.input_tokens:,} out={self.output_tokens:,} ≈${cost:.3f}"
 
 
+@dataclass(frozen=True)
+class AgentRunConfig:
+    """Everything AgentRunner needs except its LLM.
+
+    Per ARCHITECTURE_MAP.md §17 step 2 + §21: replaces 13 keyword-only
+    constructor parameters with a single value object. Frozen so once
+    constructed the config is immutable; tests build one and reuse it.
+
+    `oauth_token` is gone — the Anthropic adapter reads its OAuth/API
+    token directly from env. `llm_kind` stays a separate AgentRunner
+    constructor arg because it controls *which* LLM provider to build
+    rather than configuring the run itself.
+    """
+
+    company: str
+    task: str
+    archetype_name: str
+    workdir: Path
+    knowledge_store: Any
+    target: str
+    model: str = ""
+    max_iterations: int = 30
+    extra_user_instructions: str = ""
+    task_context_sections: Tuple[Any, ...] = ()
+    dry_run: bool = False
+    messages: Mapping[str, Any] = field(default_factory=dict)
+
+
 class AgentRunner:
     """One-shot agent execution against a single (company, task) target.
 
@@ -64,38 +93,16 @@ class AgentRunner:
 
     def __init__(
         self,
+        config: AgentRunConfig,
         *,
-        company: str,
-        task: str,
-        archetype_name: str,
-        workdir: Path,
-        knowledge_store: Any,
-        target: str,
-        oauth_token: str = "",  # kept for back-compat; ignored — Anthropic adapter reads env directly
-        model: str = "",
-        max_iterations: int = 0,
-        extra_user_instructions: str = "",
+        llm: Optional[LLMProvider] = None,
         llm_kind: str = "anthropic",
-        llm: LLMProvider = None,  # type: ignore[assignment] — tests inject; runtime falls through
-        task_context_sections: List[Any] = None,  # type: ignore[assignment]
-        dry_run: bool = False,
-        messages: Dict[str, Any] = None,  # type: ignore[assignment] — runbook messages: block
     ) -> None:
-        self._company = company
-        self._task = task
-        self._workdir = workdir.resolve()
-        self._archetype = ARCHETYPES[archetype_name]
-        self._store = knowledge_store
-        self._target = target
-        self._llm: LLMProvider = llm or make_llm(llm_kind, model=model)
-        self._max_iterations = max_iterations or self.DEFAULT_MAX_ITERATIONS
-        self._extra = extra_user_instructions
-        # JIT context fetched by the caller (FetchTicketContext /
-        # FetchPrReviewContext output sections, etc.). Spliced into the
-        # system prompt below the archetype's persona — sits next to the
-        # scheduled knowledge sections so the agent treats them the same.
-        self._task_context_sections = list(task_context_sections or [])
-        self._dry_run = dry_run
+        self._cfg = config
+        self._workdir = config.workdir.resolve()
+        self._archetype = ARCHETYPES[config.archetype_name]
+        self._llm: LLMProvider = llm or make_llm(llm_kind, model=config.model)
+        self._max_iterations = config.max_iterations or self.DEFAULT_MAX_ITERATIONS
         # Tools share the same root list so the agent can read/write
         # inside the worktree but nowhere else.
         roots = [self._workdir]
@@ -106,21 +113,25 @@ class AgentRunner:
         # Only bind the SendMessageTool when the runbook actually has
         # message channels configured for this company. Empty messages
         # dict → tool not registered → LLM falls back to bash.
-        self._send = SendMessageTool(messages=messages or {}, company=company) if messages else None
+        self._send = (
+            SendMessageTool(messages=dict(config.messages), company=config.company)
+            if config.messages
+            else None
+        )
 
     def run(self) -> AgentRunResult:
-        with log_context(company=self._company, task=self._task, agent=self._archetype.name):
+        with log_context(company=self._cfg.company, task=self._cfg.task, agent=self._archetype.name):
             # Dry-run path: build the same prompts the LLM would see,
             # print them, and return. Don't gate on LLM creds (the
             # whole point is to validate the prompt rendering without
             # an LLM call) — but DO gate on JIT extractor / archetype
             # construction having succeeded, which happens at __init__.
-            if self._dry_run:
+            if self._cfg.dry_run:
                 return self._dry_run_report()
             if not self._llm.is_available():
                 return AgentRunResult(
-                    company=self._company,
-                    task=self._task,
+                    company=self._cfg.company,
+                    task=self._cfg.task,
                     error=f"LLM ({self._llm.kind}) credentials missing — see env_vars.py for the required vars",
                 )
             system = self._build_system_prompt()
@@ -134,7 +145,7 @@ class AgentRunner:
             )
             log.debug("agent-system-prompt-bytes=%d initial-user-bytes=%d", len(system), len(initial_user))
             messages: List[Dict[str, Any]] = [{"role": "user", "content": initial_user}]
-            result = AgentRunResult(company=self._company, task=self._task)
+            result = AgentRunResult(company=self._cfg.company, task=self._cfg.task)
             for iteration in range(1, self._max_iterations + 1):
                 result.iterations = iteration
                 try:
@@ -161,11 +172,11 @@ class AgentRunner:
                     response.input_tokens,
                     response.output_tokens,
                 )
-                if stop == "end_turn":
+                if stop == StopReason.END_TURN:
                     result.final_text = response.text
                     log.info("agent-done iter=%d %s", iteration, result.cost_summary())
                     return result
-                if stop != "tool_use":
+                if stop != StopReason.TOOL_USE:
                     result.error = f"unexpected stop_reason={stop}"
                     log.warning("agent-stopped: %s", result.error)
                     return result
@@ -177,11 +188,11 @@ class AgentRunner:
             return result
 
     def _build_system_prompt(self) -> str:
-        persona = self._archetype.build_persona(self._target)
+        persona = self._archetype.build_persona(self._cfg.target)
         from briar.iac.scaffold._knowledge import KnowledgeSplicer
 
         try:
-            splicer = KnowledgeSplicer(self._store, self._company)
+            splicer = KnowledgeSplicer(self._cfg.knowledge_store, self._cfg.company)
             prologue = splicer.prologue(self._archetype)
         except Exception:  # noqa: BLE001
             log.exception("agent-system: KnowledgeSplicer failed — continuing without prologue")
@@ -210,7 +221,7 @@ class AgentRunner:
         # render with their own `## <title>` heading + body, mirroring
         # the format the scheduled KnowledgeSplicer emits. The agent
         # treats both layers as one continuous context block.
-        for section in self._task_context_sections:
+        for section in self._cfg.task_context_sections:
             if getattr(section, "is_empty", False):
                 continue
             sections.append(f"## {section.title}\n\n{section.body}")
@@ -221,8 +232,8 @@ class AgentRunner:
     def _build_initial_user_message(self) -> str:
         intro = textwrap.dedent(
             f"""\
-            Run the {self._archetype.name} workflow for company {self._company!r}
-            in repo {self._target!r}. The working directory at {self._workdir}
+            Run the {self._archetype.name} workflow for company {self._cfg.company!r}
+            in repo {self._cfg.target!r}. The working directory at {self._workdir}
             is a clean git worktree on the PR branch you should fix.
 
             Procedure (follow exactly):
@@ -245,8 +256,8 @@ class AgentRunner:
               - If you cannot resolve a thread safely, leave a comment explaining why and skip it.
             """
         )
-        if self._extra:
-            intro = intro + "\n\nAdditional instructions:\n" + self._extra
+        if self._cfg.extra_user_instructions:
+            intro = intro + "\n\nAdditional instructions:\n" + self._cfg.extra_user_instructions
         return intro
 
     def _tool_specs(self) -> List[Dict[str, Any]]:
@@ -279,8 +290,8 @@ class AgentRunner:
 
         sep = "=" * 78
         print(sep)
-        print(f"DRY RUN — archetype={self._archetype.name} task={self._task} target={self._target}")
-        print(f"company={self._company} llm={self._llm.kind}  (LLM call SKIPPED)")
+        print(f"DRY RUN — archetype={self._archetype.name} task={self._cfg.task} target={self._cfg.target}")
+        print(f"company={self._cfg.company} llm={self._llm.kind}  (LLM call SKIPPED)")
         print(sep)
         print()
         print("─── SYSTEM PROMPT ───────────────────────────────────────────────────────")
@@ -294,8 +305,8 @@ class AgentRunner:
             print(f"  - {t['name']}: {t['description']}")
         print()
         print("─── TASK-SCOPED SECTIONS (count + titles) ───────────────────────────────")
-        if self._task_context_sections:
-            for section in self._task_context_sections:
+        if self._cfg.task_context_sections:
+            for section in self._cfg.task_context_sections:
                 title = getattr(section, "title", "(no title)")
                 body_bytes = len(getattr(section, "body", "") or "")
                 print(f"  - {title}  ({body_bytes} bytes)")
@@ -307,10 +318,10 @@ class AgentRunner:
         print(sep)
 
         return AgentRunResult(
-            company=self._company,
-            task=self._task,
+            company=self._cfg.company,
+            task=self._cfg.task,
             iterations=0,
-            stop_reason="dry_run",
+            stop_reason=StopReason.DRY_RUN,
             final_text="(dry run — no LLM call)",
         )
 

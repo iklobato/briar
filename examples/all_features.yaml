@@ -211,6 +211,25 @@ companies:
               ticket_archaeology_project: [ACME]
               ticket_max: 50
 
+      # ─── meetings: hourly Fireflies digest ──────────────────────────────
+      # Pulls last 7 days of meeting transcripts from Fireflies into
+      # the per-company knowledge blob. Agents (`implement`, `prfix`)
+      # read the digest section automatically. Single env var:
+      #   FIREFLIES_ACME_API_KEY  workspace API key from Fireflies dashboard
+      - task: meetings
+        every: "hour"
+        extract:
+          - name: meeting-digest
+            args:
+              meeting: fireflies
+              meeting_since_days: 7
+              meeting_max: 25
+              # Optional: only include meetings with at least one of
+              # these attendee emails. Empty = no filter.
+              meeting_attendee_allow:
+                - alice@acme.com
+                - bob@acme.com
+
       # ─── status: a per-minute health blip (testing the minute cadence) ──
       # Useful only for demoing the DSL; in production you'd not need
       # this. The extractor walked is trivial — `active-work` against

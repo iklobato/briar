@@ -12,6 +12,7 @@ import logging
 import os
 from typing import Any, Dict, List, Optional
 
+from briar.agent._enums import StopReason
 from briar.agent._llm import LLMProvider, LLMResponse, LLMToolCall
 
 
@@ -136,9 +137,9 @@ class GeminiLLM(LLMProvider):
         finish = getattr(candidate, "finish_reason", None)
         finish_name = getattr(finish, "name", str(finish or ""))
         if tool_calls:
-            stop = "tool_use"
+            stop = StopReason.TOOL_USE
         elif finish_name == "STOP":
-            stop = "end_turn"
+            stop = StopReason.END_TURN
         else:
             stop = finish_name.lower()
         usage = getattr(resp, "usage_metadata", None)

@@ -15,7 +15,6 @@ from typing import Dict, List
 
 from briar.iac.scaffold.archetypes import AgentArchetype
 
-
 log = logging.getLogger(__name__)
 
 
@@ -38,6 +37,8 @@ _EXTRACTOR_HEADINGS: Dict[str, str] = {
     # for archetype `consumes` ordering when the JIT section is present.
     "ticket-context": "Ticket context",
     "pr-review-context": "PR review context",
+    "meeting-digest": "Meeting digest",
+    "meeting-context": "Meeting context",
 }
 
 
