@@ -1719,22 +1719,29 @@ class ErrorPolicyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             RetryingExecutor(ErrorPolicyRegistry(), max_attempts=0)
 
-    def test_anthropic_default_policies_include_rate_limit_with_hour_wait(self) -> None:
-        """Pins the specific contract the user asked for: Anthropic 429
-        → wait ~1 hour. Regression here would degrade recovery from
-        quota exhaustion."""
+    def test_anthropic_rate_limit_policy_aborts_instead_of_long_sleep(self) -> None:
+        """Anthropic 429 → `Abort`, NOT `RetryAfter(3600)`.
+
+        The previous contract (wait an hour, retry up to 5 times) silently
+        wedged the agent for up to 5 hours when an OAuth subscription
+        token hit its rate-limit window. With `load=0.00` and no
+        progress logged, the behaviour was indistinguishable from a hang.
+
+        Aborting fast surfaces the rate-limit to the operator, who can
+        decide whether to wait (API key: ~1h reset; OAuth subscription:
+        up to 5h Claude.ai window) or rotate credentials. Anthropic's
+        OAuth 429s come with no `retry-after` header, so the agent has
+        no honest basis for predicting recovery time anyway."""
         import anthropic
         from briar.agent._llms.anthropic_llm import AnthropicLLM
-        from briar.error_policy import ExceptionTypePolicy, RetryAfter
+        from briar.error_policy import Abort, ExceptionTypePolicy
 
         registry = AnthropicLLM.default_error_policies()
         rate_limit_policy = next(
             p for p in registry.policies
             if isinstance(p, ExceptionTypePolicy) and p.exception_type is anthropic.RateLimitError
         )
-        self.assertIsInstance(rate_limit_policy.decision, RetryAfter)
-        # 1 hour (3600s) — Anthropic resets hourly
-        self.assertEqual(rate_limit_policy.decision.wait_seconds, 3600)
+        self.assertIsInstance(rate_limit_policy.decision, Abort)
 
     def test_anthropic_aborts_on_401_immediately(self) -> None:
         """401 auth errors should NOT retry — they won't fix

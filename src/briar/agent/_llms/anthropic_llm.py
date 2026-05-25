@@ -44,13 +44,31 @@ class AnthropicLLM(LLMProvider):
 
         return ErrorPolicyRegistry(
             policies=(
-                # 429 — account-level rate limit. Anthropic resets on
-                # the hour; wait 1h then retry rather than the old
-                # 30s-doubling schedule, which never recovers when the
-                # quota itself is exhausted.
+                # 429 — rate limit. Abort fast rather than sleep silently
+                # for an hour: the previous `RetryAfter(3600)` × 5 attempts
+                # could wedge the agent for 5 hours of `hrtimer_nanosleep`
+                # with `load=0.00`, indistinguishable from a hang. That's
+                # what made an OAuth subscription's burst-throttle look
+                # like the CLI was broken.
+                #
+                # Failure modes the new policy makes obvious instead of
+                # hidden:
+                #  * Developer-API quota exhausted — operator decides
+                #    whether to wait for the hourly reset or rotate keys.
+                #  * OAuth subscription window exhausted — operator must
+                #    wait for the 5-hour Claude.ai window to roll over;
+                #    automated retry won't help, no `retry-after` header
+                #    is provided by Anthropic for OAuth 429s.
+                #  * Concurrency limit hit by running two briar processes
+                #    against one token — operator serialises them.
+                #
+                # Anthropic's `x-should-retry: true` header doesn't change
+                # this: it tells you the request CAN be retried, not that
+                # retrying NOW will succeed. Surface the 429 to the caller;
+                # let them decide. Re-run is cheap.
                 ExceptionTypePolicy(
                     exception_type=anthropic.RateLimitError,
-                    decision=RetryAfter(wait_seconds=3600, reason="anthropic rate limit"),
+                    decision=Abort(reason="anthropic 429 rate-limited — wait for the quota window to reset (API key: ~1h; OAuth: up to 5h) then re-run. No retry-after header is provided."),
                 ),
                 # Transient TCP-level / DNS / TLS errors.
                 ExceptionTypePolicy(
