@@ -244,7 +244,9 @@ Meeting-context is **non-fatal enrichment** — when
 only the ticket-context. Same defensive contract as
 `pr-review-context` in §2.2.
 
-### 2.4 `briar plan build <board> --cascade --llm anthropic`
+### 2.4 `briar plan build <board> --llm anthropic` then `briar plan run --llm anthropic`
+
+Two flows: build (`build_plan` + seed) and run (selector loop).
 
 ```mermaid
 sequenceDiagram
@@ -257,20 +259,13 @@ sequenceDiagram
   participant Sy as CompositeSynthesiser
   participant L as LLMSynthesiser
   participant H as HeuristicSynthesiser
-  participant G as graph (topological_sort + apply_cascade)
   participant S as KnowledgeStore
 
-  User->>CLI: briar plan build <url> --name X --cascade --llm anthropic --with-knowledge
+  User->>CLI: briar plan build <url> --name X --llm anthropic --with-knowledge --company acme
   CLI->>Reg: resolve(url)
   Reg-->>CLI: BoardReader (first .matches(url) wins)
   CLI->>BR: parse(url) → BoardRef(project, owner, extras)
   CLI->>BR: fetch(ref, company, max_cards)
-  alt Jira board
-    BR->>TP: list_tickets(project, state=open, max_count)
-    BR->>TP: get_ticket(project, key)  per-ticket body fetch
-  else GitHub Projects v2
-    BR->>BR: POST api.github.com/graphql with projectV2 query
-  end
   BR-->>CLI: List[PlanCard] (key, title, summary, explicit deps from body)
 
   CLI->>S: get("knowledge:<company>") + active-tickets, active-work (if --with-knowledge)
@@ -278,36 +273,69 @@ sequenceDiagram
 
   loop per card
     CLI->>Sy: enrich(card, board_keys, context)
-    Sy->>L: enrich(...) [LLM judgement: scope, out-of-scope, risks, deps]
-    Note over L: best-effort; swallows API failures, falls through unchanged
-    L-->>Sy: card with LLM-filled fields (or untouched)
-    Sy->>H: enrich(...) [parses ## In Scope / Depends on lines]
-    H-->>Sy: card with deterministic defaults filled
+    Sy->>L: enrich(...) [LLM: scope, out-of-scope, risks, deps]
+    Sy->>H: enrich(...) [heuristic floor: ## In Scope / Depends on lines]
     Sy-->>CLI: enriched PlanCard
+    Note over CLI: card.branch_name = briar/<slug>;<br/>card.branch_parent = default_branch
   end
 
-  CLI->>G: topological_sort(cards)
-  Note over G: Kahn's algorithm; raises CliError on cycle
-  G-->>CLI: ordered cards (trims out-of-board deps)
-  CLI->>G: apply_cascade(cards, cascade=True, default_branch="main")
-  Note over G: card.branch_parent = latest dep's branch_name (cascade)<br/>or default_branch (non-cascade)
-  G-->>CLI: cards with branch_name + branch_parent set
-
   CLI->>S: save_plan(plan) → put("plan:<name>", md+json blob)
+  CLI->>S: put_if_changed("knowledge:<company>.<plan>", render_plan_knowledge(plan))
   S-->>CLI: stored
+```
 
-  rect rgb(240,253,244)
-    Note over User,S: Downstream consumer: briar plan next → first pending card whose deps are all done<br/>briar plan advance → set status, persist; loop.
+Then the run loop, with the LLM as picker. No topological sort; cards
+stay in board order, and the selector picks any pending card.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant User
+  participant CLI as briar plan run
+  participant J as JournalStore
+  participant KS as KnowledgeStore
+  participant Sel as Selector(llm)
+  participant Imp as run_implement
+  participant W as KnowledgeWriter(llm)
+  participant RP as replan
+
+  User->>CLI: briar plan run <name> --llm anthropic --company acme ...
+  CLI->>KS: load_plan(name)
+  loop until COMPLETE / BLOCKED / failure / limit
+    CLI->>J: list(command_prefix="plan.run") + per-session decisions
+    CLI->>KS: get("knowledge:<company>.<plan>") + get("knowledge:<company>")
+    CLI->>Sel: pick(plan, PlanContext{completed, failed, in_progress, knowledge, ...})
+    Sel-->>CLI: SelectorDecision{kind, key, why, branch_parent?}
+    alt kind == PICK
+      CLI->>KS: save_plan (card → in_progress)
+      CLI->>Imp: run_implement(card.key)
+      alt rc == 0
+        CLI->>KS: save_plan (card → done)
+        CLI->>W: write(store, plan, card, diff="")  [merges into knowledge:<company>.<plan>]
+        W->>KS: put_if_changed("knowledge:<company>.<plan>", new_body)
+      else rc != 0
+        CLI->>KS: save_plan (card → blocked, last_attempt_summary set)
+        Note over CLI: stop unless --continue-on-failure
+      end
+    else kind == REPLAN
+      CLI->>RP: replan(plan, llm=llm)
+      RP->>BR: fetch(ref, ...)  via build_plan
+      RP-->>CLI: fresh plan with statuses of overlapping keys preserved
+      CLI->>KS: save_plan
+      Note over CLI: capped at --max-replans
+    else kind == COMPLETE / BLOCKED
+      CLI-->>User: exit
+    end
   end
 ```
 
-Two things to note about the flow: (1) the LLM pass is strictly
-best-effort — if the model returns malformed JSON or the call fails,
-the card is unchanged and the heuristic pass still runs, so the
-operator gets a deterministic minimum every time. (2) `depends_on`
-keys the LLM emits are filtered against the board's actual card
-keys before they hit the dep graph — the LLM cannot invent
-upstreams that don't exist on the board.
+Two things to note: (1) the LLM enrichment pass at build time is
+best-effort and degrades to the heuristic synthesiser when the model
+returns malformed JSON; the LLM selector and writer at run time
+are NOT optional — `plan next` and `plan run` require `--llm`.
+(2) `depends_on` is exposed to the selector as a hint, not enforced
+as a gate. The selector is free to pick a card whose deps are
+unfinished if it justifies the choice in `why`.
 
 ### 2.5 `briar scaffold implementation --source bitbucket`
 
@@ -501,7 +529,7 @@ tests/
 │   ├── messaging/                  — Slack/Telegram writers
 │   ├── notify/                     — PagerDuty/Email/Slack/Telegram sinks
 │   ├── credentials/test_envfile.py — atomic-rename + 0600 perms + regex
-│   ├── plan/                       — topological_sort, apply_cascade, models
+│   ├── plan/                       — models (PlanCard / SelectorDecision / PlanContext)
 │   ├── iac/test_every_parser.py    — `every:` DSL parser
 │   ├── journal/test_facade.py      — store-vs-sink fault isolation
 │   └── dashboard/                  — collector failure isolation

@@ -74,7 +74,7 @@ briar version
 briar extract       — one-shot extraction
 briar runbook       — scheduled extraction (extract / sweep / serve)
 briar agent         — autonomous LLM-driven flows (prfix / implement)
-briar plan          — sequenced implementation plans from a tracker board (build / show / next / advance / run / list / clear)
+briar plan          — LLM-driven implementation plans from a tracker board (build / show / status / next / advance / run / list / clear)
 briar scaffold      — emit JSON config bundles for downstream tools
 briar context       — read/write local markdown blobs
 briar dashboard     — read-only HTML status page
@@ -394,19 +394,33 @@ briar agent implement \
 
 ---
 
-## `briar plan` — sequenced implementation plans
+## `briar plan` — LLM-driven implementation plans
 
 Take a tracker board (Jira board or GitHub Projects v2), pull every
 card, synthesise per-card scope / out-of-scope / risks / dependencies,
-topologically sort them, and persist the result as a markdown +
-JSON blob in the chosen `KnowledgeStore`. The implementer flow
-(`briar agent implement`) and any operator can then ask `briar plan
-next` for the next pending card whose dependencies are all done.
+and persist the result as a markdown + JSON blob in the chosen
+`KnowledgeStore`. The implementer flow (`briar agent implement`) and
+any operator can then ask `briar plan next` for the LLM selector's
+choice of what to do next — pick a card, replan, complete, or stop.
+
+The dependency-graph picker is gone. There is no `topological_sort`,
+no `apply_cascade`, no `next_pending` algorithm. Cards are kept in
+board order; the LLM reads the full state (past completed cards,
+failed cards with their last attempt summary, pending cards with
+scope and risks, the live knowledge blob) and judges what to pick.
+`depends_on` survives as a hint the LLM sees, not as a gate.
 
 A plan is stored under `plan:<name>` in whichever store you pick —
 local file (default) or postgres. The blob is human-readable markdown
 with the canonical JSON payload in a fenced block at the end, so the
 file backend doubles as a review surface.
+
+Alongside the plan, `plan build` seeds a plan-scoped knowledge blob
+at `knowledge:<company>.<plan>`. Every successful `plan run` card
+triggers a `KnowledgeWriter` pass that merges new learnings into the
+same blob, so the next selector call always reads the freshest source
+of truth. The implement agent's existing `KnowledgeSplicer` picks
+this blob up automatically by the `knowledge:<company>*` prefix.
 
 ### URL shapes
 
@@ -431,42 +445,46 @@ Adding another tracker (Linear, Trello, …) is one module under
 
 ### `briar plan build <board>`
 
-Fetch the board, enrich each card, sort by deps, and (optionally)
-chain branches in cascade mode.
+Fetch the board, enrich each card via the synthesiser, persist the
+plan, and seed `knowledge:<company>.<plan>`.
 
 | Flag | Required | Default | Purpose |
 |---|---|---|---|
 | `board` | ✓ | — | Board URL or short form (see table above) |
 | `--name <slug>` | | derived from URL | Plan name (becomes blob `plan:<name>`) |
-| `--cascade` | | off | Chain branches: each card's `branch_parent` is its latest dep's branch instead of `--default-branch` |
-| `--default-branch <name>` | | `main` | Branch the first (and every non-cascade) card branches from |
+| `--default-branch <name>` | | `main` | Branch each card branches from by default. The LLM selector may override per pick at run time |
 | `--max-cards <N>` | | 50 | Cap on cards pulled from the board |
-| `--llm {anthropic,openai,gemini,bedrock}` | | `""` | LLM provider for per-card synthesis. Empty = heuristics only. When unavailable (no creds), silently falls back to heuristics |
+| `--llm {anthropic,openai,gemini,bedrock}` | | `""` | LLM provider for per-card synthesis. Empty = heuristics only. When unavailable, silently falls back to heuristics |
 | `--model <name>` | | provider default | Override the LLM's default model |
 | `--with-knowledge` | | off | Splice the company's existing `knowledge:<company>` + `active-tickets:<company>` + `active-work:<company>` blobs into each card's synthesis context |
 | `--print` | | off | After building, print the markdown plan to stdout |
 | `--dry-run` | | off | Build the plan but do NOT persist it. Implies `--print` |
 
 ```bash
-# Jira board, heuristic synthesis only, cascade so each card branches off the last
+# Jira board, heuristic synthesis only
 briar plan build \
-    https://acme.atlassian.net/jira/software/projects/KAN/boards/34 \
-    --name acme-q3 --company acme --cascade
+    https://example.atlassian.net/jira/software/projects/KAN/boards/34 \
+    --name acme-q3 --company acme
 
 # GitHub Projects v2, LLM synthesis with the company's knowledge spliced in
 briar plan build \
     https://github.com/orgs/bitspark-co/projects/34 \
     --name bitspark-roadmap --company bitspark \
-    --llm anthropic --with-knowledge --cascade
+    --llm anthropic --with-knowledge
 
 # Persistent postgres-backed plan
 BRIAR_DATABASE_URL=postgresql://... briar plan build \
     jira:ACME --name acme-impl --company acme \
-    --store postgres --cascade
+    --store postgres
 
 # One-off, no persistence — print the synthesised markdown and exit
 briar plan build jira:ENG --name preview --dry-run
 ```
+
+When `--company` is set, `plan build` writes a seed body to
+`knowledge:<company>.<plan>` capturing the board context and every
+card's title / summary / scope / risks. The selector and the
+implement agent both read this blob; the run loop keeps it current.
 
 ### `briar plan show <name>`
 
@@ -479,41 +497,59 @@ briar plan show acme-q3
 briar plan show bitspark-roadmap --store postgres --company bitspark
 ```
 
-### `briar plan next <name>`
+### `briar plan status <name>`
 
-Print the next pending card whose dependencies are all `done`. Emits
-a single record (table or JSON depending on `--format`) so the
-implementer agent can pipe it into the next step. Returns the
-`status: complete` sentinel when every card is done.
+Show every card grouped by status — `done`, `in_progress`, `blocked`,
+`pending` — with the journal artifacts the run loop wrote (commit
+shas, PR urls, start timestamps, failure rationales). Pure projection
+over the plan blob and the journal store; no new persistence.
 
 ```bash
-# What should I implement next?
-briar plan next acme-q3 --format json
-
-# Human-readable
-briar plan next acme-q3
+briar plan status acme-q3                       # human-readable table
+briar plan status acme-q3 --format json         # structured snapshot
 ```
 
-The card record includes `branch_name` + `branch_parent` so the
-implementer agent can `git checkout -b <branch_name> origin/<branch_parent>`
-without recomputing cascade order.
+### `briar plan next <name> --llm <provider>`
+
+Ask the LLM selector what to do next given the past completed cards,
+failed cards (with their `last_attempt_summary`), the current in-flight
+card if any, every pending card, and the live `knowledge:<company>.<plan>`
+blob. Emits a single record so it can be piped into the next step.
+
+`--llm` is required — there is no deterministic fallback selector.
+
+The selector returns one of four actions:
+
+| Action | Meaning |
+|---|---|
+| `pick` | Run this card next. Includes `key`, an optional `branch_parent` override, and a short `why` |
+| `replan` | Re-fetch the board and re-derive cards; statuses of overlapping keys are preserved |
+| `complete` | Plan is done |
+| `blocked` | No forward progress without operator intervention |
+
+```bash
+# Ask for the next decision
+briar plan next acme-q3 --llm anthropic --format json
+
+# Human-readable
+briar plan next acme-q3 --llm anthropic
+```
+
+When the action is `pick`, the record includes `branch_name` +
+`branch_parent` so the implementer agent can `git checkout -b
+<branch_name> origin/<branch_parent>` directly.
 
 ### `briar plan advance <name>`
 
-Mark a card done (or set any other status) and persist the updated
-plan. Defaults to advancing the next pending card so an operator
-can loop `briar plan advance && briar plan next` without naming
-keys explicitly.
+Mark a specific card with a chosen status. `--card` is required —
+there is no auto-pick (the LLM selector owns that).
 
 | Flag | Required | Default | Purpose |
 |---|---|---|---|
-| `--card <key>` | | next pending | Specific card key (e.g. `KAN-7`, `acme/api#42`) |
+| `--card <key>` | ✓ | — | Card key (e.g. `KAN-7`, `acme/api#42`) |
 | `--status {pending,in_progress,done,blocked}` | | `done` | Status to set |
 
 ```bash
-# I just merged the first card
-briar plan advance acme-q3
-
 # Mark a specific card in_progress (the implementer agent picked it up)
 briar plan advance acme-q3 --card KAN-7 --status in_progress
 
@@ -521,13 +557,23 @@ briar plan advance acme-q3 --card KAN-7 --status in_progress
 briar plan advance acme-q3 --card KAN-9 --status blocked
 ```
 
-### `briar plan run <name>` — orchestrate the next/implement/advance loop
+### `briar plan run <name> --llm <provider>` — orchestrate the LLM-driven loop
 
-Iterate the plan end-to-end: for each pending card, run `briar agent
-implement`, then advance the card to `done` (or `blocked` on
-failure). The loop reads the next card via the same dependency-aware
-ordering as `briar plan next`, so cascade-built plans process cards
-in the right sequence automatically.
+Iterate the plan end-to-end with the LLM as the picker:
+
+1. Build `PlanContext` from the plan blob, the journal store, and
+   the live `knowledge:<company>.<plan>` blob.
+2. Ask the selector for a decision.
+3. On `pick`: run `briar agent implement` for that card.
+4. On `pick` + rc=0: ask `KnowledgeWriter` to merge the new learning
+   into `knowledge:<company>.<plan>`; mark card `done`.
+5. On `pick` + rc≠0: capture the failure in `last_attempt_summary`,
+   mark card `blocked`, stop unless `--continue-on-failure` is set.
+6. On `replan`: re-fetch the board, preserve statuses of overlapping
+   card keys, save the new plan, loop. Capped by `--max-replans`.
+7. On `complete` / `blocked`: terminate.
+
+`--llm` is required.
 
 The implement step is invoked through the public `run_implement` seam
 in `briar.commands.agent` — same code path as `briar agent implement`
@@ -544,42 +590,45 @@ out, no duplication.
 | `--tracker-project <key>` | | `<owner>/<repo>` | Tracker project key passed to `agent implement` |
 | `--tracker <kind>` | | `github-issues` | Tracker provider (matches `briar agent implement`) |
 | `--provider <kind>` | | `github` | Repository provider |
+| `--llm {anthropic,openai,gemini,bedrock}` | ✓ | — | LLM provider for the selector and the post-card knowledge writer |
 | `--limit <N>` | | `0` (unlimited) | Stop after N cards — useful for a smoke run |
 | `--continue-on-failure` | | off | Mark failed cards `blocked` and keep going (default: stop on first failure) |
+| `--max-replans <N>` | | `3` | Cap on `replan` actions per invocation |
 | `--dry-run` | | off | Propagate `--dry-run` to every implement call (prints prompts, skips LLM) |
 | `--model` / `--max-iter` / `--git-user-name` / `--git-user-email` / `--keep-worktree` / `--runbook` / `--meeting*` | | (defaults from `briar agent implement`) | Pass-through to each implement call |
+| `--journal-store {file}` / `--journal-root <dir>` | | `file` / `./journal` | Where past `plan.run` sessions live; used by the selector to read past decisions |
 
 ```bash
-# Walk the full plan against bitspark-co/widgets on the DO box
+# Walk the full plan against bitspark-co/widgets
 briar plan run bitspark-roadmap-v1 \
     --company bitspark \
     --owner bitspark-co --repo widgets \
     --tracker github-issues --provider github \
-    --store postgres \
+    --store postgres --llm anthropic \
     --model claude-sonnet-4-6
 
 # Smoke a single card with dry-run before letting the loop go wide
-briar plan run bitspark-roadmap-v1 --limit 1 --dry-run \
+briar plan run bitspark-roadmap-v1 --limit 1 --dry-run --llm anthropic \
     --company bitspark --owner bitspark-co --repo widgets
 
 # Batch run that tolerates individual card failures
-briar plan run bitspark-roadmap-v1 --continue-on-failure \
+briar plan run bitspark-roadmap-v1 --continue-on-failure --llm anthropic \
     --company bitspark --owner bitspark-co --repo widgets
 ```
 
 **Per-card journal entries.** Each run opens one journal session
-(`plan.run`) and records: `plan.run.card.start` for every card picked
-up, `plan.run.card.completed` on success, `plan.run.card.failed` on
-non-zero exit, and `plan.run.stopped` if the loop terminates early
-(limit reached, first failure, all done). Inspect with `briar journal
-show <session-id>` after the run.
+(`plan.run`) and records: `plan.next.decision` for every selector
+call (with the chosen action and rationale), `plan.run.card.start`
+when a pick begins, `plan.run.card.completed` on success,
+`plan.run.card.failed` on non-zero exit, `plan.replan.requested`
+when the selector returns `replan`, and `plan.run.stopped` if the
+loop terminates early. Inspect with `briar journal show <session-id>`.
 
-**Branch-parent caveat.** The cascade-built `branch_parent` on each
-card is shown in the journal but `briar agent implement` currently
-checks out the repo's default branch, not the parent card's branch.
-Cascade today gives you *ordering* (dependents wait for deps); making
-each implement actually branch off the prior card's branch is a small
-follow-up patch to `GithubRepoCloner.clone_default`.
+**Branch-parent override.** Each card carries `branch_parent =
+--default-branch` after `plan build`. The LLM selector may return a
+different `branch_parent` inside a `pick` decision — useful for
+stacked PRs. `briar agent implement` reads `branch_parent` when
+checking out the worktree.
 
 ### `briar plan list`
 
@@ -608,35 +657,34 @@ Each card the synthesiser emits carries:
 | `title` / `url` | tracker |
 | `summary` | LLM ➜ heuristic (first paragraph of the body) |
 | `in_scope` / `out_of_scope` / `risks` | LLM ➜ heuristic (parses `## In Scope` / `## Out of Scope` / `## Risks` blocks) |
-| `depends_on` | tracker explicit links + body lines (`Depends on KAN-1`, `Blocked by #42`) + LLM judgement (only when the LLM names a real card key on the same board — never invented) |
+| `depends_on` | tracker explicit links + body lines + LLM judgement. Read as a *hint* by the selector; never used to gate picking |
 | `branch_name` | derived (`briar/<key-slug>`) |
-| `branch_parent` | `--default-branch`, or — with `--cascade` — the `branch_name` of the latest dependency in topological order |
-| `status` | starts `pending`; mutated by `briar plan advance` |
+| `branch_parent` | `--default-branch` at build time. The LLM selector may emit a per-pick override |
+| `status` | starts `pending`; transitions `pending → in_progress → done` (or `blocked` on failure) during `plan run` |
+| `last_attempt_summary` | populated by `plan run` when a card fails — short string the selector reads next time |
 | `sources` | best-effort URLs the card was assembled from |
 
-The LLM pass is strictly optional and degrades gracefully when no
-provider is configured (or the configured provider returns an
-unparseable response). The heuristic pass always runs second to
-guarantee deterministic defaults.
+The LLM enrichment pass is optional at build time and degrades to
+the heuristic synthesiser when no provider is configured. The LLM
+*selector* and *writer* used by `plan next` and `plan run` are NOT
+optional — those subcommands require `--llm`.
 
-### Cascade semantics
+### Live knowledge: `knowledge:<company>.<plan>`
 
-Without cascade, every card's `branch_parent` is `--default-branch`
-(usually `main` or `dev`). With `--cascade`, card B that depends on
-A gets `branch_parent = briar/a` so PRs stack instead of competing
-for `main`. When a card has multiple dependencies, the parent is the
-one that appears latest in the topological order — i.e. the most
-recently merged ancestor at implementation time.
+`plan build` writes a seed body capturing the board context + every
+card's title / summary / scope / risks. Every successful `plan run`
+card invokes `KnowledgeWriter`, which asks the LLM to merge the new
+learning into the same blob. The implement agent's existing
+`KnowledgeSplicer` automatically picks up `knowledge:<company>*`
+prefixed blobs, so this plan-scoped shard flows into every implement
+call without extra wiring. The selector reads it on every pick.
 
-```
-       --cascade off                       --cascade on
-       ────────────────────                ──────────────────────
-       main ←── briar/a                    main ←── briar/a
-       main ←── briar/b                              ↑
-       main ←── briar/c                              briar/b
-                                                     ↑
-                                                     briar/c
-```
+Three writers / one namespace, scopes disjoint:
+
+| Blob | Owner | Lifecycle |
+|---|---|---|
+| `knowledge:<company>` | `briar extract` | Periodic cold rebuild from live world state |
+| `knowledge:<company>.<plan>` | `briar plan build` (seed) + `KnowledgeWriter` (per-card update) | Lives with the plan |
 
 ---
 
@@ -1201,11 +1249,11 @@ Both `prfix` and `implement` *also* fire `FetchMeetingContext` when
 system prompt alongside the ticket/PR context so decisions captured
 in standups land in the code path that touches them.
 
-### `briar plan build` / `briar plan next` — sequenced implementation
+### `briar plan build` / `briar plan run` — LLM-driven implementation
 
 ```
    ┌─────────────────────────────────────────────────────┐
-   │ briar plan build <board> --name X --cascade        │
+   │ briar plan build <board> --name X --company acme   │
    │   [--llm anthropic] [--with-knowledge]             │
    └────────────────────────┬────────────────────────────┘
                             │
@@ -1224,30 +1272,52 @@ in standups land in the code path that touches them.
   │ CardSynthesiser (Composite: LLM → Heuristic)             │
   │   LLM pass:    summary, scope, out-of-scope, risks       │
   │   Heuristic:   parses ## In Scope / Depends on lines     │
-  └────────────────────────────┬─────────────────────────────┘
-                               │
-                               ▼
-  ┌──────────────────────────────────────────────────────────┐
-  │ topological_sort + apply_cascade                         │
-  │   • Kahn's algorithm (stable, cycle-detecting)           │
-  │   • branch_parent = default-branch                       │
-  │     OR (in cascade) latest dep's branch_name             │
+  │   branch_name = briar/<slug>;  branch_parent = default   │
   └────────────────────────────┬─────────────────────────────┘
                                │
                                ▼
        save_plan(store, plan)   ──▶ plan:<name> blob
+       put_if_changed(seed)     ──▶ knowledge:<company>.<plan> blob
                                │
                                ▼
-       briar plan next <name>   ──▶ first card whose deps are all done
-       briar plan advance       ──▶ updates status, persists, repeat
+   ┌─────────────────────────────────────────────────────┐
+   │ briar plan run <name> --llm anthropic              │
+   │   (loops until COMPLETE / BLOCKED / failure)       │
+   └────────────────────────┬────────────────────────────┘
+                            │
+                            ▼
+  ┌──────────────────────────────────────────────────────────┐
+  │ PlanContext.from_stores                                  │
+  │   journal: completed / failed / in_progress              │
+  │   knowledge: plan-scoped + company-scoped blobs          │
+  └────────────────────────────┬─────────────────────────────┘
+                               ▼
+  ┌──────────────────────────────────────────────────────────┐
+  │ Selector(llm).pick → SelectorDecision                    │
+  │   kind ∈ {PICK, REPLAN, COMPLETE, BLOCKED}               │
+  └─────┬───────────────┬───────────────┬─────────────┬──────┘
+        ▼               ▼               ▼             ▼
+     PICK            REPLAN          COMPLETE      BLOCKED
+        │               │               │             │
+        │               ▼               ▼             ▼
+        │     ┌─────────────────┐    exit         exit
+        │     │ replan(...)     │
+        │     │   = build_plan  │
+        │     │   + status      │
+        │     │     preserve    │
+        │     └────────┬────────┘
+        ▼              │
+  ┌───────────────────┘
+  │  run_implement(card)  ──▶  rc == 0 ──▶  KnowledgeWriter.write
+  │                            (merges into knowledge:<company>.<plan>)
+  └──▶  rc != 0 ──▶  card.last_attempt_summary set; card.status=blocked
 ```
 
 The implementer agent (`briar agent implement`) is the natural
-downstream consumer: `briar plan next --format json | jq …` yields
-the `key` to pass as `--ticket-key`, the `branch_name` to use as
-the feature branch, and the `branch_parent` to clone from. Cascade
-mode is what lets a long sequence of dependent tickets be shipped
-without each card sitting on `main` until the previous merges.
+downstream consumer: its `KnowledgeSplicer` already picks up every
+blob whose name starts with `knowledge:<company>`, so the plan-scoped
+shard flows into every implement call automatically. The selector
+sees the freshest body on every pick.
 
 ### DSN resolution — `knowledge.store: postgres`
 

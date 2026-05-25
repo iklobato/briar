@@ -1,11 +1,18 @@
 """Data shapes for `briar plan`.
 
-A plan is an ordered list of `PlanCard`s. Each card carries the
-extracted ticket summary, in/out-of-scope notes, the upstream cards
-it depends on, and the git branch metadata the engineer flow will
-use when picking the card up. Status moves pending → in_progress →
-done as the operator (or the implementer agent) advances through
-the plan.
+A plan is an ordered list of `PlanCard`s in the order the board returned
+them. Each card carries the extracted ticket summary, in/out-of-scope
+notes, the upstream cards it depends on (data, *not* control flow — the
+LLM selector reads it as a hint, the runner never uses it to gate
+picking), and the git branch metadata the engineer flow will use when
+picking the card up. Status moves pending → in_progress → done as the
+operator (or the implementer agent) advances through the plan.
+
+The picker used to be `next_pending()` — first pending card whose deps
+were all `done`. That algorithm is gone; the LLM selector in
+`_selector.py` picks now, using `PlanContext` as input and returning a
+`SelectorDecision`. `depends_on` survives as one of the hints the LLM
+sees, not as a gate.
 
 The shape is stable across storage backends — the JSON emitted by
 `to_dict` is what `plan:<name>` blobs hold."""
@@ -13,12 +20,21 @@ The shape is stable across storage backends — the JSON emitted by
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
-from briar.plan._enums import PlanCardStatus
+from briar.plan._enums import PlanCardStatus, SelectorActionKind
+
+PLAN_SCHEMA_VERSION = 2
 
 
-PLAN_SCHEMA_VERSION = 1
+def suggest_branch(key: str) -> str:
+    """`KAN-12` → `briar/kan-12`; `#42` → `briar/issue-42`. Used by
+    `build_plan` to seed each card's branch name. Lives here, next to
+    PlanCard, because it's a one-line slug helper with no other home —
+    the deleted `_graph.py` was its prior address."""
+    slug = key.strip().lower().replace("#", "issue-").replace(" ", "-").replace("/", "-")
+    slug = "".join(c for c in slug if c.isalnum() or c in "-_")
+    return f"briar/{slug or 'card'}"
 
 
 @dataclass
@@ -40,6 +56,7 @@ class PlanCard:
     branch_parent: str = ""
     status: PlanCardStatus = PlanCardStatus.PENDING
     notes: str = ""
+    last_attempt_summary: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -61,20 +78,20 @@ class PlanCard:
             branch_parent=str(raw.get("branch_parent") or ""),
             status=PlanCardStatus(raw.get("status") or PlanCardStatus.PENDING.value),
             notes=str(raw.get("notes") or ""),
+            last_attempt_summary=str(raw.get("last_attempt_summary") or ""),
         )
 
 
 @dataclass
 class ImplementationPlan:
-    """Top-level plan record. The ordered `cards` list is the result
-    of dependency-graph topological sort; consumers must not re-order
-    it on read."""
+    """Top-level plan record. `cards` is in the order the board returned
+    them; the LLM selector picks any pending card it wants, so this list
+    is presentation order, not execution order."""
 
     name: str
     board_url: str
     tracker: str
     project: str
-    cascade: bool = False
     company: str = ""
     owner: str = ""
     repo: str = ""
@@ -90,7 +107,6 @@ class ImplementationPlan:
             "board_url": self.board_url,
             "tracker": self.tracker,
             "project": self.project,
-            "cascade": self.cascade,
             "company": self.company,
             "owner": self.owner,
             "repo": self.repo,
@@ -106,7 +122,6 @@ class ImplementationPlan:
             board_url=str(raw.get("board_url") or ""),
             tracker=str(raw.get("tracker") or ""),
             project=str(raw.get("project") or ""),
-            cascade=bool(raw.get("cascade") or False),
             company=str(raw.get("company") or ""),
             owner=str(raw.get("owner") or ""),
             repo=str(raw.get("repo") or ""),
@@ -116,13 +131,103 @@ class ImplementationPlan:
             version=int(raw.get("version") or PLAN_SCHEMA_VERSION),
         )
 
-    def next_pending(self) -> "PlanCard | None":
-        """First card whose deps are all `done`. Returns None when the
-        plan is finished or fully blocked."""
-        done = {c.key for c in self.cards if c.status == PlanCardStatus.DONE}
-        for card in self.cards:
-            if card.status != PlanCardStatus.PENDING:
+
+@dataclass(frozen=True)
+class SelectorDecision:
+    """One iteration's worth of LLM judgement.
+
+    `kind` discriminates; `key` is set only for `PICK`; `branch_parent`
+    is an optional override the LLM may emit when stacking PRs against
+    a non-default base makes sense. The runner does one exhaustive match
+    on `kind` and never inspects the LLM's free-form reasoning beyond
+    journaling `why`."""
+
+    kind: SelectorActionKind
+    key: str = ""
+    why: str = ""
+    branch_parent: str = ""
+
+
+@dataclass
+class PlanContext:
+    """Read-only projection of past/current/pending state the LLM sees.
+
+    Built fresh on every selector call from the plan blob, the journal
+    store, and `knowledge:<company>.<plan>`. No persistence of its own —
+    the storage layer holds the truth; this struct just shapes it for
+    the prompt."""
+
+    completed: List[Tuple[str, str]] = field(default_factory=list)
+    failed: List[Tuple[str, str]] = field(default_factory=list)
+    in_progress: Optional[str] = None
+    knowledge: str = ""
+    company_knowledge: str = ""
+
+    @classmethod
+    def from_stores(
+        cls,
+        *,
+        journal_store: Any,
+        knowledge_store: Any,
+        plan: "ImplementationPlan",
+        max_knowledge_bytes: int = 8_000,
+    ) -> "PlanContext":
+        """Assemble a context from the persistent stores. `journal_store`
+        is queried for `plan.run` sessions matching the plan name;
+        `knowledge_store` is read for `knowledge:<company>.<plan>` plus
+        the company-wide `knowledge:<company>` blob.
+
+        Failure modes are deliberately silent: a missing knowledge blob
+        or an unreadable journal returns an empty context field. The
+        selector is supposed to cope with thin context."""
+        completed: List[Tuple[str, str]] = []
+        failed: List[Tuple[str, str]] = []
+        in_progress: Optional[str] = None
+        target_prefix = f"{plan.name}@"
+        try:
+            refs = journal_store.list(command_prefix="plan.run")
+        except Exception:  # noqa: BLE001 — context build is best-effort
+            refs = []
+        for ref in refs:
+            target = getattr(ref, "target", "") or ""
+            if not target.startswith(target_prefix):
                 continue
-            if all(dep in done for dep in card.depends_on):
-                return card
-        return None
+            try:
+                session = journal_store.get(ref.session_id)
+            except Exception:  # noqa: BLE001
+                session = None
+            if session is None:
+                continue
+            opened_card: Optional[str] = None
+            closed_keys: set = set()
+            for ev in session.decisions:
+                if ev.choice == "plan.run.card.start":
+                    opened_card = str(ev.value or "")
+                elif ev.choice == "plan.run.card.completed":
+                    key = str(ev.value or "")
+                    completed.append((key, ev.rationale or ""))
+                    closed_keys.add(key)
+                elif ev.choice == "plan.run.card.failed":
+                    key = str(ev.value or "")
+                    failed.append((key, ev.rationale or ""))
+                    closed_keys.add(key)
+            if opened_card and opened_card not in closed_keys:
+                in_progress = opened_card
+
+        knowledge = ""
+        company_knowledge = ""
+        try:
+            if plan.company and plan.name:
+                knowledge = (knowledge_store.get(f"knowledge:{plan.company}.{plan.name}") or "")[:max_knowledge_bytes]
+            if plan.company:
+                company_knowledge = (knowledge_store.get(f"knowledge:{plan.company}") or "")[:max_knowledge_bytes]
+        except Exception:  # noqa: BLE001
+            pass
+
+        return cls(
+            completed=completed,
+            failed=failed,
+            in_progress=in_progress,
+            knowledge=knowledge,
+            company_knowledge=company_knowledge,
+        )

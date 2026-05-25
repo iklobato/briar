@@ -1,11 +1,10 @@
-"""ImplementationPlan + PlanCard — dataclasses + next_pending logic."""
+"""ImplementationPlan + PlanCard — dataclasses, serialisation, and the
+new value objects (SelectorDecision, PlanContext)."""
 
 from __future__ import annotations
 
-import pytest
-
-from briar.plan._enums import PlanCardStatus
-from briar.plan._models import ImplementationPlan, PlanCard
+from briar.plan._enums import PlanCardStatus, SelectorActionKind
+from briar.plan._models import ImplementationPlan, PlanCard, PlanContext, SelectorDecision, suggest_branch
 
 
 def _card(key: str, status: PlanCardStatus = PlanCardStatus.PENDING, deps: list[str] = ()) -> PlanCard:
@@ -14,38 +13,6 @@ def _card(key: str, status: PlanCardStatus = PlanCardStatus.PENDING, deps: list[
 
 def _plan(cards: list[PlanCard]) -> ImplementationPlan:
     return ImplementationPlan(name="p", board_url="", tracker="", project="", cards=cards)
-
-
-class TestNextPending:
-    def test_empty_plan_returns_none(self) -> None:
-        assert _plan([]).next_pending() is None
-
-    def test_first_pending_returned(self) -> None:
-        cards = [_card("A"), _card("B")]
-        assert _plan(cards).next_pending().key == "A"
-
-    def test_in_progress_skipped(self) -> None:
-        cards = [_card("A", PlanCardStatus.IN_PROGRESS), _card("B")]
-        assert _plan(cards).next_pending().key == "B"
-
-    def test_done_skipped(self) -> None:
-        cards = [_card("A", PlanCardStatus.DONE), _card("B")]
-        assert _plan(cards).next_pending().key == "B"
-
-    def test_card_with_unsatisfied_dep_skipped(self) -> None:
-        # B depends on A; A is pending → B not ready yet
-        cards = [_card("A"), _card("B", deps=["A"])]
-        # next_pending returns A first (its deps are empty).
-        nxt = _plan(cards).next_pending()
-        assert nxt.key == "A"
-
-    def test_card_ready_when_deps_done(self) -> None:
-        cards = [_card("A", PlanCardStatus.DONE), _card("B", deps=["A"])]
-        assert _plan(cards).next_pending().key == "B"
-
-    def test_all_done_returns_none(self) -> None:
-        cards = [_card("A", PlanCardStatus.DONE)]
-        assert _plan(cards).next_pending() is None
 
 
 class TestRoundtrip:
@@ -63,8 +30,58 @@ class TestRoundtrip:
         assert roundtrip.status == PlanCardStatus.IN_PROGRESS
 
     def test_from_dict_handles_missing_fields(self) -> None:
-        # Sparse dict — only `key` and `title` provided.
         c = PlanCard.from_dict({"key": "A", "title": "Title"})
         assert c.key == "A"
         assert c.depends_on == []
         assert c.status == PlanCardStatus.PENDING
+        assert c.last_attempt_summary == ""
+
+    def test_last_attempt_summary_roundtrip(self) -> None:
+        c = PlanCard(key="A", title="a", last_attempt_summary="boom")
+        roundtrip = PlanCard.from_dict(c.to_dict())
+        assert roundtrip.last_attempt_summary == "boom"
+
+    def test_legacy_cascade_field_ignored(self) -> None:
+        """Pre-v2 plan dicts had a `cascade` field; from_dict must accept it."""
+        raw = {
+            "version": 1,
+            "name": "old",
+            "board_url": "",
+            "tracker": "jira",
+            "project": "X",
+            "cascade": True,
+            "cards": [],
+        }
+        plan = ImplementationPlan.from_dict(raw)
+        assert plan.name == "old"
+        assert not hasattr(plan, "cascade")
+
+
+class TestSuggestBranch:
+    def test_jira_key(self) -> None:
+        assert suggest_branch("KAN-12") == "briar/kan-12"
+
+    def test_issue_hash(self) -> None:
+        assert suggest_branch("#42") == "briar/issue-42"
+
+
+class TestSelectorDecision:
+    def test_default_kind_only(self) -> None:
+        d = SelectorDecision(kind=SelectorActionKind.COMPLETE)
+        assert d.kind is SelectorActionKind.COMPLETE
+        assert d.key == ""
+        assert d.why == ""
+
+    def test_pick_fields(self) -> None:
+        d = SelectorDecision(kind=SelectorActionKind.PICK, key="A", why="reason", branch_parent="develop")
+        assert d.key == "A"
+        assert d.branch_parent == "develop"
+
+
+class TestPlanContext:
+    def test_empty_default(self) -> None:
+        ctx = PlanContext()
+        assert ctx.completed == []
+        assert ctx.failed == []
+        assert ctx.in_progress is None
+        assert ctx.knowledge == ""

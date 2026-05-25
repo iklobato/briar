@@ -21,7 +21,6 @@ from briar.errors import CliError
 from briar.plan._models import ImplementationPlan
 from briar.storage import KnowledgeStore
 
-
 log = logging.getLogger(__name__)
 
 
@@ -87,7 +86,6 @@ def render_markdown(plan: ImplementationPlan) -> str:
     lines.append(f"- Project: {plan.project}")
     if plan.company:
         lines.append(f"- Company: {plan.company}")
-    lines.append(f"- Cascade: {'yes' if plan.cascade else 'no'}")
     lines.append(f"- Default branch: {plan.default_branch}")
     if plan.created_at:
         lines.append(f"- Created: {plan.created_at}")
@@ -129,6 +127,60 @@ def render_markdown(plan: ImplementationPlan) -> str:
     lines.append("```json")
     lines.append(json.dumps(plan.to_dict(), indent=2))
     lines.append("```")
+    return "\n".join(lines)
+
+
+def render_plan_knowledge(plan: ImplementationPlan) -> str:
+    """Seed body for `knowledge:<company>.<plan>`.
+
+    Written by `BuildOp` immediately after `save_plan`. Captures the
+    board context, the per-card scope, and the cards' titles/summaries
+    so the very first `plan next --llm` invocation has substrate to
+    reason over before any card has run. Subsequent runs grow this
+    blob via `KnowledgeWriter`."""
+    lines: List[str] = []
+    lines.append(f"# {plan.name} — plan knowledge")
+    lines.append("")
+    if plan.company:
+        lines.append(f"- Company: {plan.company}")
+    lines.append(f"- Board: {plan.board_url or '(none)'}")
+    lines.append(f"- Tracker: {plan.tracker}")
+    if plan.project:
+        lines.append(f"- Project: {plan.project}")
+    if plan.owner and plan.repo:
+        lines.append(f"- Repo: {plan.owner}/{plan.repo}")
+    lines.append(f"- Default branch: {plan.default_branch}")
+    if plan.created_at:
+        lines.append(f"- Seeded: {plan.created_at}")
+    lines.append("")
+    lines.append("## Cards")
+    lines.append("")
+    for c in plan.cards:
+        lines.append(f"### {c.key} — {c.title}")
+        if c.summary:
+            lines.append(c.summary)
+        if c.in_scope:
+            lines.append("")
+            lines.append("**In scope**")
+            for item in c.in_scope:
+                lines.append(f"- {item}")
+        if c.out_of_scope:
+            lines.append("")
+            lines.append("**Out of scope**")
+            for item in c.out_of_scope:
+                lines.append(f"- {item}")
+        if c.risks:
+            lines.append("")
+            lines.append("**Risks / open questions**")
+            for item in c.risks:
+                lines.append(f"- {item}")
+        if c.depends_on:
+            lines.append("")
+            lines.append(f"_Depends on: {', '.join(c.depends_on)}_")
+        lines.append("")
+    lines.append("## Notes")
+    lines.append("")
+    lines.append("_This document is updated by the agent after each completed card._")
     return "\n".join(lines)
 
 

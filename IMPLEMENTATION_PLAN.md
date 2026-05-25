@@ -840,36 +840,36 @@ to the bash escape hatch (`gh pr comment`, `curl`).
 `briar plan` is the natural upstream of `briar agent implement` when
 you have a board's worth of tickets, not just one. It fetches the
 cards, synthesises per-card scope + dependencies (LLM-assisted when
-configured, deterministic heuristics otherwise), and persists an
-ordered queue you can walk one step at a time:
+configured, deterministic heuristics otherwise), persists the plan,
+and seeds `knowledge:<company>.<plan>` so the live source of truth
+exists from the first run:
 
 ```bash
 # Build the plan from a Jira board (or a GitHub Projects v2 URL)
 briar plan build \
-    https://acme.atlassian.net/jira/software/projects/KAN/boards/34 \
-    --name acme-q3 --company acme --cascade \
+    https://example.atlassian.net/jira/software/projects/KAN/boards/34 \
+    --name acme-q3 --company acme \
     --llm anthropic --with-knowledge
 
-# Ask: what's the next pending card with all deps satisfied?
-briar plan next acme-q3 --format json | jq '.key, .branch_name, .branch_parent'
+# Visualise past / current / pending — pure projection over journal + plan blob
+briar plan status acme-q3
 
-# Pipe straight into the engineer flow
-NEXT=$(briar plan next acme-q3 --format json)
-briar agent implement \
+# Ask the LLM selector what to do next
+briar plan next acme-q3 --llm anthropic --format json
+
+# Or just let the loop run end-to-end with replan as a first-class action
+briar plan run acme-q3 \
     --company acme --owner acme --repo platform \
-    --ticket-project KAN --ticket-key "$(jq -r .key <<<"$NEXT")" \
-    --tracker jira --runbook examples/all_features.yaml
-
-# After the agent's PR merges:
-briar plan advance acme-q3 --card "$(jq -r .key <<<"$NEXT")"
+    --tracker jira --llm anthropic \
+    --runbook examples/all_features.yaml
 ```
 
-`--cascade` is what makes a long dependency chain shippable without
-each card sitting on `main` until the previous merges — card B's
-branch is created from card A's branch (`briar/kan-1`), so PRs
-stack. Plans live as `plan:<name>` blobs in the same `KnowledgeStore`
-as the per-company knowledge blobs, so `--store postgres` works the
-same way it does for `briar extract`.
+Plans live as `plan:<name>` blobs in the same `KnowledgeStore` as
+the per-company knowledge blobs, so `--store postgres` works the
+same way it does for `briar extract`. The plan-scoped knowledge
+shard at `knowledge:<company>.<plan>` is updated by `KnowledgeWriter`
+after each successful card; the next selector call reads the
+freshest body.
 
 ---
 
@@ -1012,8 +1012,9 @@ src/briar/plan/_boards/__init__.py      # tuple += (TrelloBoardReader(),)
 Inside `trello.py` implement `matches(url)` (regex against the
 Trello board-URL shape), `parse(url)` (return a `BoardRef`), and
 `fetch(ref, company, max_cards)` (return a list of `PlanCard`s).
-Topological sort, cascade chaining, synthesis, and storage all
-reuse the existing helpers — the new reader doesn't touch them.
+Synthesis, persistence, the selector, the knowledge writer, and the
+status renderer all reuse the existing helpers — the new reader
+doesn't touch them.
 
 ---
 
