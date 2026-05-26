@@ -756,54 +756,55 @@ class RunbookSchemaRegistryValidationTests(unittest.TestCase):
             KnowledgeBinding(store="dynamodb", name="x")
 
 
-class RepoClonerRegistryTests(unittest.TestCase):
-    """`_clone_default` + `_implement_specific_instructions` dispatch
-    via the REPO_CLONERS registry. Adding a new provider must NOT
-    require editing those methods."""
+class GitProviderRegistryTests(unittest.TestCase):
+    """The unified `PROVIDERS` registry owns clone + auth + pr-creation
+    recipe (was the parallel `REPO_CLONERS` hierarchy). `_run_prfix`,
+    `_run_implement`, and `_implement_specific_instructions` all
+    dispatch through the same registry. Adding a new provider must
+    NOT require editing those methods."""
 
-    def test_clone_registry_has_both_providers(self) -> None:
-        from briar.commands.agent import REPO_CLONERS
+    def test_registry_has_both_providers(self) -> None:
+        from briar.extract._providers import PROVIDERS
 
-        self.assertIn("github", REPO_CLONERS)
-        self.assertIn("bitbucket", REPO_CLONERS)
+        self.assertIn("github", PROVIDERS)
+        self.assertIn("bitbucket", PROVIDERS)
 
-    def test_github_cloner_uses_x_access_token_url(self) -> None:
-        from briar.commands.agent import REPO_CLONERS
+    def test_github_provider_uses_x_access_token_url(self) -> None:
+        from briar.extract._providers import make_provider
 
-        c = REPO_CLONERS["github"]
-        self.assertEqual(c.clone_url("acme", "app"), "https://github.com/acme/app.git")
+        p = make_provider("github")
+        self.assertEqual(p.clone_url("acme", "app"), "https://github.com/acme/app.git")
         self.assertEqual(
-            c.authed_clone_url("acme", "app", "ghp_xxx"),
+            p.authed_clone_url("acme", "app", "ghp_xxx"),
             "https://x-access-token:ghp_xxx@github.com/acme/app.git",
         )
 
-    def test_bitbucket_cloner_uses_x_token_auth_url(self) -> None:
-        from briar.commands.agent import REPO_CLONERS
+    def test_bitbucket_provider_uses_x_token_auth_url(self) -> None:
+        from briar.extract._providers import make_provider
 
-        c = REPO_CLONERS["bitbucket"]
-        self.assertEqual(c.clone_url("acme", "app"), "https://bitbucket.org/acme/app.git")
+        p = make_provider("bitbucket", company="acme")
+        self.assertEqual(p.clone_url("acme", "app"), "https://bitbucket.org/acme/app.git")
         self.assertEqual(
-            c.authed_clone_url("acme", "app", "ATBB-xxx"),
+            p.authed_clone_url("acme", "app", "ATBB-xxx"),
             "https://x-token-auth:ATBB-xxx@bitbucket.org/acme/app.git",
         )
 
     def test_pr_recipe_dispatches_to_provider(self) -> None:
         """If anyone reverts to `if provider == 'bitbucket':` in
         _implement_specific_instructions, this test catches it — we
-        swap the github recipe via mock.patch.dict and confirm the
-        substitution made it into the rendered instructions."""
-        from briar.commands.agent import REPO_CLONERS, CommandAgent
+        hand in a fake provider directly and confirm its recipe is
+        what gets rendered."""
+        from briar.commands.agent import CommandAgent
 
-        class FakeCloner:
+        class FakeProvider:
             kind = "github"
 
-            def pr_creation_recipe(self, *, owner, repo, branch, company):
+            def pr_creation_recipe(self, *, owner, repo, branch):
                 return "  6. DO THE FAKE THING.\n  7. DONE.\n"
 
-        with mock.patch.dict(REPO_CLONERS, {"github": FakeCloner()}):
-            text = CommandAgent._implement_specific_instructions(
-                provider="github", company="acme", owner="acme", repo="app", ticket_key="ACME-1"
-            )
+        text = CommandAgent._implement_specific_instructions(
+            provider=FakeProvider(), owner="acme", repo="app", ticket_key="ACME-1"
+        )
         self.assertIn("DO THE FAKE THING", text)
 
 
@@ -918,12 +919,14 @@ class AgentCommandTests(unittest.TestCase):
         """The instruction string is what the agent sees — must contain
         the ticket key + a derived branch name + the no-force constraint."""
         from briar.commands.agent import CommandAgent
+        from briar.extract._providers import make_provider
 
+        provider = make_provider("github", company="acme")
         instructions = CommandAgent._implement_specific_instructions(
-            provider="github", company="acme", owner="acme-co", repo="acme-app", ticket_key="ACME-42"
+            provider=provider, owner="acme-co", repo="acme-app", ticket_key="ACME-42"
         )
         self.assertIn("ACME-42", instructions)
-        self.assertIn("briar/acme-42", instructions)
+        self.assertIn("chore/acme-42", instructions)
         self.assertIn("NEVER --force", instructions)
 
 
@@ -1324,6 +1327,189 @@ class JiraAuthStrategyTests(unittest.TestCase):
         self.assertIsInstance(t1._auth, JiraSessionAuth)
         t2 = JiraTracker(company="acme", auth_kind="token")
         self.assertIsInstance(t2._auth, JiraTokenAuth)
+
+    def test_registry_make_raises_for_unknown_kind(self) -> None:
+        from briar.errors import CliError
+        from briar.extract._trackers._jira_auth import JiraAuthRegistry
+
+        with self.assertRaises(CliError):
+            JiraAuthRegistry.make("oauth-not-implemented")
+
+    def test_token_configure_raises_when_creds_missing(self) -> None:
+        """`JiraAuthStrategy.configure` is called lazily on first API
+        call. Missing creds at that point is a programmer error (caller
+        should have checked is_available) — raise loudly, don't silently
+        construct a half-configured Jira client."""
+        from briar.errors import CliError
+        from briar.extract._trackers._jira_auth import JiraTokenAuth
+
+        env = {"JIRA_ACME_EMAIL": "", "JIRA_ACME_TOKEN": ""}
+        with mock.patch.dict(os.environ, env, clear=False):
+            with self.assertRaises(CliError):
+                JiraTokenAuth().configure(company="acme", base_url="https://x.atlassian.net")
+
+    def test_session_configure_raises_when_no_session_token(self) -> None:
+        """Same loud-failure contract for session auth — refuse to
+        build a Session with empty cookies."""
+        from briar.errors import CliError
+        from briar.extract._trackers._jira_auth import JiraSessionAuth
+
+        env = {"JIRA_ACME_SESSION_TOKEN": "", "JIRA_ACME_TENANT_SESSION_TOKEN": ""}
+        with mock.patch.dict(os.environ, env, clear=False):
+            with self.assertRaises(CliError):
+                JiraSessionAuth().configure(company="acme", base_url="https://x.atlassian.net")
+
+    def test_session_without_xsrf_omits_xatlassian_header(self) -> None:
+        """The `X-Atlassian-Token: no-check` header is only useful when
+        a matching xsrf cookie is present. Pin the conditional so a
+        future "always set the header" refactor doesn't accidentally
+        send an XSRF dance without an actual XSRF token."""
+        from briar.extract._trackers._jira_auth import JiraSessionAuth
+
+        env = {
+            "JIRA_ACME_SESSION_TOKEN": "cookie",
+            "JIRA_ACME_XSRF_TOKEN": "",  # explicitly empty
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            kwargs = JiraSessionAuth().configure(company="acme", base_url="https://x.atlassian.net")
+        self.assertNotIn("X-Atlassian-Token", kwargs["session"].headers)
+
+
+class JiraSessionJwtExpTests(unittest.TestCase):
+    """`_decode_jwt_exp` parses the JWT payload of a Jira session
+    cookie to extract its expiry. Used by JiraSessionAcquirer to record
+    when the operator should rotate the cookie."""
+
+    @staticmethod
+    def _make_jwt(payload: dict) -> str:
+        import base64, json
+
+        enc = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
+        return f"hdr.{enc}.sig"
+
+    def test_extracts_exp_from_3_segment_jwt(self) -> None:
+        from briar.auth._acquirers.jira_session import _decode_jwt_exp
+
+        jwt = self._make_jwt({"exp": 1800000000, "iss": "atlassian"})
+        result = _decode_jwt_exp(jwt)
+        self.assertIsNotNone(result)
+        self.assertEqual(int(result.timestamp()), 1800000000)
+
+    def test_returns_none_for_non_jwt_shapes(self) -> None:
+        from briar.auth._acquirers.jira_session import _decode_jwt_exp
+
+        self.assertIsNone(_decode_jwt_exp("not-a-jwt-at-all"))
+        self.assertIsNone(_decode_jwt_exp("only.two"))           # 2 segments
+        self.assertIsNone(_decode_jwt_exp("a.b.c.d"))            # 4 segments
+
+    def test_returns_none_for_malformed_payload(self) -> None:
+        from briar.auth._acquirers.jira_session import _decode_jwt_exp
+
+        # Invalid base64 in the payload segment
+        self.assertIsNone(_decode_jwt_exp("hdr.!!!not-b64!!!.sig"))
+        # Valid base64 but not JSON
+        import base64
+        garbage = base64.urlsafe_b64encode(b"\xff\xfe garbage").decode().rstrip("=")
+        self.assertIsNone(_decode_jwt_exp(f"hdr.{garbage}.sig"))
+        # Valid JSON but no `exp` claim
+        no_exp = self._make_jwt({"iss": "atlassian"})
+        self.assertIsNone(_decode_jwt_exp(no_exp))
+
+
+class JiraAcquirerInteractiveTests(unittest.TestCase):
+    """Onboarding flow — drives each acquirer with MockPromptIO and
+    asserts the Credentials.entries dict has the right keys.
+
+    The load-bearing thing here is that the acquirer writes
+    ``JIRA_<C>_AUTH_KIND`` so that ``JiraAuthRegistry.autodetect``
+    locks to the strategy the operator just onboarded — a regression
+    that drops that key would silently flip the strategy."""
+
+    def test_token_acquirer_writes_all_four_env_vars(self) -> None:
+        from briar.auth._acquirers.jira_token import JiraTokenAcquirer
+        from briar.auth._prompt import MockPromptIO
+
+        prompt = MockPromptIO(answers=[
+            "https://acme.atlassian.net",
+            "ops@acme.com",
+            "tok-secret-123",
+        ])
+        creds = JiraTokenAcquirer().acquire(company="acme", prompt=prompt)
+        self.assertEqual(creds.entries["JIRA_ACME_URL"], "https://acme.atlassian.net")
+        self.assertEqual(creds.entries["JIRA_ACME_EMAIL"], "ops@acme.com")
+        self.assertEqual(creds.entries["JIRA_ACME_TOKEN"], "tok-secret-123")
+        self.assertEqual(creds.entries["JIRA_ACME_AUTH_KIND"], "token")
+        # The instructions opened the token-management page.
+        self.assertTrue(any("api-tokens" in u for u in prompt.opened_urls))
+
+    def test_token_acquirer_rejects_missing_input(self) -> None:
+        from briar.auth._acquirers.jira_token import JiraTokenAcquirer
+        from briar.auth._prompt import MockPromptIO
+
+        prompt = MockPromptIO(answers=["https://acme.atlassian.net", "ops@acme.com", ""])
+        with self.assertRaises(ValueError):
+            JiraTokenAcquirer().acquire(company="acme", prompt=prompt)
+
+    def test_token_acquirer_requires_company(self) -> None:
+        from briar.auth._acquirers.jira_token import JiraTokenAcquirer
+        from briar.auth._prompt import MockPromptIO
+
+        with self.assertRaises(ValueError):
+            JiraTokenAcquirer().acquire(company="", prompt=MockPromptIO(answers=[]))
+
+    def test_session_acquirer_writes_minimum_set(self) -> None:
+        from briar.auth._acquirers.jira_session import JiraSessionAcquirer
+        from briar.auth._prompt import MockPromptIO
+
+        prompt = MockPromptIO(answers=[
+            "https://acme.atlassian.net",
+            "tenant-jwt-blob",
+            "",  # cloud token — skipped
+            "",  # xsrf — skipped
+        ])
+        creds = JiraSessionAcquirer().acquire(company="acme", prompt=prompt)
+        self.assertEqual(creds.entries["JIRA_ACME_URL"], "https://acme.atlassian.net")
+        self.assertEqual(creds.entries["JIRA_ACME_TENANT_SESSION_TOKEN"], "tenant-jwt-blob")
+        self.assertEqual(creds.entries["JIRA_ACME_AUTH_KIND"], "session")
+        # Skipped optional cookies must NOT land in the entries dict.
+        self.assertNotIn("JIRA_ACME_SESSION_TOKEN", creds.entries)
+        self.assertNotIn("JIRA_ACME_XSRF_TOKEN", creds.entries)
+
+    def test_session_acquirer_records_jwt_exp_when_parseable(self) -> None:
+        """If the pasted tenant.session.token is a real JWT with `exp`,
+        Credentials.expires_at is populated so the CLI can warn before
+        the cookie rotates."""
+        import base64
+        import json
+
+        from briar.auth._acquirers.jira_session import JiraSessionAcquirer
+        from briar.auth._prompt import MockPromptIO
+
+        payload = base64.urlsafe_b64encode(json.dumps({"exp": 1800000000}).encode()).decode().rstrip("=")
+        jwt = f"hdr.{payload}.sig"
+        prompt = MockPromptIO(answers=[
+            "https://acme.atlassian.net",
+            jwt,
+            "",  # cloud
+            "",  # xsrf
+        ])
+        creds = JiraSessionAcquirer().acquire(company="acme", prompt=prompt)
+        self.assertIsNotNone(creds.expires_at)
+        self.assertEqual(int(creds.expires_at.timestamp()), 1800000000)
+
+    def test_session_acquirer_carries_optional_cookies_when_provided(self) -> None:
+        from briar.auth._acquirers.jira_session import JiraSessionAcquirer
+        from briar.auth._prompt import MockPromptIO
+
+        prompt = MockPromptIO(answers=[
+            "https://acme.atlassian.net",
+            "tenant-token",
+            "cloud-token",
+            "xsrf-value",
+        ])
+        creds = JiraSessionAcquirer().acquire(company="acme", prompt=prompt)
+        self.assertEqual(creds.entries["JIRA_ACME_SESSION_TOKEN"], "cloud-token")
+        self.assertEqual(creds.entries["JIRA_ACME_XSRF_TOKEN"], "xsrf-value")
 
 
 class GitIdentityResolutionTests(unittest.TestCase):

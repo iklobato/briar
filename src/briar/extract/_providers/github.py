@@ -51,6 +51,29 @@ class GithubProvider(RepositoryProvider):
         # GITHUB_TOKEN is workspace-wide; the company arg is inert.
         return ["GITHUB_TOKEN"]
 
+    # ---- clone + auth seam (lifted from former GithubRepoCloner) ---------
+
+    def resolve_token(self) -> str:
+        return GithubApi.auth_token()
+
+    def clone_url(self, owner: str, repo: str) -> str:
+        return f"https://github.com/{owner}/{repo}.git"
+
+    def authed_clone_url(self, owner: str, repo: str, token: str) -> str:
+        # GitHub's HTTPS auth convention: `x-access-token` as the username.
+        return f"https://x-access-token:{token}@github.com/{owner}/{repo}.git"
+
+    def pr_creation_recipe(self, *, owner: str, repo: str, branch: str) -> str:
+        # owner/repo/branch are unused for the GitHub recipe — `gh pr create`
+        # infers them from the worktree — but kept in the signature for
+        # parity with other providers.
+        return (
+            "  6. Open a draft PR via `gh pr create --draft --title '<key>: <short>' "
+            "--body '<plan + test plan + risks>'`.\n"
+            "  7. End your output with the PR URL on its own line. No fictitious URLs "
+            "— if `gh pr create` fails, surface the error.\n"
+        )
+
     def list_pulls(self, repo: str, *, state: str, max_count: int) -> List[PullRequest]:
         # Contract: state is "open" | "merged". GitHub vocabulary is
         # "open" | "closed", and merged PRs are a subset of closed
@@ -138,12 +161,15 @@ class GithubProvider(RepositoryProvider):
     @swallow_errors(default=[], message="github list_pr_comments")
     def list_pr_comments(self, repo: str, number: int) -> List[ReviewComment]:
         """Returns inline review comments AND top-level issue comments
-        for one PR. The two GitHub endpoints — `/pulls/{n}/comments`
-        for review threads, `/issues/{n}/comments` for top-level —
-        return different shapes; this method merges them into one
-        ReviewComment list."""
+        AND review-summary comments for one PR. Three GitHub endpoints —
+        `/pulls/{n}/comments` for review threads (file/line-level),
+        `/issues/{n}/comments` for top-level Conversation-tab comments,
+        and `/pulls/{n}/reviews` for review submissions ("Approved",
+        "Request changes" with their body) — return different shapes;
+        this method merges them into one ReviewComment list."""
         inline = GithubApi.get_paginated(f"/repos/{repo}/pulls/{number}/comments", max_pages=2) or []
         top_level = GithubApi.get_paginated(f"/repos/{repo}/issues/{number}/comments", max_pages=2) or []
+        reviews = GithubApi.get_paginated(f"/repos/{repo}/pulls/{number}/reviews", max_pages=2) or []
         out: List[ReviewComment] = []
         for c in inline:
             out.append(
@@ -169,6 +195,26 @@ class GithubProvider(RepositoryProvider):
                     created_at=c.get("created_at") or "",
                 )
             )
+        for r in reviews:
+            review_body = (r.get("body") or "").strip()
+            state = (r.get("state") or "").upper()
+            # Skip pure-state reviews with no body and no decisive verdict —
+            # they're noise (the "COMMENTED" no-body case is the user just
+            # leaving inline comments without a wrapper, already covered above).
+            if not review_body and state not in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
+                continue
+            prefix = f"[{state}] " if state else ""
+            out.append(
+                ReviewComment(
+                    id=str(r.get("id") or ""),
+                    author=(r.get("user") or {}).get("login") or "",
+                    body=(prefix + review_body)[:1500],
+                    file_path="",
+                    line=0,
+                    is_resolved=False,
+                    created_at=r.get("submitted_at") or "",
+                )
+            )
         return out
 
     @swallow_errors(default=[], message="github list_ci_failures")
@@ -188,11 +234,12 @@ class GithubProvider(RepositoryProvider):
             conclusion = (run.get("conclusion") or "").lower()
             if conclusion not in ("failure", "timed_out", "cancelled"):
                 continue
-            # Find the failing step inside the check-run's output.
-            step_name = ""
-            for step in (run.get("output") or {}).get("annotations_url") and [] or []:
-                step_name = step.get("title") or ""
-                break
+            # Check-runs carry their own `output.title` / `output.summary`
+            # which is usually populated with the failing step's headline
+            # (e.g. "pytest — 3 failed"). Cheaper than a follow-up
+            # annotations fetch and gives the agent a useful label.
+            output = run.get("output") or {}
+            step_name = (output.get("title") or "").strip()
             out.append(
                 CiFailure(
                     workflow=str(run.get("name") or ""),
@@ -274,4 +321,7 @@ class GithubProvider(RepositoryProvider):
             created_at=p.get("created_at") or "",
             merged_at=p.get("merged_at") or "",
             requested_reviewers=[(r.get("login") or "") for r in (p.get("requested_reviewers") or [])],
+            # Cap PR description at the boundary — long PR bodies are common
+            # and would otherwise eat the agent's context budget.
+            body=(p.get("body") or "")[:5000],
         )

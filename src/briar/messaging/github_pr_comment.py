@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Tuple
 
 from briar.decorators import swallow_errors
 from briar.extract._gh import GithubApi
-from briar.messaging._writer import MessageWriter, SendResult
+from briar.messaging._writer import MessageWriter, SendResult, with_ai_prefix
 
 
 log = logging.getLogger(__name__)
@@ -39,6 +39,7 @@ class GithubPrCommentWriter(MessageWriter):
         repo, number = self._parse_target(target, extras)
         if not repo or not number:
             return SendResult(ok=False, detail=f"github-pr-comment requires target=owner/repo#N; got {target!r}")
+        body = with_ai_prefix(body)
 
         file_path = extras.get("file_path")
         if file_path:

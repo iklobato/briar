@@ -148,13 +148,13 @@ class BoardUrlParsingTests(unittest.TestCase):
 
 class SuggestBranchTests(unittest.TestCase):
     def test_jira_key(self) -> None:
-        self.assertEqual(suggest_branch("KAN-12"), "briar/kan-12")
+        self.assertEqual(suggest_branch("KAN-12"), "chore/kan-12")
 
     def test_issue_hash(self) -> None:
-        self.assertEqual(suggest_branch("#42"), "briar/issue-42")
+        self.assertEqual(suggest_branch("#42"), "chore/issue-42")
 
     def test_path_chars_stripped(self) -> None:
-        self.assertEqual(suggest_branch("foo/bar"), "briar/foo-bar")
+        self.assertEqual(suggest_branch("foo/bar"), "chore/foo-bar")
 
 
 # ─── Heuristic synthesiser (build-time enrichment, NOT picking) ─────
@@ -177,6 +177,71 @@ class HeuristicSynthesiserTests(unittest.TestCase):
         self.assertNotIn("KAN-3", out.depends_on)
 
 
+# ─── LLM synthesiser branch_name handling ───────────────────────────
+
+
+class LLMBranchNameTests(unittest.TestCase):
+    def _enrich(self, json_payload: str) -> PlanCard:
+        from briar.plan._synthesize import LLMSynthesiser
+
+        class _StubLLM:
+            kind = "stub"
+
+            def is_available(self) -> bool:
+                return True
+
+            def complete(self, *, system, messages, tools, max_tokens):
+                from types import SimpleNamespace
+
+                return SimpleNamespace(text=json_payload)
+
+        card = PlanCard(key="bitspark-co/widgets#1400", title="Refactor profile model imports")
+        return LLMSynthesiser(_StubLLM()).enrich(card, board_card_keys=[card.key], context_sections=[])
+
+    def test_accepts_well_formed_conventional_branch(self) -> None:
+        for good in ("refactor/profile-imports", "fix/auth-token-expiry", "feat/cnpj-lookup", "test/shared-profile", "chore/bump-deps"):
+            with self.subTest(good=good):
+                out = self._enrich(f'{{"branch_name": "{good}"}}')
+                self.assertEqual(out.branch_name, good)
+
+    def test_rejects_malformed_branch_name(self) -> None:
+        # No type prefix, unknown type, briar/ legacy prefix, uppercase, underscore,
+        # double-dash, too short — all rejected so the build_plan fallback
+        # (`suggest_branch(key)`) can assign one.
+        for bad in (
+            "refactor",                # no slash
+            "briar/refactor-profile",  # legacy briar/ prefix is no longer valid
+            "wip/foo-bar",             # not in the conventional-commits set
+            "refactor/Foo",            # uppercase
+            "refactor/foo_bar",        # underscore
+            "refactor/foo--bar",       # double dash
+            "refactor/x",              # slug too short
+            "feat/-leading",
+            "feat/trailing-",
+        ):
+            with self.subTest(bad=bad):
+                out = self._enrich(f'{{"branch_name": "{bad}"}}')
+                self.assertEqual(out.branch_name, "")
+
+    def test_does_not_clobber_existing_branch_name(self) -> None:
+        from briar.plan._synthesize import LLMSynthesiser
+
+        class _StubLLM:
+            kind = "stub"
+
+            def is_available(self) -> bool:
+                return True
+
+            def complete(self, *, system, messages, tools, max_tokens):
+                from types import SimpleNamespace
+
+                return SimpleNamespace(text='{"branch_name": "refactor/llm-suggestion"}')
+
+        card = PlanCard(key="K-1", title="t", branch_name="feat/operator-set")
+        out = LLMSynthesiser(_StubLLM()).enrich(card, board_card_keys=["K-1"], context_sections=[])
+        self.assertEqual(out.branch_name, "feat/operator-set")
+
+
 # ─── build_plan ─────────────────────────────────────────────────────
 
 
@@ -197,8 +262,9 @@ class BuildPlanTests(unittest.TestCase):
         self.assertEqual([c.key for c in plan.cards], ["A", "B", "C"])
         # Every card branches from default_branch by default.
         self.assertTrue(all(c.branch_parent == "main" for c in plan.cards))
-        # Branch names auto-derived.
-        self.assertEqual(plan.cards[0].branch_name, "briar/a")
+        # Branch names auto-derived — heuristic fallback uses the conservative
+        # conventional-commits `chore/` prefix when no LLM is configured.
+        self.assertEqual(plan.cards[0].branch_name, "chore/a")
 
 
 # ─── Persistence ────────────────────────────────────────────────────
@@ -214,12 +280,12 @@ class StoreRoundtripTests(unittest.TestCase):
                 tracker="jira",
                 project="KAN",
                 cards=[
-                    PlanCard(key="KAN-1", title="one", branch_name="briar/kan-1", branch_parent="main"),
+                    PlanCard(key="KAN-1", title="one", branch_name="chore/kan-1", branch_parent="main"),
                     PlanCard(
                         key="KAN-2",
                         title="two",
                         depends_on=["KAN-1"],
-                        branch_name="briar/kan-2",
+                        branch_name="chore/kan-2",
                         branch_parent="main",
                     ),
                 ],

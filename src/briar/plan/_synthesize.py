@@ -37,6 +37,23 @@ _DEP_KEY_RE = re.compile(
     re.IGNORECASE,
 )
 
+_BRANCH_SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{1,42}[a-z0-9])$")
+_BRANCH_TYPES = frozenset({"feat", "fix", "chore", "refactor", "docs", "test", "perf", "style", "ci", "build"})
+
+
+def _validate_branch_name(name: str) -> str:
+    """Accept only conventional-commits `<type>/<kebab-slug>` where
+    `<type>` is one of `_BRANCH_TYPES` and `<slug>` is 3-44 chars of
+    lowercase kebab — no double-dash, no leading/trailing dash.
+    Anything else returns `""` so the caller's fallback
+    (`suggest_branch(key)`) takes over."""
+    type_, slash, slug = (name or "").strip().partition("/")
+    if not slash or type_ not in _BRANCH_TYPES:
+        return ""
+    if "--" in slug or not _BRANCH_SLUG_RE.match(slug):
+        return ""
+    return f"{type_}/{slug}"
+
 
 class CardSynthesiser(ABC):
     @abstractmethod
@@ -80,7 +97,17 @@ class LLMSynthesiser(CardSynthesiser):
         "You are a planning assistant. For one ticket-shaped piece of work, return STRICT JSON "
         "with keys: summary (<=240 chars, one paragraph), in_scope (list of strings), "
         "out_of_scope (list of strings), risks (list of strings), depends_on (list of strings — "
-        "only ids/keys present in the supplied board_card_keys; never invent). "
+        "only ids/keys present in the supplied board_card_keys; never invent), "
+        "branch_name (string in conventional-commits `<type>/<slug>` form. `<type>` MUST be "
+        "one of: feat, fix, chore, refactor, docs, test, perf, style, ci, build — chosen "
+        "from the card's actual work (bug fix → `fix/...`; behavior-preserving refactor → "
+        "`refactor/...`; new feature → `feat/...`; tests-only → `test/...`; dependency / "
+        "tooling chore → `chore/...`). `<slug>` is 3-44 chars of lowercase ASCII kebab-case "
+        "derived from the title's distinguishing nouns/verbs — NOT the tracker key, NOT "
+        "generic stop-words. Example: title `Refactor profile model imports` → "
+        "`refactor/profile-imports`. Drop articles, repo names, epic prefixes. If you "
+        "cannot derive a meaningful slug, return an empty string and the heuristic "
+        "fallback will assign one). "
         "Use evidence from the supplied context sections; do not fabricate. "
         "Return ONLY the JSON object, no prose, no code fences."
     )
@@ -115,6 +142,8 @@ class LLMSynthesiser(CardSynthesiser):
             if d in board_card_keys and d not in merged and d != card.key:
                 merged.append(d)
         card.depends_on = merged
+        if not card.branch_name:
+            card.branch_name = _validate_branch_name(str(payload.get("branch_name") or ""))
         return card
 
     @staticmethod

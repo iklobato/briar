@@ -52,8 +52,8 @@ class GithubIssuesTracker(TrackerProvider):
 
     @swallow_errors(default=[], message="github-issues list_comments")
     def list_comments(self, project: str, ticket_key: str) -> List[Comment]:
-        # ticket_key is "#42" or "42"
-        number = ticket_key.lstrip("#")
+        # ticket_key may be "42", "#42", or "<owner>/<repo>#42" (PlanCard.key form)
+        number = ticket_key.split("#")[-1]
         rows = GithubApi.get_paginated(
             f"/repos/{project}/issues/{number}/comments",
             max_pages=2,
@@ -67,7 +67,7 @@ class GithubIssuesTracker(TrackerProvider):
 
     @swallow_errors(default=None, message="github-issues get_ticket")
     def get_ticket(self, project: str, ticket_key: str) -> Ticket:
-        number = ticket_key.lstrip("#")
+        number = ticket_key.split("#")[-1]
         data = GithubApi.get_json(f"/repos/{project}/issues/{number}")
         if not isinstance(data, dict):
             return super().get_ticket(project, ticket_key)
@@ -92,7 +92,7 @@ class GithubIssuesTracker(TrackerProvider):
         # GitHub Issues don't have rich status states; only open ↔ closed.
         # The "timeline" event API gives us the open/close history, which
         # is enough to surface "reopened twice" patterns.
-        number = ticket_key.lstrip("#")
+        number = ticket_key.split("#")[-1]
         events = GithubApi.get_paginated(
             f"/repos/{project}/issues/{number}/events",
             max_pages=1,

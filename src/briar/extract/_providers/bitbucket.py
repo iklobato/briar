@@ -71,6 +71,32 @@ class BitbucketProvider(RepositoryProvider):
                 )
         return self._client
 
+    # ---- clone + auth seam (lifted from former BitbucketRepoCloner) ------
+
+    def resolve_token(self) -> str:
+        if not self._company:
+            return ""
+        return (CredEnv.BITBUCKET_APP_PASSWORD.read(company=self._company) or "").strip()
+
+    def clone_url(self, owner: str, repo: str) -> str:
+        return f"https://bitbucket.org/{owner}/{repo}.git"
+
+    def authed_clone_url(self, owner: str, repo: str, token: str) -> str:
+        # Bitbucket's workspace-token auth convention: `x-token-auth`.
+        return f"https://x-token-auth:{token}@bitbucket.org/{owner}/{repo}.git"
+
+    def pr_creation_recipe(self, *, owner: str, repo: str, branch: str) -> str:
+        env_token = f"BITBUCKET_{self._company.upper().replace('-', '_')}_APP_PASSWORD"
+        return (
+            "  6. Open a draft PR via the Bitbucket v2 API. The workspace access token is in env var "
+            f"`{env_token}`. Auth: `-u 'x-token-auth:${env_token}'`. Endpoint: "
+            f"`POST https://api.bitbucket.org/2.0/repositories/{owner}/{repo}/pullrequests`. "
+            f"Body JSON fields: `title`, `description`, `source.branch.name` (= `{branch}`), `draft: true`. "
+            "The response's `links.html.href` is the PR URL.\n"
+            "  7. End your output with the PR URL on its own line. No fictitious URLs — if the curl fails, "
+            "surface the error verbatim.\n"
+        )
+
     def _resolve_addr(self, repo: str) -> Tuple[str, str]:
         """Split ``repo`` into ``(workspace_slug, repo_slug)``. Accepts
         either ``<workspace>/<slug>`` (matches GitHub `owner/repo`
@@ -215,11 +241,97 @@ class BitbucketProvider(RepositoryProvider):
             )
         return out
 
-    # Bitbucket Cloud Pipelines: failure details require fetching each
-    # failing step's log. Implemented in a follow-up — for now, return
-    # empty so the section degrades gracefully on Bitbucket.
+    @swallow_errors(default=[], message="bitbucket list_ci_failures")
     def list_ci_failures(self, repo: str, number: int) -> List[CiFailure]:
-        return []
+        """For the PR's head commit, find FAILED Bitbucket Pipelines
+        and the FAILED steps inside each, then fetch a short log tail
+        per failure.
+
+        Three round-trips per failure:
+          1. `GET /repositories/{ws}/{slug}/pullrequests/{n}` for head sha
+          2. `GET /pipelines/?target.commit.hash={sha}` to find runs
+          3. per failed pipeline: `GET /pipelines/{uuid}/steps/` for steps
+          4. per failed step: `GET /pipelines/{uuid}/steps/{step_uuid}/log`
+        """
+        bb_repo = self._repo(repo)
+        pr = bb_repo.pullrequests.get(number)
+        head_sha = ""
+        # Library may or may not expose source.commit cleanly — try
+        # attribute access first, fall back to the raw dict.
+        source = getattr(pr, "source", None)
+        if source is not None:
+            commit = getattr(source, "commit", None)
+            head_sha = str(getattr(commit, "hash", "") or "") if commit is not None else ""
+        if not head_sha:
+            data: Dict[str, Any] = getattr(pr, "data", {}) or {}
+            head_sha = str(((data.get("source") or {}).get("commit") or {}).get("hash") or "")
+        if not head_sha:
+            return []
+        envelope = bb_repo.get(
+            "pipelines/",
+            params={"target.commit.hash": head_sha, "pagelen": 50, "sort": "-created_on"},
+        )
+        pipelines = (envelope or {}).get("values", []) if isinstance(envelope, dict) else []
+        out: List[CiFailure] = []
+        for p in pipelines:
+            if not self._pipeline_failed(p):
+                continue
+            pipeline_uuid = str(p.get("uuid") or "").strip("{}")
+            if not pipeline_uuid:
+                continue
+            pipeline_url = ""
+            links = p.get("links") if isinstance(p, dict) else None
+            if isinstance(links, dict):
+                pipeline_url = str((links.get("html") or {}).get("href") or "")
+            workflow_label = f"pipeline #{p.get('build_number') or pipeline_uuid[:8]}"
+            steps_env = bb_repo.get(f"pipelines/{pipeline_uuid}/steps/")
+            steps = (steps_env or {}).get("values", []) if isinstance(steps_env, dict) else []
+            for s in steps:
+                if not self._pipeline_failed(s):
+                    continue
+                step_uuid = str(s.get("uuid") or "").strip("{}")
+                step_name = str(s.get("name") or "step")
+                out.append(
+                    CiFailure(
+                        workflow=workflow_label,
+                        job=step_name,
+                        step=step_name,
+                        log_tail=self._tail_pipeline_step_log(bb_repo, pipeline_uuid, step_uuid),
+                        url=pipeline_url,
+                    )
+                )
+        return out
+
+    @staticmethod
+    def _pipeline_failed(node: Dict[str, Any]) -> bool:
+        """True if the pipeline-or-step node's state.result is FAILED.
+        Bitbucket nests the verdict under `state.result.name` for both
+        the pipeline and each step, with `name` ∈
+        {SUCCESSFUL, FAILED, ERROR, STOPPED, EXPIRED}."""
+        state = node.get("state") if isinstance(node, dict) else None
+        if not isinstance(state, dict):
+            return False
+        result = state.get("result") if isinstance(state.get("result"), dict) else {}
+        name = str(result.get("name") or "").upper()
+        return name in ("FAILED", "ERROR")
+
+    @staticmethod
+    def _tail_pipeline_step_log(bb_repo, pipeline_uuid: str, step_uuid: str) -> str:
+        """Fetch the step log (plain text) and return the last ~80 lines.
+        The endpoint streams text, not JSON — pass not_json_response=True
+        through the atlassian-python-api helper."""
+        if not pipeline_uuid or not step_uuid:
+            return ""
+        try:
+            body = bb_repo.get(f"pipelines/{pipeline_uuid}/steps/{step_uuid}/log", not_json_response=True)
+        except Exception:  # noqa: BLE001 — 404 / non-text bodies are common
+            return ""
+        if isinstance(body, (bytes, bytearray)):
+            body = body.decode("utf-8", errors="replace")
+        if not isinstance(body, str):
+            return ""
+        lines = body.splitlines()
+        return "\n".join(lines[-80:])
 
     @swallow_errors(default=[], message="bitbucket list_recent_commits")
     def list_recent_commits(self, repo: str, *, since_days: int = 30, max_count: int = 200) -> List[Commit]:
@@ -262,15 +374,26 @@ class BitbucketProvider(RepositoryProvider):
         """Translate one library `PullRequest` object into the
         provider-neutral dataclass."""
         author = pr.author
+        data: Dict[str, Any] = getattr(pr, "data", {}) or {}
+        # `draft` and `description` are not surfaced as direct attributes
+        # by every version of atlassian-python-api — fall back to the
+        # raw response dict.
+        is_draft = bool(getattr(pr, "draft", None) if hasattr(pr, "draft") else data.get("draft"))
+        description_raw = data.get("description")
+        if isinstance(description_raw, dict):
+            description = description_raw.get("raw", "") or ""
+        else:
+            description = description_raw or getattr(pr, "description", "") or ""
         return PullRequest(
             number=int(getattr(pr, "id", 0) or 0),
             title=(getattr(pr, "title", "") or "")[:200],
             author=(getattr(author, "display_name", "") or getattr(author, "nickname", "") or "") if author else "",
-            is_draft=False,
+            is_draft=is_draft,
             head_ref=str(getattr(pr, "source_branch", "") or ""),
             base_ref=str(getattr(pr, "destination_branch", "") or ""),
             review_comment_count=int(getattr(pr, "comment_count", 0) or 0),
             created_at=str(getattr(pr, "created_on", "") or ""),
             merged_at=(str(getattr(pr, "updated_on", "") or "")) if state == "merged" else "",
             requested_reviewers=[(getattr(r, "display_name", "") or getattr(r, "nickname", "") or "") for r in (getattr(pr, "reviewers", None) or [])],
+            body=str(description)[:5000],
         )

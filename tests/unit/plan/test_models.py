@@ -59,10 +59,10 @@ class TestRoundtrip:
 
 class TestSuggestBranch:
     def test_jira_key(self) -> None:
-        assert suggest_branch("KAN-12") == "briar/kan-12"
+        assert suggest_branch("KAN-12") == "chore/kan-12"
 
     def test_issue_hash(self) -> None:
-        assert suggest_branch("#42") == "briar/issue-42"
+        assert suggest_branch("#42") == "chore/issue-42"
 
 
 class TestSelectorDecision:

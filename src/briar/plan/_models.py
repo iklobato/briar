@@ -28,13 +28,15 @@ PLAN_SCHEMA_VERSION = 2
 
 
 def suggest_branch(key: str) -> str:
-    """`KAN-12` → `briar/kan-12`; `#42` → `briar/issue-42`. Used by
-    `build_plan` to seed each card's branch name. Lives here, next to
-    PlanCard, because it's a one-line slug helper with no other home —
-    the deleted `_graph.py` was its prior address."""
+    """`KAN-12` → `chore/kan-12`; `#42` → `chore/issue-42`. Used by
+    `build_plan` to seed each card's branch name when the LLM
+    synthesiser is absent or returns an invalid name. `chore/` is the
+    conservative conventional-commits default; the LLM synthesiser
+    overrides with the right type (feat / fix / refactor / test / …)
+    when a real classification is possible."""
     slug = key.strip().lower().replace("#", "issue-").replace(" ", "-").replace("/", "-")
     slug = "".join(c for c in slug if c.isalnum() or c in "-_")
-    return f"briar/{slug or 'card'}"
+    return f"chore/{slug or 'card'}"
 
 
 @dataclass

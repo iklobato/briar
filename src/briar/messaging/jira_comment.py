@@ -12,7 +12,7 @@ from typing import Any, Dict, List
 
 from briar.decorators import swallow_errors
 from briar.env_vars import CredEnv
-from briar.messaging._writer import MessageWriter, SendResult
+from briar.messaging._writer import MessageWriter, SendResult, with_ai_prefix
 
 
 log = logging.getLogger(__name__)
@@ -45,6 +45,7 @@ class JiraCommentWriter(MessageWriter):
             return SendResult(ok=False, detail="jira creds missing")
         if not target:
             return SendResult(ok=False, detail="jira-comment requires target=<TICKET-KEY>")
+        body = with_ai_prefix(body)
         # atlassian-python-api: client.issue_add_comment(issue_key, comment)
         resp = self._jira().issue_add_comment(target, body)
         if not isinstance(resp, dict):

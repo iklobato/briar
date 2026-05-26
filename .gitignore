@@ -10,6 +10,9 @@ dist/
 knowledge/
 final.json
 
+# Decision-journal output — runtime artefact, not source
+journal/
+
 # Anything that looks like a secret bundle
 .env
 .env.*

@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Tuple
 
 from briar.decorators import swallow_errors
 from briar.env_vars import CredEnv
-from briar.messaging._writer import MessageWriter, SendResult
+from briar.messaging._writer import MessageWriter, SendResult, with_ai_prefix
 
 
 log = logging.getLogger(__name__)
@@ -48,6 +48,7 @@ class BitbucketPrCommentWriter(MessageWriter):
         repo_addr, number = self._parse_target(target, extras)
         if not repo_addr or not number:
             return SendResult(ok=False, detail=f"bitbucket-pr-comment requires target=workspace/repo#N; got {target!r}")
+        body = with_ai_prefix(body)
         workspace_slug, _, repo_slug = repo_addr.partition("/")
         if not workspace_slug or not repo_slug:
             workspace_slug = self._workspace_slug

@@ -68,6 +68,11 @@ class FetchPrReviewContext(TaskScopedRepoExtractor):
             body_parts.append("**Status**: DRAFT")
         if pr.requested_reviewers:
             body_parts.append(f"**Reviewers**: {', '.join(pr.requested_reviewers)}")
+        if pr.body:
+            body_parts.append("")
+            body_parts.append("### PR description")
+            body_parts.append("")
+            body_parts.append(pr.body)
 
         # CI failures first — usually higher priority than comments.
         if failures:

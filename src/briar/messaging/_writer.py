@@ -31,6 +31,19 @@ from typing import Any, ClassVar, Dict, List
 log = logging.getLogger(__name__)
 
 
+def with_ai_prefix(body: str) -> str:
+    """Prepend `[AI] ` to comments the LLM posts on the operator's behalf.
+    Per-operator CLAUDE.md mandate: PR/issue/ticket comments must be
+    marked. Idempotent — passes through bodies that already start with
+    the marker (allowing the LLM to author it explicitly without
+    producing `[AI] [AI] ...`)."""
+    if not body:
+        return body
+    if body.lstrip().startswith("[AI]"):
+        return body
+    return f"[AI] {body}"
+
+
 @dataclass(frozen=True)
 class SendResult:
     """Outcome of one write. `ok=False` is logged but does NOT raise —

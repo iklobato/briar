@@ -46,6 +46,7 @@ class PullRequest:
     created_at: str
     merged_at: str = ""
     requested_reviewers: List[str] = field(default_factory=list)
+    body: str = ""  # PR description / body, capped at the boundary
 
 
 @dataclass(frozen=True)
@@ -121,15 +122,21 @@ class Commit:
 class RepositoryProvider(ABC):
     """Strategy contract. Each concrete subclass adapts one vendor
     (GitHub, Bitbucket, GitLab, …) onto the same surface so extractors
-    stay provider-agnostic.
+    AND the agent runner stay provider-agnostic.
 
-    Three verbs are abstract because every provider must support them
-    (PRs and file-reads are the lowest common denominator). Three are
-    concrete with empty defaults because not every provider has a
+    Three data verbs are abstract because every provider must support
+    them (PRs and file-reads are the lowest common denominator). Three
+    are concrete with empty defaults because not every provider has a
     native concept of deploy environments / deployments / CI runs —
     Bitbucket Pipelines could implement them later, GitLab CI similarly,
     but a SourceHut-style minimal provider can ignore them and the
-    extractor's section just renders empty."""
+    extractor's section just renders empty.
+
+    Four clone/auth/recipe verbs are also abstract — they used to live
+    on a parallel `RepoCloner` hierarchy in `commands/agent.py`. Folding
+    them in here means one Strategy + Registry covers everything
+    vendor-specific. Adding a new vendor = one module + one entry in
+    `PROVIDERS`. No edits in `commands/agent.py` or in any extractor."""
 
     kind: ClassVar[str] = ""
 
@@ -139,6 +146,36 @@ class RepositoryProvider(ABC):
         for the company this provider was built for. Extractors gate
         their `KnowledgeExtractor.is_available()` on this — a missing
         token short-circuits the extractor instead of hitting a 401."""
+
+    # ---- clone + auth seam (used by `briar agent`) -----------------------
+    #
+    # Was the `RepoCloner` ABC before unification. All four methods are
+    # cheap pure-string returns — no I/O — so they're safe to call from
+    # any thread or context.
+
+    @abstractmethod
+    def resolve_token(self) -> str:
+        """Credential string for this provider, scoped to the company
+        this instance was built for. Empty when not configured — the
+        caller logs a clear error and bails (no exception thrown here)."""
+
+    @abstractmethod
+    def clone_url(self, owner: str, repo: str) -> str:
+        """Canonical HTTPS clone URL with no auth embedded. Used to
+        reset `origin` after cloning so the token does not persist in
+        `.git/config`."""
+
+    @abstractmethod
+    def authed_clone_url(self, owner: str, repo: str, token: str) -> str:
+        """Clone URL with the token embedded per the vendor's auth
+        convention (`x-access-token@` for GitHub, `x-token-auth@` for
+        Bitbucket, …). The actual URL passed to `git clone`."""
+
+    @abstractmethod
+    def pr_creation_recipe(self, *, owner: str, repo: str, branch: str) -> str:
+        """Procedure lines 6-7 of the engineer archetype's instruction
+        string — the vendor-specific recipe for opening a draft PR.
+        Returned as ready-to-splice markdown."""
 
     @abstractmethod
     def list_pulls(self, repo: str, *, state: str, max_count: int) -> List[PullRequest]:
