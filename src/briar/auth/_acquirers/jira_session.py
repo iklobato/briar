@@ -5,8 +5,13 @@ the user cannot generate an API token (SSO policy, restricted
 account types).
 
 Stores ``JIRA_<COMPANY>_URL``, ``JIRA_<COMPANY>_TENANT_SESSION_TOKEN``,
-and sets ``JIRA_<COMPANY>_AUTH_KIND=session``. ``cloud.session.token``
-+ ``atlassian.xsrf.token`` are accepted as optional extras.
+and sets ``JIRA_<COMPANY>_AUTH_KIND=session``. The strategy will also
+honor ``JIRA_<COMPANY>_SESSION_TOKEN`` (``cloud.session.token``) and
+``JIRA_<COMPANY>_XSRF_TOKEN`` (``atlassian.xsrf.token``) if set in env
+— typically only needed for write paths (POST/PUT/DELETE), which
+Atlassian's edge gates on the xsrf header for cookie-auth requests.
+Set those out-of-band when you need them; the interactive flow only
+asks for the bare minimum that makes reads work.
 
 Parses the JWT payload to record ``expires_at`` so the CLI can warn
 about the upcoming rotation."""
@@ -64,21 +69,15 @@ class JiraSessionAcquirer(CredentialAcquirer):
 
         url = prompt.prompt("    Jira URL (https://<org>.atlassian.net): ").strip().rstrip("/")
         tenant_token = prompt.prompt("    paste tenant.session.token: ", secret=True).strip()
-        cloud_token = prompt.prompt("    paste cloud.session.token (optional, ENTER to skip): ", secret=True).strip()
-        xsrf_token = prompt.prompt("    paste atlassian.xsrf.token (optional, ENTER to skip): ", secret=True).strip()
 
         if not (url and tenant_token):
-            raise ValueError("jira-session: URL + tenant.session.token required (at minimum)")
+            raise ValueError("jira-session: URL + tenant.session.token required")
 
         entries = {
             CredEnv.JIRA_URL.for_company(company): url,
             CredEnv.JIRA_TENANT_SESSION_TOKEN.for_company(company): tenant_token,
             CredEnv.JIRA_AUTH_KIND.for_company(company): "session",
         }
-        if cloud_token:
-            entries[CredEnv.JIRA_SESSION_TOKEN.for_company(company)] = cloud_token
-        if xsrf_token:
-            entries[CredEnv.JIRA_XSRF_TOKEN.for_company(company)] = xsrf_token
 
         expires_at = _decode_jwt_exp(tenant_token)
         return Credentials(

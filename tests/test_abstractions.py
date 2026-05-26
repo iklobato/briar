@@ -1464,14 +1464,13 @@ class JiraAcquirerInteractiveTests(unittest.TestCase):
         prompt = MockPromptIO(answers=[
             "https://acme.atlassian.net",
             "tenant-jwt-blob",
-            "",  # cloud token — skipped
-            "",  # xsrf — skipped
         ])
         creds = JiraSessionAcquirer().acquire(company="acme", prompt=prompt)
         self.assertEqual(creds.entries["JIRA_ACME_URL"], "https://acme.atlassian.net")
         self.assertEqual(creds.entries["JIRA_ACME_TENANT_SESSION_TOKEN"], "tenant-jwt-blob")
         self.assertEqual(creds.entries["JIRA_ACME_AUTH_KIND"], "session")
-        # Skipped optional cookies must NOT land in the entries dict.
+        # Acquirer no longer prompts for cloud / xsrf cookies — they're
+        # set out-of-band via secrets store when needed for writes.
         self.assertNotIn("JIRA_ACME_SESSION_TOKEN", creds.entries)
         self.assertNotIn("JIRA_ACME_XSRF_TOKEN", creds.entries)
 
@@ -1490,26 +1489,10 @@ class JiraAcquirerInteractiveTests(unittest.TestCase):
         prompt = MockPromptIO(answers=[
             "https://acme.atlassian.net",
             jwt,
-            "",  # cloud
-            "",  # xsrf
         ])
         creds = JiraSessionAcquirer().acquire(company="acme", prompt=prompt)
         self.assertIsNotNone(creds.expires_at)
         self.assertEqual(int(creds.expires_at.timestamp()), 1800000000)
-
-    def test_session_acquirer_carries_optional_cookies_when_provided(self) -> None:
-        from briar.auth._acquirers.jira_session import JiraSessionAcquirer
-        from briar.auth._prompt import MockPromptIO
-
-        prompt = MockPromptIO(answers=[
-            "https://acme.atlassian.net",
-            "tenant-token",
-            "cloud-token",
-            "xsrf-value",
-        ])
-        creds = JiraSessionAcquirer().acquire(company="acme", prompt=prompt)
-        self.assertEqual(creds.entries["JIRA_ACME_SESSION_TOKEN"], "cloud-token")
-        self.assertEqual(creds.entries["JIRA_ACME_XSRF_TOKEN"], "xsrf-value")
 
 
 class GitIdentityResolutionTests(unittest.TestCase):
@@ -2195,16 +2178,12 @@ class InfisicalStoreTests(unittest.TestCase):
         prompt = MockPromptIO(answers=[
             "https://acme.atlassian.net",
             jwt,
-            "",  # skip cloud.session.token
-            "",  # skip atlassian.xsrf.token
         ])
         creds = acquirer.acquire(company="acme", prompt=prompt)
         self.assertEqual(creds.entries["JIRA_ACME_TENANT_SESSION_TOKEN"], jwt)
         self.assertEqual(creds.entries["JIRA_ACME_AUTH_KIND"], "session")
-        # cloud / xsrf NOT in entries because they were left empty
         self.assertNotIn("JIRA_ACME_SESSION_TOKEN", creds.entries)
         self.assertNotIn("JIRA_ACME_XSRF_TOKEN", creds.entries)
-        # JWT exp parsed
         self.assertIsNotNone(creds.expires_at)
 
     def test_aws_static_writes_all_four_env_vars(self) -> None:
