@@ -32,6 +32,27 @@ from briar.env_vars import CredEnv
 log = logging.getLogger(__name__)
 
 
+def _normalize_jira_url(raw: str) -> str:
+    """Strip path / query / fragment from a pasted Jira URL.
+
+    Operators routinely type ``https://acme.atlassian.net/jira`` or paste
+    the URL bar from a logged-in tab (``…/jira/your-work``). Atlassian
+    Cloud's REST endpoints are mounted at the host root; any trailing
+    path also breaks the ``Origin`` / ``Referer`` envelope the session
+    strategy sends. Keep scheme + host only. Falls back to a plain
+    strip-and-rstrip if the input isn't a recognisable URL — the
+    caller's emptiness check still fires for genuinely-blank input."""
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(raw if "://" in raw else "https://" + raw)
+    if not parts.netloc:
+        return raw.rstrip("/")
+    return f"{parts.scheme or 'https'}://{parts.netloc}"
+
+
 def _decode_jwt_exp(jwt: str) -> Optional[datetime]:
     """Return the ``exp`` claim as a tz-aware UTC datetime, or None
     if the token isn't a 3-segment JWT or doesn't carry an exp.
@@ -67,7 +88,7 @@ class JiraSessionAcquirer(CredentialAcquirer):
         prompt.info("    4. DOUBLE-CLICK the Value cell and copy the full value (starts with `eyJ`)")
         prompt.info("       (drag-selecting often truncates the start — use double-click)")
 
-        url = prompt.prompt("    Jira URL (https://<org>.atlassian.net): ").strip().rstrip("/")
+        url = _normalize_jira_url(prompt.prompt("    Jira URL (https://<org>.atlassian.net): "))
         tenant_token = prompt.prompt("    paste tenant.session.token: ", secret=True).strip()
 
         if not (url and tenant_token):

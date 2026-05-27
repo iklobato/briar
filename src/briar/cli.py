@@ -6,6 +6,20 @@ binds to it — moving the binding would break installed shells."""
 
 from __future__ import annotations
 
+import warnings
+
+# pydantic's plugin loader scans installed packages for plugins at import
+# time. When logfire is installed but its pinned opentelemetry-sdk symbol
+# drifts (ReadableLogRecord was renamed upstream), the loader emits a
+# UserWarning to stderr on every CLI invocation. briar does not use
+# logfire, so the warning is pure noise. Filter it before anything
+# imports pydantic transitively (storage, telemetry, several adapters).
+warnings.filterwarnings(
+    "ignore",
+    message=r".*ImportError while loading the `logfire-plugin` Pydantic plugin.*",
+    category=UserWarning,
+)
+
 import argparse
 import logging
 import sys

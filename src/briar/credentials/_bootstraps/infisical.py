@@ -62,7 +62,12 @@ class InfisicalBootstrap(CredentialBootstrap):
         try:
             secrets = self._fetch_secrets()
         except Exception as exc:  # noqa: BLE001 — surface as result, don't crash startup
-            log.exception("infisical fetch failed")
+            # Config errors (bad creds, wrong project) are the common case
+            # here, not bugs. Keep the user-facing one-liner that cli.py
+            # already emits from HydrateResult.error and demote the full
+            # SDK traceback to debug — visible with `--log-level DEBUG`.
+            log.warning("infisical fetch failed: %s: %s", type(exc).__name__, exc)
+            log.debug("infisical traceback", exc_info=True)
             return HydrateResult(backend=self.kind, error=f"fetch failed: {exc}")
 
         written: List[str] = []

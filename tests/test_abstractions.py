@@ -1474,6 +1474,27 @@ class JiraAcquirerInteractiveTests(unittest.TestCase):
         self.assertNotIn("JIRA_ACME_SESSION_TOKEN", creds.entries)
         self.assertNotIn("JIRA_ACME_XSRF_TOKEN", creds.entries)
 
+    def test_session_acquirer_normalises_url_to_origin(self) -> None:
+        """Operators paste a URL bar (`/jira/your-work`) or add a
+        spurious `/jira` suffix because the on-prem product mounts
+        there. Atlassian Cloud's REST is at the host root; the strategy
+        builds Origin/Referer from this string, so anything past the
+        host breaks the request envelope. Acquirer must strip it."""
+        from briar.auth._acquirers.jira_session import JiraSessionAcquirer
+        from briar.auth._prompt import MockPromptIO
+
+        cases = [
+            ("https://acme.atlassian.net/jira", "https://acme.atlassian.net"),
+            ("https://acme.atlassian.net/jira/your-work?query=1", "https://acme.atlassian.net"),
+            ("  https://acme.atlassian.net/  ", "https://acme.atlassian.net"),
+            ("acme.atlassian.net", "https://acme.atlassian.net"),  # scheme inferred
+        ]
+        for raw, expected in cases:
+            with self.subTest(raw=raw):
+                prompt = MockPromptIO(answers=[raw, "tenant-jwt-blob"])
+                creds = JiraSessionAcquirer().acquire(company="acme", prompt=prompt)
+                self.assertEqual(creds.entries["JIRA_ACME_URL"], expected)
+
     def test_session_acquirer_records_jwt_exp_when_parseable(self) -> None:
         """If the pasted tenant.session.token is a real JWT with `exp`,
         Credentials.expires_at is populated so the CLI can warn before

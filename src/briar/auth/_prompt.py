@@ -61,9 +61,7 @@ class TerminalPromptIO:
 
     def prompt(self, message: str, *, secret: bool = False) -> str:
         if secret:
-            import getpass
-
-            return getpass.getpass(message)
+            return _read_secret_no_max_canon(message)
         return input(message)
 
     def info(self, message: str) -> None:
@@ -150,6 +148,96 @@ class MockPromptIO:
             if result:
                 return result
         raise TimeoutError(f"MockPromptIO.poll: exhausted {self._poll_attempts} attempts")
+
+
+def _read_secret_no_max_canon(message: str) -> str:
+    """Read a single line of hidden input without hitting the terminal's
+    ``MAX_CANON`` line-buffer cap.
+
+    ``getpass.getpass`` reads ``/dev/tty`` in canonical mode, which on
+    macOS / Linux caps a single line at ``MAX_CANON`` (1024 bytes on
+    Darwin, often less elsewhere). Atlassian's ``tenant.session.token``
+    JWT is routinely longer than that, so the trailing newline lands
+    past the buffer end and Enter becomes a silent no-op — the prompt
+    just sits there.
+
+    Fix: disable ``ICANON`` (and ``ECHO``) on the controlling TTY via
+    ``termios`` and read characters until newline. Falls back to
+    ``getpass.getpass`` on Windows (no termios) or when there is no
+    controlling TTY (CI, piped stdin) — both paths handle the buffer
+    differently and are safe."""
+    try:
+        import termios  # POSIX-only
+    except ImportError:
+        import getpass
+
+        return getpass.getpass(message)
+
+    import os
+
+    try:
+        tty_in = open("/dev/tty", "rb", buffering=0)
+        tty_out = open("/dev/tty", "wb", buffering=0)
+    except OSError:
+        import getpass
+
+        return getpass.getpass(message)
+
+    fd = tty_in.fileno()
+    try:
+        old = termios.tcgetattr(fd)
+    except termios.error:
+        tty_in.close()
+        tty_out.close()
+        import getpass
+
+        return getpass.getpass(message)
+
+    try:
+        tty_out.write(message.encode("utf-8"))
+        tty_out.flush()
+        new = termios.tcgetattr(fd)
+        # lflags index = 3; clear ICANON (line discipline) and ECHO
+        new[3] &= ~(termios.ICANON | termios.ECHO)
+        # cc[VMIN]=1, cc[VTIME]=0: read returns after each byte
+        cc = list(new[6])
+        cc[termios.VMIN] = 1
+        cc[termios.VTIME] = 0
+        new[6] = cc
+        termios.tcsetattr(fd, termios.TCSANOW, new)
+
+        buf = bytearray()
+        while True:
+            chunk = os.read(fd, 4096)
+            if not chunk:
+                break
+            done = False
+            for byte in chunk:
+                if byte in (0x0A, 0x0D):  # \n or \r
+                    done = True
+                    break
+                if byte == 0x03:  # Ctrl-C
+                    raise KeyboardInterrupt
+                if byte == 0x04:  # Ctrl-D — EOF
+                    done = True
+                    break
+                if byte in (0x7F, 0x08):  # DEL / backspace
+                    if buf:
+                        buf.pop()
+                    continue
+                buf.append(byte)
+            if done:
+                break
+        tty_out.write(b"\n")
+        tty_out.flush()
+        return buf.decode("utf-8", errors="replace")
+    finally:
+        try:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        except termios.error:
+            pass
+        tty_in.close()
+        tty_out.close()
 
 
 __all__ = ["MockPromptIO", "PromptIO", "TerminalPromptIO"]
