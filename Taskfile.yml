@@ -1,9 +1,9 @@
 version: "3"
 
 vars:
-  DROPLET: root@203.0.113.11
+  DROPLET: root@203.0.113.10
   DROPLET_NAME: briar-scheduler
-  DROPLET_ID: "572009953"
+  DROPLET_ID: "572958593"
   # Firewall whose inbound TCP/22 list gates SSH access to the droplet.
   # `doctl compute firewall list` confirms briar-scheduler.
   FIREWALL_ID: 1230e3df-8d6f-4b03-a0f7-b11b0f14e09a
@@ -11,7 +11,7 @@ vars:
 
 tasks:
   ssh:
-    desc: "Open an SSH session into the briar-scheduler droplet (root@203.0.113.11). Pass a command after `--` for one-shot mode (`task ssh -- uptime`)."
+    desc: "Open an SSH session into the briar-scheduler droplet (root@203.0.113.10). Pass a command after `--` for one-shot mode (`task ssh -- uptime`)."
     interactive: true
     cmds:
       - >

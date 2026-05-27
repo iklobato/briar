@@ -1592,6 +1592,386 @@ tab.
 
 ---
 
+## Advanced examples — feature combinations
+
+The per-command sections above show one feature at a time. These six
+examples each combine ≥3 features and exercise the registries an
+operator actually wires together day-to-day. Every name (extractor,
+writer kind, archetype, tracker, board reader, LLM, …) is checked
+against the live registries — running `briar` with these flags will
+not produce an "unknown X" error.
+
+### 1. Production-shaped runbook YAML — all YAML abstractions in one file
+
+Multi-task scheduling, postgres store with shared DSN partitioned by
+the `company` column, full `messages:` routing (4 of the 6 writer
+kinds), per-company `git_identity:` for agent commits. Drop this under
+`runbooks/<company>.yaml` and the scheduler picks it up on next sweep;
+the `extract`/`sweep` paths work the same way without `serve`.
+
+```yaml
+version: 1
+
+companies:
+  acme:
+    # Postgres-backed knowledge — explicit dsn_env keeps acme + other
+    # companies pointed at the same managed cluster. Rows are partitioned
+    # by the `company` column inside briar_knowledge, so collisions are
+    # impossible. Resolution: dsn_env → BRIAR_ACME_DATABASE_URL → BRIAR_DATABASE_URL.
+    knowledge:
+      store: postgres
+      name: knowledge:acme
+      config:
+        dsn_env: BRIAR_KB_DATABASE_URL
+
+    # Per-company commit identity. Read by `briar agent prfix/implement`
+    # when --runbook points at this YAML. CLI flags > YAML > hardcoded default.
+    git_identity:
+      name: Briar Bot (acme)
+      email: bot+acme@usebriar.com
+
+    # Named outbound channels. The agent's `send_message` tool resolves
+    # handle → writer at run time. Adding a writer kind is one registry
+    # entry; no schema edit here.
+    messages:
+      ticket_comment:
+        kind: jira-comment
+      ticket_transition:
+        kind: jira-transition
+        config:
+          status: "In Review"
+      pr_reply:
+        kind: github-pr-comment
+      ops_chat:
+        kind: slack-channel
+      escalation:
+        kind: telegram-chat
+
+    schedules:
+      # Heavy mining, daily. 5 extractors — pr archaeology, reviewer
+      # profile, code hotspots, ticket archaeology, AWS infra.
+      - task: archaeology
+        every: "day at 03:17"
+        extract:
+          - name: pr-archaeology
+            args:
+              provider: github
+              pr_repo: [acme-co/acme-app, acme-co/acme-api]
+              pr_max: 50
+              pr_authors_block: ["github-actions[bot]", "dependabot[bot]"]
+          - name: reviewer-profile
+            args:
+              provider: github
+              reviewer_repo: [acme-co/acme-app]
+              reviewer_pr_sample: 50
+              reviewer_top_n: 5
+          - name: code-hotspots
+            args:
+              provider: github
+              hotspots_repo: [acme-co/acme-app]
+              hotspots_since_days: 30
+              hotspots_max_commits: 100
+              hotspots_top_n: 10
+          - name: ticket-archaeology
+            args:
+              tracker: jira
+              ticket_archaeology_project: [ACME, PLAT]
+              ticket_max: 100
+          - name: aws-infra
+            args:
+              cloud: aws
+              aws_extract_profile: acme
+              aws_extract_region: us-east-1
+              aws_extract_service: [ecs, lambda, logs, rds, sqs]
+
+      # Codebase + deploy state, twice a day.
+      - task: implementation
+        every: "12 hours"
+        extract:
+          - name: codebase-conventions
+            args:
+              provider: github
+              conventions_repo: [acme-co/acme-app, acme-co/acme-api]
+          - name: github-deployments
+            args:
+              provider: github
+              deploy_repo: [acme-co/acme-app]
+
+      # Open work queue, hourly. PR + ticket sweeps.
+      - task: live
+        every: "hour"
+        extract:
+          - name: active-work
+            args:
+              provider: github
+              active_repo: [acme-co/acme-app, acme-co/acme-api]
+              active_authors_block: ["github-actions[bot]", "dependabot[bot]"]
+          - name: active-tickets
+            args:
+              tracker: jira
+              ticket_project: [ACME, PLAT]
+
+      # Meeting digest from Fireflies, twice a day. Splices automatically
+      # into the agent context when `--meeting-query` matches.
+      - task: meetings
+        every: "12 hours"
+        extract:
+          - name: meeting-digest
+            args:
+              meeting: fireflies
+              meeting_since_days: 14
+              meeting_max: 50
+              meeting_attendee_allow: [alice@acme.com, bob@acme.com]
+```
+
+Manual invocation (terminal-driven, no `serve`):
+
+```bash
+briar runbook extract runbooks/acme.yaml --task live     # one task across this runbook
+briar runbook sweep   runbooks/                           # every YAML in dir, one pass
+briar runbook extract runbooks/acme.yaml                  # all tasks, this YAML
+```
+
+### 2. End-to-end LLM-driven implementation pipeline
+
+`extract` seeds company knowledge → `plan build` enriches a tracker board
+with that knowledge → `plan run` loops the LLM selector + implementer
++ knowledge writer until the plan completes or blocks. The `--meeting-query`
+default (= ticket key) auto-surfaces standup transcripts that mention
+each card.
+
+```bash
+# 1. Seed the company knowledge blob (one-time per cadence cycle).
+#    Writes to knowledge:acme.
+briar extract --company acme \
+    --include pr-archaeology --include reviewer-profile \
+    --include code-hotspots --include codebase-conventions \
+    --include active-work --include active-tickets \
+    --pr-repo acme-co/acme-app --pr-max 50 \
+    --reviewer-repo acme-co/acme-app \
+    --hotspots-repo acme-co/acme-app --hotspots-since-days 30 \
+    --conventions-repo acme-co/acme-app \
+    --active-repo acme-co/acme-app \
+    --ticket-project ACME \
+    --storage postgres
+
+# 2. Build the plan from the live Jira board, with company knowledge
+#    spliced into each card's synthesis context.
+#    Writes plan:acme-q3 and seeds knowledge:acme.acme-q3.
+briar plan build \
+    https://acme.atlassian.net/jira/software/projects/ACME/boards/12 \
+    --name acme-q3 --company acme \
+    --llm anthropic --with-knowledge \
+    --store postgres --max-cards 30
+
+# 3. Smoke a single card first — dry-run prints the prompt without
+#    spending tokens or touching the repo.
+briar plan run acme-q3 \
+    --company acme --owner acme-co --repo acme-app \
+    --tracker jira --tracker-project ACME \
+    --runbook runbooks/acme.yaml \
+    --llm anthropic --model claude-sonnet-4-6 \
+    --limit 1 --dry-run
+
+# 4. Let the loop go wide. Failed cards are marked `blocked` and the
+#    loop continues; each completed card triggers KnowledgeWriter to
+#    merge new learnings into knowledge:acme.acme-q3.
+briar plan run acme-q3 \
+    --company acme --owner acme-co --repo acme-app \
+    --tracker jira --tracker-project ACME \
+    --runbook runbooks/acme.yaml \
+    --llm anthropic --model claude-sonnet-4-6 \
+    --continue-on-failure --max-replans 3
+
+# 5. Status snapshot + decision audit.
+briar plan status acme-q3 --format json | jq '.cards[] | select(.status=="blocked")'
+briar journal list --command plan.run. --limit 5
+briar journal show <session-id>
+```
+
+### 3. Credential bootstrap chain — Infisical + envfile + per-company scopes
+
+Registry order is precedence. `envfile` runs FIRST at startup so
+locally-persisted creds beat remote-vault values on conflict — operators
+who logged in via `briar auth login --store envfile` aren't stranded
+when Infisical 401s.
+
+```bash
+# One-time per laptop: bootstrap the password manager itself.
+# Always lands in envfile because the bootstrap is chicken-and-egg.
+briar auth login infisical
+
+# Vendor creds → choose where they land. Three flavours in one host:
+export BRIAR_DEFAULT_STORE=infisical
+briar auth login github-pat            --company acme        # → Infisical (default)
+briar auth login aws-sso               --company acme        # → Infisical
+briar auth login jira-session          --company acme        # → Infisical (cookie walkthrough)
+briar auth login bitbucket-app-password --company widgets    # → Infisical
+briar auth login linear-api-key        --company widgets     # → Infisical
+briar auth login aws-static            --company legacy \
+                                       --store envfile       # → envfile (local override)
+
+# Audit coverage WITHOUT printing values. Walks every runbook YAML's
+# schedules:/messages: blocks; queries each provider/writer's
+# required_env_vars(company); reports `ok` / `X MISSING:` per row.
+briar secrets doctor --examples runbooks/                    # env-var view
+briar secrets doctor --examples runbooks/ --store aws-secretsmanager
+
+# Per-target liveness check (exits non-zero on any miss).
+briar auth status aws-sso       --company acme
+briar auth status jira-session  --company acme --store infisical
+
+# Dry-run the bootstrap so you can see what would be hydrated.
+briar secrets bootstrap --dry-run
+
+# Refresh short-lived bundles (STS, etc.) without re-prompting.
+briar auth refresh aws-sso --company acme
+
+# Now run extract — auto_bootstrap() fires at CLI startup and the
+# required env vars are present.
+briar runbook extract runbooks/acme.yaml --task live
+```
+
+Resolution order at runtime (lowest precedence last):
+
+```
+1. os.environ at process start              ── operator-supplied wins
+2. envfile bootstrap (laptop default)        ── earliest registry entry
+3. infisical bootstrap (when configured)     ── later entry, only fills gaps
+4. on-demand CredentialStore reads           ── for explicit --store flows
+```
+
+### 4. Cross-provider agent run — Bitbucket repo, Linear tickets, meeting splice
+
+The agent is provider-agnostic — `--provider` and `--tracker` are
+orthogonal. `--meeting-query` overrides the auto-derived default
+(ticket key for `implement`, `owner/repo#pr` for `prfix`) when the
+standup discussed the topic by feature name.
+
+```bash
+# Bitbucket repo + Linear tickets + Fireflies meeting search.
+# Auto-query would be "ENG-7"; we override because the meeting
+# discussed the feature by name.
+briar agent implement \
+    --company widgets --owner widgets-co --repo api \
+    --provider bitbucket --tracker linear \
+    --ticket-project ENG --ticket-key ENG-7 \
+    --runbook runbooks/widgets.yaml \
+    --meeting fireflies \
+    --meeting-query "oauth refresh token rollout" \
+    --meeting-top-k 3 --meeting-max-bytes 60000 \
+    --model claude-sonnet-4-6 --max-iter 40
+
+# Bitbucket PR-fix run — pin ONE specific meeting transcript instead
+# of search (use when a reviewer cited "as discussed Thursday").
+briar agent prfix \
+    --company widgets --owner widgets-co --repo api \
+    --pr 142 --branch fix/oauth-refresh \
+    --provider bitbucket \
+    --runbook runbooks/widgets.yaml \
+    --meeting-key 01HABCDEF... \
+    --git-user-name "widgets-bot" --git-user-email "bot@widgets.example"
+```
+
+Git identity resolution (per field): CLI flag > YAML
+`companies.<name>.git_identity.{name,email}` > hardcoded default. So
+`--git-user-name` above overrides the YAML's `git_identity.name` only;
+`email` still comes from the YAML.
+
+### 5. Multi-source scaffold — Sentry triage with GitHub + AWS context
+
+Four sources, two families. `tracker` sources (`github`, `bitbucket`,
+`jira`, `sentry`) read items and contribute mutation tools. `cloud`
+sources (`aws`) are read-only context. The `triager` archetype filters
+the bound tool list down to non-mutating tools (e.g. `comment_on_issue`
+survives; `resolve_issue` / `assign_issue` are dropped).
+
+```bash
+# 15-min triage poll. Sentry contributes 4 action tools but only
+# comment_on_issue survives the triager filter. GitHub + AWS contribute
+# read-only context (PR queue, infra state) for the triager's reasoning.
+briar scaffold implementation \
+    --prefix acme-onerror \
+    --source sentry --source github --source aws \
+    --sentry-org acme --sentry-project backend --sentry-project worker \
+    --sentry-environment prod \
+    --sentry-level error --sentry-level fatal \
+    --sentry-query "is:unresolved" \
+    --auth-mode pat --sentry-secret-id <uuid> \
+    --owner acme-co --repo acme-app --github-secret-id <uuid> \
+    --aws-role-arn arn:aws:iam::123456789012:role/briar-readonly \
+    --aws-external-id <id> --aws-region us-east-1 \
+    --aws-services ecs --aws-services rds --aws-services logs \
+    --archetype triager --shape triage \
+    --trigger-kind schedule_cron --schedule "*/15 * * * *" \
+    --company acme \
+    --model claude-sonnet-4-6 \
+    --out scaffolds/acme-onerror.json
+
+# Same source mix, but as a plan→approve→act flow on Jira webhooks
+# instead of cron. Engineer archetype keeps all four mutation tools.
+briar scaffold implementation \
+    --prefix acme-impl \
+    --source jira --source github --source aws \
+    --jira-project ACME --jira-jql "project = ACME AND status = 'To Do'" \
+    --jira-secret-id <uuid> --auth-mode pat \
+    --owner acme-co --repo acme-app --github-secret-id <uuid> \
+    --aws-role-arn arn:aws:iam::123456789012:role/briar-readonly \
+    --aws-external-id <id> --aws-region us-east-1 \
+    --aws-services ecs --aws-services rds \
+    --archetype engineer --shape plan-approve-act \
+    --trigger-kind manual \
+    --company acme --out scaffolds/acme-impl.json
+
+# Inspect what the scaffold decided (and why).
+briar journal list --command scaffold. --limit 5
+briar journal show <session-id>
+briar journal export <session-id> --format markdown --out decisions/acme-onerror.md
+```
+
+### 6. Knowledge-store routing — same runbook, file in dev / postgres in prod
+
+The runbook's `knowledge.store: postgres` plus `config.dsn_env`
+locks the production binding. For local development, the operator
+overrides at the CLI level without editing the YAML — the agent
+flow reads the same `knowledge:<company>` blob from whichever store
+the CLI was told to use.
+
+```bash
+# Dev — write the same blob to a local file. `--storage file` overrides
+# the YAML's store; `--root` controls where the file lands.
+briar extract --company acme \
+    --include pr-archaeology --include active-work \
+    --pr-repo acme-co/acme-app \
+    --active-repo acme-co/acme-app \
+    --storage file --root ./knowledge --blob-name knowledge:acme
+
+# Read it back.
+briar context get knowledge:acme
+briar context list --prefix knowledge:
+briar context categories
+
+# Prod — postgres. Three env vars resolve in order; first non-empty wins.
+#   1. dsn_env from runbook YAML                  (explicit; highest precedence)
+#   2. BRIAR_ACME_DATABASE_URL                    (per-company convention)
+#   3. BRIAR_DATABASE_URL                         (global fallback)
+export BRIAR_KB_DATABASE_URL='postgresql://briar_kb:***@pg.example:25060/briar?sslmode=require'
+briar runbook extract runbooks/acme.yaml --task live
+
+# Same DSN, same partition column, share the cluster across companies
+# without leakage: every blob is keyed by (company, name) at the table.
+briar context --store postgres list --prefix knowledge:
+
+# Read the plan-scoped shard the agent stream writes to.
+briar context --store postgres get knowledge:acme.acme-q3
+```
+
+Pair this with `briar dashboard --once > /tmp/snapshot.html` to render
+a status snapshot from either store without standing up a long-running
+HTTP listener.
+
+---
+
 ## Examples + further reading
 
 - `runbooks/` (gitignored — keep your real runbooks here so they
