@@ -25,25 +25,23 @@ class TestDoctor:
 
 class TestBootstrap:
     def test_bootstrap_no_kind_no_backend_available(self, cli, mocker) -> None:
-        from briar.credentials._bootstrap import HydrateResult
-
+        # `auto_bootstrap()` returns an empty list when no backend is
+        # available (no envfile, no Infisical creds). The command should
+        # exit 0 with a "nothing configured" message — startup must be
+        # robust to a fresh install.
         mocker.patch(
             "briar.credentials._bootstraps.auto_bootstrap",
-            return_value=HydrateResult(backend="(none)", written=set(), skipped=set(), error=""),
+            return_value=[],
         )
         result = cli("secrets", "bootstrap")
         assert result.code == 0
         assert "no credential-bootstrap" in result.out
 
-    def test_bootstrap_kind_not_available(self, cli, mocker) -> None:
-        from briar.credentials._bootstraps import CredentialBootstrapRegistry
-
-        # Pick any registered kind
-        kinds = list(CredentialBootstrapRegistry.kinds())
-        if not kinds:
-            pytest.skip("no bootstraps registered")
-        # The default state (no env vars) means the bootstrap is not available.
-        result = cli("secrets", "bootstrap", "--kind", kinds[0])
-        # When not configured, exit 1 with explanation
+    def test_bootstrap_kind_not_available(self, cli) -> None:
+        # `env_sandbox` autouse fixture clears INFISICAL_* and redirects
+        # BRIAR_SECRETS_FILE so envfile bootstrap can't restore them.
+        # InfisicalBootstrap.is_available() returns False
+        # deterministically — exit 1 with "not configured".
+        result = cli("secrets", "bootstrap", "--kind", "infisical")
         assert result.code == 1
         assert "not configured" in result.out

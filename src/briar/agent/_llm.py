@@ -71,6 +71,15 @@ class LLMProvider(ABC):
     def is_available(self) -> bool:
         """True iff credentials are present and the provider is usable."""
 
+    @classmethod
+    def required_env_vars(cls) -> List[str]:
+        """Env-var names the provider checks when constructing an
+        authenticated client. Used by the runner to format an
+        actionable "credentials missing" error — names the specific
+        keys instead of pointing at env_vars.py. Default returns
+        an empty list; providers should override."""
+        return []
+
     @abstractmethod
     def complete(
         self,

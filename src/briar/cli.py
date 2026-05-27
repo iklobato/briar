@@ -65,11 +65,16 @@ class Cli:
         # on hosts that have the universal-auth machine identity set.
         from briar.credentials._bootstraps import auto_bootstrap
 
-        result = auto_bootstrap()
-        if not result.ok:
-            log.warning("credential-bootstrap: %s failed — %s", result.backend, result.error)
-        elif result.count:
-            log.info("credential-bootstrap: %s hydrated %d env vars", result.backend, result.count)
+        # Cascade — every available bootstrap runs in registry order.
+        # Log each result independently so one backend's failure doesn't
+        # obscure another's success (envfile + Infisical commonly run
+        # together; a 401 from Infisical must not hide that envfile
+        # hydrated 12 vars successfully).
+        for result in auto_bootstrap():
+            if not result.ok:
+                log.warning("credential-bootstrap: %s failed — %s", result.backend, result.error)
+            elif result.count:
+                log.info("credential-bootstrap: %s hydrated %d env vars", result.backend, result.count)
 
         # Install the default journal. Commands that use
         # `with briar.journal.session(...)` will record + persist;

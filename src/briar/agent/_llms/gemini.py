@@ -38,6 +38,10 @@ class GeminiLLM(LLMProvider):
     def is_available(self) -> bool:
         return bool(self._api_key) and _import_genai() is not None
 
+    @classmethod
+    def required_env_vars(cls) -> List[str]:
+        return ["GEMINI_API_KEY"]
+
     def _build_model(self, system: str, tools: List[Dict[str, Any]]):
         genai = _import_genai()
         if genai is None:

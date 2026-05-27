@@ -39,6 +39,10 @@ class OpenAILLM(LLMProvider):
     def is_available(self) -> bool:
         return bool(self._api_key) and _import_openai() is not None
 
+    @classmethod
+    def required_env_vars(cls) -> List[str]:
+        return ["OPENAI_API_KEY"]
+
     def _build_client(self):
         if self._client is not None:
             return self._client

@@ -129,10 +129,22 @@ class AgentRunner:
             if self._cfg.dry_run:
                 return self._dry_run_report()
             if not self._llm.is_available():
+                names = type(self._llm).required_env_vars()
+                # Name the env vars the provider checks, and surface the
+                # three remediation paths an operator can take. Joining
+                # with " or " is correct for AnthropicLLM (oauth OR api
+                # key) and also reads fine for single-key providers.
+                needed = " or ".join(names) if names else "(see provider env_vars)"
                 return AgentRunResult(
                     company=self._cfg.company,
                     task=self._cfg.task,
-                    error=f"LLM ({self._llm.kind}) credentials missing — see env_vars.py for the required vars",
+                    error=(
+                        f"LLM ({self._llm.kind}) credentials missing — set {needed} "
+                        f"via one of: (1) shell env, (2) `briar auth login` if a vendor "
+                        f"acquirer exists, (3) hand-edit ~/.config/briar/secrets.env. "
+                        f"If you expected a credential bootstrap (Infisical, …) to hydrate "
+                        f"this, check the earlier `credential-bootstrap: … failed` log line."
+                    ),
                 )
             system = self._build_system_prompt()
             initial_user = self._build_initial_user_message()

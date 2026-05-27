@@ -85,21 +85,27 @@ class CommandSecrets(Command):
                 names = ", ".join(bs.required_env_vars())
                 print(f"bootstrap kind={bs.kind} not configured — required env: {names}")
                 return 1
-            result = bs.hydrate(dry_run=args.dry_run)
+            results = [bs.hydrate(dry_run=args.dry_run)]
         else:
-            result = auto_bootstrap(dry_run=args.dry_run)
+            results = auto_bootstrap(dry_run=args.dry_run)
 
-        if not result.ok:
-            print(f"bootstrap {result.backend} failed: {result.error}")
-            return 1
-        if result.backend == "(none)":
+        if not results:
             print("no credential-bootstrap backend configured (auto-detect found nothing)")
             return 0
+
         marker = "would write" if args.dry_run else "wrote"
-        print(f"bootstrap {result.backend}: {marker} {result.count} env vars (preserved {len(result.skipped)} already-set)")
-        if result.written:
-            print("  keys: " + ", ".join(sorted(result.written)))
-        return 0
+        any_failed = False
+        for result in results:
+            if not result.ok:
+                any_failed = True
+                print(f"bootstrap {result.backend} failed: {result.error}")
+                continue
+            print(f"bootstrap {result.backend}: {marker} {result.count} env vars (preserved {len(result.skipped)} already-set)")
+            if result.written:
+                print("  keys: " + ", ".join(sorted(result.written)))
+        # Cascade exit code: any successful backend → 0 (operator can proceed
+        # with what we did hydrate); all-failed → 1.
+        return 1 if any_failed and not any(r.ok for r in results) else 0
 
     def _doctor(self, args: argparse.Namespace) -> int:
         from briar.extract import EXTRACTORS

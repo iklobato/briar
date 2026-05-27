@@ -39,15 +39,25 @@ _PREFIXES_TO_SCRUB = (
 
 
 @pytest.fixture(autouse=True)
-def env_sandbox(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Strip every credential-shaped env var before each test.
+def env_sandbox(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory) -> None:
+    """Strip every credential-shaped env var before each test, AND
+    redirect ``BRIAR_SECRETS_FILE`` to a per-test empty path.
 
     Two tests on the same machine must not influence each other through
     `os.environ`. This is the single biggest source of order-coupling
-    bugs that `pytest-randomly` would otherwise surface."""
+    bugs that `pytest-randomly` would otherwise surface.
+
+    `BRIAR_SECRETS_FILE` override is non-obvious but load-bearing:
+    `EnvFileBootstrap` runs during `briar.cli.main` startup and
+    re-hydrates any envfile it finds, undoing this fixture's
+    `monkeypatch.delenv` calls. Pointing at a per-test nonexistent
+    path makes the bootstrap a deterministic no-op so the env stays
+    sandboxed."""
     for key in list(os.environ):
         if key.startswith(_PREFIXES_TO_SCRUB):
             monkeypatch.delenv(key, raising=False)
+    sandbox_envfile = tmp_path_factory.mktemp("envfile-sandbox") / "secrets.env"
+    monkeypatch.setenv("BRIAR_SECRETS_FILE", str(sandbox_envfile))
 
 
 @pytest.fixture

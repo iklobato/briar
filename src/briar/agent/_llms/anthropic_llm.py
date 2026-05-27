@@ -137,6 +137,13 @@ class AnthropicLLM(LLMProvider):
     def is_available(self) -> bool:
         return bool(self._oauth_token or self._api_key)
 
+    @classmethod
+    def required_env_vars(cls) -> List[str]:
+        # Either-or, not both — surfaced as one comma-joined entry so
+        # the runner's error message reads naturally:
+        # "set CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY"
+        return ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"]
+
     def complete(
         self,
         *,

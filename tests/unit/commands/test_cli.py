@@ -122,11 +122,15 @@ class TestJournalInstall:
 
 class TestBootstrap:
     def test_bootstrap_failure_logs_warning_continues(self, cli, mocker, caplog_briar) -> None:
+        # auto_bootstrap() now returns List[HydrateResult] (one per
+        # backend). A single failed backend should be logged as a
+        # warning but must not stop the CLI — startup continues, the
+        # command runs, exit code is 0.
         from briar.credentials._bootstrap import HydrateResult
 
         mocker.patch(
             "briar.credentials._bootstraps.auto_bootstrap",
-            return_value=HydrateResult(backend="fake", written=0, skipped=0, error="fail"),
+            return_value=[HydrateResult(backend="fake", error="fail")],
         )
         result = cli("version")
         assert result.code == 0

@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 import unittest
+from pathlib import Path
 from unittest import mock
 
 
@@ -585,10 +586,16 @@ class CredentialBootstrapTests(unittest.TestCase):
     the only concrete impl today; this test pins the contract so a
     future addition stays in shape."""
 
-    def test_registry_lists_infisical(self) -> None:
+    def test_registry_lists_envfile_then_infisical(self) -> None:
+        """Registry order = precedence. envfile must come first so
+        locally-persisted creds beat remote-vault values and survive an
+        Infisical 401."""
         from briar.credentials._bootstraps import BOOTSTRAPS
 
-        self.assertIn("infisical", BOOTSTRAPS)
+        kinds = list(BOOTSTRAPS.keys())
+        self.assertIn("envfile", kinds)
+        self.assertIn("infisical", kinds)
+        self.assertLess(kinds.index("envfile"), kinds.index("infisical"))
 
     def test_infisical_unavailable_without_creds(self) -> None:
         from briar.credentials._bootstraps.infisical import InfisicalBootstrap
@@ -611,15 +618,150 @@ class CredentialBootstrapTests(unittest.TestCase):
         self.assertIn("INFISICAL_PROJECT_ID", names)
 
     def test_auto_bootstrap_no_backend_configured(self) -> None:
-        """No backend has its creds set → returns a `(none)` result.
-        Does NOT raise — startup must be robust to "no remote vault"."""
+        """No backend is available → empty list. Startup must be
+        robust to "no remote vault, no envfile present"."""
+        import tempfile
         from briar.credentials._bootstraps import auto_bootstrap
 
-        with mock.patch.dict("os.environ", {}, clear=True):
-            result = auto_bootstrap()
-        self.assertEqual(result.backend, "(none)")
-        self.assertEqual(result.count, 0)
-        self.assertTrue(result.ok)
+        with tempfile.TemporaryDirectory() as tmp:
+            # Point envfile resolution at a fresh path with no file →
+            # EnvFileBootstrap.is_available() returns False, and with
+            # no INFISICAL_* vars set, Infisical is also unavailable.
+            env = {
+                "BRIAR_SECRETS_FILE": str(Path(tmp) / "secrets.env"),
+                "HOME": tmp,  # force XDG fallback off any real ~/.config
+            }
+            with mock.patch.dict("os.environ", env, clear=True):
+                results = auto_bootstrap()
+        self.assertEqual(results, [])
+
+    def test_envfile_bootstrap_hydrates_only_unset_keys(self) -> None:
+        """The cascade contract: envfile values populate os.environ
+        only when the key isn't already set (operator shell env wins).
+        Verifies the file-read path, the comment/blank-line skip, the
+        export-prefix tolerance, and the quoted-value strip."""
+        import tempfile
+        from briar.credentials._bootstraps.envfile import EnvFileBootstrap
+
+        contents = (
+            "# header comment\n"
+            "\n"
+            "ANTHROPIC_API_KEY=sk-from-file\n"
+            "export GITHUB_TOKEN=ghp_from_file\n"
+            'JIRA_ACME_URL="https://acme.atlassian.net"\n'
+            "ALREADY_SET=from-file\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "secrets.env"
+            path.write_text(contents)
+            env = {
+                "BRIAR_SECRETS_FILE": str(path),
+                "ALREADY_SET": "from-shell",
+            }
+            with mock.patch.dict("os.environ", env, clear=True):
+                bs = EnvFileBootstrap()
+                self.assertTrue(bs.is_available())
+                result = bs.hydrate()
+                self.assertTrue(result.ok)
+                # written: keys not previously in os.environ
+                self.assertIn("ANTHROPIC_API_KEY", result.written)
+                self.assertIn("GITHUB_TOKEN", result.written)
+                self.assertIn("JIRA_ACME_URL", result.written)
+                # skipped: key already in shell env — operator wins
+                self.assertIn("ALREADY_SET", result.skipped)
+                # Quotes stripped on the JIRA URL
+                self.assertEqual(os.environ["JIRA_ACME_URL"], "https://acme.atlassian.net")
+                # export-prefix tolerated
+                self.assertEqual(os.environ["GITHUB_TOKEN"], "ghp_from_file")
+                # Operator-set value preserved
+                self.assertEqual(os.environ["ALREADY_SET"], "from-shell")
+
+    def test_envfile_unavailable_without_file(self) -> None:
+        """No file → is_available() False, hydrate() returns a
+        structured error not a crash."""
+        import tempfile
+        from briar.credentials._bootstraps.envfile import EnvFileBootstrap
+
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "does-not-exist.env"
+            with mock.patch.dict("os.environ", {"BRIAR_SECRETS_FILE": str(missing)}, clear=True):
+                bs = EnvFileBootstrap()
+                self.assertFalse(bs.is_available())
+                result = bs.hydrate()
+                self.assertFalse(result.ok)
+                self.assertIn("no envfile", result.error)
+
+    def test_auto_bootstrap_runs_envfile_then_infisical(self) -> None:
+        """Both backends configured → both fire. Infisical 401 does not
+        wipe out envfile's written keys; envfile values shadow Infisical
+        values when both supply the same key (envfile is registered
+        first; setdefault semantics)."""
+        import tempfile
+        from briar.credentials._bootstraps import auto_bootstrap
+
+        contents = "FROM_ENVFILE=v1\nSHARED=envfile-wins\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "secrets.env"
+            path.write_text(contents)
+            env = {
+                "BRIAR_SECRETS_FILE": str(path),
+                "INFISICAL_CLIENT_ID": "id",
+                "INFISICAL_CLIENT_SECRET": "secret",
+                "INFISICAL_PROJECT_ID": "proj",
+            }
+            with mock.patch.dict("os.environ", env, clear=True):
+                with mock.patch(
+                    "briar.credentials._bootstraps.infisical.InfisicalBootstrap._fetch_secrets",
+                    return_value=[("FROM_INFISICAL", "v2"), ("SHARED", "infisical-loses")],
+                ):
+                    results = auto_bootstrap()
+
+        backends = [r.backend for r in results]
+        self.assertEqual(backends, ["envfile", "infisical"])
+        # envfile wrote 2 keys
+        envfile_result = results[0]
+        self.assertIn("FROM_ENVFILE", envfile_result.written)
+        self.assertIn("SHARED", envfile_result.written)
+        # infisical wrote 1 (FROM_INFISICAL); SHARED was skipped because
+        # envfile already populated it
+        infisical_result = results[1]
+        self.assertIn("FROM_INFISICAL", infisical_result.written)
+        self.assertIn("SHARED", infisical_result.skipped)
+
+    def test_auto_bootstrap_survives_infisical_failure(self) -> None:
+        """The cascade's reason for existing: Infisical 401 leaves
+        envfile values in place. Operator can still work locally."""
+        import tempfile
+        from briar.credentials._bootstraps import auto_bootstrap
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "secrets.env"
+            path.write_text("LOCAL_KEY=local-value\n")
+            env = {
+                "BRIAR_SECRETS_FILE": str(path),
+                "INFISICAL_CLIENT_ID": "id",
+                "INFISICAL_CLIENT_SECRET": "secret",
+                "INFISICAL_PROJECT_ID": "proj",
+            }
+            with mock.patch.dict("os.environ", env, clear=True):
+                with mock.patch(
+                    "briar.credentials._bootstraps.infisical.InfisicalBootstrap._fetch_secrets",
+                    side_effect=RuntimeError("401 invalid creds"),
+                ):
+                    results = auto_bootstrap()
+                # Assert envfile values landed in os.environ while the
+                # patched dict is still active — mock.patch.dict rolls
+                # back on exit, so checks outside the `with` would see
+                # the original (empty) env.
+                self.assertEqual(os.environ["LOCAL_KEY"], "local-value")
+
+        # envfile succeeded, infisical failed — both reported
+        envfile_result = next(r for r in results if r.backend == "envfile")
+        infisical_result = next(r for r in results if r.backend == "infisical")
+        self.assertTrue(envfile_result.ok)
+        self.assertIn("LOCAL_KEY", envfile_result.written)
+        self.assertFalse(infisical_result.ok)
+        self.assertIn("401", infisical_result.error)
 
     def test_infisical_hydrate_writes_via_setdefault_dry_run(self) -> None:
         """Dry-run path: fetches from Infisical (mocked SDK), reports
