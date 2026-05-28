@@ -20,6 +20,7 @@ from briar._registry import build_registry
 from briar.agent.runner import AgentRunner, AgentRunConfig
 from briar.commands._enums import ExitCode
 from briar.commands.base import Command
+from briar.errors import CliError
 
 log = logging.getLogger(__name__)
 
@@ -62,8 +63,8 @@ class PrfixOp(AgentOp):
         parser.add_argument("--knowledge", default="./knowledge", help="File-store root (ignored for postgres)")
         parser.add_argument("--model", default="", help="Override Anthropic model (defaults to AgentRunner.DEFAULT_MODEL)")
         parser.add_argument("--max-iter", type=int, default=0, help="Iteration ceiling (defaults to AgentRunner.DEFAULT_MAX_ITERATIONS)")
-        parser.add_argument("--git-user-name", default="", help="git config user.name on the worktree. If empty: falls back to the runbook YAML's company.git_identity.name, then to `iklobato`.")
-        parser.add_argument("--git-user-email", default="", help="git config user.email on the worktree. If empty: falls back to the runbook YAML's company.git_identity.email, then to `dev@users.noreply.github.com`.")
+        parser.add_argument("--git-user-name", default="", help="git config user.name on the worktree. Required unless company.git_identity.name is set in the runbook.")
+        parser.add_argument("--git-user-email", default="", help="git config user.email on the worktree. Required unless company.git_identity.email is set in the runbook.")
         parser.add_argument("--keep-worktree", action="store_true", help="Leave the worktree in /tmp after the run for inspection")
         parser.add_argument(
             "--dry-run",
@@ -111,8 +112,8 @@ class ImplementOp(AgentOp):
         parser.add_argument("--knowledge", default="./knowledge", help="File-store root (ignored for postgres)")
         parser.add_argument("--model", default="", help="Override Anthropic model (defaults to AgentRunner.DEFAULT_MODEL)")
         parser.add_argument("--max-iter", type=int, default=0, help="Iteration ceiling (defaults to AgentRunner.DEFAULT_MAX_ITERATIONS)")
-        parser.add_argument("--git-user-name", default="", help="git config user.name on the worktree. If empty: falls back to the runbook YAML's company.git_identity.name, then to `iklobato`.")
-        parser.add_argument("--git-user-email", default="", help="git config user.email on the worktree. If empty: falls back to the runbook YAML's company.git_identity.email, then to `dev@users.noreply.github.com`.")
+        parser.add_argument("--git-user-name", default="", help="git config user.name on the worktree. Required unless company.git_identity.name is set in the runbook.")
+        parser.add_argument("--git-user-email", default="", help="git config user.email on the worktree. Required unless company.git_identity.email is set in the runbook.")
         parser.add_argument("--keep-worktree", action="store_true", help="Leave the worktree in /tmp after the run for inspection")
         parser.add_argument(
             "--dry-run",
@@ -476,12 +477,15 @@ class CommandAgent(Command):
         Priority (per-field, independent):
           1. CLI flag — ``--git-user-name`` / ``--git-user-email`` (non-empty)
           2. Runbook YAML — ``companies.<name>.git_identity.{name, email}``
-          3. Hardcoded legacy default — ``iklobato`` / ``dev@users.noreply.github.com``
 
         Per-field resolution means you can set the name via CLI and let
         the email fall through to YAML (or vice versa). YAML lookup
         runs only when ``--runbook`` was passed; failures during YAML
-        load are non-fatal — the resolver logs and falls through."""
+        load are non-fatal — the resolver logs and the field stays empty.
+
+        Raises ``CliError`` when neither source provides a value for one
+        of the fields. There is no hardcoded fallback — committed
+        personal identifiers on a third-party host are a smell."""
         cli_name = (getattr(args, "git_user_name", "") or "").strip()
         cli_email = (getattr(args, "git_user_email", "") or "").strip()
 
@@ -500,10 +504,15 @@ class CommandAgent(Command):
                         yaml_name = (gi.name or "").strip()
                         yaml_email = (gi.email or "").strip()
             except Exception:  # noqa: BLE001
-                log.exception("failed to load runbook=%s for git_identity — falling back", runbook_path)
+                log.exception("failed to load runbook=%s for git_identity — staying unset", runbook_path)
 
-        resolved_name = cli_name or yaml_name or "iklobato"
-        resolved_email = cli_email or yaml_email or "dev@users.noreply.github.com"
+        resolved_name = cli_name or yaml_name
+        resolved_email = cli_email or yaml_email
+        if not resolved_name or not resolved_email:
+            raise CliError(
+                "git identity not configured: pass --git-user-name/--git-user-email "
+                "or set git_identity.name/.email in the runbook's company block."
+            )
         return resolved_name, resolved_email
 
     @staticmethod

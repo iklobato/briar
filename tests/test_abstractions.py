@@ -1714,12 +1714,17 @@ class GitIdentityResolutionTests(unittest.TestCase):
         self.assertEqual(ce.git_identity.name, "")
         self.assertEqual(ce.git_identity.email, "")
 
-    def test_resolve_falls_back_to_hardcoded_default_when_nothing_set(self) -> None:
+    def test_resolve_raises_when_nothing_set(self) -> None:
+        """No CLI flag, no runbook → CliError. There is no hardcoded
+        fallback (was previously `iklobato`/`dev@users.noreply.github.com`;
+        committed personal identifiers on a third-party host are a
+        smell)."""
         from briar.commands.agent import CommandAgent
+        from briar.errors import CliError
 
-        name, email = CommandAgent._resolve_git_identity(self._ns())
-        self.assertEqual(name, "iklobato")
-        self.assertEqual(email, "dev@users.noreply.github.com")
+        with self.assertRaises(CliError) as ctx:
+            CommandAgent._resolve_git_identity(self._ns())
+        self.assertIn("git identity not configured", str(ctx.exception))
 
     def test_cli_flag_wins_over_default(self) -> None:
         from briar.commands.agent import CommandAgent
@@ -1785,32 +1790,34 @@ class GitIdentityResolutionTests(unittest.TestCase):
         finally:
             os.unlink(path)
 
-    def test_missing_company_in_runbook_falls_through_to_default(self) -> None:
-        """Runbook loads but company key absent → fall through, no crash."""
+    def test_missing_company_in_runbook_raises(self) -> None:
+        """Runbook loads but company key absent → CliError. The runbook
+        provided nothing; CLI flags weren't passed; no source supplied
+        an identity."""
         import tempfile
         from briar.commands.agent import CommandAgent
+        from briar.errors import CliError
 
         with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
             f.write(self._yaml("yaml-name", "yaml@e.x"))
             path = f.name
         try:
             ns = self._ns(company="other-company", runbook=path)
-            name, email = CommandAgent._resolve_git_identity(ns)
-            # Falls through to hardcoded default
-            self.assertEqual(name, "iklobato")
-            self.assertEqual(email, "dev@users.noreply.github.com")
+            with self.assertRaises(CliError):
+                CommandAgent._resolve_git_identity(ns)
         finally:
             os.unlink(path)
 
-    def test_unreadable_runbook_is_non_fatal(self) -> None:
-        """YAML load failure logs and falls through — never raises."""
+    def test_unreadable_runbook_is_non_fatal_but_still_raises_without_cli(self) -> None:
+        """YAML load failure must not crash the resolver — it must log
+        and stay quiet. With no CLI flag to fall back on, the resolver
+        then raises CliError to signal the missing identity."""
         from briar.commands.agent import CommandAgent
+        from briar.errors import CliError
 
         ns = self._ns(company="acme", runbook="/nonexistent/runbook.yaml")
-        # Must not raise
-        name, email = CommandAgent._resolve_git_identity(ns)
-        self.assertEqual(name, "iklobato")
-        self.assertEqual(email, "dev@users.noreply.github.com")
+        with self.assertRaises(CliError):
+            CommandAgent._resolve_git_identity(ns)
 
 
 class ErrorPolicyTests(unittest.TestCase):

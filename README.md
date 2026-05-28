@@ -325,7 +325,7 @@ Address unresolved review comments + failing CI on one PR.
 | `--dry-run` | | print rendered prompt + tool list, skip LLM call |
 | `--model <name>` | | override Anthropic model |
 | `--max-iter <N>` | | iteration ceiling |
-| `--git-user-name` / `--git-user-email` | | commit identity. Per-field resolution: CLI flag > YAML `companies.<name>.git_identity.{name,email}` (when `--runbook` is set) > hardcoded `iklobato` default. |
+| `--git-user-name` / `--git-user-email` | | commit identity. Per-field resolution: CLI flag > YAML `companies.<name>.git_identity.{name,email}` (when `--runbook` is set). Raises `CliError` if neither source provides a value — there is no hardcoded fallback. |
 | `--keep-worktree` | | leave `/tmp/...` after run |
 | `--meeting {fireflies}` | | meeting provider (default `fireflies`); requires `FIREFLIES_{c}_API_KEY` |
 | `--meeting-key <id>` | | splice ONE specific meeting's full transcript into the agent prompt |
