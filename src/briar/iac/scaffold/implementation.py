@@ -12,7 +12,7 @@ Examples:
     # github tracker, OAuth, webhook trigger, plan→approve flow
     briar scaffold implementation \\
         --prefix acme-impl --source github \\
-        --owner iklobato --repo lightapi
+        --owner alice --repo widgets
 
     # bitbucket tracker, app-password auth, webhook trigger
     briar scaffold implementation \\
@@ -24,7 +24,7 @@ Examples:
     # github + jira + aws sources, hourly cron, one-shot agent
     briar scaffold implementation \\
         --prefix acme-hourly --source github --source jira --source aws \\
-        --owner iklobato --repo lightapi \\
+        --owner alice --repo widgets \\
         --shape one-shot --trigger-kind schedule_cron --schedule "0 * * * *"
 """
 

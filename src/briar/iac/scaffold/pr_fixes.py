@@ -9,7 +9,7 @@ Examples:
 
     briar scaffold pr-fixes \\
         --prefix acme-prfix --source github \\
-        --owner iklobato --repo lightapi \\
+        --owner alice --repo widgets \\
         --trigger-kind schedule_cron --schedule "0 * * * *"
 
     briar scaffold pr-fixes \\

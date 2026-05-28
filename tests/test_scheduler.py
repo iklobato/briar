@@ -23,12 +23,12 @@ companies:
         every: "day at 03:17"
         extract:
           - name: pr-archaeology
-            args: {pr_repo: [iklobato/lightapi]}
+            args: {pr_repo: [acme/widgets]}
       - task: prfix
         every: "hour"
         extract:
           - name: active-work
-            args: {active_repo: [iklobato/lightapi]}
+            args: {active_repo: [acme/widgets]}
 """
 
 

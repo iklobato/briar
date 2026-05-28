@@ -115,8 +115,8 @@ class SourceGithubFiltersTests(unittest.TestCase):
         from briar.iac.scaffold.sources.github import SourceGithub
 
         ns = argparse.Namespace(
-            owner="iklobato",
-            repo="lightapi",
+            owner="alice",
+            repo="widgets",
             auth_mode="pat",
             github_secret_id="some-uuid",
             github_authors_allow=["alice", "bob"],
@@ -134,8 +134,8 @@ class SourceGithubFiltersTests(unittest.TestCase):
         from briar.iac.scaffold.sources.github import SourceGithub
 
         ns = argparse.Namespace(
-            owner="iklobato",
-            repo="lightapi",
+            owner="alice",
+            repo="widgets",
             auth_mode="pat",
             github_secret_id="x",
             github_authors_allow=[],

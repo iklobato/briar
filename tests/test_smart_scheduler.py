@@ -48,7 +48,7 @@ class StaggerTests(unittest.TestCase):
         job_a.do(lambda: None)
         job_b.do(lambda: None)
 
-        RunbookScheduler._apply_stagger(job_a, "lightapi", "prfix")
+        RunbookScheduler._apply_stagger(job_a, "widgets", "prfix")
         RunbookScheduler._apply_stagger(job_b, "acme", "prfix")
         self.assertIsNotNone(job_a.next_run)
         self.assertIsNotNone(job_b.next_run)

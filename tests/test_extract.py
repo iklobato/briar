@@ -95,7 +95,7 @@ class ExtractPrArchaeologyTests(unittest.TestCase):
                     PullRequest(
                         number=1,
                         title="t1",
-                        author="iklobato",
+                        author="alice",
                         is_draft=False,
                         head_ref="f",
                         base_ref="main",
@@ -107,7 +107,7 @@ class ExtractPrArchaeologyTests(unittest.TestCase):
                     PullRequest(
                         number=2,
                         title="t2",
-                        author="iklobato",
+                        author="alice",
                         is_draft=False,
                         head_ref="g",
                         base_ref="main",
@@ -131,7 +131,7 @@ class ExtractPrArchaeologyTests(unittest.TestCase):
         self.assertEqual(section.title, "PR archaeology — 1 repo(s)")
         repo_section = section.subsections[0]
         self.assertEqual(repo_section.data["merged_pr_count"], 2)
-        self.assertEqual(repo_section.data["top_authors"], [("iklobato", 2)])
+        self.assertEqual(repo_section.data["top_authors"], [("alice", 2)])
 
 
 class ExtractAwsInfraTests(unittest.TestCase):

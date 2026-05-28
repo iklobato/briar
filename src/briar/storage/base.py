@@ -1,7 +1,7 @@
 """`KnowledgeStore` contract — Strategy shared by every storage backend.
 
 A blob lives at a *name* (e.g. ``knowledge:acme``,
-``memory:reviewer-iklobato``, ``lessons:python-typing``) and has
+``memory:reviewer-alice``, ``lessons:python-typing``) and has
 markdown content. The name's prefix is used purely by convention to
 group blobs into categories — the store treats the whole name as an
 opaque identifier.

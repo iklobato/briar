@@ -1716,7 +1716,7 @@ class GitIdentityResolutionTests(unittest.TestCase):
 
     def test_resolve_raises_when_nothing_set(self) -> None:
         """No CLI flag, no runbook → CliError. There is no hardcoded
-        fallback (was previously `iklobato`/`dev@users.noreply.github.com`;
+        fallback (was previously a hardcoded personal identifier;
         committed personal identifiers on a third-party host are a
         smell)."""
         from briar.commands.agent import CommandAgent

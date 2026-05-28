@@ -14,7 +14,7 @@ def template_names() -> list[str]:
     return list(TEMPLATES.keys())
 
 
-_IMPL_ARGS = ["--prefix", "test", "--owner", "iklobato", "--repo", "lightapi"]
+_IMPL_ARGS = ["--prefix", "test", "--owner", "alice", "--repo", "widgets"]
 
 
 class TestScaffold:
@@ -38,8 +38,8 @@ class TestScaffold:
         result = cli(
             "scaffold", "pr-fixes",
             "--prefix", "test",
-            "--owner", "iklobato",
-            "--repo", "lightapi",
+            "--owner", "alice",
+            "--repo", "widgets",
             "-o", "-",
         )
         if result.code != 0:

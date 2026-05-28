@@ -438,7 +438,7 @@ this blob up automatically by the `knowledge:<company>*` prefix.
 | Jira board URL | `https://acme.atlassian.net/jira/software/projects/KAN/boards/1` | `jira` |
 | Jira short form | `jira:KAN` | `jira` |
 | GitHub Projects v2 (org) | `https://github.com/orgs/bitspark-co/projects/1` | `github-project` |
-| GitHub Projects v2 (user) | `https://github.com/users/iklobato/projects/2` | `github-project` |
+| GitHub Projects v2 (user) | `https://github.com/users/alice/projects/2` | `github-project` |
 
 Adding another tracker (Linear, Trello, …) is one module under
 `src/briar/plan/_boards/` plus one entry in the registry — the
@@ -730,7 +730,7 @@ Issue → plan → human approval → implement / comment.
 briar scaffold implementation \
     --prefix acme-impl \
     --source github \
-    --owner iklobato --repo lightapi
+    --owner acme --repo widgets
 
 # Bitbucket source, app-password auth, hourly cron
 briar scaffold implementation \
@@ -757,7 +757,7 @@ briar scaffold implementation \
 briar scaffold implementation \
     --prefix acme-hourly \
     --source github --source jira --source aws \
-    --owner iklobato --repo lightapi \
+    --owner acme --repo widgets \
     --shape one-shot --out acme-hourly.json
 ```
 
@@ -779,7 +779,7 @@ but archetype defaults to `pr-fixer` and shape to `one-shot`.
 briar scaffold pr-fixes \
     --prefix acme-prfix \
     --source github \
-    --owner iklobato --repo lightapi \
+    --owner acme --repo widgets \
     --trigger-kind schedule_cron --schedule "0 * * * *"
 ```
 
@@ -807,7 +807,7 @@ extractors write to. Blob names follow `category:identifier`.
 
 ```bash
 briar context put knowledge:acme --from-file knowledge/acme.md
-briar context put memory:reviewer-iklobato --content "Focuses on typing rigor"
+briar context put memory:reviewer-alice --content "Focuses on typing rigor"
 briar context put lessons:python-typing --content - < lessons/typing.md
 ```
 
@@ -817,7 +817,7 @@ Prints the markdown body to stdout. No flags.
 
 ```bash
 briar context get knowledge:acme
-briar context get memory:reviewer-iklobato
+briar context get memory:reviewer-alice
 ```
 
 ### `briar context list`

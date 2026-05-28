@@ -37,10 +37,10 @@ companies:
     extract:
       - name: pr-archaeology
         args:
-          pr_repo: [iklobato/lightapi]
+          pr_repo: [acme/widgets]
       - name: active-work
         args:
-          active_repo: [iklobato/lightapi]
+          active_repo: [acme/widgets]
 """
 
 _CRON_FILE = """\
@@ -110,13 +110,13 @@ companies:
         extract:
           - name: pr-archaeology
             args:
-              pr_repo: [iklobato/lightapi]
+              pr_repo: [acme/widgets]
       - task: prfix
         every: "hour"
         extract:
           - name: active-work
             args:
-              active_repo: [iklobato/lightapi]
+              active_repo: [acme/widgets]
 """
 
 

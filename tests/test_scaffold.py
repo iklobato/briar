@@ -16,8 +16,8 @@ def _ns(**kwargs) -> argparse.Namespace:
     ns = argparse.Namespace()
     # Sensible defaults so individual tests only override what they care about.
     defaults = {
-        "owner": "iklobato",
-        "repo": "lightapi",
+        "owner": "alice",
+        "repo": "widgets",
         "prefix": "test",
         "source": ["github"],
         "archetype": "engineer",

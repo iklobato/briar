@@ -275,8 +275,8 @@ ls /opt/briar-scheduler/examples/
 These were pulled by `git clone`. If the operator wants a different set, replace them now:
 
 ```bash
-# Example: keep only acme
-sudo -u briar bash -c 'cd /opt/briar-scheduler && rm examples/lightapi-e2e.yaml examples/widgets.yaml'
+# Example: keep only simple-single-repo
+sudo -u briar bash -c 'cd /opt/briar-scheduler && rm examples/multi_company.yaml examples/all_features.yaml'
 ```
 
 Each YAML must validate. Quick sanity check:

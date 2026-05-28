@@ -38,8 +38,8 @@ from briar.journal.store.file import FileJournalStore
 
 def _ns(**kwargs) -> argparse.Namespace:
     defaults = {
-        "owner": "iklobato",
-        "repo": "lightapi",
+        "owner": "alice",
+        "repo": "widgets",
         "prefix": "test",
         "source": ["github"],
         "archetype": "engineer",
