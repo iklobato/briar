@@ -1,0 +1,46 @@
+# simple-single-repo.yaml — one company, one repo, three cadences.
+#
+# Smallest end-to-end runbook: a single GitHub repo, three scheduled
+# tasks (daily heavy extract, 12-hourly codebase + deploy refresh,
+# 4-hourly active-work for the prfix loop). Knowledge lands in
+# Postgres so the scheduler + dashboard share state.
+#
+# Adapt by:
+#   - Changing `companies.acme` to your company key.
+#   - Changing `pr_repo` / `conventions_repo` / `deploy_repo` /
+#     `active_repo` to point at your repo.
+#   - Tightening / relaxing each `every:` cadence.
+
+version: 1
+
+companies:
+  acme:
+    knowledge:
+      store: postgres
+      name: knowledge:acme
+
+    schedules:
+      - task: extractors
+        every: "day at 03:17"
+        extract:
+          - name: pr-archaeology
+            args:
+              pr_repo: [acme/api]
+              pr_max: 25
+
+      - task: implementation
+        every: "12 hours"
+        extract:
+          - name: codebase-conventions
+            args:
+              conventions_repo: [acme/api]
+          - name: github-deployments
+            args:
+              deploy_repo: [acme/api]
+
+      - task: prfix
+        every: "4 hours"
+        extract:
+          - name: active-work
+            args:
+              active_repo: [acme/api]

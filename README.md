@@ -435,9 +435,9 @@ this blob up automatically by the `knowledge:<company>*` prefix.
 
 | Form | Example | Reader |
 |---|---|---|
-| Jira board URL | `https://acme.atlassian.net/jira/software/projects/KAN/boards/34` | `jira` |
+| Jira board URL | `https://acme.atlassian.net/jira/software/projects/KAN/boards/1` | `jira` |
 | Jira short form | `jira:KAN` | `jira` |
-| GitHub Projects v2 (org) | `https://github.com/orgs/bitspark-co/projects/34` | `github-project` |
+| GitHub Projects v2 (org) | `https://github.com/orgs/bitspark-co/projects/1` | `github-project` |
 | GitHub Projects v2 (user) | `https://github.com/users/iklobato/projects/2` | `github-project` |
 
 Adding another tracker (Linear, Trello, …) is one module under
@@ -477,7 +477,7 @@ briar plan build \
 
 # GitHub Projects v2, LLM synthesis with the company's knowledge spliced in
 briar plan build \
-    https://github.com/orgs/bitspark-co/projects/34 \
+    https://github.com/orgs/bitspark-co/projects/1 \
     --name bitspark-roadmap --company bitspark \
     --llm anthropic --with-knowledge
 

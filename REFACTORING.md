@@ -47,7 +47,7 @@ briar plan --help > /tmp/before-plan.txt 2>&1
 
 ## 1. Branch + commit strategy
 
-Per global rules ([`~/.claude/CLAUDE.md`](file:///Users/iklo/.claude/CLAUDE.md)): **no direct commits to `main`**. One branch per logical step; commits within a branch may be split per sub-step for review-ability.
+Per global rules (`~/.claude/CLAUDE.md`): **no direct commits to `main`**. One branch per logical step; commits within a branch may be split per sub-step for review-ability.
 
 ```
 main

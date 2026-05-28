@@ -74,7 +74,8 @@ companies:
     # `briar agent implement`. Resolved per-field with priority:
     #   1. CLI flag --git-user-name / --git-user-email (non-empty)
     #   2. This block (when --runbook points at this YAML)
-    #   3. Legacy default `iklobato` / `dev@users.noreply.github.com`
+    # If neither source provides a value the agent raises CliError —
+    # there is no hardcoded fallback.
     git_identity:
       name:  acme-briar-bot
       email: briar-bot@acme.com

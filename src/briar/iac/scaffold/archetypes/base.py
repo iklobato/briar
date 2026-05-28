@@ -53,7 +53,7 @@ class AgentArchetype(ABC):
         return out
 
     def build_persona(self, target: str) -> Dict[str, str]:
-        """`target` is a human-readable string like 'iklobato/lightapi'
+        """`target` is a human-readable string like 'acme/widgets'
         spliced into every persona field that contains `{target}`.
 
         The backstory is composed in two parts:

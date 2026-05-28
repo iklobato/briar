@@ -29,7 +29,7 @@ class ScaffoldComposer:
     @classmethod
     def compose(cls, args: argparse.Namespace, *, target: str) -> Dict[str, Any]:
         """`target` is the human-readable identifier (e.g.
-        iklobato/lightapi) used in the agent backstory."""
+        acme/widgets) used in the agent backstory."""
         prefix = args.prefix
 
         source_templates = cls._resolved_sources(args.source)
