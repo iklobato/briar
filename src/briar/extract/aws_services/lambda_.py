@@ -12,6 +12,7 @@ from briar.extract.base import ExtractedSection
 
 class GatherLambda(AwsServiceGatherer):
     name = "lambda"
+    data_key = "functions"
 
     def gather(self, session: Any) -> ExtractedSection:
         lam = session.client("lambda")

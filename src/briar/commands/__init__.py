@@ -1,7 +1,7 @@
 """Command registry — Strategy + Factory composition.
 
-After the API-removal cut, the surface is five commands:
-  extract  · runbook  · scaffold  · context  · version
+Top-level commands: agent · auth · context · dashboard · extract ·
+journal · plan · runbook · scaffold · secrets · telemetry · version.
 """
 
 from __future__ import annotations
@@ -47,8 +47,4 @@ class CommandRegistry:
         return {cls_.name: cls_() for cls_ in cls.COMMANDS}
 
 
-# Back-compat shim — `build_registry()` was the previous public name.
-build_registry = CommandRegistry.build
-
-
-__all__ = ["Command", "CommandRegistry", "build_registry", "confirm"]
+__all__ = ["Command", "CommandRegistry", "confirm"]

@@ -204,7 +204,7 @@ class AgentRunner:
         from briar.iac.scaffold._knowledge import KnowledgeSplicer
 
         try:
-            splicer = KnowledgeSplicer(self._cfg.knowledge_store, self._cfg.company)
+            splicer = KnowledgeSplicer.from_store(self._cfg.knowledge_store, self._cfg.company)
             prologue = splicer.prologue(self._archetype)
         except Exception:  # noqa: BLE001
             log.exception("agent-system: KnowledgeSplicer failed — continuing without prologue")

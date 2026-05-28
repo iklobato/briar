@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import logging
 from pathlib import Path
+from typing import ClassVar, Dict
 
 from briar.commands.base import Command
 from briar.errors import CliError
@@ -28,6 +29,12 @@ log = logging.getLogger(__name__)
 class CommandRunbook(Command):
     name = "runbook"
     help = "Run extractors and/or serve the in-process scheduler."
+
+    _ACTIONS: ClassVar[Dict[str, str]] = {
+        "extract": "_extract",
+        "sweep": "_sweep",
+        "serve": "_serve",
+    }
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         sub = parser.add_subparsers(dest="op", required=True)
@@ -62,13 +69,11 @@ class CommandRunbook(Command):
         )
 
     def run(self, args: argparse.Namespace) -> int:
-        if args.op == "extract":
-            return self._extract(args)
-        if args.op == "sweep":
-            return self._sweep(args)
-        if args.op == "serve":
-            return self._serve(args)
-        raise CliError(f"unknown runbook op {args.op!r}")
+        handler_name = self._ACTIONS.get(args.op)
+        if handler_name is None:
+            known = ", ".join(sorted(self._ACTIONS.keys()))
+            raise CliError(f"unknown runbook op {args.op!r} (known: {known})")
+        return getattr(self, handler_name)(args)
 
     def _extract(self, args: argparse.Namespace) -> int:
         runbook = load_runbook_file(Path(args.file))

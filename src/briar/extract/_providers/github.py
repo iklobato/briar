@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import re
 from typing import Any, Dict, List
 
 from briar.decorators import swallow_errors
@@ -33,6 +34,17 @@ from briar.extract._provider import (
 
 
 log = logging.getLogger(__name__)
+
+
+# GitHub allows alphanumerics, dot, hyphen, underscore in owner/repo
+# segments. Validate at the boundary so an oddly-escaped runbook value
+# can't break out of the path segment in any of the f-string URLs below.
+_REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def _validate_repo(repo: str) -> None:
+    if not _REPO_RE.match(repo):
+        raise ValueError(f"github repo must match owner/repo: got {repo!r}")
 
 
 class GithubProvider(RepositoryProvider):
@@ -78,6 +90,7 @@ class GithubProvider(RepositoryProvider):
         # Contract: state is "open" | "merged". GitHub vocabulary is
         # "open" | "closed", and merged PRs are a subset of closed
         # where `merged_at` is not null. Translate at the boundary.
+        _validate_repo(repo)
         gh_state = "closed" if state == "merged" else state
         pages_needed = max(1, (max_count // 100) + 1)
         path = f"/repos/{repo}/pulls?state={gh_state}&sort=updated&direction=desc"
@@ -87,8 +100,9 @@ class GithubProvider(RepositoryProvider):
         return [self._to_pull(r) for r in rows[:max_count]]
 
     def list_environments(self, repo: str) -> List[Environment]:
+        _validate_repo(repo)
         envelope = GithubApi.get_json(f"/repos/{repo}/environments")
-        envs = envelope.get("environments", []) if type(envelope) is dict else []
+        envs = envelope.get("environments", []) if isinstance(envelope, dict) else []
         out: List[Environment] = []
         for e in envs:
             out.append(
@@ -101,6 +115,7 @@ class GithubProvider(RepositoryProvider):
         return out
 
     def list_deployments(self, repo: str, *, limit: int) -> List[Deployment]:
+        _validate_repo(repo)
         rows = GithubApi.get_paginated(
             f"/repos/{repo}/deployments",
             max_pages=1,
@@ -120,8 +135,9 @@ class GithubProvider(RepositoryProvider):
         return out
 
     def list_ci_runs(self, repo: str, *, limit: int) -> List[CiRun]:
+        _validate_repo(repo)
         envelope = GithubApi.get_json(f"/repos/{repo}/actions/runs?per_page={limit}")
-        runs = envelope.get("workflow_runs", []) if type(envelope) is dict else []
+        runs = envelope.get("workflow_runs", []) if isinstance(envelope, dict) else []
         out: List[CiRun] = []
         for r in runs[:limit]:
             out.append(
@@ -136,11 +152,12 @@ class GithubProvider(RepositoryProvider):
         return out
 
     def read_file(self, repo: str, path: str) -> str:
+        _validate_repo(repo)
         try:
             resp = GithubApi.get_json(f"/repos/{repo}/contents/{path}")
         except Exception:  # noqa: BLE001 — 404 is the common case
             return ""
-        if type(resp) is not dict or resp.get("type") != "file":
+        if not isinstance(resp, dict) or resp.get("type") != "file":
             return ""
         raw = resp.get("content") or ""
         encoding = resp.get("encoding") or "base64"
@@ -153,6 +170,7 @@ class GithubProvider(RepositoryProvider):
 
     @swallow_errors(default=None, message="github get_pull")
     def get_pull(self, repo: str, number: int) -> PullRequest:
+        _validate_repo(repo)
         data = GithubApi.get_json(f"/repos/{repo}/pulls/{number}")
         if not isinstance(data, dict):
             return super().get_pull(repo, number)
@@ -167,6 +185,7 @@ class GithubProvider(RepositoryProvider):
         and `/pulls/{n}/reviews` for review submissions ("Approved",
         "Request changes" with their body) — return different shapes;
         this method merges them into one ReviewComment list."""
+        _validate_repo(repo)
         inline = GithubApi.get_paginated(f"/repos/{repo}/pulls/{number}/comments", max_pages=2) or []
         top_level = GithubApi.get_paginated(f"/repos/{repo}/issues/{number}/comments", max_pages=2) or []
         reviews = GithubApi.get_paginated(f"/repos/{repo}/pulls/{number}/reviews", max_pages=2) or []
@@ -219,6 +238,7 @@ class GithubProvider(RepositoryProvider):
 
     @swallow_errors(default=[], message="github list_ci_failures")
     def list_ci_failures(self, repo: str, number: int) -> List[CiFailure]:
+        _validate_repo(repo)
         """For the PR's head SHA, find failing check-runs and pull a
         short log tail per failure. GitHub's `/check-runs` endpoint
         gives status; the log requires a second call against
@@ -270,10 +290,31 @@ class GithubProvider(RepositoryProvider):
         lines = body.splitlines()
         return "\n".join(lines[-80:])
 
+    # Cap on how many of the most-recent commits get their per-file
+    # diff hydrated. GitHub's commit-list endpoint omits the file list
+    # so each detail fetch is one extra round-trip — bound it for the
+    # code-hotspots use case where N>50 adds no signal.
+    _COMMIT_FILE_DETAIL_CAP = 50
+
+    @staticmethod
+    def _fetch_commit_files(repo: str, sha: str) -> List[str]:
+        """Per-commit file-list fetch. Extracted from `list_recent_commits`
+        so the per-commit IO is named and one-liner-callable. Returns
+        empty list on any shape that isn't a dict-with-files."""
+        detail = GithubApi.get_json(f"/repos/{repo}/commits/{sha}")
+        if not isinstance(detail, dict):
+            return []
+        return [
+            f.get("filename") or ""
+            for f in (detail.get("files") or [])
+            if f.get("filename")
+        ]
+
     @swallow_errors(default=[], message="github list_recent_commits")
     def list_recent_commits(self, repo: str, *, since_days: int = 30, max_count: int = 200) -> List[Commit]:
         """List commits with their changed-file lists. Used by the
         code-hotspots extractor to build a co-change matrix."""
+        _validate_repo(repo)
         from datetime import datetime, timedelta, timezone
 
         since = (datetime.now(timezone.utc) - timedelta(days=since_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -284,18 +325,7 @@ class GithubProvider(RepositoryProvider):
             sha = str(r.get("sha") or "")
             if not sha:
                 continue
-            # GitHub's commit-list endpoint doesn't include the file
-            # list — that requires `/commits/{sha}` per commit. To keep
-            # the round-trip count bounded we only fetch files for the
-            # first 50 commits.
-            files: List[str] = []
-            if len(out) < 50:
-                detail = GithubApi.get_json(f"/repos/{repo}/commits/{sha}")
-                if isinstance(detail, dict):
-                    for f in detail.get("files") or []:
-                        path = f.get("filename") or ""
-                        if path:
-                            files.append(path)
+            files = self._fetch_commit_files(repo, sha) if len(out) < self._COMMIT_FILE_DETAIL_CAP else []
             commit_data = r.get("commit") or {}
             out.append(
                 Commit(

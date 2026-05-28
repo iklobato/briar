@@ -13,10 +13,16 @@ from briar.telemetry._config import TelemetryTier, reset_install_id, resolve, sa
 @pytest.fixture(autouse=True)
 def _isolated_config_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Every test gets its own XDG_CONFIG_HOME so we don't touch the
-    real user config."""
+    real user config, and a fresh in-memory install-id cache so the
+    module-level `_INSTALL_ID_CACHE` can't leak an id from a prior test
+    (which would mask whether `resolve()`/`reset_install_id()` actually
+    read this test's isolated config dir)."""
+    import briar.telemetry._config as _cfg_mod
+
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     monkeypatch.delenv("HOME", raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(_cfg_mod, "_INSTALL_ID_CACHE", None)
     yield
 
 

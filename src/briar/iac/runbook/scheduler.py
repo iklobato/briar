@@ -20,7 +20,7 @@ import threading
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import schedule
 
@@ -60,13 +60,14 @@ class EveryParser:
     `schedule.Scheduler()` instead of the library's global registry."""
 
     DEFAULT_TZ = "UTC"
-    # Sentinel: the library exposes `schedule.default_scheduler` as the
-    # process-wide default. `_NO_SCHEDULER` is the "use default" marker
-    # so we never thread an Optional through the API.
-    _GLOBAL_SCHEDULER: schedule.Scheduler = schedule.default_scheduler
 
     @classmethod
-    def parse(cls, expr: str, tz: str = DEFAULT_TZ, scheduler: schedule.Scheduler = _GLOBAL_SCHEDULER) -> schedule.Job:
+    def parse(cls, expr: str, tz: str = DEFAULT_TZ, scheduler: Optional[schedule.Scheduler] = None) -> schedule.Job:
+        # Resolve at call time, not at import — a test or caller that
+        # swaps `schedule.default_scheduler` after we import sees the
+        # change. The previous shape snapshotted at import time.
+        scheduler = scheduler if scheduler is not None else schedule.default_scheduler
+
         match = _PATTERN.match(expr.strip().lower())
         if match is None:
             raise ConfigError(f"every: cannot parse {expr!r} — try things like 'day at 03:17', '4 hours', 'hour at :15'")
@@ -79,11 +80,29 @@ class EveryParser:
         unit_attr = singular if count == 1 else f"{singular}s"
         if singular in _WEEKDAYS and count != 1:
             raise ConfigError(f"every: weekday {singular!r} cannot have a count (got {count}); use 'every {singular}' without a number")
-        job = vars(job.__class__)[unit_attr].fget(job)
+        # Public property access instead of `vars(job.__class__)[name].fget(job)`
+        # — same behavior, but resilient to library refactors that move
+        # the property to a different class in the MRO.
+        job = getattr(job, unit_attr)
 
         at = match.group("at")
         if at:
-            job = job.at(at, tz) if singular in {"day", *_WEEKDAYS} else job.at(at)
+            if singular in {"day", *_WEEKDAYS}:
+                job = job.at(at, tz)
+            else:
+                # hour/minute units silently drop tz in schedule — warn so
+                # the operator doesn't think their non-UTC tz applies to
+                # sub-day cadences. The `schedule` library doesn't support
+                # tz-aware sub-day scheduling, so a DST shift means the
+                # job will fire at the same wall-clock UTC time across
+                # the transition. Documented at runbook scheduler level.
+                if tz != cls.DEFAULT_TZ:
+                    log.warning(
+                        "every: tz=%r is ignored for sub-day cadence %r — schedule's wall-clock support is day-or-coarser only",
+                        tz,
+                        singular,
+                    )
+                job = job.at(at)
         return job
 
 

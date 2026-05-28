@@ -735,8 +735,8 @@ Validate the YAML against the schema BEFORE running:
 ```bash
 python -c "
 from pathlib import Path
-from briar.iac.runbook import load_runbook_file
-rb = load_runbook_file(Path('examples/your_company.yaml'))
+from briar.iac.runbook.executor import RunbookLoader
+rb = RunbookLoader.load(Path('examples/your_company.yaml'))
 print(f'companies: {sorted(rb.companies.keys())}')
 "
 ```

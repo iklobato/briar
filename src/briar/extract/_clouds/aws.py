@@ -9,7 +9,8 @@ know AWS-specific section layouts."""
 from __future__ import annotations
 
 import logging
-from typing import Any, List, Optional
+from functools import lru_cache
+from typing import Any, List, Optional  # noqa: F401  (Optional used below)
 
 from briar.decorators import swallow_errors
 from briar.env_vars import CredEnv
@@ -24,6 +25,33 @@ from briar.extract._cloud import (
 
 
 log = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _make_default_boto_config():
+    """Bounded timeouts + standard retry policy applied to every client
+    constructed via this provider's session. Lazy via lru_cache so the
+    botocore import stays out of the cold-start path when no AWS work
+    is needed. One source of truth — the previous shape also kept a
+    module-level `_DEFAULT_BOTO_CONFIG` global as a redundant cache."""
+    from botocore.config import Config
+
+    return Config(connect_timeout=5, read_timeout=30, retries={"mode": "standard", "max_attempts": 3})
+
+
+def _apply_default_config(session: Any) -> Any:
+    """Monkey-patch ``session.client`` so callers that don't pass
+    ``config=`` get our defaults. Callers that pass an explicit config
+    win (matches boto3 semantics)."""
+    default_config = _make_default_boto_config()
+    original_client = session.client
+
+    def configured_client(service_name, **kwargs):
+        kwargs.setdefault("config", default_config)
+        return original_client(service_name, **kwargs)
+
+    session.client = configured_client
+    return session
 
 
 class AwsCloudProvider(CloudProvider):
@@ -46,14 +74,19 @@ class AwsCloudProvider(CloudProvider):
         key_id = CredEnv.AWS_KEY_ID.read(self._profile) if self._profile else ""
         secret = CredEnv.AWS_SECRET.read(self._profile) if self._profile else ""
         if key_id and secret:
-            self._session = boto3.Session(
+            session = boto3.Session(
                 aws_access_key_id=key_id,
                 aws_secret_access_key=secret,
                 aws_session_token=CredEnv.AWS_SESSION.read(self._profile),
                 region_name=self._region,
             )
         else:
-            self._session = boto3.Session(profile_name=self._profile or None, region_name=self._region)
+            session = boto3.Session(profile_name=self._profile or None, region_name=self._region)
+        # Wrap session.client so every gatherer (ECS/RDS/Lambda/SQS/Logs
+        # and the inline sts call) inherits bounded timeouts + standard
+        # retries without each having to opt in. Caller can override by
+        # passing config= explicitly.
+        self._session = _apply_default_config(session)
         return self._session
 
     def is_available(self) -> bool:
@@ -96,12 +129,16 @@ class AwsCloudProvider(CloudProvider):
         if not gatherer:
             return []
         section = gatherer.gather(self._make_session())
-        rows = (section.data or {}).get("instances", []) if section.data else []
+        # Read via gatherer.data_key so this doesn't drift if the rds
+        # gatherer ever renames its top-level key. Per-row key is "id"
+        # (set in aws_services/rds.py) — the previous "identifier" read
+        # was a bug that silently produced empty DatabaseResource.name.
+        rows = (section.data or {}).get(gatherer.data_key, []) if section.data else []
         out: List[DatabaseResource] = []
         for row in rows:
             out.append(
                 DatabaseResource(
-                    name=str(row.get("identifier") or ""),
+                    name=str(row.get("id") or ""),
                     engine=str(row.get("engine") or ""),
                     version=str(row.get("version") or ""),
                     instance_class=str(row.get("class") or ""),
@@ -124,7 +161,10 @@ class AwsCloudProvider(CloudProvider):
         if not gatherer:
             return []
         section = gatherer.gather(self._make_session())
-        rows = (section.data or {}).get("groups", []) if section.data else []
+        # Read via gatherer.data_key — the logs gatherer writes
+        # "top_log_groups", not "groups". The previous hardcoded
+        # "groups" lookup always returned [] in production.
+        rows = (section.data or {}).get(gatherer.data_key, []) if section.data else []
         out: List[LogGroup] = []
         for row in rows[:top_by_bytes]:
             out.append(
@@ -136,7 +176,7 @@ class AwsCloudProvider(CloudProvider):
             )
         return out
 
-    def list_subsections(self, *, services: List[str] = None) -> List[Any]:  # type: ignore[assignment]
+    def list_subsections(self, *, services: Optional[List[str]] = None) -> List[Any]:  # type: ignore[assignment]
         """AWS native renderer — preserves the original `aws-infra`
         markdown shape by delegating to the per-service gatherer
         registry (ECS / RDS / Lambda / SQS / Logs). Each gatherer
@@ -173,13 +213,11 @@ class AwsCloudProvider(CloudProvider):
             return []
         section = gatherer.gather(self._make_session())
         data = section.data or {}
-        rows: List[Any] = []
-        # Per-service shape lives in aws_services/<svc>.py. ECS returns
-        # 'services'; Lambda returns 'functions'; SQS returns 'queues'.
-        for key in ("services", "functions", "queues", "items"):
-            if key in data and isinstance(data[key], list):
-                rows = data[key]
-                break
+        # The gatherer declares its own data_key (e.g. ECS=services,
+        # Lambda=functions). Replaced the previous magic-tuple walk
+        # that paired this dispatch with a brittle name list.
+        raw_rows = data.get(gatherer.data_key)
+        rows = raw_rows if isinstance(raw_rows, list) else []
         out: List[Any] = []
         for row in rows:
             name = str(row.get("name") or row.get("identifier") or "")

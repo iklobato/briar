@@ -18,7 +18,7 @@ import logging
 from typing import List
 
 from briar.extract._provider import CiFailure, ReviewComment
-from briar.extract.base import EMPTY_SECTION, ExtractedSection, TaskScopedRepoExtractor
+from briar.extract.base import ExtractedSection, TaskScopedRepoExtractor, empty_section
 
 
 log = logging.getLogger(__name__)
@@ -26,6 +26,7 @@ log = logging.getLogger(__name__)
 
 class FetchPrReviewContext(TaskScopedRepoExtractor):
     name = "pr-review-context"
+    heading = "PR review context"
     description = "Full review context (comments + CI failures) for ONE specific PR"
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
@@ -53,7 +54,7 @@ class FetchPrReviewContext(TaskScopedRepoExtractor):
         # EMPTY_SECTION lives at this caller, not inside the decorator.
         if pr is None or (not pr.title and not pr.head_ref):
             log.warning("pr-review-context: PR %s#%d not found", repo, number)
-            return EMPTY_SECTION
+            return empty_section()
 
         comments: List[ReviewComment] = provider.list_pr_comments(repo, number)
         failures: List[CiFailure] = provider.list_ci_failures(repo, number)

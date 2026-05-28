@@ -10,6 +10,7 @@ from briar.extract.base import ExtractedSection
 
 class GatherSqs(AwsServiceGatherer):
     name = "sqs"
+    data_key = "queues"
 
     def gather(self, session: Any) -> ExtractedSection:
         sqs = session.client("sqs")

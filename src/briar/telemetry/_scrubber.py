@@ -99,9 +99,16 @@ _VALUE_LENGTH_CAP = 1024
 
 # Absolute-path regex (Unix + Windows). Replaced inline with `<path>`
 # so we keep the value's shape without leaking the filesystem layout.
+#
+# The Unix pattern is anchored to a "boundary" before the leading
+# slash — either start-of-string or whitespace/quote/parens — so a
+# URL path component like ``https://api.example.com/v1/foo`` survives
+# unmangled. (The earlier unanchored pattern collapsed the path
+# segment of URLs in error messages too, scrubbing what was actually
+# the most useful signal.)
 _ABS_PATH_PATTERNS: Tuple[re.Pattern, ...] = (
-    re.compile(r"/[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)+"),
-    re.compile(r"[A-Z]:\\[A-Za-z0-9._\\ -]+"),
+    re.compile(r"(?:^|(?<=[\s\"'`(\[<]))/[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)+"),
+    re.compile(r"(?:^|(?<=[\s\"'`(\[<]))[A-Z]:\\[A-Za-z0-9._\\ -]+"),
 )
 
 

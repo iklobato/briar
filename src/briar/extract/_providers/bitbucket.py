@@ -62,12 +62,13 @@ class BitbucketProvider(RepositoryProvider):
 
             if self._username == "x-token-auth":
                 # Workspace/repository access tokens reject basic auth.
-                self._client = Cloud(url=self.BASE, token=self._app_password)
+                self._client = Cloud(url=self.BASE, token=self._app_password, timeout=30)
             else:
                 self._client = Cloud(
                     url=self.BASE,
                     username=self._username,
                     password=self._app_password,
+                    timeout=30,
                 )
         return self._client
 
@@ -370,30 +371,47 @@ class BitbucketProvider(RepositoryProvider):
         return out
 
     @staticmethod
-    def _to_pull(pr, *, state: str) -> PullRequest:
+    def _field(pr: Any, name: str, default: Any = "") -> Any:
+        """`getattr(pr, name)` falling back to `pr.data[name]`. The
+        atlassian-python-api PR object surfaces some fields as
+        attributes (varies by version) and the rest only via the raw
+        `data` dict. Both ``draft`` and ``description`` are well-known
+        offenders that drift between SDK releases — this helper hides
+        the dance so `_to_pull` reads as a flat field list."""
+        if hasattr(pr, name):
+            value = getattr(pr, name, None)
+            if value is not None:
+                return value
+        data: Dict[str, Any] = getattr(pr, "data", {}) or {}
+        return data.get(name, default)
+
+    @staticmethod
+    def _person_display(person: Any) -> str:
+        """Bitbucket "person" objects (author, reviewer) expose
+        `display_name` on newer SDKs, `nickname` on older. One join."""
+        if person is None:
+            return ""
+        return getattr(person, "display_name", "") or getattr(person, "nickname", "") or ""
+
+    @classmethod
+    def _to_pull(cls, pr, *, state: str) -> PullRequest:
         """Translate one library `PullRequest` object into the
         provider-neutral dataclass."""
-        author = pr.author
-        data: Dict[str, Any] = getattr(pr, "data", {}) or {}
-        # `draft` and `description` are not surfaced as direct attributes
-        # by every version of atlassian-python-api — fall back to the
-        # raw response dict.
-        is_draft = bool(getattr(pr, "draft", None) if hasattr(pr, "draft") else data.get("draft"))
-        description_raw = data.get("description")
+        description_raw = cls._field(pr, "description")
         if isinstance(description_raw, dict):
             description = description_raw.get("raw", "") or ""
         else:
-            description = description_raw or getattr(pr, "description", "") or ""
+            description = description_raw or ""
         return PullRequest(
-            number=int(getattr(pr, "id", 0) or 0),
-            title=(getattr(pr, "title", "") or "")[:200],
-            author=(getattr(author, "display_name", "") or getattr(author, "nickname", "") or "") if author else "",
-            is_draft=is_draft,
-            head_ref=str(getattr(pr, "source_branch", "") or ""),
-            base_ref=str(getattr(pr, "destination_branch", "") or ""),
-            review_comment_count=int(getattr(pr, "comment_count", 0) or 0),
-            created_at=str(getattr(pr, "created_on", "") or ""),
-            merged_at=(str(getattr(pr, "updated_on", "") or "")) if state == "merged" else "",
-            requested_reviewers=[(getattr(r, "display_name", "") or getattr(r, "nickname", "") or "") for r in (getattr(pr, "reviewers", None) or [])],
+            number=int(cls._field(pr, "id", 0) or 0),
+            title=str(cls._field(pr, "title", "") or "")[:200],
+            author=cls._person_display(pr.author),
+            is_draft=bool(cls._field(pr, "draft")),
+            head_ref=str(cls._field(pr, "source_branch", "") or ""),
+            base_ref=str(cls._field(pr, "destination_branch", "") or ""),
+            review_comment_count=int(cls._field(pr, "comment_count", 0) or 0),
+            created_at=str(cls._field(pr, "created_on", "") or ""),
+            merged_at=(str(cls._field(pr, "updated_on", "") or "")) if state == "merged" else "",
+            requested_reviewers=[cls._person_display(r) for r in (getattr(pr, "reviewers", None) or [])],
             body=str(description)[:5000],
         )

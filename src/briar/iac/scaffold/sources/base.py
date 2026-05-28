@@ -2,8 +2,6 @@
 
 A source template knows:
 - its ``kind`` (e.g. ``"github"``, ``"jira"``, ``"aws"``)
-- its ``family`` (``"tracker"`` or ``"cloud"``) — used by the scaffold to
-  decide whether the agent should be given action tools for it
 - how to build a `Source` dict (``build_source``)
 - how to build the matching action `Tool` dicts (``build_tools``) — for a
   cloud source this is typically empty (read-only context); for a tracker
@@ -16,7 +14,9 @@ from __future__ import annotations
 
 import argparse
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar, Dict, List, Literal
+from typing import Any, ClassVar, Dict, List
+
+from briar.errors import ConfigError
 
 
 class SourceTemplate(ABC):
@@ -25,7 +25,9 @@ class SourceTemplate(ABC):
     source); override for trackers."""
 
     kind: ClassVar[str] = ""
-    family: ClassVar[Literal["tracker", "cloud", ""]] = ""
+    # The argparse attribute holding the per-source PAT secret-id. Set
+    # on subclasses that support `--auth-mode pat` (github, bitbucket,
+    # sentry); empty for sources that only support OAuth/PAT-only.
     auth_secret_arg: ClassVar[str] = ""
     default_provider_for_oauth: ClassVar[str] = ""
 
@@ -59,3 +61,39 @@ class SourceTemplate(ABC):
         repo / project identifier; the scaffold template picks the first
         non-empty result among the selected sources."""
         return ""
+
+    def _auth(self, args: argparse.Namespace) -> Dict[str, Any]:
+        """Build the auth payload shared between every source that
+        supports the PAT-or-OAuth flag pair. Subclasses set
+        ``auth_secret_arg`` + ``default_provider_for_oauth``; this
+        helper handles the rest. Was duplicated verbatim across
+        github / bitbucket / sentry sources before the hoist."""
+        ns = vars(args)
+        mode = ns.get("auth_mode") or "oauth"
+        if mode == "pat":
+            secret_id = ns.get(self.auth_secret_arg) if self.auth_secret_arg else None
+            if not secret_id:
+                raise ConfigError(
+                    f"--source {self.kind} with --auth-mode pat requires "
+                    f"--{self.kind}-secret-id <secret-uuid>"
+                )
+            return {"credentials_ref": secret_id, "credential_binding": None}
+        return {
+            "credentials_ref": None,
+            "credential_binding": {
+                "kind": "oauth_connection",
+                "provider": self.default_provider_for_oauth or self.kind,
+            },
+        }
+
+    def _user_filters(self, args: argparse.Namespace) -> Dict[str, List[str]]:
+        """Standard 4-field user-filter dict (authors/assignees × allow/block).
+        The argparse keys follow ``{kind}_authors_allow`` etc. — matches
+        the per-source flag prefix declared in `add_arguments`."""
+        ns = vars(args)
+        return {
+            "authors_allow": list(ns.get(f"{self.kind}_authors_allow") or []),
+            "authors_block": list(ns.get(f"{self.kind}_authors_block") or []),
+            "assignees_allow": list(ns.get(f"{self.kind}_assignees_allow") or []),
+            "assignees_block": list(ns.get(f"{self.kind}_assignees_block") or []),
+        }

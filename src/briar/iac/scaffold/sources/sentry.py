@@ -17,12 +17,12 @@ from __future__ import annotations
 import argparse
 from typing import Any, Dict, List
 
+from briar.errors import ConfigError
 from briar.iac.scaffold.sources.base import SourceTemplate
 
 
 class SourceSentry(SourceTemplate):
     kind = "sentry"
-    family = "tracker"
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
@@ -65,7 +65,7 @@ class SourceSentry(SourceTemplate):
         org = ns.get("sentry_org")
         projects = list(ns.get("sentry_project") or [])
         if not org or not projects:
-            raise SystemExit("--source sentry requires --sentry-org AND at least one --sentry-project")
+            raise ConfigError("--source sentry requires --sentry-org AND at least one --sentry-project")
 
         config: Dict[str, Any] = {
             "org": org,
@@ -143,5 +143,5 @@ class SourceSentry(SourceTemplate):
     def _auth(args: argparse.Namespace) -> Dict[str, Any]:
         secret_id = vars(args).get("sentry_secret_id")
         if not secret_id:
-            raise SystemExit("--source sentry requires --sentry-secret-id <secret-uuid> (Sentry OAuth not yet supported)")
+            raise ConfigError("--source sentry requires --sentry-secret-id <secret-uuid> (Sentry OAuth not yet supported)")
         return {"credentials_ref": secret_id, "credential_binding": None}

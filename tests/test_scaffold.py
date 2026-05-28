@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import unittest
 
+from briar.errors import ConfigError
 from briar.iac import TEMPLATES
 from briar.iac.scaffold.archetypes import ARCHETYPES
 from briar.iac.scaffold.shapes import WORKFLOW_SHAPES
@@ -177,14 +178,14 @@ class BitbucketSourceTests(unittest.TestCase):
 
     def test_pat_mode_requires_secret_id(self) -> None:
         tmpl = TEMPLATES["implementation"]
-        with self.assertRaises(SystemExit):
+        with self.assertRaises(ConfigError):
             tmpl.build(self._bb_ns(bitbucket_secret_id=None))
 
     def test_workspace_and_repo_both_required(self) -> None:
         tmpl = TEMPLATES["implementation"]
-        with self.assertRaises(SystemExit):
+        with self.assertRaises(ConfigError):
             tmpl.build(self._bb_ns(bitbucket_workspace=None))
-        with self.assertRaises(SystemExit):
+        with self.assertRaises(ConfigError):
             tmpl.build(self._bb_ns(bitbucket_repo=None))
 
     def test_bitbucket_webhook_trigger_emits_bitbucket_event_shape(self) -> None:
@@ -278,17 +279,17 @@ class SentrySourceTests(unittest.TestCase):
 
     def test_requires_org_and_at_least_one_project(self) -> None:
         tmpl = TEMPLATES["implementation"]
-        with self.assertRaises(SystemExit):
+        with self.assertRaises(ConfigError):
             tmpl.build(self._sentry_ns(sentry_org=None))
-        with self.assertRaises(SystemExit):
+        with self.assertRaises(ConfigError):
             tmpl.build(self._sentry_ns(sentry_project=[]))
 
     def test_requires_secret_id_regardless_of_auth_mode(self) -> None:
         tmpl = TEMPLATES["implementation"]
         # Even with auth_mode=oauth, Sentry still demands a PAT today.
-        with self.assertRaises(SystemExit):
+        with self.assertRaises(ConfigError):
             tmpl.build(self._sentry_ns(sentry_secret_id=None, auth_mode="oauth"))
-        with self.assertRaises(SystemExit):
+        with self.assertRaises(ConfigError):
             tmpl.build(self._sentry_ns(sentry_secret_id=None, auth_mode="pat"))
 
 

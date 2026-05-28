@@ -25,6 +25,7 @@ _MAX_PRS_PER_REPO = 25
 
 class ExtractActiveWork(RepoBackedExtractor):
     name = "active-work"
+    heading = "Active work"
     description = "open PRs across the configured repos"
     requires_github = True  # legacy flag
 

@@ -25,11 +25,11 @@ import argparse
 from typing import Any, Dict
 
 from briar.iac.scaffold._composer import (
-    ScaffoldResolver,
     add_common_arguments,
     attach_source_arguments,
     attach_trigger_arguments,
     compose_bundle,
+    target_for,
 )
 from briar.iac.scaffold.base import ScaffoldTemplate
 
@@ -48,5 +48,5 @@ class ScaffoldPrFixes(ScaffoldTemplate):
     def build(self, args: argparse.Namespace) -> Dict[str, Any]:
         if not args.source:
             args.source = ["github"]
-        target = ScaffoldResolver.target_for(args)
+        target = target_for(args)
         return compose_bundle(args, target=target)

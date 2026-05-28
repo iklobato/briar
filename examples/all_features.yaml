@@ -421,8 +421,8 @@ companies:
           - name: aws-infra
             args:
               cloud: gcp
-              cloud_profile: datacore-prod   # GCP project ID
-              cloud_region: us-central1
+              aws_extract_profile: datacore-prod   # GCP project ID
+              aws_extract_region: us-central1
 
           - name: active-tickets
             args:
@@ -539,8 +539,8 @@ companies:
           - name: aws-infra
             args:
               cloud: azure
-              cloud_profile: 11111111-2222-3333-4444-555555555555   # subscription ID
-              cloud_region: eastus
+              aws_extract_profile: 11111111-2222-3333-4444-555555555555   # subscription ID
+              aws_extract_region: eastus
 
 # ============================================================================
 # Notes

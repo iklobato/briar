@@ -52,13 +52,26 @@ def current_context() -> Dict[str, str]:
 class ContextFilter(logging.Filter):
     """Filter that prepends `[k1=v1 k2=v2]` to every log record's
     message when the context has bindings. Attached to the root logger
-    by `briar.logging.configure`."""
+    by `briar.logging.configure`.
+
+    The prefix is applied via ``record.msg`` rewriting BUT only once
+    per record: subsequent passes by the same filter instance (e.g.
+    when a record propagates through multiple handlers) skip the
+    rewrite via the ``_briar_ctx_applied`` sentinel attribute. This
+    prevents the double-prefix that would otherwise occur on records
+    formatted by two handlers."""
 
     _ORDER = ("company", "task", "extractor", "shape", "repo")
+    _APPLIED_FLAG = "_briar_ctx_applied"
 
     def filter(self, record: logging.LogRecord) -> bool:
         ctx = _CTX.get()
         if not ctx:
+            return True
+        # Idempotency guard — if any ContextFilter (this instance or
+        # another attached to a sibling handler) already prefixed this
+        # record, don't double-stamp it.
+        if getattr(record, self._APPLIED_FLAG, False):
             return True
         ordered: list = []
         for key in self._ORDER:
@@ -70,4 +83,5 @@ class ContextFilter(logging.Filter):
                 ordered.append(f"{key}={value}")
         prefix = "[" + " ".join(ordered) + "] "
         record.msg = prefix + str(record.msg)
+        setattr(record, self._APPLIED_FLAG, True)
         return True

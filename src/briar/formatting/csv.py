@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import csv
 import sys
-from typing import Any, Dict, List
+from typing import Any, Dict, Sequence
 
 from briar.formatting.base import Formatter
 from briar.formatting.table import FormatTable
-from briar.pagination import Payload
+from briar.pagination import items_of, looks_like_list
 
 
 class FormatCsv(Formatter):
@@ -17,18 +17,18 @@ class FormatCsv(Formatter):
     def render(
         self,
         payload: Any,
-        columns: List[str] = [],
+        columns: Sequence[str] = (),
     ) -> None:
-        items = Payload.items_of(payload) if Payload.looks_like_list(payload) else [self._singleton(payload)]
-        cols = columns or FormatTable._infer_columns(items)
+        items = items_of(payload) if looks_like_list(payload) else [self._singleton(payload)]
+        cols = list(columns) if columns else FormatTable._infer_columns(items)
         writer = csv.writer(sys.stdout)
         writer.writerow(cols)
         for it in items:
-            row = [FormatTable._cell(it.get(c)) for c in cols] if type(it) is dict else [str(it)]
+            row = [FormatTable._cell(it.get(c)) for c in cols] if isinstance(it, dict) else [str(it)]
             writer.writerow(row)
 
     @staticmethod
     def _singleton(payload: Any) -> Dict[str, Any]:
-        if type(payload) is dict:
+        if isinstance(payload, dict):
             return payload
         return {"value": payload}

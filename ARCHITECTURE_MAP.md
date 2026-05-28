@@ -1074,6 +1074,12 @@ The hub is `extract.base` — six other modules consume `EXTRACTORS` / `TASK_SCO
 
 ## 14. Refactor plan
 
+> **Status (post-execution).** Tiers 0–7 shipped. **Tier 8
+> (`MeetingExtractedData` TypedDict, §14.9) was dropped** — the meeting
+> subsystem ended up not needing a typed-dict boundary; the data field
+> stays `Dict[str, Any]`. Treat §14.9 / T8 / A8 references throughout
+> §§14–17 as historical context, not as a planned step.
+
 The previous two audits closed the big OCP violations (Strategy + Registry across 25+ plug-in families, `build_registry` dup-check, declarative error policies, etc.). What's left is a different *kind* of smell — long methods, hidden temporal coupling, primitive obsession at boundaries, and a handful of value-object refactors. Pure GoF this time: Template Method, Builder, Composite, Value Object, Specification.
 
 ### 14.1 Tier 0 — quick-win correctness fixes (do first, small diffs)
@@ -2418,6 +2424,23 @@ Commit the meeting subsystem first. Then six steps in ~2 days: T0.1–T0.4 corre
 
 ## 21. Smart enum usage (extends §17–§20)
 
+> **Status (post-execution).** Three of the four enums shipped and live in
+> the codebase today: `StopReason` (`agent/_enums.py`), `ExitCode`
+> (`commands/_enums.py`), `PlanCardStatus` (`plan/_enums.py`). The fourth —
+> `MeetingExtractMode` (planned for `extract/_enums.py`, §21.2 E3) — was
+> **not adopted**. The meeting subsystem ended up not needing a typed mode
+> discriminator on `ExtractedSection.data`, so `extract/_enums.py` and the
+> companion `extract/_types.py` (§17 step 5, `MeetingExtractedData`
+> TypedDict) were created experimentally then removed. Sections E3 and the
+> §17-step-5 references below are kept for the historical reasoning but no
+> longer describe shipping code.
+>
+> **Wider scope of dropped work.** §21 only covers the enum step; the
+> companion plan in [`REFACTORING.md`](REFACTORING.md) also lists
+> Steps 0b (`CONSUMES_EXTRACTORS` auto-attach), Step 1 (`fetch_or_skip`),
+> and Step 3 (`Tool` Protocol + `Dict[str, Tool]`) as "not shipped" as
+> well. See the REFACTORING.md status banner for the full audit.
+
 The plan so far is silent on enums. A scan of the codebase finds **scattered magic strings and integer literals dispatched on equality** across multiple files — exactly the smell `enum` was built to solve. Four enums earn their keep; nothing else does.
 
 ### 21.1 The principle
@@ -2585,27 +2608,27 @@ One `_enums.py` file per domain — co-located with the code that defines and co
 |---|---|---|
 | `src/briar/agent/_enums.py` | `StopReason` | `agent/runner.py`, all 4 LLM providers under `agent/_llms/` |
 | `src/briar/commands/_enums.py` | `ExitCode` | `commands/agent.py`, `commands/plan.py`, future commands |
-| `src/briar/extract/_enums.py` | `MeetingExtractMode` | `extract/meeting_context.py`, `extract/meeting_digest.py`, future consumers of `data["mode"]` |
 | `src/briar/plan/_enums.py` | `PlanCardStatus` | `plan/_models.py`, `commands/plan.py` ops that filter / advance by status |
+| ~~`src/briar/extract/_enums.py`~~ | ~~`MeetingExtractMode`~~ | **Not adopted — see §21 status banner.** |
 
-Each file is < 30 LOC. Total: 4 small files, 14 enum members.
+Three small files (< 30 LOC each), 11 enum members. The fourth row (`extract/_enums.py`) is preserved struck-through for diff traceability against §21.2 E3.
 
 ### 21.5 Updated execution order
 
 ```
-−1. Land meeting subsystem                                                — pre-step
- 0a. Tier-0 correctness (T0.1–T0.4)                                       — half day
- 0b. §20.2 CONSUMES_EXTRACTORS + auto-attach (absorbs T0.5)               — half day
- 0c. §21 enums — 4 new _enums.py files + migrate call sites               — half day
-     (StopReason, ExitCode, MeetingExtractMode, PlanCardStatus)
- 1.  Drop _fetch_*_context staticmethods + §20.1 fetch_or_skip            — half day
- 2.  AgentRunConfig dataclass (uses StopReason in AgentRunResult)         — half day
- 3.  Tool Protocol + Dict[str, Tool] + drop E2 + use StopReason internally — half day
+−1. Land meeting subsystem                                                — pre-step  [DONE]
+ 0a. Tier-0 correctness (T0.1–T0.4)                                       — half day  [DONE]
+ 0b. §20.2 CONSUMES_EXTRACTORS + auto-attach (absorbs T0.5)               — half day  [NOT SHIPPED — flag duplication still in CommandAgent.add_arguments]
+ 0c. §21 enums — 3 new _enums.py files + migrate call sites               — half day  [DONE for 3 of 4]
+     (StopReason, ExitCode, PlanCardStatus; MeetingExtractMode dropped — see §21 banner)
+ 1.  Drop _fetch_*_context staticmethods + §20.1 fetch_or_skip            — half day  [NOT SHIPPED — staticmethods still on CommandAgent]
+ 2.  AgentRunConfig dataclass (uses StopReason in AgentRunResult)         — half day  [DONE]
+ 3.  Tool Protocol + Dict[str, Tool] + drop E2 + use StopReason internally — half day  [NOT SHIPPED — _dispatch_tool still an if-chain with broad except]
  4.  (folded into 3)
- 5.  MeetingExtractedData TypedDict (uses MeetingExtractMode)             — 30 min
+ 5.  MeetingExtractedData TypedDict (uses MeetingExtractMode)             — 30 min    [DROPPED — see §21 banner]
 ```
 
-**Total: ~2.5 days.** §21 adds half a day for the enum introduction; subsequent steps benefit (StopReason used in `AgentRunResult`, `MeetingExtractMode` used in the TypedDict).
+**Original estimate: ~2.5 days.** Actual shipped scope: pre-step, 0a, 3-of-4 of 0c, and 2. Steps 0b, 1, 3, 5 not shipped — see REFACTORING.md status banner for the post-execution audit.
 
 ### 21.6 Updated net impact (§17 + §18 + §19 + §20 + §21)
 

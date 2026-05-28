@@ -254,9 +254,8 @@ class RetryingExecutor:
                 if decision.apply(exc=exc, attempt=attempt) is FollowUp.RAISE:
                     raise
         log.error("error-policy exhausted: %d attempts, last exc=%s", self._max_attempts, type(last_exc).__name__ if last_exc else "?")
-        if last_exc is not None:
-            raise last_exc
-        raise RuntimeError(f"RetryingExecutor: exhausted {self._max_attempts} attempts with no exception captured")
+        assert last_exc is not None  # loop only exits without returning if at least one iteration raised
+        raise last_exc
 
 
 __all__ = [

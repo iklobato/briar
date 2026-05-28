@@ -183,36 +183,42 @@ class AwsServiceGathererTests(unittest.TestCase):
 
 
 class LanguageDetectorTests(unittest.TestCase):
-    def test_python_detector(self) -> None:
-        from briar.extract.language_detectors.python import DetectPython
+    """Phase 12 flattened the per-detector subclass files into a single
+    `language_detectors/__init__.py` module with a frozen dataclass +
+    one `_detect_*` function per language. Tests now resolve detectors
+    by name through the public registry."""
 
-        det = DetectPython()
+    @staticmethod
+    def _by_name(name: str):
+        from briar.extract.language_detectors import LANGUAGE_DETECTORS
+
+        for d in LANGUAGE_DETECTORS:
+            if d.name == name:
+                return d
+        raise AssertionError(f"no detector named {name!r} in registry")
+
+    def test_python_detector(self) -> None:
+        det = self._by_name("python")
         text = "[tool.pytest.ini_options]\n[tool.ruff]\n[tool.alembic]\n"
-        result = det.detect("o/r", lambda r, p: text if p == det.manifest else None)
+        result = det.detect("o/r", lambda r, p: text if p == det.manifest else "")
         self.assertEqual(result["language"], "python")
         self.assertEqual(result["test_runner"], "pytest")
         self.assertEqual(result["linter"], "ruff")
         self.assertEqual(result["migrations"], "alembic")
 
     def test_python_detector_missing_manifest_returns_empty(self) -> None:
-        from briar.extract.language_detectors.python import DetectPython
-
-        det = DetectPython()
+        det = self._by_name("python")
         self.assertEqual(det.detect("o/r", lambda r, p: ""), {})
 
     def test_node_detector_typescript_promotion(self) -> None:
-        from briar.extract.language_detectors.node import DetectNode
-
-        det = DetectNode()
+        det = self._by_name("node")
         text = '{"dependencies": {"typescript": "*", "vitest": "*"}}'
         result = det.detect("o/r", lambda r, p: text)
         self.assertEqual(result["language"], "typescript")
         self.assertEqual(result["test_runner"], "vitest")
 
     def test_go_detector(self) -> None:
-        from briar.extract.language_detectors.go import DetectGo
-
-        det = DetectGo()
+        det = self._by_name("go")
         result = det.detect("o/r", lambda r, p: "module example.com/x\n")
         self.assertEqual(result["language"], "go")
         self.assertEqual(result["test_runner"], "go test")

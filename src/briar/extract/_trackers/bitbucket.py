@@ -6,6 +6,7 @@ in ``atlassian-python-api`` exposes it via ``repo.issues``."""
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from typing import Any, Dict, List, Tuple
 
 from briar.decorators import swallow_errors
@@ -31,7 +32,9 @@ class BitbucketIssuesTracker(TrackerProvider):
         if self._client is None:
             from atlassian.bitbucket.cloud import Cloud
 
-            self._client = Cloud(url=self.BASE, username=self._username, password=self._app_password)
+            # timeout=30: same as the messaging-side Cloud client (Phase 2);
+            # extract-side tracker was missed until the re-audit.
+            self._client = Cloud(url=self.BASE, username=self._username, password=self._app_password, timeout=30)
         return self._client
 
     def _resolve_addr(self, project: str) -> Tuple[str, str]:
@@ -97,20 +100,7 @@ class BitbucketIssuesTracker(TrackerProvider):
             return super().get_ticket(project, ticket_key)
         ticket = self._to_ticket(data, project)
         content = (data.get("content") or {}).get("raw") or ""
-        return Ticket(
-            key=ticket.key,
-            title=ticket.title,
-            reporter=ticket.reporter,
-            assignee=ticket.assignee,
-            status=ticket.status,
-            kind=ticket.kind,
-            priority=ticket.priority,
-            created_at=ticket.created_at,
-            updated_at=ticket.updated_at,
-            labels=ticket.labels,
-            url=ticket.url,
-            description=str(content)[:8000],
-        )
+        return replace(ticket, description=str(content)[:8000])
 
     @staticmethod
     def _to_ticket(issue: Dict[str, Any], project: str) -> Ticket:

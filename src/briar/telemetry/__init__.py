@@ -5,7 +5,7 @@ package-private:
 
     from briar.telemetry import install, command_span, capture_error, banner_if_needed
 
-    install()                                # called by Cli.main at startup
+    install()                                # called by briar.cli.main at startup
     with command_span("plan.run", args):     # wraps every command dispatch
         ...
 
@@ -60,7 +60,7 @@ _STATE = _State()
 
 def install(version: str = "") -> TelemetryConfig:
     """Resolve config and install the global sink. Idempotent — safe
-    to call multiple times. Called once by `Cli.main`.
+    to call multiple times. Called once by `briar.cli.main`.
 
     Returns the resolved config so the caller can drive the first-run
     banner without re-resolving."""
@@ -221,8 +221,9 @@ def preview_next_event(command: str = "(preview)", *, extra_tags: Optional[Dict[
     exactly what we'd ship."""
     tags = dict(extra_tags or {})
     tags.update(_baseline_tags(command, None))
-    tags.setdefault("outcome", "preview")
-    tags.setdefault("duration_ms", 0)
+    # `outcome` and `duration_ms` are positional fields on the event
+    # below — the redundant setdefault() calls that used to live here
+    # were leftovers from an earlier shape and never reached the wire.
     return TelemetryEvent(
         kind="command",
         command=command,

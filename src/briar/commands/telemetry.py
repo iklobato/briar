@@ -24,12 +24,11 @@ import json
 import logging
 import sys
 from dataclasses import asdict
-from typing import ClassVar, Dict
+from typing import Dict
 
 from briar._registry import build_registry
 from briar.commands._enums import ExitCode
-from briar.commands.base import Command
-from briar.errors import CliError
+from briar.commands.base import Subcommand, SubcommandCommand
 from briar.formatting import render
 from briar.telemetry import TelemetryTier, active_config, preview_next_event, reset_install_id, save_tier
 from briar.telemetry._config import config_dir, default_dsn, install_id_path, resolve, state_path
@@ -40,25 +39,15 @@ log = logging.getLogger(__name__)
 # ─── TelemetryOp Strategy + Registry ────────────────────────────────
 
 
-class TelemetryOp:
-    name: ClassVar[str] = ""
-    help: ClassVar[str] = ""
-
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:  # pragma: no cover - abstract
-        raise NotImplementedError
-
-    def run(self, args: argparse.Namespace) -> int:  # pragma: no cover - abstract
-        raise NotImplementedError
+class TelemetryOp(Subcommand):
+    """One `briar telemetry` subcommand."""
 
 
 class StatusOp(TelemetryOp):
     name = "status"
     help = "Print the current telemetry tier and config source."
 
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        pass
-
-    def run(self, args: argparse.Namespace) -> int:
+    def run(self, command, args: argparse.Namespace) -> int:
         cfg = active_config() or resolve()
         render(
             {
@@ -89,7 +78,7 @@ class PreviewOp(TelemetryOp):
             help="Pretend command name to render the event for.",
         )
 
-    def run(self, args: argparse.Namespace) -> int:
+    def run(self, command, args: argparse.Namespace) -> int:
         event = preview_next_event(args.preview_command)
         sys.stdout.write(json.dumps(asdict(event), indent=2, sort_keys=True))
         sys.stdout.write("\n")
@@ -101,10 +90,7 @@ class _SetTierOp(TelemetryOp):
 
     tier: TelemetryTier = TelemetryTier.FULL
 
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        pass
-
-    def run(self, args: argparse.Namespace) -> int:
+    def run(self, command, args: argparse.Namespace) -> int:
         save_tier(self.tier, banner_shown=True)
         render({"tier": self.tier.value, "state_path": str(state_path())}, args.format)
         return ExitCode.OK
@@ -132,10 +118,7 @@ class ResetOp(TelemetryOp):
     name = "reset"
     help = "Regenerate the install_id (rotate the anonymous identity)."
 
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        pass
-
-    def run(self, args: argparse.Namespace) -> int:
+    def run(self, command, args: argparse.Namespace) -> int:
         new_id = reset_install_id()
         # We never print the raw id — only the hashed prefix, mirroring
         # what we'd actually send over the wire.
@@ -169,19 +152,9 @@ TELEMETRY_OPS: Dict[str, TelemetryOp] = build_registry(
 # ─── CommandTelemetry ──────────────────────────────────────────────
 
 
-class CommandTelemetry(Command):
+class CommandTelemetry(SubcommandCommand):
     name = "telemetry"
     help = "Inspect and configure CLI telemetry (Sentry errors + usage analytics)."
-
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        sub = parser.add_subparsers(dest="telemetry_op", required=True, metavar="OP")
-        for op in TELEMETRY_OPS.values():
-            op_parser = sub.add_parser(op.name, help=op.help)
-            op.add_arguments(op_parser)
-
-    def run(self, args: argparse.Namespace) -> int:
-        op = TELEMETRY_OPS.get(args.telemetry_op)
-        if op is None:
-            known = ", ".join(sorted(TELEMETRY_OPS.keys()))
-            raise CliError(f"unknown telemetry op: {args.telemetry_op} (known: {known})")
-        return op.run(args)
+    dest = "telemetry_op"
+    op_noun = "telemetry op"
+    ops = TELEMETRY_OPS

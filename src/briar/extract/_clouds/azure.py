@@ -57,6 +57,14 @@ class AzureCloudProvider(CloudProvider):
         self._credential = az_identity.DefaultAzureCredential()
         return self._credential
 
+    # TODO(timeout-parity): the azure-mgmt-* clients constructed below
+    # accept a `transport=` kwarg whose RequestsTransport carries
+    # `connection_timeout` / `read_timeout`. AWS got `botocore Config`
+    # treatment in Phase 2; this Azure path was deferred because each
+    # SDK release exposes the transport differently and the fix needs
+    # real-API testing. Until then, every Azure call inherits the
+    # azure-core defaults (currently 300s connect / 300s read).
+
     def caller_identity(self) -> AccountIdentity:
         sub_module = _try_import("azure.mgmt.subscription")
         if sub_module is None:

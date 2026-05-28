@@ -19,9 +19,46 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import ClassVar, List
+from typing import ClassVar, List, Optional
 
 log = logging.getLogger(__name__)
+
+
+# Default knobs for meeting-context fetches — duplicated as argparse
+# defaults across 6+ sites in commands/agent.py + commands/plan.py
+# before centralisation. Keep them here so a single edit moves both
+# the CLI defaults and the in-code fallbacks together.
+DEFAULT_MEETING_TOP_K = 3
+DEFAULT_MEETING_MAX_BYTES = 50_000
+
+
+def render_meeting_header(
+    m: "Meeting",
+    *,
+    attendee_cap: int = 12,
+    show_more_suffix: bool = False,
+) -> List[str]:
+    """Return the canonical ID/Date/Organizer/Attendees/Duration/URL
+    header lines for one meeting. Two callers — `meeting_context`
+    (uses `attendee_cap=12`, no overflow suffix) and `meeting_digest`
+    (uses `attendee_cap=8` with `+N more` suffix) — shared the same
+    six lines verbatim before this helper existed."""
+    lines: List[str] = [
+        f"**ID**: `{m.meeting_id}`",
+        f"**Date**: {m.started_at or '(unknown)'}",
+    ]
+    if m.organizer:
+        lines.append(f"**Organizer**: {m.organizer}")
+    if m.attendees:
+        preview = ", ".join(m.attendees[:attendee_cap])
+        if show_more_suffix and len(m.attendees) > attendee_cap:
+            preview += f" (+{len(m.attendees) - attendee_cap} more)"
+        lines.append(f"**Attendees**: {preview}")
+    if m.duration_sec:
+        lines.append(f"**Duration**: {m.duration_sec // 60} min")
+    if m.url:
+        lines.append(f"**URL**: {m.url}")
+    return lines
 
 
 @dataclass(frozen=True)
@@ -77,7 +114,7 @@ class MeetingProvider(ABC):
         provider was built for."""
 
     @abstractmethod
-    def list_meetings(self, *, since_iso: str, until_iso: str, max_count: int, attendees: List[str] = None) -> List[Meeting]:
+    def list_meetings(self, *, since_iso: str, until_iso: str, max_count: int, attendees: Optional[List[str]] = None) -> List[Meeting]:
         """List meetings within a date window. `since_iso` / `until_iso`
         are ISO-8601 timestamps. `attendees` (optional) filters to
         meetings where at least one attendee email matches; empty

@@ -17,7 +17,6 @@ from briar.iac.scaffold.sources.base import SourceTemplate
 
 class SourceAws(SourceTemplate):
     kind = "aws"
-    family = "cloud"
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument(

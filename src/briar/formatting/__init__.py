@@ -5,8 +5,9 @@ Adding a new format = one `Formatter` subclass + one entry in
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Sequence
 
+from briar.errors import CliError
 from briar.formatting.base import Formatter
 from briar.formatting.csv import FormatCsv
 from briar.formatting.json import FormatJson
@@ -33,23 +34,32 @@ class FormatterRegistry:
 
     @classmethod
     def get(cls, format_name: str) -> Formatter:
-        return cls.FORMATTERS.get(format_name) or cls.FORMATTERS["table"]
+        """Resolve a format by name. Unknown name raises CliError so a
+        typo (``--format yam``) is loud at dispatch instead of silently
+        falling back to the table renderer."""
+        formatter = cls.FORMATTERS.get(format_name)
+        if formatter is None:
+            known = ", ".join(sorted(cls.FORMATTERS))
+            raise CliError(f"unknown format {format_name!r}; known: {known}")
+        return formatter
 
     @classmethod
     def render(
         cls,
         payload: Any,
         format_name: str,
-        columns: List[str] = [],
+        columns: Sequence[str] = (),
     ) -> None:
         cls.get(format_name).render(payload, columns)
 
     @classmethod
     def render_object(cls, payload: Any, format_name: str) -> None:
-        """Single-record path: `table` falls through to JSON because a
-        one-row table is just JSON with line noise."""
-        effective = "json" if format_name == "table" else format_name
-        cls.render(payload, effective)
+        """Single-record path. Each Formatter handles single-record
+        payloads itself (FormatTable falls through to JSON internally;
+        every other formatter renders the object naturally). The
+        previous shape's "table → json" string-dispatch duplicated
+        FormatTable's own single-record branch."""
+        cls.render(payload, format_name)
 
 
 # Module-level callables — keep the existing import surface stable.

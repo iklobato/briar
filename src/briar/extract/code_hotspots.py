@@ -18,11 +18,12 @@ from collections import Counter, defaultdict
 from typing import Any, Dict, List
 
 from briar.extract._provider import Commit
-from briar.extract.base import EMPTY_SECTION, ExtractedSection, RepoBackedExtractor
+from briar.extract.base import ExtractedSection, RepoBackedExtractor, empty_section
 
 
 class ExtractCodeHotspots(RepoBackedExtractor):
     name = "code-hotspots"
+    heading = "Code hotspots"
     description = "files that change together — co-change clustering for context"
     requires_github = True  # legacy flag
 
@@ -70,7 +71,7 @@ class ExtractCodeHotspots(RepoBackedExtractor):
             if not section.is_empty:
                 per_repo.append(section)
         if not per_repo:
-            return EMPTY_SECTION
+            return empty_section()
         return ExtractedSection(
             title=f"Code hotspots — {len(per_repo)} repo(s)",
             body=(
@@ -92,7 +93,7 @@ class ExtractCodeHotspots(RepoBackedExtractor):
         # only those with file lists so the co-change matrix is real.
         commits = [c for c in commits if c.file_paths]
         if not commits:
-            return EMPTY_SECTION
+            return empty_section()
 
         file_touch_count: Counter = Counter()
         co_occurrence: Dict[str, Counter] = defaultdict(Counter)

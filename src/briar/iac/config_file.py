@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Callable, Dict, List
+from typing import Any, ClassVar, Dict, List
 
 from pydantic import ValidationError
 
@@ -46,7 +46,7 @@ class ConfigFile:
             data = json.loads(raw)
         except json.JSONDecodeError as exc:
             raise ConfigError(f"{path}: invalid JSON — {exc}") from exc
-        if type(data) is not dict:
+        if not isinstance(data, dict):
             raise ConfigError(f"{path}: top-level must be a JSON object")
         try:
             spec = ConfigSpec.model_validate(data)
@@ -63,52 +63,18 @@ class ConfigFile:
             lines.append(f"  {location}: {err['msg']}")
         return "\n".join(lines)
 
+    # Derived from ConfigSpec's Pydantic schema so adding a new section
+    # to ConfigSpec auto-propagates — no manual dict to update. Cached
+    # at import time; the previous shape rebuilt a 7-entry closure dict
+    # on every section() call.
+    _VALID_SECTIONS: ClassVar[frozenset] = frozenset(ConfigSpec.model_fields.keys())
+
     def section(self, kind: str) -> List[Dict[str, Any]]:
-        """Return a section as a list of dicts.
-
-        Dict dispatch — adding a new section type is one entry."""
-        getters: Dict[str, "Callable[[], List[Any]]"] = {
-            "llm_providers": lambda: list(self._spec.llm_providers),
-            "llm_models": lambda: list(self._spec.llm_models),
-            "sources": lambda: list(self._spec.sources),
-            "tools": lambda: list(self._spec.tools),
-            "agents": lambda: list(self._spec.agents),
-            "workflows": lambda: list(self._spec.workflows),
-            "triggers": lambda: list(self._spec.triggers),
-        }
-        getter = getters.get(kind)
-        if getter is None:
+        """Return a section as a list of dicts. Section names are the
+        ConfigSpec field names (llm_providers, llm_models, sources,
+        tools, agents, workflows, triggers)."""
+        if kind not in self._VALID_SECTIONS:
             raise ConfigError(f"unknown config section: {kind!r}")
-        return [m.model_dump(exclude_none=False) for m in getter()]
+        items = getattr(self._spec, kind)
+        return [m.model_dump(exclude_none=False) for m in items]
 
-    # Backwards-compatible attribute access — older code paths read
-    # `cfg.agents` etc. directly. The lists returned here are the typed
-    # spec objects; section() returns plain dicts for reconcilers.
-
-    @property
-    def llm_providers(self) -> List[Any]:
-        return list(self._spec.llm_providers)
-
-    @property
-    def llm_models(self) -> List[Any]:
-        return list(self._spec.llm_models)
-
-    @property
-    def sources(self) -> List[Any]:
-        return list(self._spec.sources)
-
-    @property
-    def tools(self) -> List[Any]:
-        return list(self._spec.tools)
-
-    @property
-    def agents(self) -> List[Any]:
-        return list(self._spec.agents)
-
-    @property
-    def workflows(self) -> List[Any]:
-        return list(self._spec.workflows)
-
-    @property
-    def triggers(self) -> List[Any]:
-        return list(self._spec.triggers)

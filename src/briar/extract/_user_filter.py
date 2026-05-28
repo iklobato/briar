@@ -45,55 +45,6 @@ class UserFilter:
             help="exclude items whose assignee is in this list (repeatable)",
         )
 
-    @classmethod
-    def apply(
-        cls,
-        items: List[dict],
-        args: argparse.Namespace,
-        *,
-        prefix: str,
-    ) -> List[dict]:
-        """Filter `items` by author/assignee allow/block lists."""
-        ns = vars(args)
-        authors_allow = list(ns.get(f"{prefix}_authors_allow") or [])
-        authors_block = list(ns.get(f"{prefix}_authors_block") or [])
-        assignees_allow = list(ns.get(f"{prefix}_assignees_allow") or [])
-        assignees_block = list(ns.get(f"{prefix}_assignees_block") or [])
-
-        no_filters = not any(
-            (
-                authors_allow,
-                authors_block,
-                assignees_allow,
-                assignees_block,
-            )
-        )
-        if no_filters:
-            return items
-
-        out: List[dict] = []
-        for item in items:
-            author = cls._login_of(item.get("user"))
-            assignees = cls._logins_of(item.get("assignees")) or [cls._login_of(item.get("assignee"))]
-            if not cls._matches([author], authors_allow, authors_block):
-                continue
-            if not cls._matches(assignees, assignees_allow, assignees_block):
-                continue
-            out.append(item)
-        return out
-
-    @staticmethod
-    def _login_of(value: Any) -> str:
-        if type(value) is not dict:
-            return ""
-        return value.get("login") or ""
-
-    @classmethod
-    def _logins_of(cls, values: Any) -> List[str]:
-        if type(values) is not list:
-            return []
-        return [cls._login_of(v) for v in values if type(v) is dict]
-
     @staticmethod
     def _matches(
         actual: Iterable[str],
@@ -106,7 +57,6 @@ class UserFilter:
         if block and (actual_set & set(block)):
             return False
         return True
-
 
     @classmethod
     def apply_objs(
@@ -143,8 +93,8 @@ class UserFilter:
         return out
 
 
-# Back-compat aliases (kept so external callers don't break — both are
-# trivial one-liner delegations).
+# Public free-function names that callers import. The dict-form
+# `apply_user_filter` was deleted in Phase 13 — every src caller
+# uses the object-form `apply_user_filter_objs`.
 add_user_filter_arguments = UserFilter.add_arguments
-apply_user_filter = UserFilter.apply
 apply_user_filter_objs = UserFilter.apply_objs

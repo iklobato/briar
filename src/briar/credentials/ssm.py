@@ -10,7 +10,7 @@ IAM policy can grant access by path."""
 from __future__ import annotations
 
 import logging
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from briar.credentials._store import CredentialStore
 
@@ -24,26 +24,32 @@ class SsmParameterStore(CredentialStore):
 
     def __init__(self) -> None:
         self._client = None
-        self._cache: Dict[str, str] = {}
+        self._cache: Dict[str, Optional[str]] = {}
 
     def _make_client(self):
         if self._client is not None:
             return self._client
         import boto3
+        from botocore.config import Config
 
-        self._client = boto3.client("ssm")
+        self._client = boto3.client(
+            "ssm",
+            config=Config(connect_timeout=5, read_timeout=15, retries={"mode": "standard", "max_attempts": 3}),
+        )
         return self._client
 
-    def read(self, name: str) -> str:
+    def read(self, name: str) -> Optional[str]:
         if name in self._cache:
             return self._cache[name]
         client = self._make_client()
         try:
             resp = client.get_parameter(Name=f"{self.PREFIX}{name}", WithDecryption=True)
-        except Exception as exc:  # noqa: BLE001
-            log.debug("ssm read miss name=%s err=%s", name, exc)
-            self._cache[name] = ""
-            return ""
+        except client.exceptions.ParameterNotFound:
+            log.debug("ssm read miss name=%s", name)
+            self._cache[name] = None
+            return None
+        # AccessDenied / throttling / KMS errors propagate — see the
+        # CredentialStore.read contract.
         value = str((resp.get("Parameter") or {}).get("Value") or "")
         self._cache[name] = value
         return value
@@ -64,10 +70,8 @@ class SsmParameterStore(CredentialStore):
         client = self._make_client()
         try:
             client.delete_parameter(Name=f"{self.PREFIX}{name}")
-        except Exception as exc:  # noqa: BLE001
-            if "parameternotfound" in str(exc).lower():
-                return False
-            raise
+        except client.exceptions.ParameterNotFound:
+            return False
         self._cache.pop(name, None)
         return True
 

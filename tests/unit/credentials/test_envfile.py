@@ -22,8 +22,11 @@ class TestRead:
         monkeypatch.setenv("MY_VAR", "value")
         assert EnvFileStore().read("MY_VAR") == "value"
 
-    def test_read_unset_returns_empty(self, envfile_root) -> None:
-        assert EnvFileStore().read("NEVER_SET") == ""
+    def test_read_unset_returns_none(self, envfile_root) -> None:
+        # Per the CredentialStore protocol, read() returns None (not "")
+        # for a missing name — distinguishing "not set" from "set to
+        # empty string" so callers can fail closed on auth errors.
+        assert EnvFileStore().read("NEVER_SET") is None
 
 
 class TestWrite:

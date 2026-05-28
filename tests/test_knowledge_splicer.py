@@ -43,7 +43,7 @@ class KnowledgeSplicerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             store = make_store("file", file_root=Path(td))
             store.put("knowledge:acme", _ACME_BLOB)
-            splicer = KnowledgeSplicer(store, "acme")
+            splicer = KnowledgeSplicer.from_store(store, "acme")
 
         pr_arch = splicer.section("pr-archaeology")
         self.assertIn("## PR archaeology", pr_arch)
@@ -59,7 +59,7 @@ class KnowledgeSplicerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             store = make_store("file", file_root=Path(td))
             store.put("knowledge:acme", _ACME_BLOB)
-            splicer = KnowledgeSplicer(store, "acme")
+            splicer = KnowledgeSplicer.from_store(store, "acme")
             engineer = ARCHETYPES["engineer"]
             prologue = splicer.prologue(engineer)
 
@@ -85,7 +85,7 @@ class KnowledgeSplicerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             store = make_store("file", file_root=Path(td))
             store.put("knowledge:acme", _ACME_BLOB)
-            splicer = KnowledgeSplicer(store, "acme")
+            splicer = KnowledgeSplicer.from_store(store, "acme")
             prologue = splicer.prologue(ARCHETYPES["pr-fixer"])
 
         self.assertIn("Active work", prologue)
@@ -106,7 +106,7 @@ class KnowledgeSplicerTests(unittest.TestCase):
             store = make_store("file", file_root=Path(td))
             store.put("knowledge:acme", _ACME_BLOB)
             store.put("knowledge:acme.prfix", _ACME_PRFIX)
-            splicer = KnowledgeSplicer(store, "acme")
+            splicer = KnowledgeSplicer.from_store(store, "acme")
 
         active = splicer.section("active-work")
         # The prfix blob has the newer Active work section — it should
@@ -119,7 +119,7 @@ class KnowledgeSplicerTests(unittest.TestCase):
     def test_empty_company_returns_empty_prologue(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             store = make_store("file", file_root=Path(td))
-            splicer = KnowledgeSplicer(store, "no-such-company")
+            splicer = KnowledgeSplicer.from_store(store, "no-such-company")
             self.assertEqual(splicer.prologue(ARCHETYPES["engineer"]), "")
 
 

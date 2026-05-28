@@ -10,7 +10,7 @@ bindings by handle; the tool resolves handle → kind → factory."""
 
 from __future__ import annotations
 
-from typing import Any, Dict, Tuple, Type
+from typing import Any, Dict, Optional, Tuple, Type
 
 from briar._registry import build_registry
 from briar.errors import CliError
@@ -45,7 +45,7 @@ class MessageWriterRegistry:
         return tuple(WRITERS.keys())
 
     @classmethod
-    def make(cls, kind: str, *, company: str = "", config: Dict[str, Any] = None) -> MessageWriter:
+    def make(cls, kind: str, *, company: str = "", config: Optional[Dict[str, Any]] = None) -> MessageWriter:
         writer_cls = WRITERS.get(kind)
         if writer_cls is None:
             known = ", ".join(sorted(WRITERS.keys()))

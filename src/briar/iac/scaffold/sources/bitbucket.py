@@ -21,12 +21,13 @@ from __future__ import annotations
 import argparse
 from typing import Any, Dict, List
 
+from briar.errors import ConfigError
 from briar.iac.scaffold.sources.base import SourceTemplate
 
 
 class SourceBitbucket(SourceTemplate):
     kind = "bitbucket"
-    family = "tracker"
+    auth_secret_arg = "bitbucket_secret_id"
     default_provider_for_oauth = "bitbucket"
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
@@ -76,7 +77,7 @@ class SourceBitbucket(SourceTemplate):
         workspace = ns.get("bitbucket_workspace")
         repo = ns.get("bitbucket_repo")
         if not workspace or not repo:
-            raise SystemExit("--source bitbucket requires --bitbucket-workspace AND --bitbucket-repo")
+            raise ConfigError("--source bitbucket requires --bitbucket-workspace AND --bitbucket-repo")
 
         config: Dict[str, Any] = {
             "workspace": workspace,
@@ -136,29 +137,3 @@ class SourceBitbucket(SourceTemplate):
             return ""
         return f"{workspace}/{repo}"
 
-    @staticmethod
-    def _auth(args: argparse.Namespace) -> Dict[str, Any]:
-        ns = vars(args)
-        mode = ns.get("auth_mode") or "oauth"
-        if mode == "pat":
-            secret_id = ns.get("bitbucket_secret_id")
-            if not secret_id:
-                raise SystemExit("--source bitbucket with --auth-mode pat requires " "--bitbucket-secret-id <secret-uuid>")
-            return {"credentials_ref": secret_id, "credential_binding": None}
-        return {
-            "credentials_ref": None,
-            "credential_binding": {
-                "kind": "oauth_connection",
-                "provider": "bitbucket",
-            },
-        }
-
-    @staticmethod
-    def _user_filters(args: argparse.Namespace) -> Dict[str, List[str]]:
-        ns = vars(args)
-        return {
-            "authors_allow": list(ns.get("bitbucket_authors_allow") or []),
-            "authors_block": list(ns.get("bitbucket_authors_block") or []),
-            "assignees_allow": list(ns.get("bitbucket_assignees_allow") or []),
-            "assignees_block": list(ns.get("bitbucket_assignees_block") or []),
-        }

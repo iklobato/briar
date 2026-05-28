@@ -18,7 +18,20 @@ regardless of what the LLM "wants" to do."""
 from __future__ import annotations
 
 from abc import ABC
-from typing import Any, ClassVar, Dict, Iterable, List, Tuple
+from typing import Any, ClassVar, Dict, Iterable, List, Literal, Tuple
+
+
+# Closed set of `implementation_ref` substrings recognised by archetypes.
+# Typos in subclass `tool_filter = (...)` assignments become type-checker
+# errors instead of silently dropping the tool. Add a new needle here +
+# in the matching source's `build_tools` output to extend.
+ToolFilterNeedle = Literal[
+    "comment_on_issue",
+    "add_labels",
+    "comment",
+    "commit",
+    "open_pr",
+]
 
 
 class AgentArchetype(ABC):
@@ -32,8 +45,8 @@ class AgentArchetype(ABC):
 
     # Implementation-ref substring whitelist. Empty = all source-tools
     # included. Otherwise: only tools whose `implementation_ref`
-    # contains one of these strings get bound.
-    tool_filter: ClassVar[Tuple[str, ...]] = ()
+    # contains one of these needles get bound.
+    tool_filter: ClassVar[Tuple[ToolFilterNeedle, ...]] = ()
 
     # Extractor names whose output this archetype should consult before
     # taking an action. Order matters — the prompt lists them in this

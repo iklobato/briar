@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from briar.credentials._store import CredentialStore
 
@@ -30,26 +30,38 @@ class AwsSecretsManagerStore(CredentialStore):
 
     def __init__(self) -> None:
         self._client = None
-        self._cache: Dict[str, str] = {}
+        # Cache holds Optional[str]: None = confirmed-missing, str = value.
+        self._cache: Dict[str, Optional[str]] = {}
 
     def _make_client(self):
         if self._client is not None:
             return self._client
         import boto3
+        from botocore.config import Config
 
-        self._client = boto3.client("secretsmanager")
+        # Bounded timeouts so a hung managed-PG-style network blip doesn't
+        # block the whole CLI invocation. Standard-mode retries handle
+        # throttling on the SDK's terms.
+        self._client = boto3.client(
+            "secretsmanager",
+            config=Config(connect_timeout=5, read_timeout=15, retries={"mode": "standard", "max_attempts": 3}),
+        )
         return self._client
 
-    def read(self, name: str) -> str:
+    def read(self, name: str) -> Optional[str]:
         if name in self._cache:
             return self._cache[name]
         client = self._make_client()
         try:
             resp = client.get_secret_value(SecretId=f"{self.PREFIX}{name}")
-        except Exception as exc:  # noqa: BLE001
-            log.debug("aws-secretsmanager read miss name=%s err=%s", name, exc)
-            self._cache[name] = ""
-            return ""
+        except client.exceptions.ResourceNotFoundException:
+            log.debug("aws-secretsmanager read miss name=%s", name)
+            self._cache[name] = None
+            return None
+        # Auth, throttling, network — propagate so callers fail closed.
+        # The previous `except Exception` swallowed these and looked
+        # identical to "secret doesn't exist," which masked revoked-IAM
+        # incidents.
         value = resp.get("SecretString") or ""
         # Composite-secret support: if SecretString parses as JSON,
         # look for `{value}` or the bare key. Otherwise treat as scalar.
@@ -64,17 +76,16 @@ class AwsSecretsManagerStore(CredentialStore):
 
     def write(self, name: str, value: str) -> None:
         """Upsert via PutSecretValue; falls through to CreateSecret on
-        first-time write."""
+        first-time write. Uses typed `ResourceNotFoundException` for
+        the create-vs-update decision so a permission-denied (which
+        may contain "not found" in the message) doesn't silently
+        trigger a CreateSecret attempt."""
         client = self._make_client()
         secret_id = f"{self.PREFIX}{name}"
         try:
             client.put_secret_value(SecretId=secret_id, SecretString=value)
-        except Exception as exc:  # noqa: BLE001
-            if "resourcenotfoundexception" in str(exc).lower() or "not found" in str(exc).lower():
-                client.create_secret(Name=secret_id, SecretString=value)
-            else:
-                log.exception("aws-secretsmanager write name=%s", name)
-                raise
+        except client.exceptions.ResourceNotFoundException:
+            client.create_secret(Name=secret_id, SecretString=value)
         self._cache[name] = value
 
     def delete(self, name: str) -> bool:
@@ -83,10 +94,8 @@ class AwsSecretsManagerStore(CredentialStore):
         secret_id = f"{self.PREFIX}{name}"
         try:
             client.delete_secret(SecretId=secret_id, ForceDeleteWithoutRecovery=True)
-        except Exception as exc:  # noqa: BLE001
-            if "resourcenotfoundexception" in str(exc).lower():
-                return False
-            raise
+        except client.exceptions.ResourceNotFoundException:
+            return False
         self._cache.pop(name, None)
         return True
 

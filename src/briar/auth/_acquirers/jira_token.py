@@ -3,7 +3,7 @@
 Walks the user to the Atlassian token page, then prompts for URL +
 email + paste of the generated token. Stores ``JIRA_<COMPANY>_URL``,
 ``JIRA_<COMPANY>_EMAIL``, ``JIRA_<COMPANY>_TOKEN`` AND sets
-``JIRA_<COMPANY>_AUTH_KIND=token`` so ``JiraAuthRegistry.autodetect``
+``JIRA_<COMPANY>_AUTH_KIND=token`` so ``autodetect_jira_auth``
 always picks this strategy."""
 
 from __future__ import annotations

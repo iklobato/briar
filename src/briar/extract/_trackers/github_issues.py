@@ -8,6 +8,7 @@ here is ``<owner>/<repo>`` to match every other GH call site."""
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from typing import Any, Dict, List
 
 from briar.decorators import swallow_errors
@@ -16,6 +17,27 @@ from briar.extract._tracker import Comment, Ticket, TrackerProvider
 
 
 log = logging.getLogger(__name__)
+
+
+# GitHub doesn't have a native "kind" or "priority" — derive both from
+# label conventions. Extracted from an inline `if low in (...): kind = low`
+# chain so adding a new kind/priority signal is one tuple entry.
+_KIND_LABELS = frozenset({"bug", "feature", "task", "story", "chore"})
+_PRIORITY_PREFIXES = ("priority/", "p")
+
+
+def _kind_priority_from_labels(labels: List[str]) -> tuple:
+    """Inspect each label once; return (kind, priority). First match wins
+    for priority (preserves the previous `priority = priority or lbl` shape)."""
+    kind = ""
+    priority = ""
+    for lbl in labels:
+        low = lbl.lower()
+        if not kind and low in _KIND_LABELS:
+            kind = low
+        if not priority and any(low.startswith(p) for p in _PRIORITY_PREFIXES):
+            priority = lbl
+    return kind, priority
 
 
 class GithubIssuesTracker(TrackerProvider):
@@ -72,20 +94,7 @@ class GithubIssuesTracker(TrackerProvider):
         if not isinstance(data, dict):
             return super().get_ticket(project, ticket_key)
         ticket = self._to_ticket(data, project)
-        return Ticket(
-            key=ticket.key,
-            title=ticket.title,
-            reporter=ticket.reporter,
-            assignee=ticket.assignee,
-            status=ticket.status,
-            kind=ticket.kind,
-            priority=ticket.priority,
-            created_at=ticket.created_at,
-            updated_at=ticket.updated_at,
-            labels=ticket.labels,
-            url=ticket.url,
-            description=str(data.get("body") or "")[:8000],
-        )
+        return replace(ticket, description=str(data.get("body") or "")[:8000])
 
     @swallow_errors(default=[], message="github-issues list_status_transitions")
     def list_status_transitions(self, project: str, ticket_key: str) -> List[str]:
@@ -116,14 +125,7 @@ class GithubIssuesTracker(TrackerProvider):
             elif isinstance(l, str):
                 labels.append(l)
         # GitHub doesn't have a native "kind" or "priority" — derive from labels.
-        kind = ""
-        priority = ""
-        for lbl in labels:
-            low = lbl.lower()
-            if low in ("bug", "feature", "task", "story", "chore"):
-                kind = low
-            if low.startswith("priority/") or low.startswith("p"):
-                priority = priority or lbl
+        kind, priority = _kind_priority_from_labels(labels)
         return Ticket(
             key=f"#{issue.get('number')}",
             title=str(issue.get("title") or "")[:200],

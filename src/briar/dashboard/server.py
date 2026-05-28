@@ -15,12 +15,60 @@ from pathlib import Path
 from threading import Lock
 from typing import List
 
-from jinja2 import Environment, FileSystemLoader, select_autoescape
+from jinja2 import ChainableUndefined, Environment, FileSystemLoader, select_autoescape
 
-from briar.dashboard.collectors import Collector, CollectorRegistry
+from briar.dashboard.collectors import Collector
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 log = logging.getLogger(__name__)
+
+
+class _ResilientUndefined(ChainableUndefined):
+    """Undefined that degrades to blanks instead of raising.
+
+    A collector failure makes ``render_index`` set that section to
+    ``{"_error": ...}``; the template then accesses fields that aren't
+    there. With the default ``Undefined`` those accesses raise
+    ``UndefinedError`` mid-render and 500 the WHOLE page — defeating the
+    per-section isolation the dashboard promises ("a collector failure
+    must not 500 the page"). Only 2 of ~24 sections hand-guard ``_error``,
+    so the safety net belongs in the environment, not every section.
+
+    ``ChainableUndefined`` already makes attribute/item access
+    (``a.b.c``) return self instead of raising. We add the remaining
+    operations the template performs on section fields: iteration
+    (``{% for x in s.rows %}``), length (``s.rows | length``), numeric
+    comparison (``s.x >= 0``), and string concatenation. ``| tojson`` is
+    already guarded at the call sites with ``| default({})`` — and since
+    this is an ``Undefined`` subclass, that filter still fires."""
+
+    __slots__ = ()
+
+    def __iter__(self):
+        return iter(())
+
+    def __len__(self) -> int:
+        return 0
+
+    def __str__(self) -> str:
+        return ""
+
+    def __int__(self) -> int:
+        return 0
+
+    def __float__(self) -> float:
+        return 0.0
+
+    def __lt__(self, other) -> bool:
+        return False
+
+    __le__ = __gt__ = __ge__ = __lt__
+
+    def __add__(self, other):
+        return ""
+
+    def __radd__(self, other):
+        return other
 
 
 # ─── Jinja filters ──────────────────────────────────────────────────
@@ -96,6 +144,9 @@ class DashboardServer:
             autoescape=select_autoescape(["html"]),
             trim_blocks=True,
             lstrip_blocks=True,
+            # A failed collector's section is missing its fields; degrade
+            # to blanks instead of 500ing the whole page mid-render.
+            undefined=_ResilientUndefined,
         )
         # Register custom filters in one shot — the template uses them
         # as `{{ value | human_bytes }}` etc.

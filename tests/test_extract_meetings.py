@@ -19,9 +19,9 @@ from unittest import mock
 
 class MeetingRegistryTests(unittest.TestCase):
     def test_fireflies_kind_registered(self) -> None:
-        from briar.extract._meetings import MeetingProviderRegistry
+        from briar.extract._meetings import meeting_kinds
 
-        self.assertIn("fireflies", MeetingProviderRegistry.kinds())
+        self.assertIn("fireflies", meeting_kinds())
 
     def test_unknown_kind_raises(self) -> None:
         from briar.errors import CliError
@@ -172,7 +172,7 @@ class FirefliesAdapterTests(unittest.TestCase):
 
 class MeetingDigestExtractorTests(unittest.TestCase):
     def test_empty_when_provider_returns_no_meetings(self) -> None:
-        from briar.extract.base import EMPTY_SECTION
+        from briar.extract.base import empty_section
         from briar.extract.meeting_digest import ExtractMeetingDigest
 
         ext = ExtractMeetingDigest()
@@ -188,7 +188,9 @@ class MeetingDigestExtractorTests(unittest.TestCase):
             provider.list_meetings.return_value = []
             make_provider.return_value = provider
             section = ext.extract(ns)
-        self.assertIs(section, EMPTY_SECTION)
+        # was: assertIs(section, EMPTY_SECTION) — now empty_section() returns
+        # a fresh instance each call, so check the "no data" property instead.
+        self.assertTrue(section.is_empty)
 
     def test_section_shape_with_meetings(self) -> None:
         from briar.extract._meeting import Meeting
@@ -233,7 +235,7 @@ class MeetingDigestExtractorTests(unittest.TestCase):
 
 class MeetingContextExtractorTests(unittest.TestCase):
     def test_empty_when_no_key_and_no_query(self) -> None:
-        from briar.extract.base import EMPTY_SECTION
+        from briar.extract.base import empty_section
         from briar.extract.meeting_context import FetchMeetingContext
 
         ext = FetchMeetingContext()
@@ -250,7 +252,9 @@ class MeetingContextExtractorTests(unittest.TestCase):
             provider.is_available.return_value = True
             make_provider.return_value = provider
             section = ext.fetch(ns)
-        self.assertIs(section, EMPTY_SECTION)
+        # was: assertIs(section, EMPTY_SECTION) — now empty_section() returns
+        # a fresh instance each call, so check the "no data" property instead.
+        self.assertTrue(section.is_empty)
 
     def test_fetch_by_id_renders_transcript(self) -> None:
         from briar.extract._meeting import Meeting, MeetingDetail
@@ -288,7 +292,8 @@ class MeetingContextExtractorTests(unittest.TestCase):
         self.assertFalse(section.is_empty)
         self.assertIn("OAuth design call", section.title)
         self.assertIn("refresh tokens", section.body)
-        self.assertEqual(section.data["mode"], "by-id")
+        # 'mode' discriminator removed — was never read by any branch.
+        self.assertEqual(section.data["meeting_id"], detail.meeting.meeting_id)
 
     def test_transcript_truncated_at_max_bytes(self) -> None:
         from briar.extract._meeting import Meeting, MeetingDetail
@@ -357,7 +362,8 @@ class MeetingContextExtractorTests(unittest.TestCase):
         self.assertIn("2 match", section.title)
         self.assertIn("ACME-123 should ship", section.body)
         self.assertIn("Confirmed for ACME-123", section.body)
-        self.assertEqual(section.data["mode"], "search")
+        # 'mode' discriminator removed — query+match_count is the actual signal.
+        self.assertEqual(section.data["match_count"], 2)
 
 
 # ─── Agent CLI wiring (--meeting-* flags + helper) ──────────────────────────

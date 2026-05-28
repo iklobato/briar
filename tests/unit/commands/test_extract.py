@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from briar.extract.base import EMPTY_SECTION, ExtractedSection
+from briar.extract.base import ExtractedSection, empty_section
 
 
 class TestExtractFailureMode:
@@ -16,7 +16,7 @@ class TestExtractFailureMode:
 
         for ext in EXTRACTORS.values():
             mocker.patch.object(ext, "is_available", return_value=True)
-            mocker.patch.object(ext, "extract", return_value=EMPTY_SECTION)
+            mocker.patch.object(ext, "extract", return_value=empty_section())
         result = cli(
             "extract",
             "--company", "acme",
@@ -50,7 +50,7 @@ class TestExtractInclude:
 
             def _stub(args, *, _n=name) -> ExtractedSection:
                 called_names.append(_n)
-                return EMPTY_SECTION
+                return empty_section()
 
             mocker.patch.object(ext, "extract", side_effect=_stub)
 
@@ -75,7 +75,7 @@ class TestExtractInclude:
 
             def _stub(args, *, _n=name) -> ExtractedSection:
                 called.add(_n)
-                return EMPTY_SECTION
+                return empty_section()
 
             mocker.patch.object(ext, "extract", side_effect=_stub)
 

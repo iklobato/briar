@@ -10,6 +10,7 @@ from briar.extract.base import ExtractedSection
 
 class GatherRds(AwsServiceGatherer):
     name = "rds"
+    data_key = "instances"
 
     def gather(self, session: Any) -> ExtractedSection:
         rds = session.client("rds")

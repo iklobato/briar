@@ -1994,3 +1994,326 @@ HTTP listener.
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) +
   [`ARCHITECTURE_DEEP.md`](ARCHITECTURE_DEEP.md) — abstraction
   inventory + SOLID audit
+
+---
+
+## Windows shell reference — same examples translated
+
+Every snippet above assumes a POSIX shell (bash / zsh on macOS or Linux).
+On Windows the `briar` CLI itself is identical — only the surrounding
+shell glue (env vars, line continuations, inline `VAR=val` prefixes,
+heredocs, pipe targets) differs. This section translates each block
+under "Advanced examples — feature combinations" into **PowerShell
+(`pwsh` / Windows PowerShell 5.1+)** as the modern default, with
+**Command Prompt (`cmd.exe`)** notes where the two diverge.
+
+The YAML runbook block from §1 is unchanged — YAML is OS-agnostic;
+only how you *invoke* `briar runbook extract` against it differs.
+
+### Translation cheat-sheet
+
+| POSIX (bash / zsh) | PowerShell | Command Prompt |
+|---|---|---|
+| `export FOO=bar` | `$env:FOO = "bar"` | `set FOO=bar` |
+| `FOO=bar briar ...` (inline) | `$env:FOO = "bar"; briar ...` | `set FOO=bar` then `briar ...` (two lines) |
+| `\` at end of line | `` ` `` (backtick) | `^` (caret) |
+| `'single'` quotes | `'single'` (no `$expansion`) or `"double"` | `"double"` only |
+| `briar ... \| jq '.cards[]'` | `briar ... --format json \| ConvertFrom-Json \| %{ $_.cards }` | install jq + `briar ... --format json \| jq ".cards[]"` |
+| `<<EOF` heredoc | use `--from-file path.md` or `Get-Content` piped | use `--from-file path.md` |
+| `python3` | `python` (or `py -3`) | `python` (or `py -3`) |
+| `pip install -e '.[openai]'` | `pip install -e ".[openai]"` (double quotes) | `pip install -e ".[openai]"` |
+| Path separator | `/` works in `briar` flags; native Windows commands prefer `\` | same |
+
+### Install (Windows)
+
+```powershell
+# From PyPI
+pip install briar-cli
+briar version
+
+# From source (PowerShell)
+git clone git@github.com:iklobato/briar-cli.git
+cd briar-cli
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e .
+briar version
+
+# Optional extras — note the DOUBLE quotes (PowerShell parses [ ] in single quotes too,
+# but double-quoting is the safer cross-shell form):
+pip install "briar-cli[openai]"
+pip install "briar-cli[gemini]"
+pip install "briar-cli[vault]"
+pip install "briar-cli[gcp]"
+pip install "briar-cli[azure]"
+pip install "briar-cli[infisical]"
+pip install "briar-cli[all]"
+```
+
+`cmd.exe` equivalent for the venv activation: `.\.venv\Scripts\activate.bat`.
+
+If PowerShell blocks `Activate.ps1` with an execution-policy error,
+unblock for the current session only:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+```
+
+### 2. End-to-end LLM-driven implementation pipeline (Windows)
+
+```powershell
+# 1. Seed the company knowledge blob.
+briar extract --company acme `
+    --include pr-archaeology --include reviewer-profile `
+    --include code-hotspots --include codebase-conventions `
+    --include active-work --include active-tickets `
+    --pr-repo acme-co/acme-app --pr-max 50 `
+    --reviewer-repo acme-co/acme-app `
+    --hotspots-repo acme-co/acme-app --hotspots-since-days 30 `
+    --conventions-repo acme-co/acme-app `
+    --active-repo acme-co/acme-app `
+    --ticket-project ACME `
+    --storage postgres
+
+# 2. Build the plan from the live Jira board.
+briar plan build `
+    "https://acme.atlassian.net/jira/software/projects/ACME/boards/12" `
+    --name acme-q3 --company acme `
+    --llm anthropic --with-knowledge `
+    --store postgres --max-cards 30
+
+# 3. Smoke a single card (dry-run).
+briar plan run acme-q3 `
+    --company acme --owner acme-co --repo acme-app `
+    --tracker jira --tracker-project ACME `
+    --runbook runbooks/acme.yaml `
+    --llm anthropic --model claude-sonnet-4-6 `
+    --limit 1 --dry-run
+
+# 4. Wide run, tolerant of failures.
+briar plan run acme-q3 `
+    --company acme --owner acme-co --repo acme-app `
+    --tracker jira --tracker-project ACME `
+    --runbook runbooks/acme.yaml `
+    --llm anthropic --model claude-sonnet-4-6 `
+    --continue-on-failure --max-replans 3
+
+# 5. Status snapshot + audit. `jq` replacement using PowerShell native JSON:
+briar plan status acme-q3 --format json `
+    | ConvertFrom-Json `
+    | Select-Object -ExpandProperty cards `
+    | Where-Object { $_.status -eq "blocked" }
+
+briar journal list --command plan.run. --limit 5
+briar journal show <session-id>
+```
+
+`cmd.exe` line continuation is `^` instead of `` ` ``; otherwise the
+flags are identical. `cmd.exe` cannot pipe to `ConvertFrom-Json` —
+install [jq for Windows](https://stedolan.github.io/jq/download/) or
+shell out to PowerShell: `powershell -c "briar plan status acme-q3 --format json | ConvertFrom-Json | ..."`.
+
+### 3. Credential bootstrap chain (Windows)
+
+```powershell
+# Bootstrap the password manager.
+briar auth login infisical
+
+# Pick a default store once (persists only for the current shell session;
+# add to your $PROFILE for permanence, or use [Environment]::SetEnvironmentVariable
+# for machine/user persistence).
+$env:BRIAR_DEFAULT_STORE = "infisical"
+
+# Vendor creds.
+briar auth login github-pat             --company acme
+briar auth login aws-sso                --company acme
+briar auth login jira-session           --company acme
+briar auth login bitbucket-app-password --company widgets
+briar auth login linear-api-key         --company widgets
+briar auth login aws-static             --company legacy `
+                                        --store envfile
+
+# Coverage audits.
+briar secrets doctor --examples runbooks/
+briar secrets doctor --examples runbooks/ --store aws-secretsmanager
+
+# Per-target liveness checks.
+briar auth status aws-sso       --company acme
+briar auth status jira-session  --company acme --store infisical
+
+# Dry-run bootstrap.
+briar secrets bootstrap --dry-run
+
+# Refresh STS.
+briar auth refresh aws-sso --company acme
+
+# Run extract — auto_bootstrap() hydrates env at CLI startup.
+briar runbook extract runbooks/acme.yaml --task live
+```
+
+**Persistent env vars on Windows.** `$env:FOO = "bar"` only lasts the
+shell session. To persist for the user across reboots:
+
+```powershell
+[Environment]::SetEnvironmentVariable("BRIAR_DEFAULT_STORE", "infisical", "User")
+```
+
+Equivalent in `cmd.exe`: `setx BRIAR_DEFAULT_STORE infisical` (note: no
+equals sign in `setx`).
+
+**Secrets-file location resolution on Windows.** The chain
+`$BRIAR_SECRETS_FILE → /etc/briar/secrets.env → ~/.config/briar/secrets.env`
+maps onto Windows as `$env:BRIAR_SECRETS_FILE → $env:USERPROFILE\.config\briar\secrets.env`.
+The `/etc/briar/` path is meaningless on Windows (no admin path equivalent
+is wired up). Set `BRIAR_SECRETS_FILE` explicitly:
+
+```powershell
+$env:BRIAR_SECRETS_FILE = "$env:USERPROFILE\briar-secrets.env"
+```
+
+### 4. Cross-provider agent run (Windows)
+
+```powershell
+# Bitbucket + Linear + Fireflies meeting search.
+briar agent implement `
+    --company widgets --owner widgets-co --repo api `
+    --provider bitbucket --tracker linear `
+    --ticket-project ENG --ticket-key ENG-7 `
+    --runbook runbooks/widgets.yaml `
+    --meeting fireflies `
+    --meeting-query "oauth refresh token rollout" `
+    --meeting-top-k 3 --meeting-max-bytes 60000 `
+    --model claude-sonnet-4-6 --max-iter 40
+
+# Bitbucket PR-fix run — pin one meeting transcript.
+briar agent prfix `
+    --company widgets --owner widgets-co --repo api `
+    --pr 142 --branch fix/oauth-refresh `
+    --provider bitbucket `
+    --runbook runbooks/widgets.yaml `
+    --meeting-key 01HABCDEF... `
+    --git-user-name "widgets-bot" --git-user-email "bot@widgets.example"
+```
+
+### 5. Multi-source scaffold (Windows)
+
+```powershell
+# Sentry triage with GitHub + AWS context, every 15 minutes.
+briar scaffold implementation `
+    --prefix acme-onerror `
+    --source sentry --source github --source aws `
+    --sentry-org acme --sentry-project backend --sentry-project worker `
+    --sentry-environment prod `
+    --sentry-level error --sentry-level fatal `
+    --sentry-query "is:unresolved" `
+    --auth-mode pat --sentry-secret-id <uuid> `
+    --owner acme-co --repo acme-app --github-secret-id <uuid> `
+    --aws-role-arn arn:aws:iam::123456789012:role/briar-readonly `
+    --aws-external-id <id> --aws-region us-east-1 `
+    --aws-services ecs --aws-services rds --aws-services logs `
+    --archetype triager --shape triage `
+    --trigger-kind schedule_cron --schedule "*/15 * * * *" `
+    --company acme `
+    --model claude-sonnet-4-6 `
+    --out scaffolds/acme-onerror.json
+
+# Jira-webhook engineer variant.
+briar scaffold implementation `
+    --prefix acme-impl `
+    --source jira --source github --source aws `
+    --jira-project ACME --jira-jql "project = ACME AND status = 'To Do'" `
+    --jira-secret-id <uuid> --auth-mode pat `
+    --owner acme-co --repo acme-app --github-secret-id <uuid> `
+    --aws-role-arn arn:aws:iam::123456789012:role/briar-readonly `
+    --aws-external-id <id> --aws-region us-east-1 `
+    --aws-services ecs --aws-services rds `
+    --archetype engineer --shape plan-approve-act `
+    --trigger-kind manual `
+    --company acme --out scaffolds/acme-impl.json
+
+# Inspect decisions.
+briar journal list --command scaffold. --limit 5
+briar journal show <session-id>
+briar journal export <session-id> --format markdown --out decisions/acme-onerror.md
+```
+
+The single-quoted JQL (`'project = ACME AND status = "To Do"'`) in the
+POSIX version becomes a double-quoted PowerShell string with single
+quotes around `'To Do'` inside. PowerShell handles this naturally; in
+`cmd.exe`, escape inner double-quotes with `\"` or pre-stage the JQL
+in a variable.
+
+### 6. Knowledge-store routing (Windows)
+
+```powershell
+# Dev — file backend, local root.
+briar extract --company acme `
+    --include pr-archaeology --include active-work `
+    --pr-repo acme-co/acme-app `
+    --active-repo acme-co/acme-app `
+    --storage file --root .\knowledge --blob-name knowledge:acme
+
+# Read it back.
+briar context get knowledge:acme
+briar context list --prefix knowledge:
+briar context categories
+
+# Prod — postgres. Set the DSN in the current shell.
+$env:BRIAR_KB_DATABASE_URL = 'postgresql://briar_kb:***@pg.example:25060/briar?sslmode=require'
+briar runbook extract runbooks/acme.yaml --task live
+
+# List + read plan-scoped shards from postgres. NOTE: --store lives on the
+# `context` parent parser, so it goes BEFORE the subcommand on every OS:
+briar context --store postgres list --prefix knowledge:
+briar context --store postgres get knowledge:acme.acme-q3
+```
+
+For one-shot dashboard rendering (handy on Windows where you may not
+want to leave port 8080 listening):
+
+```powershell
+briar dashboard --once | Out-File -FilePath $env:TEMP\snapshot.html -Encoding utf8
+Invoke-Item $env:TEMP\snapshot.html
+```
+
+### `cmd.exe`-only variant of example 3 (credential bootstrap)
+
+For operators stuck on classic Command Prompt:
+
+```bat
+REM Bootstrap the password manager
+briar auth login infisical
+
+REM Default store (session-only). Use `setx` to persist across reboots.
+set BRIAR_DEFAULT_STORE=infisical
+
+REM Vendor creds (line continuation uses ^).
+briar auth login github-pat             --company acme
+briar auth login aws-sso                --company acme
+briar auth login jira-session           --company acme
+
+REM Coverage audit.
+briar secrets doctor --examples runbooks\
+
+REM Per-target check.
+briar auth status aws-sso --company acme
+
+REM Inline VAR=value form doesn't work — set first, then call.
+set BRIAR_KB_DATABASE_URL=postgresql://briar_kb:***@pg.example:25060/briar?sslmode=require
+briar runbook extract runbooks\acme.yaml --task live
+```
+
+### Things that do NOT need translation
+
+These work identically on Windows, POSIX, and any other OS:
+
+- The YAML runbook block from §1 (pure YAML, parsed by `yaml.safe_load`)
+- Blob names (`knowledge:acme`, `plan:acme-q3`) — `:` is a valid name
+  character on Windows as long as you don't materialise it into a real
+  filesystem path. The `file` knowledge store uses `<root>/<category>/<rest>.md`
+  internally so the colon never reaches the FS.
+- The CLI's flag names and choices — `--storage`, `--provider`,
+  `--tracker`, `--cloud`, `--archetype`, etc.
+- Exit codes — `$LASTEXITCODE` in PowerShell, `%ERRORLEVEL%` in cmd,
+  `$?` in bash. Same numeric values.
+- `briar version`, `briar --help` output.

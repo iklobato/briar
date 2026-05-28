@@ -1,6 +1,10 @@
-"""User-filter (allowlist + blocklist) tests across the four layers
-the feature touches: extractor helper, CLI source template, runbook
-YAML schema, runbook executor."""
+"""User-filter (allowlist + blocklist) tests.
+
+The dict-form `apply_user_filter` was deleted in Phase 13 — every
+src caller uses the object-form `apply_user_filter_objs`. The
+argparse-wiring helper survives + the source-template integration
+test does too.
+"""
 
 from __future__ import annotations
 
@@ -9,83 +13,37 @@ import unittest
 
 from briar.extract._user_filter import (
     add_user_filter_arguments,
-    apply_user_filter,
+    apply_user_filter_objs,
 )
 
 
-# ---------------------------------------------------------------------------
-# Extractor-helper core logic
-# ---------------------------------------------------------------------------
+class ApplyUserFilterObjsTests(unittest.TestCase):
+    """The surviving object-form filter — used by every extractor that
+    runs through normalised provider dataclasses."""
 
-_ITEMS = [
-    {"user": {"login": "alice"}, "assignees": [{"login": "alice"}]},
-    {"user": {"login": "bob"}, "assignees": []},
-    {"user": {"login": "bot[bot]"}, "assignees": [{"login": "carol"}]},
-    {"user": {"login": "carol"}, "assignees": [{"login": "alice"}]},
-]
+    def _items(self) -> list:
+        # Lightweight stand-in for a `PullRequest`-shaped object —
+        # only `.author` matters for filtering.
+        Item = type("Item", (), {"__init__": lambda s, author: setattr(s, "author", author)})
+        return [Item("alice"), Item("bob"), Item("bot[bot]"), Item("carol")]
 
+    @staticmethod
+    def _ns(**kw) -> argparse.Namespace:
+        base = {"pr_authors_allow": [], "pr_authors_block": []}
+        base.update(kw)
+        return argparse.Namespace(**base)
 
-def _ns(**kw) -> argparse.Namespace:
-    base = {
-        "pr_authors_allow": [],
-        "pr_authors_block": [],
-        "pr_assignees_allow": [],
-        "pr_assignees_block": [],
-    }
-    base.update(kw)
-    ns = argparse.Namespace()
-    for k, v in base.items():
-        setattr(ns, k, v)
-    return ns
-
-
-class ApplyUserFilterTests(unittest.TestCase):
     def test_no_filter_returns_everything(self) -> None:
-        self.assertEqual(apply_user_filter(_ITEMS, _ns(), prefix="pr"), _ITEMS)
+        items = self._items()
+        self.assertEqual(apply_user_filter_objs(items, self._ns(), prefix="pr"), items)
 
     def test_authors_allow_intersects(self) -> None:
-        kept = apply_user_filter(
-            _ITEMS,
-            _ns(pr_authors_allow=["alice", "bob"]),
-            prefix="pr",
-        )
-        self.assertEqual({i["user"]["login"] for i in kept}, {"alice", "bob"})
+        kept = apply_user_filter_objs(self._items(), self._ns(pr_authors_allow=["alice", "bob"]), prefix="pr")
+        self.assertEqual({i.author for i in kept}, {"alice", "bob"})
 
     def test_authors_block_subtracts(self) -> None:
-        kept = apply_user_filter(
-            _ITEMS,
-            _ns(pr_authors_block=["bot[bot]"]),
-            prefix="pr",
-        )
-        self.assertNotIn("bot[bot]", {i["user"]["login"] for i in kept})
-
-    def test_allow_then_block(self) -> None:
-        # allow alice + bob + bot, then block bot — should leave alice + bob
-        kept = apply_user_filter(
-            _ITEMS,
-            _ns(
-                pr_authors_allow=["alice", "bob", "bot[bot]"],
-                pr_authors_block=["bot[bot]"],
-            ),
-            prefix="pr",
-        )
-        self.assertEqual({i["user"]["login"] for i in kept}, {"alice", "bob"})
-
-    def test_assignees_filter(self) -> None:
-        # only items with assignee=alice
-        kept = apply_user_filter(
-            _ITEMS,
-            _ns(pr_assignees_allow=["alice"]),
-            prefix="pr",
-        )
-        # alice→[alice]   ✓
-        # bob→[]          ✗
-        # bot→[carol]     ✗
-        # carol→[alice]   ✓
-        self.assertEqual(
-            {i["user"]["login"] for i in kept},
-            {"alice", "carol"},
-        )
+        kept = apply_user_filter_objs(self._items(), self._ns(pr_authors_block=["bot[bot]"]), prefix="pr")
+        self.assertNotIn("bot[bot]", {i.author for i in kept})
 
     def test_argparse_wiring(self) -> None:
         parser = argparse.ArgumentParser()

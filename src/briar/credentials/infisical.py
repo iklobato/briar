@@ -40,6 +40,22 @@ def _import_infisical_sdk() -> Optional[Any]:
         return None
 
 
+def _is_not_found(exc: BaseException) -> bool:
+    """Best-effort 404 detection for infisical_sdk exceptions.
+
+    The SDK raises a single ``APIError`` for every HTTP failure; the
+    discriminator is ``status_code`` (preferred) or a numeric status
+    in the message (``Status: 404``, ``(404)``, ``404 Not Found``).
+    Auth errors (401/403) and other failures MUST NOT match — they
+    propagate so callers can fail closed. If the SDK ever exposes a
+    typed ``NotFoundError``, prefer that here."""
+    status = getattr(exc, "status_code", None) or getattr(exc, "status", None)
+    if isinstance(status, int):
+        return status == 404
+    msg = str(exc).lower()
+    return "status: 404" in msg or "(404)" in msg or "404 not found" in msg
+
+
 class InfisicalStore(CredentialStore):
     kind = "infisical"
     DEFAULT_HOST = "https://app.infisical.com"
@@ -53,7 +69,7 @@ class InfisicalStore(CredentialStore):
         self._env = os.environ.get("INFISICAL_ENV", self.DEFAULT_ENV)
         self._host = os.environ.get("INFISICAL_HOST", self.DEFAULT_HOST)
         self._client = None
-        self._cache: Dict[str, str] = {}
+        self._cache: Dict[str, Optional[str]] = {}
 
     def _build_client(self):
         """Universal-auth bind. Same dance as InfisicalBootstrap so a
@@ -78,15 +94,17 @@ class InfisicalStore(CredentialStore):
 
     # ── read side ────────────────────────────────────────────────────
 
-    def read(self, name: str) -> str:
+    def read(self, name: str) -> Optional[str]:
         """Silent miss when Infisical isn't configured — matches
         ``EnvFileStore`` semantics so the doctor can audit without
-        forcing every caller to install the extra."""
+        forcing every caller to install the extra. 404 from the API
+        is also a miss. Any other error (auth, network, server) is
+        re-raised so callers can fail closed."""
         if name in self._cache:
             return self._cache[name]
         if not all((self._client_id, self._client_secret, self._project_id)):
-            self._cache[name] = ""
-            return ""
+            self._cache[name] = None
+            return None
         try:
             client = self._build_client()
             resp = client.secrets.get_secret_by_name(
@@ -95,10 +113,12 @@ class InfisicalStore(CredentialStore):
                 environment_slug=self._env,
                 secret_path=self.SECRET_PATH,
             )
-        except Exception as exc:  # noqa: BLE001 — translate to "missing" per the store contract
-            log.debug("infisical-store read miss name=%s err=%s", name, exc)
-            self._cache[name] = ""
-            return ""
+        except Exception as exc:  # noqa: BLE001
+            if _is_not_found(exc):
+                log.debug("infisical-store read miss name=%s", name)
+                self._cache[name] = None
+                return None
+            raise
         # Tolerate both attribute + dict shapes (SDK versions differ).
         value = getattr(resp, "secretValue", None)
         if value is None and isinstance(resp, dict):
@@ -114,8 +134,10 @@ class InfisicalStore(CredentialStore):
 
     def write(self, name: str, value: str) -> None:
         """Upsert. Try ``update`` first — falls back to ``create`` if
-        the secret doesn't exist yet (the symmetric pattern used by
-        ``AwsSecretsManagerStore.write``)."""
+        the secret doesn't exist yet. Uses ``_is_not_found`` (status_code
+        check, not arbitrary string sniffing) so a permission-denied
+        message that happens to contain the substring "not found"
+        doesn't silently trigger a CreateSecret attempt."""
         client = self._build_client()
         try:
             client.secrets.update_secret_by_name(
@@ -126,18 +148,15 @@ class InfisicalStore(CredentialStore):
                 secret_value=value,
             )
         except Exception as exc:  # noqa: BLE001
-            msg = str(exc).lower()
-            if "not found" in msg or "notfound" in msg or "404" in msg:
-                client.secrets.create_secret_by_name(
-                    secret_name=name,
-                    project_id=self._project_id,
-                    environment_slug=self._env,
-                    secret_path=self.SECRET_PATH,
-                    secret_value=value,
-                )
-            else:
-                log.exception("infisical-store write name=%s", name)
+            if not _is_not_found(exc):
                 raise
+            client.secrets.create_secret_by_name(
+                secret_name=name,
+                project_id=self._project_id,
+                environment_slug=self._env,
+                secret_path=self.SECRET_PATH,
+                secret_value=value,
+            )
         self._cache[name] = value
 
     def delete(self, name: str) -> bool:
@@ -150,8 +169,7 @@ class InfisicalStore(CredentialStore):
                 secret_path=self.SECRET_PATH,
             )
         except Exception as exc:  # noqa: BLE001
-            msg = str(exc).lower()
-            if "not found" in msg or "notfound" in msg or "404" in msg:
+            if _is_not_found(exc):
                 return False
             raise
         self._cache.pop(name, None)
@@ -160,7 +178,9 @@ class InfisicalStore(CredentialStore):
     # ── enumeration ──────────────────────────────────────────────────
 
     def list(self) -> List[str]:
-        """Empty list when not configured — symmetric to read()."""
+        """Empty list when not configured — symmetric to read(). 404
+        also yields an empty list (project exists, no secrets at this
+        path). Auth/network errors propagate."""
         if not all((self._client_id, self._client_secret, self._project_id)):
             return []
         try:
@@ -171,8 +191,9 @@ class InfisicalStore(CredentialStore):
                 secret_path=self.SECRET_PATH,
             )
         except Exception as exc:  # noqa: BLE001
-            log.debug("infisical-store list failed err=%s", exc)
-            return []
+            if _is_not_found(exc):
+                return []
+            raise
         names: List[str] = []
         for s in (getattr(resp, "secrets", None) or []) if not isinstance(resp, dict) else (resp.get("secrets") or []):
             n = getattr(s, "secretKey", None)

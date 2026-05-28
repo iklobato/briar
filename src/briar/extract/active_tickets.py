@@ -21,6 +21,7 @@ _MAX_TICKETS_PER_PROJECT = 25
 
 class ExtractActiveTickets(TrackerBackedExtractor):
     name = "active-tickets"
+    heading = "Active tickets"
     description = "open tickets across the configured projects"
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:

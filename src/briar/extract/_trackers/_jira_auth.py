@@ -1,36 +1,9 @@
-"""Jira auth strategies — pluggable how-do-we-talk-to-Jira.
+"""Jira auth strategies — Strategy + Registry over the auth envelope.
 
-The fundamental shape of the Jira REST API is the same regardless of
-how the request is authenticated: same endpoints, same JSON. What
-changes is the *authentication envelope* — basic auth vs. browser
-session cookies. That's a textbook Strategy: same `JiraTracker`
-behaviour, swappable auth.
-
-Two strategies today:
-
-- `JiraTokenAuth` — email + API token via HTTP Basic. The Atlassian-
-  recommended path for programmatic access. One token per user; revoke
-  via https://id.atlassian.com/manage-profile/security/api-tokens.
-
-- `JiraSessionAuth` — browser-extracted session cookies + browser
-  headers. Mimics what a logged-in tab does. Use when:
-    * the user can't generate an API token (corporate SSO policy)
-    * the tenant rejects token auth (rare, but it happens for certain
-      enterprise configurations)
-    * you want to act as a specific human's session for short-lived
-      operations (debugging, one-off backfills)
-  Trade-offs: cookies expire (≈30 days), can be revoked by the user
-  logging out, and carry the user's full permissions (not API-token-
-  scoped). Atlassian formally deprecated cookie auth for Jira Cloud
-  but the browser-session path continues to work in practice.
-
-Selection happens via ``JIRA_{COMPANY}_AUTH_KIND`` (`token` | `session`
-| empty for auto-detect). Auto-detect picks `session` when any
-session-token env var is set, else `token`. The runbook executor can
-also pass an explicit ``auth_kind`` through extractor args (future).
-
-Same Strategy + Registry shape as every other plugin family in the
-codebase — TrackerProvider, RepositoryProvider, MessageWriter, etc."""
+Same Jira REST API, swappable auth: token (HTTP Basic) or browser
+session cookies. Selection via ``JIRA_{COMPANY}_AUTH_KIND``
+(``token`` | ``session`` | empty → auto-detect; session wins when
+cookies are present, else token)."""
 
 from __future__ import annotations
 
@@ -46,8 +19,7 @@ from briar.errors import CliError
 log = logging.getLogger(__name__)
 
 
-# Default browser UA — matches the user's pasted request headers (Brave
-# on macOS, Chromium 147). Overridable per-company via JIRA_{c}_USER_AGENT.
+# Browser UA — overridable per-company via JIRA_{c}_USER_AGENT.
 _DEFAULT_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
@@ -55,11 +27,9 @@ _DEFAULT_UA = (
 
 
 class JiraAuthStrategy(ABC):
-    """Strategy contract — one instance per (company, auth_kind) tuple.
-
-    Each subclass declares its `kind` (registry key), its env-var
-    requirements, and how to translate "this company's credentials" into
-    the kwargs that `atlassian.Jira(...)` accepts."""
+    """One instance per (company, auth_kind). Subclass declares its
+    ``kind`` (registry key), env-var requirements, and how to translate
+    company creds into ``atlassian.Jira(...)`` kwargs."""
 
     kind: ClassVar[str] = ""
 
@@ -71,15 +41,11 @@ class JiraAuthStrategy(ABC):
     @classmethod
     @abstractmethod
     def is_available(cls, *, company: str) -> bool:
-        """True iff every required_env_var for this strategy is set."""
+        """True iff every required env var is set."""
 
     @abstractmethod
     def configure(self, *, company: str, base_url: str) -> Dict[str, Any]:
-        """Return the kwargs to splat into ``atlassian.Jira(...)``.
-
-        Token strategy returns ``{username, password}``; session
-        strategy returns ``{cookies, header}``. Cloud + url are passed
-        by the tracker, not the strategy."""
+        """Kwargs to splat into ``atlassian.Jira(...)``."""
 
 
 class JiraTokenAuth(JiraAuthStrategy):
@@ -115,9 +81,8 @@ class JiraTokenAuth(JiraAuthStrategy):
 
 
 class JiraSessionAuth(JiraAuthStrategy):
-    """Browser-cookie auth. Reads ``cloud.session.token`` (+ optional
-    sibling cookies) and mimics the browser's request envelope so
-    Atlassian's edge accepts the request as a logged-in session."""
+    """Browser-cookie auth. Either ``cloud.session.token`` or
+    ``tenant.session.token`` (or both) plus mimicked browser headers."""
 
     kind = "session"
 
@@ -125,12 +90,8 @@ class JiraSessionAuth(JiraAuthStrategy):
     def required_env_vars(cls, *, company: str) -> List[str]:
         if not company:
             return []
-        # Either SESSION_TOKEN (cloud.session.token) OR
-        # TENANT_SESSION_TOKEN (tenant.session.token) is sufficient —
-        # Atlassian uses both shapes depending on the scope of the
-        # logged-in session. We list both so `briar secrets doctor`
-        # tells the operator what the choices are; `is_available`
-        # accepts either.
+        # Either cookie suffices; doctor lists both so the operator
+        # knows the choices.
         return [
             CredEnv.JIRA_SESSION_TOKEN.for_company(company),
             CredEnv.JIRA_TENANT_SESSION_TOKEN.for_company(company),
@@ -166,10 +127,9 @@ class JiraSessionAuth(JiraAuthStrategy):
         if xsrf:
             cookies["atlassian.xsrf.token"] = xsrf
 
-        # Browser-mimicking headers — Atlassian's edge inspects Origin +
-        # Referer for CSRF on cookie-authenticated requests, and User-
-        # Agent is sniffed by anti-automation layers. The exact set
-        # matches the request the user pasted (Brave 147 on macOS).
+        # Atlassian's edge inspects Origin + Referer for CSRF on cookie-
+        # authenticated requests, and UA is sniffed by anti-automation
+        # layers. The exact set matches a Brave 147 / macOS browser.
         origin = base_url.rstrip("/")
         headers = {
             "Origin": origin,
@@ -186,16 +146,10 @@ class JiraSessionAuth(JiraAuthStrategy):
             "sec-gpc": "1",
         }
         if xsrf:
-            # Atlassian writes the same xsrf-token value into both the
-            # cookie AND a custom header on POSTs; mimicking both keeps
-            # write paths working.
             headers["X-Atlassian-Token"] = "no-check"
 
-        # Bundle cookies + headers into a `requests.Session` and pass
-        # that as `session=` to the Atlassian client. The 4.x library
-        # accepts a separate `header=` kwarg, but 3.41.x (our pinned
-        # range) doesn't — a pre-configured Session is the only path
-        # that's stable across both major versions.
+        # `requests.Session` is the only path stable across atlassian-
+        # python-api 3.41.x (no `header=` kwarg) and 4.x.
         import requests
 
         session = requests.Session()
@@ -211,48 +165,38 @@ _JIRA_AUTHS: Dict[str, Type[JiraAuthStrategy]] = build_registry(
 )
 
 
-class JiraAuthRegistry:
-    """Factory + introspection. Mirrors `TrackerRegistry`."""
+def jira_auth_kinds() -> Tuple[str, ...]:
+    return tuple(_JIRA_AUTHS.keys())
 
-    @classmethod
-    def kinds(cls) -> Tuple[str, ...]:
-        return tuple(_JIRA_AUTHS.keys())
 
-    @classmethod
-    def make(cls, kind: str) -> JiraAuthStrategy:
-        """Construct an explicit strategy by registered kind."""
-        strategy_cls = _JIRA_AUTHS.get(kind)
-        if strategy_cls is None:
-            known = ", ".join(sorted(_JIRA_AUTHS.keys()))
-            raise CliError(f"unknown jira auth strategy {kind!r}; known: {known}")
-        return strategy_cls()
+def make_jira_auth(kind: str) -> JiraAuthStrategy:
+    strategy_cls = _JIRA_AUTHS.get(kind)
+    if strategy_cls is None:
+        known = ", ".join(sorted(_JIRA_AUTHS.keys()))
+        raise CliError(f"unknown jira auth strategy {kind!r}; known: {known}")
+    return strategy_cls()
 
-    @classmethod
-    def autodetect(cls, *, company: str) -> JiraAuthStrategy:
-        """Resolve the strategy for a company.
 
-        Priority:
-          1. ``JIRA_{COMPANY}_AUTH_KIND`` env var (explicit override)
-          2. session auth — picked when either ``JIRA_{c}_SESSION_TOKEN``
-             or ``JIRA_{c}_TENANT_SESSION_TOKEN`` is set
-          3. token auth — final fallback
+def autodetect_jira_auth(*, company: str) -> JiraAuthStrategy:
+    """Resolve strategy for a company.
 
-        Returns an instance, never None. The instance may not be
-        ``is_available`` if no creds are configured for either path —
-        callers (typically ``JiraTracker.is_available``) must still
-        check before issuing API calls."""
-        if company:
-            forced = CredEnv.JIRA_AUTH_KIND.read(company)
-            if forced:
-                return cls.make(forced)
-            if JiraSessionAuth.is_available(company=company):
-                return JiraSessionAuth()
-        return JiraTokenAuth()
+    Priority: explicit ``JIRA_{c}_AUTH_KIND`` → session (if any session
+    cookie env var set) → token. Returns an instance, never None;
+    callers must still call ``is_available`` before issuing API calls."""
+    if company:
+        forced = CredEnv.JIRA_AUTH_KIND.read(company)
+        if forced:
+            return make_jira_auth(forced)
+        if JiraSessionAuth.is_available(company=company):
+            return JiraSessionAuth()
+    return JiraTokenAuth()
 
 
 __all__ = [
     "JiraAuthStrategy",
     "JiraTokenAuth",
     "JiraSessionAuth",
-    "JiraAuthRegistry",
+    "jira_auth_kinds",
+    "make_jira_auth",
+    "autodetect_jira_auth",
 ]

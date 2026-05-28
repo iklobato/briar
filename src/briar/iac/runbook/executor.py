@@ -9,7 +9,7 @@ import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import yaml
 from pydantic import ValidationError
@@ -32,8 +32,54 @@ log = logging.getLogger(__name__)
 _DEFAULT_TASK = "extractors"
 _DEFAULT_EVERY = "day at 03:17"
 
-# Empty string sentinel for "run every task" in the public extract API.
-NO_TASK_FILTER = ""
+
+def _notify_failure(company: str, task: str, reason: str, detail: str) -> None:
+    """Dispatch a failure notification to every sink listed in
+    ``$BRIAR_NOTIFY_SINKS`` (comma-separated). Silent no-op when the
+    env var is empty. Sinks are fire-and-forget — a sink failure is
+    logged but never propagates."""
+    from briar.env_vars import CredEnv
+    from briar.notify import make_sink
+
+    raw = CredEnv.BRIAR_NOTIFY_SINKS.read()
+    if not raw:
+        return
+    title = f"briar: {company or '?'} / {task or '?'} failed"
+    body = f"{reason}\n\n{detail[:1500]}"
+    for kind in (k.strip() for k in raw.split(",") if k.strip()):
+        try:
+            sink = make_sink(kind, company=company)
+        except Exception:  # noqa: BLE001
+            log.exception("notify-failure: unknown sink kind=%s — skipping", kind)
+            continue
+        if not sink.is_available():
+            log.debug("notify-failure: sink=%s not available (no creds) — skipping", kind)
+            continue
+        try:
+            ok = sink.send(title=title, body=body)
+            log.info("notify-failure: sink=%s ok=%s", kind, ok)
+        except Exception:  # noqa: BLE001
+            log.exception("notify-failure: sink=%s raised", kind)
+
+
+@dataclass
+class _FailureCtx:
+    """Per-schedule failure context. The four "where am I in the loop"
+    fields (company_name / company / task / rows) are constant across
+    every failure point in `_run_schedule`; bundle them into one object
+    so `.record(reason=, blob_name=, exc=)` is the only thing call
+    sites need to vary. Replaces a 7-arg `_record_failure` call shape
+    duplicated three times in the schedule body."""
+
+    company_name: str
+    company: str
+    task: str
+    rows: List["ExtractRow"]
+
+    def record(self, *, reason: str, blob_name: str, exc: Exception) -> None:
+        log.exception("schedule-failed: %s", reason)
+        _notify_failure(self.company, self.task, reason, str(exc))
+        self.rows.append(ExtractRow(self.company_name, self.task, f"failed ({reason} — see traceback)", blob_name))
 
 
 @dataclass
@@ -65,7 +111,7 @@ class RunbookLoader:
             log.error("runbook-load: parse error path=%s suffix=%s err=%s", path, suffix, exc)
             raise ConfigError(f"{path}: invalid {suffix or 'JSON'} — {exc}") from exc
 
-        if type(data) is not dict:
+        if not isinstance(data, dict):
             log.error("runbook-load: top-level is not a mapping path=%s got=%s", path, type(data).__name__)
             raise ConfigError(f"{path}: top-level must be a mapping")
 
@@ -100,21 +146,29 @@ class RunbookExtractor:
     every schedule; a non-empty value runs only the matching task."""
 
     @classmethod
-    def extract(cls, runbook_file: RunbookFile, task: str = NO_TASK_FILTER) -> List[ExtractRow]:
+    def extract(cls, runbook_file: RunbookFile, task: Optional[str] = None) -> List[ExtractRow]:
+        """`task=None` runs every schedule; a non-empty string filters
+        to one matching task. Empty-string and None are equivalent —
+        the empty-string sentinel ``NO_TASK_FILTER`` is gone; argparse
+        defaults that pass `""` still work via the `task or None` coerce."""
         from briar.extract import EXTRACTORS
         from briar.extract.composer import KnowledgeComposer
         from briar.storage import make_store
 
+        # Normalize argparse's empty-string default and explicit None to
+        # the same "no filter" semantics so callers don't need to know.
+        task_filter: Optional[str] = task or None
+
         rows: List[ExtractRow] = []
-        log.info("runbook-extract: starting companies=%d task_filter=%r", len(runbook_file.companies), task or "(all)")
+        log.info("runbook-extract: starting companies=%d task_filter=%r", len(runbook_file.companies), task_filter or "(all)")
         for company_name, company in runbook_file.companies.items():
             with log_context(company=company_name):
                 schedules = RunbookSchedules.for_company(company)
-                if task:
-                    schedules = [s for s in schedules if s.task == task]
+                if task_filter is not None:
+                    schedules = [s for s in schedules if s.task == task_filter]
                 if not schedules:
-                    log.info("runbook-extract: no matching schedule (task_filter=%r)", task or "(all)")
-                    if not task:
+                    log.info("runbook-extract: no matching schedule (task_filter=%r)", task_filter or "(all)")
+                    if task_filter is None:
                         rows.append(ExtractRow(company_name, "-", "skipped (no schedule)", ""))
                     continue
 
@@ -149,17 +203,20 @@ class RunbookExtractor:
         rows: List[ExtractRow],
         company: str = "",
     ) -> None:
-        """Execute one schedule entry. Three failure points are all
-        routed through `_record_failure` so the log + notify + row
-        shape stays consistent and the failure paths don't drift in
-        style across edits."""
+        """Execute one schedule entry. Phases:
+          1. Collect sections from the configured extractors
+          2. Open the knowledge store
+          3. Compose-and-write (compare-and-set)
+        Each phase routes failure through ``failure.record`` so the
+        log + notify + row shape stays consistent."""
         wall_start = time.perf_counter()
         log.info("schedule-start: every=%r extract_count=%d", schedule.every, len(schedule.extract))
+        failure = _FailureCtx(company_name=company_name, company=company, task=schedule.task, rows=rows)
 
         try:
             sections = cls._collect_sections(schedule.extract, registry, company=company)
         except Exception as exc:  # noqa: BLE001
-            cls._record_failure(rows, company_name=company_name, company=company, task=schedule.task, reason="collect_sections raised", blob_name=binding.name, exc=exc)
+            failure.record(reason="collect_sections raised", blob_name=binding.name, exc=exc)
             return
 
         if not sections:
@@ -170,36 +227,55 @@ class RunbookExtractor:
         log.debug("schedule-compose: rendering markdown sections=%d", len(sections))
         md = composer.markdown(company=company_name, sections=sections)
 
-        file_root = Path(binding.root) if binding.root else Path("./knowledge")
-        log.debug("schedule-store-open: store=%s file_root=%s", binding.store, file_root)
         try:
-            from briar.storage import StoreBinding
-
-            resolved = StoreBinding(
-                store=binding.store,
-                name=binding.name,
-                root=binding.root,
-                company=company_name,
-                config=dict(binding.config or {}),
-            )
-            store = make_store(binding.store, file_root=file_root, binding=resolved)
+            store = cls._open_store(binding, company_name=company_name, make_store=make_store)
         except Exception as exc:  # noqa: BLE001
-            cls._record_failure(rows, company_name=company_name, company=company, task=schedule.task, reason=f"store open raised: {binding.store}", blob_name=binding.name, exc=exc)
+            failure.record(reason=f"store open raised: {binding.store}", blob_name=binding.name, exc=exc)
             return
 
         blob_name = binding.name if schedule.task == _DEFAULT_TASK else cls._task_blob_name(binding.name, schedule.task)
 
-        # Single-connection compare-and-set. The store implementation
-        # compares md5 server-side (or local md5 for the file backend)
-        # and only writes when the content changed. Skip path leaves
-        # `updated_at` and history rows untouched — saves Postgres
-        # traffic, history bloat, and downstream LLM re-read tokens.
         try:
             outcome = store.put_if_changed(blob_name, md, category="knowledge")
         except Exception as exc:  # noqa: BLE001
-            cls._record_failure(rows, company_name=company_name, company=company, task=schedule.task, reason=f"put_if_changed raised: {blob_name}", blob_name=blob_name, exc=exc)
+            failure.record(reason=f"put_if_changed raised: {blob_name}", blob_name=blob_name, exc=exc)
             return
 
+        cls._record_outcome(rows, company_name=company_name, binding=binding, schedule=schedule, blob_name=blob_name, outcome=outcome, wall_start=wall_start)
+
+    @staticmethod
+    def _open_store(binding: KnowledgeBinding, *, company_name: str, make_store: Any) -> Any:
+        """Resolve binding → StoreBinding → live store handle.
+        Single-connection compare-and-set semantics live in the store
+        implementation; this method just constructs it."""
+        from briar.storage import StoreBinding
+
+        file_root = Path(binding.root) if binding.root else Path("./knowledge")
+        log.debug("schedule-store-open: store=%s file_root=%s", binding.store, file_root)
+        resolved = StoreBinding(
+            store=binding.store,
+            name=binding.name,
+            root=binding.root,
+            company=company_name,
+            config=dict(binding.config or {}),
+        )
+        return make_store(binding.store, file_root=file_root, binding=resolved)
+
+    @staticmethod
+    def _record_outcome(
+        rows: List[ExtractRow],
+        *,
+        company_name: str,
+        binding: KnowledgeBinding,
+        schedule: ScheduleEntry,
+        blob_name: str,
+        outcome: Any,
+        wall_start: float,
+    ) -> None:
+        """Translate a ``store.put_if_changed`` outcome into the
+        operator-visible ExtractRow + log line. Compare-and-set skip
+        path leaves ``updated_at`` and history rows untouched — saves
+        Postgres traffic, history bloat, and downstream LLM tokens."""
         elapsed_ms = int((time.perf_counter() - wall_start) * 1000)
         if not outcome.wrote:
             log.info(
@@ -227,59 +303,14 @@ class RunbookExtractor:
             elapsed_ms,
             outcome.prev_hash or "(none)",
         )
-        rows.append(ExtractRow(company_name, schedule.task, f"wrote {outcome.byte_count} bytes via store={binding.store}", blob_name))
-
-    @classmethod
-    def _record_failure(
-        cls,
-        rows: List[ExtractRow],
-        *,
-        company_name: str,
-        company: str,
-        task: str,
-        reason: str,
-        blob_name: str,
-        exc: Exception,
-    ) -> None:
-        """The "schedule step raised" boundary — three sites used to
-        duplicate this four-line shape (log.exception + notify + row
-        append). One place now."""
-        log.exception("schedule-failed: %s", reason)
-        cls._notify_failure(company, task, reason, str(exc))
-        rows.append(ExtractRow(company_name, task, f"failed ({reason} — see traceback)", blob_name))
-
-    @staticmethod
-    def _notify_failure(company: str, task: str, reason: str, detail: str) -> None:
-        """Dispatch a failure notification to every sink listed in
-        ``$BRIAR_NOTIFY_SINKS`` (comma-separated). Silent no-op when
-        the env var is empty.
-
-        Each sink is fire-and-forget — a sink failure is logged but
-        does NOT propagate (a broken Telegram bot must not crash the
-        extractor). Per-company creds resolve through the standard
-        ``CredEnv`` path."""
-        from briar.env_vars import CredEnv
-        from briar.notify import make_sink
-
-        raw = CredEnv.BRIAR_NOTIFY_SINKS.read()
-        if not raw:
-            return
-        title = f"briar: {company or '?'} / {task or '?'} failed"
-        body = f"{reason}\n\n{detail[:1500]}"
-        for kind in (k.strip() for k in raw.split(",") if k.strip()):
-            try:
-                sink = make_sink(kind, company=company)
-            except Exception:  # noqa: BLE001
-                log.exception("notify-failure: unknown sink kind=%s — skipping", kind)
-                continue
-            if not sink.is_available():
-                log.debug("notify-failure: sink=%s not available (no creds) — skipping", kind)
-                continue
-            try:
-                ok = sink.send(title=title, body=body)
-                log.info("notify-failure: sink=%s ok=%s", kind, ok)
-            except Exception:  # noqa: BLE001
-                log.exception("notify-failure: sink=%s raised", kind)
+        rows.append(
+            ExtractRow(
+                company_name,
+                schedule.task,
+                f"wrote {outcome.byte_count} bytes via store={binding.store}",
+                blob_name,
+            )
+        )
 
     @staticmethod
     def _binding_for(company: CompanyEntry, company_name: str) -> KnowledgeBinding:

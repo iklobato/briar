@@ -12,12 +12,13 @@ from __future__ import annotations
 import argparse
 from typing import Any, Dict, List
 
+from briar.errors import ConfigError
 from briar.iac.scaffold.sources.base import SourceTemplate
 
 
 class SourceGithub(SourceTemplate):
     kind = "github"
-    family = "tracker"
+    auth_secret_arg = "github_secret_id"
     default_provider_for_oauth = "github"
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
@@ -68,7 +69,7 @@ class SourceGithub(SourceTemplate):
         owner = ns.get("owner")
         repo = ns.get("repo")
         if not owner or not repo:
-            raise SystemExit("--source github requires --owner AND --repo")
+            raise ConfigError("--source github requires --owner AND --repo")
         config: Dict[str, Any] = {
             "owner": owner,
             "repo": f"{owner}/{repo}",
@@ -127,29 +128,3 @@ class SourceGithub(SourceTemplate):
             return ""
         return f"{owner}/{repo}"
 
-    @staticmethod
-    def _auth(args: argparse.Namespace) -> Dict[str, Any]:
-        ns = vars(args)
-        mode = ns.get("auth_mode") or "oauth"
-        if mode == "pat":
-            secret_id = ns.get("github_secret_id")
-            if not secret_id:
-                raise SystemExit("--source github with --auth-mode pat requires " "--github-secret-id <secret-uuid>")
-            return {"credentials_ref": secret_id, "credential_binding": None}
-        return {
-            "credentials_ref": None,
-            "credential_binding": {
-                "kind": "oauth_connection",
-                "provider": "github",
-            },
-        }
-
-    @staticmethod
-    def _user_filters(args: argparse.Namespace) -> Dict[str, List[str]]:
-        ns = vars(args)
-        return {
-            "authors_allow": list(ns.get("github_authors_allow") or []),
-            "authors_block": list(ns.get("github_authors_block") or []),
-            "assignees_allow": list(ns.get("github_assignees_allow") or []),
-            "assignees_block": list(ns.get("github_assignees_block") or []),
-        }

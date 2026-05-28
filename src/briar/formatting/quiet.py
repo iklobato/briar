@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, Sequence
 
 from briar.formatting.base import Formatter
-from briar.pagination import Payload
+from briar.pagination import items_of, looks_like_list
 
 
 class FormatQuiet(Formatter):
@@ -14,16 +14,16 @@ class FormatQuiet(Formatter):
     def render(
         self,
         payload: Any,
-        columns: List[str] = [],
+        columns: Sequence[str] = (),
     ) -> None:
-        items = Payload.items_of(payload) if Payload.looks_like_list(payload) else [self._to_dict(payload)]
+        items = items_of(payload) if looks_like_list(payload) else [self._to_dict(payload)]
         for it in items:
-            row_id = it.get("id") if type(it) is dict else ""
+            row_id = it.get("id") if isinstance(it, dict) else ""
             if row_id:
                 print(row_id)
 
     @staticmethod
     def _to_dict(payload: Any) -> Dict[str, Any]:
-        if type(payload) is dict:
+        if isinstance(payload, dict):
             return payload
         return {}

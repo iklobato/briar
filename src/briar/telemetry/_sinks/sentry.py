@@ -79,8 +79,9 @@ class SentrySink(TelemetrySink):
             self._initialised = True
             return True
         except Exception:  # noqa: BLE001 — never crash the host on init
+            # `_initialised` is False by default from `__init__`; no
+            # need to re-assign it here.
             log.exception("telemetry sentry: init failed; sink will no-op")
-            self._initialised = False
             return False
 
     @staticmethod
@@ -107,8 +108,16 @@ class SentrySink(TelemetrySink):
                 for tag_name, tag_value in event.tags.items():
                     scope.set_tag(tag_name, tag_value)
                 if event.kind == "error":
+                    # The error MESSAGE body bypasses our `before_send`
+                    # strip — only tags/extras/etc. on the event get
+                    # scrubbed there. Send the exception class name as
+                    # the message and put the (already-scrubbed) message
+                    # text into a tag, which IS run through the scrub
+                    # pipeline before the SDK serialises.
+                    scope.set_tag("error_type", event.error_type or "")
+                    scope.set_tag("error_message", event.error_message or "")
                     sentry_sdk.capture_message(
-                        f"{event.error_type}: {event.error_message}",
+                        f"briar.error: {event.error_type or 'Unknown'}",
                         level="error",
                     )
                 else:

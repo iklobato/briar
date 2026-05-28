@@ -42,8 +42,9 @@ class TestScaffold:
             "--repo", "widgets",
             "-o", "-",
         )
-        if result.code != 0:
-            pytest.skip(f"pr-fixes template may need additional args (stderr={result.err})")
+        # Assert success rather than skipping on failure — a skip here would
+        # silently hide a regression in the pr-fixes template.
+        assert result.code == 0, f"stderr={result.err}"
         parsed = json.loads(result.out)
         assert "agents" in parsed
 

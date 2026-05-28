@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 
 def _seed_session(tmp_root, command: str = "test.cmd") -> str:
     """Open + close a journal session via the public API, return its ID."""
@@ -62,18 +60,11 @@ class TestJournalExport:
         assert result.code == 0
         assert result.out  # non-empty markdown
 
-    @pytest.mark.xfail(
-        reason=(
-            "KNOWN CLI BUG: global `--format` and `journal export --format` collide. "
-            "argparse overwrites the global value with the subparser's default (markdown), "
-            "so there is no argv shape that selects --format json for `journal export`. "
-            "Fix: rename the global flag or the subcommand flag."
-        ),
-        strict=True,
-    )
-    def test_export_json_parseable_blocked_by_global_format_collision(self, cli, tmp_root) -> None:
+    def test_export_json_parseable(self, cli, tmp_root) -> None:
+        # `--as json` (not `--format`) so the global position-independent
+        # `--format` extractor can't steal it — see commands/journal.py.
         sid = _seed_session(tmp_root)
-        result = cli("journal", "export", "--root", str(tmp_root / "journal"), sid, "--format", "json")
+        result = cli("journal", "export", "--root", str(tmp_root / "journal"), sid, "--as", "json")
         assert result.code == 0
         parsed = json.loads(result.out)
         assert parsed["session_id"] == sid

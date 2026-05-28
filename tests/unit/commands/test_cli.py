@@ -69,8 +69,8 @@ class TestErrorHandling:
 
         fake_cmd.add_arguments = add_arguments
         mocker.patch.object(
-            cli_mod,
-            "build_registry",
+            cli_mod.CommandRegistry,
+            "build",
             return_value={"version": fake_cmd},
         )
         result = cli("version")
@@ -84,7 +84,7 @@ class TestErrorHandling:
         fake_cmd.run.side_effect = KeyboardInterrupt()
         fake_cmd.help = "fake"
         fake_cmd.add_arguments = lambda p: None
-        mocker.patch.object(cli_mod, "build_registry", return_value={"version": fake_cmd})
+        mocker.patch.object(cli_mod.CommandRegistry, "build", return_value={"version": fake_cmd})
         result = cli("version")
         assert result.code == 130
 
@@ -95,7 +95,7 @@ class TestErrorHandling:
         fake_cmd.run.side_effect = ValueError("surprise")
         fake_cmd.help = "fake"
         fake_cmd.add_arguments = lambda p: None
-        mocker.patch.object(cli_mod, "build_registry", return_value={"version": fake_cmd})
+        mocker.patch.object(cli_mod.CommandRegistry, "build", return_value={"version": fake_cmd})
         result = cli("version")
         assert result.code == 2
         # The traceback should be in the logs (log.exception).

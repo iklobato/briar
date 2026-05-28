@@ -229,11 +229,15 @@ companies:
           - name: aws-infra
             args:
               cloud: gcp
-              # `cloud_profile` carries the GCP project ID. For Azure
+              # `aws_extract_profile` carries the GCP project ID. For Azure
               # adapter this would be the subscription ID. For AWS it
-              # carries the local boto3 profile name.
-              cloud_profile: datacore-prod
-              cloud_region: us-central1
+              # carries the local boto3 profile name. (Key name reads odd
+              # for non-AWS providers, but matches the CLI flag
+              # `--aws-extract-profile` so YAMLs and CLI usage stay in
+              # sync. `cloud_profile`/`cloud_region` are accepted as
+              # back-compat aliases.)
+              aws_extract_profile: datacore-prod
+              aws_extract_region: us-central1
 
           - name: active-tickets
             args:

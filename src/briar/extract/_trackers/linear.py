@@ -13,8 +13,10 @@ from __future__ import annotations
 import json
 import logging
 import urllib.request
+from dataclasses import replace
 from typing import Any, Dict, List
 
+from briar._http_retry import urlopen_with_retry
 from briar.decorators import swallow_errors
 from briar.env_vars import CredEnv
 from briar.extract._tracker import Comment, Ticket, TrackerProvider
@@ -116,20 +118,7 @@ class LinearTracker(TrackerProvider):
         if not isinstance(node, dict):
             return super().get_ticket(project, ticket_key)
         ticket = self._to_ticket(node)
-        return Ticket(
-            key=ticket.key,
-            title=ticket.title,
-            reporter=ticket.reporter,
-            assignee=ticket.assignee,
-            status=ticket.status,
-            kind=ticket.kind,
-            priority=ticket.priority,
-            created_at=ticket.created_at,
-            updated_at=ticket.updated_at,
-            labels=ticket.labels,
-            url=ticket.url,
-            description=str(node.get("description") or "")[:8000],
-        )
+        return replace(ticket, description=str(node.get("description") or "")[:8000])
 
     # ---- internals --------------------------------------------------------
 
@@ -144,10 +133,14 @@ class LinearTracker(TrackerProvider):
             },
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urlopen_with_retry(req, timeout=30) as resp:
             body = json.loads(resp.read().decode("utf-8"))
         if body.get("errors"):
-            log.warning("linear graphql errors: %s", body["errors"])
+            # Raise instead of returning a partial body — @swallow_errors
+            # on the public verb will log + default. The previous shape
+            # warned then returned a "data: None" body that downstream
+            # treated as "no results," masking schema/auth errors.
+            raise RuntimeError(f"linear graphql errors: {body['errors']}")
         return body
 
     @staticmethod

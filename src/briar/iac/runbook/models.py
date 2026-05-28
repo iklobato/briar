@@ -12,7 +12,7 @@ backend doesn't require a schema edit. See ARCHITECTURE.md finding
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -60,7 +60,7 @@ class KnowledgeBinding(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    store: str = "file"
+    store: Literal["file", "postgres"] = "file"
     name: str = ""
     root: str = ""
     # Backend-specific config (mirrors MessageBinding.config). Each store's
@@ -72,9 +72,10 @@ class KnowledgeBinding(BaseModel):
     @field_validator("store")
     @classmethod
     def _validate_store_name(cls, value: str) -> str:
-        """Check against the live `KnowledgeStoreRegistry.STORES`
-        registry. Adding a new backend (S3, etc.) requires zero edits
-        to this schema."""
+        """Belt-and-suspenders sanity check against the live
+        `KnowledgeStoreRegistry`. The Literal annotation catches typos
+        at parse time; this validator catches drift if a backend is
+        ever removed from the registry while still allowed by Literal."""
         from briar.storage import KnowledgeStoreRegistry
 
         kinds = KnowledgeStoreRegistry.names()

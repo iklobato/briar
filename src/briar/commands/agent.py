@@ -12,14 +12,13 @@ import argparse
 import logging
 import shutil
 import tempfile
-from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import ClassVar, Dict, Tuple
+from typing import Any, Dict, Tuple
 
 from briar._registry import build_registry
-from briar.agent.runner import AgentRunner, AgentRunConfig
+from briar.agent.runner import AgentRunConfig, AgentRunner
 from briar.commands._enums import ExitCode
-from briar.commands.base import Command
+from briar.commands.base import Subcommand, SubcommandCommand
 from briar.errors import CliError
 
 log = logging.getLogger(__name__)
@@ -27,25 +26,46 @@ log = logging.getLogger(__name__)
 
 # ─── AgentOp Strategy + Registry ────────────────────────────────────────────
 #
-# Each op owns its own `add_arguments` + `run`. CommandAgent.add_arguments
-# iterates AGENT_OPS to attach subparsers; CommandAgent.run does a single
-# registry lookup. Adding a new op = one subclass + one entry in AGENT_OPS.
+# Each op owns its own `add_arguments` + `run`; dispatch + subparser wiring
+# are inherited from SubcommandCommand. Adding a new op = one subclass + one
+# entry in AGENT_OPS.
 
 
-class AgentOp(ABC):
-    """One agent subcommand. Concrete subclasses (`PrfixOp`,
-    `ImplementOp`, …) declare the per-op argparse flags and run logic."""
+class AgentOp(Subcommand):
+    """One `briar agent` subcommand (`prfix`, `implement`, …)."""
 
-    name: ClassVar[str] = ""
-    help: ClassVar[str] = ""
 
-    @abstractmethod
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        ...
+def _add_common_agent_arguments(parser: argparse.ArgumentParser) -> None:
+    """Flags shared verbatim by every agent op (target, store, model,
+    git identity, worktree). Op-specific flags (`--pr`/`--branch` vs
+    `--ticket-*`) and flags whose help text differs per op (`--dry-run`,
+    `--runbook`) stay in the op's own `add_arguments`."""
+    parser.add_argument("--company", required=True, help="Company key — must match a runbook YAML")
+    parser.add_argument("--owner", required=True, help="Repository owner (GitHub) or workspace (Bitbucket)")
+    parser.add_argument("--repo", required=True, help="Repository name / slug")
+    parser.add_argument("--provider", default="github", help="Repository provider (default: github). One of: github, bitbucket.")
+    parser.add_argument("--store", default="postgres", choices=["file", "postgres"], help="KnowledgeStore backend")
+    parser.add_argument("--knowledge", default="./knowledge", help="File-store root (ignored for postgres)")
+    parser.add_argument("--model", default="", help="Override Anthropic model (defaults to AgentRunner.DEFAULT_MODEL)")
+    parser.add_argument("--max-iter", type=int, default=0, help="Iteration ceiling (defaults to AgentRunner.DEFAULT_MAX_ITERATIONS)")
+    parser.add_argument(
+        "--git-user-name", default="", help="git config user.name on the worktree. Required unless company.git_identity.name is set in the runbook."
+    )
+    parser.add_argument(
+        "--git-user-email", default="", help="git config user.email on the worktree. Required unless company.git_identity.email is set in the runbook."
+    )
+    parser.add_argument("--keep-worktree", action="store_true", help="Leave the worktree in /tmp after the run for inspection")
 
-    @abstractmethod
-    def run(self, agent_cmd: "CommandAgent", args: argparse.Namespace) -> int:
-        ...
+
+def _add_meeting_arguments(parser: argparse.ArgumentParser, *, query_help: str) -> None:
+    """Meeting-context wiring (Fireflies + future vendors). All optional —
+    absent flags = no meeting fetch. Only `--meeting-query`'s help text
+    differs per op, so it's parameterised."""
+    parser.add_argument("--meeting", default="fireflies", help="Meeting provider for transcript fetch (default: fireflies)")
+    parser.add_argument("--meeting-key", default="", help="Specific meeting ID to splice into the agent prompt")
+    parser.add_argument("--meeting-query", default="", help=query_help)
+    parser.add_argument("--meeting-top-k", type=int, default=3, help="Max meetings to fetch in search mode (default: 3)")
+    parser.add_argument("--meeting-max-bytes", type=int, default=50_000, help="Per-meeting transcript byte cap (default: 50000)")
 
 
 class PrfixOp(AgentOp):
@@ -53,19 +73,9 @@ class PrfixOp(AgentOp):
     help = "Address open review comments on a PR (pr-fixer archetype)."
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("--company", required=True, help="Company key — must match a runbook YAML")
-        parser.add_argument("--owner", required=True, help="Repository owner (GitHub) or workspace (Bitbucket)")
-        parser.add_argument("--repo", required=True, help="Repository name / slug")
+        _add_common_agent_arguments(parser)
         parser.add_argument("--pr", type=int, required=True, help="PR number to address")
         parser.add_argument("--branch", required=True, help="PR head branch name")
-        parser.add_argument("--provider", default="github", help="Repository provider (default: github). One of: github, bitbucket.")
-        parser.add_argument("--store", default="postgres", choices=["file", "postgres"], help="KnowledgeStore backend")
-        parser.add_argument("--knowledge", default="./knowledge", help="File-store root (ignored for postgres)")
-        parser.add_argument("--model", default="", help="Override Anthropic model (defaults to AgentRunner.DEFAULT_MODEL)")
-        parser.add_argument("--max-iter", type=int, default=0, help="Iteration ceiling (defaults to AgentRunner.DEFAULT_MAX_ITERATIONS)")
-        parser.add_argument("--git-user-name", default="", help="git config user.name on the worktree. Required unless company.git_identity.name is set in the runbook.")
-        parser.add_argument("--git-user-email", default="", help="git config user.email on the worktree. Required unless company.git_identity.email is set in the runbook.")
-        parser.add_argument("--keep-worktree", action="store_true", help="Leave the worktree in /tmp after the run for inspection")
         parser.add_argument(
             "--dry-run",
             action="store_true",
@@ -79,18 +89,11 @@ class PrfixOp(AgentOp):
             "When set, the agent gets a `send_message` tool bound to the configured channels "
             "instead of having to shell out via `gh` / `curl`.",
         )
-        # Meeting-context wiring (Fireflies + future vendors). All optional —
-        # absent flags = no meeting fetch, agent runs with PR review context only.
-        parser.add_argument("--meeting", default="fireflies", help="Meeting provider for transcript fetch (default: fireflies)")
-        parser.add_argument("--meeting-key", default="", help="Specific meeting ID to splice into the agent prompt")
-        parser.add_argument(
-            "--meeting-query",
-            default="",
-            help="Keyword search across recent meetings. When omitted, defaults to the PR's owner/repo#pr — "
+        _add_meeting_arguments(
+            parser,
+            query_help="Keyword search across recent meetings. When omitted, defaults to the PR's owner/repo#pr — "
             "set explicitly to override (e.g. the reviewer's name or a topic).",
         )
-        parser.add_argument("--meeting-top-k", type=int, default=3, help="Max meetings to fetch in search mode (default: 3)")
-        parser.add_argument("--meeting-max-bytes", type=int, default=50_000, help="Per-meeting transcript byte cap (default: 50000)")
 
     def run(self, agent_cmd: "CommandAgent", args: argparse.Namespace) -> int:
         return agent_cmd._run_prfix(args)
@@ -101,20 +104,10 @@ class ImplementOp(AgentOp):
     help = "Implement one ticket end-to-end (engineer archetype). Clones default branch, fetches ticket-context, runs the agent."
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("--company", required=True, help="Company key — must match a runbook YAML")
-        parser.add_argument("--owner", required=True, help="Repository owner (GitHub) or workspace (Bitbucket)")
-        parser.add_argument("--repo", required=True, help="Repository name / slug")
+        _add_common_agent_arguments(parser)
         parser.add_argument("--ticket-project", required=True, help="Tracker project key (Jira: PROJ; Linear team: ENG; GH/BB Issues: owner/repo)")
         parser.add_argument("--ticket-key", required=True, help="Ticket identifier (Jira: PROJ-123; GH/BB: #42; Linear: ENG-7)")
         parser.add_argument("--tracker", default="jira", help="Tracker provider for the ticket (default: jira). One of: jira, github-issues, bitbucket-issues, linear.")
-        parser.add_argument("--provider", default="github", help="Repository provider (default: github). One of: github, bitbucket.")
-        parser.add_argument("--store", default="postgres", choices=["file", "postgres"], help="KnowledgeStore backend")
-        parser.add_argument("--knowledge", default="./knowledge", help="File-store root (ignored for postgres)")
-        parser.add_argument("--model", default="", help="Override Anthropic model (defaults to AgentRunner.DEFAULT_MODEL)")
-        parser.add_argument("--max-iter", type=int, default=0, help="Iteration ceiling (defaults to AgentRunner.DEFAULT_MAX_ITERATIONS)")
-        parser.add_argument("--git-user-name", default="", help="git config user.name on the worktree. Required unless company.git_identity.name is set in the runbook.")
-        parser.add_argument("--git-user-email", default="", help="git config user.email on the worktree. Required unless company.git_identity.email is set in the runbook.")
-        parser.add_argument("--keep-worktree", action="store_true", help="Leave the worktree in /tmp after the run for inspection")
         parser.add_argument(
             "--dry-run",
             action="store_true",
@@ -126,17 +119,11 @@ class ImplementOp(AgentOp):
             default="",
             help="Optional runbook YAML to read this company's `messages:` block from.",
         )
-        # Meeting-context wiring (Fireflies + future vendors).
-        parser.add_argument("--meeting", default="fireflies", help="Meeting provider for transcript fetch (default: fireflies)")
-        parser.add_argument("--meeting-key", default="", help="Specific meeting ID to splice into the agent prompt")
-        parser.add_argument(
-            "--meeting-query",
-            default="",
-            help="Keyword search across recent meetings. When omitted, defaults to the ticket key — "
+        _add_meeting_arguments(
+            parser,
+            query_help="Keyword search across recent meetings. When omitted, defaults to the ticket key — "
             "set explicitly to override (e.g. a topic or feature name).",
         )
-        parser.add_argument("--meeting-top-k", type=int, default=3, help="Max meetings to fetch in search mode (default: 3)")
-        parser.add_argument("--meeting-max-bytes", type=int, default=50_000, help="Per-meeting transcript byte cap (default: 50000)")
 
     def run(self, agent_cmd: "CommandAgent", args: argparse.Namespace) -> int:
         return agent_cmd._run_implement(args)
@@ -154,7 +141,8 @@ def run_implement(args: argparse.Namespace) -> int:
 
     `briar plan run` calls this in its iteration loop; CommandAgent's
     own dispatch path calls `_run_implement` directly. Both produce the
-    same return code (0 = success; 3-6 = various failure modes).
+    same return code (0 = success; 1 = error; 2 = usage). Granular
+    pre-LLM exit codes (3-6) were collapsed in Phase 8.
 
     The arg-shape stays argparse.Namespace because that's the existing
     contract — a future refactor to a typed `ImplementRequest` dataclass
@@ -163,43 +151,19 @@ def run_implement(args: argparse.Namespace) -> int:
     return CommandAgent()._run_implement(args)
 
 
-class CommandAgent(Command):
+class CommandAgent(SubcommandCommand):
     name = "agent"
-    help = "Run an autonomous agent flow against a target (prfix / conflict-resolve / ci-fix)."
-
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        sub = parser.add_subparsers(dest="agent_op", required=True, metavar="OP")
-        for op in AGENT_OPS.values():
-            op_parser = sub.add_parser(op.name, help=op.help)
-            op.add_arguments(op_parser)
-
-    def run(self, args: argparse.Namespace) -> int:
-        op = AGENT_OPS.get(args.agent_op)
-        if op is None:
-            known = ", ".join(sorted(AGENT_OPS.keys()))
-            log.error("unknown agent op: %s (known: %s)", args.agent_op, known)
-            return ExitCode.USAGE_ERROR
-        return op.run(self, args)
+    help = "Run an autonomous agent flow against a target (prfix / implement)."
+    dest = "agent_op"
+    op_noun = "agent op"
+    ops = AGENT_OPS
 
     def _run_prfix(self, args: argparse.Namespace) -> int:
-        from briar.extract._providers import make_provider
-        from briar.storage import make_store
-
-        try:
-            store = make_store(args.store, file_root=Path(args.knowledge))
-        except Exception:  # noqa: BLE001
-            log.exception("agent-prfix: failed to open store=%s", args.store)
-            return ExitCode.STORE_OPEN_FAILED
-
-        try:
-            provider = make_provider(args.provider, company=args.company)
-        except Exception:  # noqa: BLE001 — `make_provider` raises CliError on unknown kind
-            log.exception("agent-prfix: failed to construct provider=%s", args.provider)
-            return ExitCode.USAGE_ERROR
-
+        setup = self._prepare_agent_workdir(args, op_name="prfix", clone_branch=args.branch)
+        if isinstance(setup, int):
+            return setup  # ExitCode propagated from the setup failure
+        worktree, provider, store = setup
         target = f"{args.owner}/{args.repo}"
-
-        worktree = Path(tempfile.mkdtemp(prefix="briar-agent-prfix-"))
         log.info(
             "agent-prfix: provider=%s target=%s pr=%d branch=%s worktree=%s dry_run=%s",
             provider.kind,
@@ -210,26 +174,9 @@ class CommandAgent(Command):
             args.dry_run,
         )
 
-        # Skip the clone in dry-run — the worktree path is only needed
-        # as a string in the system prompt (renders fine), the agent
-        # never executes against the filesystem.
-        if not args.dry_run:
-            if not self._clone(provider, args.owner, args.repo, worktree, branch=args.branch):
-                log.error("agent-prfix: clone failed; aborting")
-                self._cleanup_worktree(worktree, keep=args.keep_worktree)
-                return ExitCode.CLONE_FAILED
-
-            git_name, git_email = self._resolve_git_identity(args)
-            log.info("agent-prfix: git identity user.name=%s user.email=%s", git_name, git_email)
-            if not self._set_git_identity(worktree, git_name, git_email):
-                log.error("agent-prfix: git identity setup failed; aborting")
-                self._cleanup_worktree(worktree, keep=args.keep_worktree)
-                return ExitCode.GIT_CONFIG_FAILED
-
-        # JIT-fetch the PR's review comments + failing-CI context. Spliced
-        # into the agent's system prompt below the archetype's persona.
+        # JIT-fetch the PR's review comments + failing-CI context.
         # Failure here is non-fatal — the agent still has the worktree
-        # and the bash tool; the pr-review-context is enrichment.
+        # and the bash tool; pr-review-context is enrichment.
         task_sections = self._fetch_pr_context(
             company=args.company,
             provider=args.provider,
@@ -237,52 +184,34 @@ class CommandAgent(Command):
             repo=args.repo,
             pr=args.pr,
         )
-
         # Default meeting query = PR identifier so the prfix flow finds
-        # any meeting that mentioned the PR or its feature by string match.
-        meeting_query = (getattr(args, "meeting_query", "") or "").strip() or f"{args.owner}/{args.repo}#{args.pr}"
-        task_sections += self._fetch_meeting_context(
-            company=args.company,
-            meeting_kind=getattr(args, "meeting", "fireflies"),
-            meeting_key=getattr(args, "meeting_key", ""),
-            meeting_query=meeting_query,
-            meeting_top_k=getattr(args, "meeting_top_k", 3),
-            meeting_max_bytes=getattr(args, "meeting_max_bytes", 50_000),
-        )
+        # any meeting that mentioned the PR or its feature.
+        default_query = f"{args.owner}/{args.repo}#{args.pr}"
+        task_sections += self._fetch_meeting_context_from_args(args, default_query)
 
-        messages = self._load_messages_block(args)
-        runner = AgentRunner(AgentRunConfig(
-            company=args.company,
-            task="prfix",
-            archetype_name="pr-fixer",
-            workdir=worktree,
-            knowledge_store=store,
-            target=target,
-            model=args.model,
-            max_iterations=args.max_iter,
-            extra_user_instructions=self._pr_specific_instructions(args.owner, args.repo, args.pr, args.branch),
-            task_context_sections=tuple(task_sections),
-            dry_run=args.dry_run,
-            messages=messages,
-        ))
-        result = runner.run()
+        result = AgentRunner(
+            AgentRunConfig(
+                company=args.company,
+                task="prfix",
+                archetype_name="pr-fixer",
+                workdir=worktree,
+                knowledge_store=store,
+                target=target,
+                model=args.model,
+                max_iterations=args.max_iter,
+                extra_user_instructions=self._pr_specific_instructions(
+                    args.owner,
+                    args.repo,
+                    args.pr,
+                    args.branch,
+                ),
+                task_context_sections=tuple(task_sections),
+                dry_run=args.dry_run,
+                messages=self._load_messages_block(args),
+            )
+        ).run()
 
-        log.info(
-            "agent-prfix: done iterations=%d stop=%s commits=%d tool_calls=%d %s%s",
-            result.iterations,
-            result.stop_reason,
-            len(result.commits),
-            result.tool_calls,
-            result.cost_summary(),
-            f" error={result.error!r}" if result.error else "",
-        )
-        if result.final_text:
-            print("--- agent final text ---")
-            print(result.final_text)
-        if result.commits:
-            print(f"--- commits: {', '.join(result.commits)} ---")
-        self._cleanup_worktree(worktree, keep=args.keep_worktree or bool(result.error))
-        return ExitCode.OK if not result.error else ExitCode.AGENT_ERROR
+        return self._finalize_agent_result(args, op_name="prfix", worktree=worktree, result=result)
 
     def _run_implement(self, args: argparse.Namespace) -> int:
         """Implement one ticket end-to-end via the engineer archetype.
@@ -292,24 +221,11 @@ class CommandAgent(Command):
         its own feature branch + pushes + opens a PR); fetches the
         full ticket body via the ticket-context task-scoped extractor;
         splices it into the agent's system prompt."""
-        from briar.extract._providers import make_provider
-        from briar.storage import make_store
-
-        try:
-            store = make_store(args.store, file_root=Path(args.knowledge))
-        except Exception:  # noqa: BLE001
-            log.exception("agent-implement: failed to open store=%s", args.store)
-            return ExitCode.STORE_OPEN_FAILED
-
-        try:
-            provider = make_provider(args.provider, company=args.company)
-        except Exception:  # noqa: BLE001 — `make_provider` raises CliError on unknown kind
-            log.exception("agent-implement: failed to construct provider=%s", args.provider)
-            return ExitCode.USAGE_ERROR
-
+        setup = self._prepare_agent_workdir(args, op_name="implement")
+        if isinstance(setup, int):
+            return setup
+        worktree, provider, store = setup
         target = f"{args.owner}/{args.repo}"
-
-        worktree = Path(tempfile.mkdtemp(prefix="briar-agent-implement-"))
         log.info(
             "agent-implement: target=%s ticket=%s tracker=%s provider=%s worktree=%s dry_run=%s",
             target,
@@ -320,25 +236,10 @@ class CommandAgent(Command):
             args.dry_run,
         )
 
-        if not args.dry_run:
-            if not self._clone(provider, args.owner, args.repo, worktree):
-                log.error("agent-implement: clone failed; aborting")
-                self._cleanup_worktree(worktree, keep=args.keep_worktree)
-                return ExitCode.CLONE_FAILED
-
-            git_name, git_email = self._resolve_git_identity(args)
-            log.info("agent-implement: git identity user.name=%s user.email=%s", git_name, git_email)
-            if not self._set_git_identity(worktree, git_name, git_email):
-                log.error("agent-implement: git identity setup failed; aborting")
-                self._cleanup_worktree(worktree, keep=args.keep_worktree)
-                return ExitCode.GIT_CONFIG_FAILED
-
-        # JIT-fetch the ticket's full body + ACs + comments. Spliced
-        # into the agent's system prompt below the archetype's persona.
-        # Failure here is non-fatal — the agent can still proceed with
-        # whatever the runbook-blob's `active-tickets` summary had, but
-        # we log a warning since the ticket-context is the engineer
-        # archetype's #1 priority input.
+        # JIT-fetch the ticket's full body + ACs + comments. Failure is
+        # non-fatal — the agent can still proceed with the active-tickets
+        # summary — but log a warning because the ticket-context is the
+        # engineer archetype's #1 priority input.
         task_sections = self._fetch_ticket_context(
             company=args.company,
             tracker=args.tracker,
@@ -348,13 +249,97 @@ class CommandAgent(Command):
         if not task_sections:
             log.warning("agent-implement: ticket-context was empty — agent will rely on ticket key alone")
 
-        # JIT-fetch relevant meeting transcripts. Default query is the
-        # ticket key — Fireflies' keyword search matches it in titles
-        # and inside transcripts, so a meeting that mentioned ACME-123
-        # surfaces automatically. Operator can override --meeting-query
-        # with a topic / feature name if the ticket key isn't spoken.
-        meeting_query = (getattr(args, "meeting_query", "") or "").strip() or args.ticket_key
-        task_sections += self._fetch_meeting_context(
+        # Default meeting query = ticket key; Fireflies' keyword search
+        # surfaces any meeting that mentioned ACME-123 in title or body.
+        task_sections += self._fetch_meeting_context_from_args(args, args.ticket_key)
+
+        result = AgentRunner(
+            AgentRunConfig(
+                company=args.company,
+                task="implement",
+                archetype_name="engineer",
+                workdir=worktree,
+                knowledge_store=store,
+                target=target,
+                model=args.model,
+                max_iterations=args.max_iter,
+                extra_user_instructions=self._implement_specific_instructions(
+                    provider=provider,
+                    owner=args.owner,
+                    repo=args.repo,
+                    ticket_key=args.ticket_key,
+                ),
+                task_context_sections=tuple(task_sections),
+                dry_run=args.dry_run,
+                messages=self._load_messages_block(args),
+            )
+        ).run()
+
+        return self._finalize_agent_result(args, op_name="implement", worktree=worktree, result=result)
+
+    def _prepare_agent_workdir(
+        self,
+        args: argparse.Namespace,
+        *,
+        op_name: str,
+        clone_branch: str = "",
+    ) -> "Tuple[Path, Any, Any] | int":
+        """Open the knowledge store, build the repo provider, mkdtemp
+        a worktree, clone + set git identity unless `--dry-run`.
+
+        Returns ``(worktree, provider, store)`` on success, or an
+        ``ExitCode`` int when setup fails so the caller can short-
+        circuit with the right exit code. Worktree cleanup on partial-
+        setup failure is handled here.
+
+        Extracted from `_run_prfix` / `_run_implement` (Phase 13) —
+        both methods used to inline ~30 lines of identical setup code."""
+        from briar.extract._providers import make_provider
+        from briar.storage import make_store
+
+        log_prefix = f"agent-{op_name}"
+        try:
+            store = make_store(args.store, file_root=Path(args.knowledge))
+        except Exception:  # noqa: BLE001
+            log.exception("%s: failed to open store=%s", log_prefix, args.store)
+            return ExitCode.GENERAL_ERROR
+
+        try:
+            provider = make_provider(args.provider, company=args.company)
+        except Exception:  # noqa: BLE001 — `make_provider` raises CliError on unknown kind
+            log.exception("%s: failed to construct provider=%s", log_prefix, args.provider)
+            return ExitCode.USAGE_ERROR
+
+        worktree = Path(tempfile.mkdtemp(prefix=f"briar-agent-{op_name}-"))
+
+        # Skip the clone in dry-run — the worktree path is only needed
+        # as a string in the system prompt (renders fine), the agent
+        # never executes against the filesystem.
+        if not args.dry_run:
+            if not self._clone(provider, args.owner, args.repo, worktree, branch=clone_branch):
+                log.error("%s: clone failed; aborting", log_prefix)
+                self._cleanup_worktree(worktree, keep=args.keep_worktree)
+                return ExitCode.GENERAL_ERROR
+            git_name, git_email = self._resolve_git_identity(args)
+            log.info("%s: git identity user.name=%s user.email=%s", log_prefix, git_name, git_email)
+            if not self._set_git_identity(worktree, git_name, git_email):
+                log.error("%s: git identity setup failed; aborting", log_prefix)
+                self._cleanup_worktree(worktree, keep=args.keep_worktree)
+                return ExitCode.GENERAL_ERROR
+
+        return worktree, provider, store
+
+    def _fetch_meeting_context_from_args(
+        self,
+        args: argparse.Namespace,
+        default_query: str,
+    ) -> list:
+        """Read the meeting-* knobs off `args` with sensible defaults
+        + dispatch to `_fetch_meeting_context`. Centralises the
+        getattr-with-default chain that both prfix and implement
+        called inline previously."""
+        meeting_query = (getattr(args, "meeting_query", "") or "").strip() or default_query
+        return self._fetch_meeting_context(
             company=args.company,
             meeting_kind=getattr(args, "meeting", "fireflies"),
             meeting_key=getattr(args, "meeting_key", ""),
@@ -363,29 +348,19 @@ class CommandAgent(Command):
             meeting_max_bytes=getattr(args, "meeting_max_bytes", 50_000),
         )
 
-        runner = AgentRunner(AgentRunConfig(
-            company=args.company,
-            task="implement",
-            archetype_name="engineer",
-            workdir=worktree,
-            knowledge_store=store,
-            target=target,
-            model=args.model,
-            max_iterations=args.max_iter,
-            extra_user_instructions=self._implement_specific_instructions(
-                provider=provider,
-                owner=args.owner,
-                repo=args.repo,
-                ticket_key=args.ticket_key,
-            ),
-            task_context_sections=tuple(task_sections),
-            dry_run=args.dry_run,
-            messages=self._load_messages_block(args),
-        ))
-        result = runner.run()
-
+    def _finalize_agent_result(
+        self,
+        args: argparse.Namespace,
+        *,
+        op_name: str,
+        worktree: Path,
+        result: Any,
+    ) -> int:
+        """Log result + print final-text / commits + cleanup worktree.
+        Shared tail used by every `_run_<op>` method."""
         log.info(
-            "agent-implement: done iterations=%d stop=%s commits=%d tool_calls=%d %s%s",
+            "agent-%s: done iterations=%d stop=%s commits=%d tool_calls=%d %s%s",
+            op_name,
             result.iterations,
             result.stop_reason,
             len(result.commits),
@@ -398,8 +373,10 @@ class CommandAgent(Command):
             print(result.final_text)
         if result.commits:
             print(f"--- commits: {', '.join(result.commits)} ---")
+        # Keep the worktree on failure even when --keep-worktree was off,
+        # so an operator can `cd` into it and inspect what the agent did.
         self._cleanup_worktree(worktree, keep=args.keep_worktree or bool(result.error))
-        return ExitCode.OK if not result.error else ExitCode.AGENT_ERROR
+        return ExitCode.OK if not result.error else ExitCode.GENERAL_ERROR
 
     @staticmethod
     def _clone(provider, owner: str, repo: str, dest: Path, *, branch: str = "") -> bool:
@@ -423,7 +400,7 @@ class CommandAgent(Command):
             log.error(
                 "clone failed: no token for provider=%s company=%r",
                 provider.kind,
-                getattr(provider, "_company", ""),
+                provider.company,
             )
             return False
         clone_url = provider.clone_url(owner, repo)
@@ -520,14 +497,13 @@ class CommandAgent(Command):
         """Run the `ticket-context` task-scoped extractor. Returns a
         list with one ExtractedSection or empty on failure. Symmetric
         to `_fetch_pr_context` but for the engineer flow."""
-        import argparse as _ap
 
         from briar.extract import TASK_SCOPED_EXTRACTORS
 
         extractor = TASK_SCOPED_EXTRACTORS.get("ticket-context")
         if extractor is None:
             return []
-        ns = _ap.Namespace(
+        ns = argparse.Namespace(
             company=company,
             tracker=tracker,
             ticket_project=ticket_project,
@@ -566,11 +542,15 @@ class CommandAgent(Command):
             "  5. Push: `git push -u origin HEAD` (NEVER --force).\n"
         )
         recipe = provider.pr_creation_recipe(owner=owner, repo=repo, branch=branch)
-        return common + recipe + (
-            "\n"
-            "Strict constraints: NEVER --force, --amend, rebase, squash. NEVER commit as a bot identity "
-            "(run `git config user.name` to verify it's a human). If an AC is ambiguous, stop and post a "
-            "clarifying comment on the ticket — do not guess."
+        return (
+            common
+            + recipe
+            + (
+                "\n"
+                "Strict constraints: NEVER --force, --amend, rebase, squash. NEVER commit as a bot identity "
+                "(run `git config user.name` to verify it's a human). If an AC is ambiguous, stop and post a "
+                "clarifying comment on the ticket — do not guess."
+            )
         )
 
     @staticmethod
@@ -601,14 +581,13 @@ class CommandAgent(Command):
         """Run the `pr-review-context` task-scoped extractor for this
         PR. Returns a list with one ExtractedSection or empty on failure.
         Defensive — the agent should still run if this fetch fails."""
-        import argparse as _ap
 
         from briar.extract import TASK_SCOPED_EXTRACTORS
 
         extractor = TASK_SCOPED_EXTRACTORS.get("pr-review-context")
         if extractor is None:
             return []
-        ns = _ap.Namespace(
+        ns = argparse.Namespace(
             company=company,
             provider=provider,
             pr_target_repo=f"{owner}/{repo}",
@@ -640,7 +619,6 @@ class CommandAgent(Command):
 
         Failure here is non-fatal — meetings are enrichment, not the
         primary input. The agent runs fine without them."""
-        import argparse as _ap
 
         from briar.extract import TASK_SCOPED_EXTRACTORS
 
@@ -649,7 +627,7 @@ class CommandAgent(Command):
             return []
         if not meeting_key and not meeting_query:
             return []
-        ns = _ap.Namespace(
+        ns = argparse.Namespace(
             company=company,
             meeting=meeting_kind or "fireflies",
             meeting_key=meeting_key,

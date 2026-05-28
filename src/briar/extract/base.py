@@ -32,9 +32,14 @@ class ExtractedSection:
         return not self.title
 
 
-# Module-level constant — `return EMPTY_SECTION` is more readable than
-# `return ExtractedSection()` at every "no data" site.
-EMPTY_SECTION = ExtractedSection()
+def empty_section() -> ExtractedSection:
+    """Sentinel factory for "no data" sections — `return empty_section()`
+    at every site where the extractor had nothing to report. Returns a
+    FRESH instance each call so callers that accidentally mutate
+    ``.data`` or ``.subsections`` can't poison every other extractor's
+    "empty" return (the previous shape was a shared singleton — a real
+    footgun once any caller did ``section.data["x"] = ...``)."""
+    return ExtractedSection()
 
 
 class KnowledgeExtractor(ABC):
@@ -43,9 +48,19 @@ class KnowledgeExtractor(ABC):
 
     name: ClassVar[str] = ""
     description: ClassVar[str] = ""
+    # Heading the extractor's output blob uses as its `## <heading>`
+    # marker. KnowledgeSplicer reads this to slice blobs back into
+    # per-extractor sections. Subclasses MUST override when their
+    # output is consumed by an archetype (default empty = JIT-only or
+    # not splicer-bound).
+    heading: ClassVar[str] = ""
+    # `requires_github` / `requires_aws` are read ONLY by the dashboard
+    # collector (dashboard/collectors.py:SourcesCollector) for the
+    # secrets-doctor inventory surface. The 4 other `requires_*` flags
+    # that used to live on the base + *Backed subclasses were dead
+    # ClassVars (zero readers) — Phase 13 deleted them.
     requires_github: ClassVar[bool] = False
     requires_aws: ClassVar[bool] = False
-    requires_repository_provider: ClassVar[bool] = False
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Subclasses contribute their own CLI flags. Default: no-op."""
@@ -58,7 +73,7 @@ class KnowledgeExtractor(ABC):
 
     @abstractmethod
     def extract(self, args: argparse.Namespace) -> ExtractedSection:
-        """Pull data + return one section. Use `EMPTY_SECTION` when
+        """Pull data + return one section. Use `empty_section()` when
         the extractor had nothing to report — the composer skips it."""
 
     def provider_class_for(self, args: argparse.Namespace):
@@ -71,39 +86,105 @@ class KnowledgeExtractor(ABC):
         return None
 
 
+# ─── *Backed* shared helpers ──────────────────────────────────────────
+#
+# Every *Backed*Extractor (Cloud / Tracker / Meeting / Repo) and the 3
+# TaskScoped variants of them share the same three-method shape:
+#   1. `add_arguments` registers a `--<flag>` choice from the registry
+#   2. `_<flag>(args)` reads `args.<flag>` + builds a provider instance
+#   3. `provider_class_for` looks up the class in the registry dict
+# Before the Phase 14 collapse these were duplicated 7× with only the
+# flag name / default / registry varying. The helpers below own the
+# shape; the concrete *Backed* classes are thin shells that supply
+# the variation.
+
+
+def _register_provider_flag(
+    parser: argparse.ArgumentParser,
+    *,
+    flag: str,
+    default: str,
+    choices: List[str],
+    help_text: str,
+) -> None:
+    """Idempotent ``--<flag>`` registration.
+
+    The one-shot ``briar extract`` command shares one parser across
+    every extractor, so two same-family extractors would both try to
+    register the same flag. The try/except is the de-dupe guard —
+    same flag, same default, same choices, no behavioural drift."""
+    try:
+        parser.add_argument(
+            f"--{flag}",
+            default=default,
+            choices=choices,
+            help=help_text,
+        )
+    except argparse.ArgumentError:
+        pass
+
+
+def _resolve_provider_from_args(
+    args: argparse.Namespace,
+    *,
+    flag: str,
+    default: str,
+    make_fn,
+    **extra,
+):
+    """Build a provider instance from `args.<flag>` via `make_fn`.
+
+    `company` is sourced from `args.company` (set by the runbook
+    executor before calling `extract`); for one-shot `briar extract`
+    it defaults to empty."""
+    ns = vars(args)
+    kind = ns.get(flag) or default
+    company = ns.get("company") or ""
+    return make_fn(kind, company=company, **extra)
+
+
+def _provider_class_for_flag(
+    args: argparse.Namespace,
+    *,
+    flag: str,
+    default: str,
+    classes_dict: Dict[str, type],
+):
+    """Look up the registered class for `args.<flag>` — used by the
+    secrets-doctor to query `provider_class.required_env_vars(company)`."""
+    ns = vars(args)
+    return classes_dict.get(ns.get(flag) or default)
+
+
 class CloudBackedExtractor(KnowledgeExtractor):
     """Base class for extractors that talk to a cloud provider (AWS,
     GCP, Azure). Registers the shared ``--cloud`` flag + helper."""
 
-    requires_cloud_provider: ClassVar[bool] = True
-
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         from briar.extract._clouds import CloudRegistry
 
-        try:
-            parser.add_argument(
-                "--cloud",
-                default="aws",
-                choices=list(CloudRegistry.kinds()),
-                help="Cloud provider this extractor uses (default: aws)",
-            )
-        except argparse.ArgumentError:
-            pass
+        _register_provider_flag(
+            parser,
+            flag="cloud",
+            default="aws",
+            choices=list(CloudRegistry.kinds()),
+            help_text="Cloud provider this extractor uses (default: aws)",
+        )
 
     def _cloud(self, args: argparse.Namespace):
         from briar.extract._clouds import make_cloud
 
         ns = vars(args)
-        kind = ns.get("cloud") or "aws"
-        company = ns.get("company") or ""
-        region = ns.get("aws_extract_region") or ns.get("cloud_region") or ""
-        profile = ns.get("aws_extract_profile") or ns.get("cloud_profile") or ""
-        return make_cloud(kind, company=company, region=region, profile=profile)
+        return _resolve_provider_from_args(
+            args, flag="cloud", default="aws", make_fn=make_cloud,
+            region=ns.get("aws_extract_region") or ns.get("cloud_region") or "",
+            profile=ns.get("aws_extract_profile") or ns.get("cloud_profile") or "",
+        )
 
     def provider_class_for(self, args: argparse.Namespace):
         from briar.extract._clouds import CLOUDS
 
-        return CLOUDS.get(vars(args).get("cloud") or "aws")
+        return _provider_class_for_flag(args, flag="cloud", default="aws", classes_dict=CLOUDS)
 
 
 class TrackerBackedExtractor(KnowledgeExtractor):
@@ -112,33 +193,26 @@ class TrackerBackedExtractor(KnowledgeExtractor):
     `RepoBackedExtractor` — same `--tracker` flag + `_tracker(args)`
     helper, just a different ABC behind it."""
 
-    requires_tracker_provider: ClassVar[bool] = True
-
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         from briar.extract._trackers import TrackerRegistry
 
-        try:
-            parser.add_argument(
-                "--tracker",
-                default="jira",
-                choices=list(TrackerRegistry.kinds()),
-                help="Tracker provider this extractor uses (default: jira)",
-            )
-        except argparse.ArgumentError:
-            pass
+        _register_provider_flag(
+            parser,
+            flag="tracker",
+            default="jira",
+            choices=list(TrackerRegistry.kinds()),
+            help_text="Tracker provider this extractor uses (default: jira)",
+        )
 
     def _tracker(self, args: argparse.Namespace):
         from briar.extract._trackers import make_tracker
 
-        ns = vars(args)
-        kind = ns.get("tracker") or "jira"
-        company = ns.get("company") or ""
-        return make_tracker(kind, company=company)
+        return _resolve_provider_from_args(args, flag="tracker", default="jira", make_fn=make_tracker)
 
     def provider_class_for(self, args: argparse.Namespace):
         from briar.extract._trackers import TRACKERS
 
-        return TRACKERS.get(vars(args).get("tracker") or "jira")
+        return _provider_class_for_flag(args, flag="tracker", default="jira", classes_dict=TRACKERS)
 
 
 class TaskScopedExtractor(ABC):
@@ -165,6 +239,10 @@ class TaskScopedExtractor(ABC):
 
     name: ClassVar[str] = ""
     description: ClassVar[str] = ""
+    # Same role as `KnowledgeExtractor.heading` — splicer uses this to
+    # find the JIT section in the agent's prompt. Subclasses MUST
+    # override when their output is consumed by an archetype.
+    heading: ClassVar[str] = ""
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Default: no extra arguments. Concrete subclasses register
@@ -172,7 +250,7 @@ class TaskScopedExtractor(ABC):
 
     @abstractmethod
     def fetch(self, args: argparse.Namespace) -> ExtractedSection:
-        """Pull JIT context + return one section. Use ``EMPTY_SECTION``
+        """Pull JIT context + return one section. Use ``empty_section()``
         when there's nothing to report. Called once per agent run, NOT
         on the runbook schedule."""
 
@@ -184,23 +262,18 @@ class TaskScopedTrackerExtractor(TaskScopedExtractor):
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         from briar.extract._trackers import TrackerRegistry
 
-        try:
-            parser.add_argument(
-                "--tracker",
-                default="jira",
-                choices=list(TrackerRegistry.kinds()),
-                help="Tracker provider this extractor uses (default: jira)",
-            )
-        except argparse.ArgumentError:
-            pass
+        _register_provider_flag(
+            parser,
+            flag="tracker",
+            default="jira",
+            choices=list(TrackerRegistry.kinds()),
+            help_text="Tracker provider this extractor uses (default: jira)",
+        )
 
     def _tracker(self, args: argparse.Namespace):
         from briar.extract._trackers import make_tracker
 
-        ns = vars(args)
-        kind = ns.get("tracker") or "jira"
-        company = ns.get("company") or ""
-        return make_tracker(kind, company=company)
+        return _resolve_provider_from_args(args, flag="tracker", default="jira", make_fn=make_tracker)
 
 
 class MeetingBackedExtractor(KnowledgeExtractor):
@@ -209,33 +282,26 @@ class MeetingBackedExtractor(KnowledgeExtractor):
     `TrackerBackedExtractor` — same `--meeting` flag + `_meeting(args)`
     helper, just a different ABC behind it."""
 
-    requires_meeting_provider: ClassVar[bool] = True
-
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        from briar.extract._meetings import MeetingProviderRegistry
+        from briar.extract._meetings import meeting_kinds
 
-        try:
-            parser.add_argument(
-                "--meeting",
-                default="fireflies",
-                choices=list(MeetingProviderRegistry.kinds()),
-                help="Meeting provider this extractor uses (default: fireflies)",
-            )
-        except argparse.ArgumentError:
-            pass
+        _register_provider_flag(
+            parser,
+            flag="meeting",
+            default="fireflies",
+            choices=list(meeting_kinds()),
+            help_text="Meeting provider this extractor uses (default: fireflies)",
+        )
 
     def _meeting(self, args: argparse.Namespace):
         from briar.extract._meetings import make_meeting
 
-        ns = vars(args)
-        kind = ns.get("meeting") or "fireflies"
-        company = ns.get("company") or ""
-        return make_meeting(kind, company=company)
+        return _resolve_provider_from_args(args, flag="meeting", default="fireflies", make_fn=make_meeting)
 
     def provider_class_for(self, args: argparse.Namespace):
         from briar.extract._meetings import MEETINGS
 
-        return MEETINGS.get(vars(args).get("meeting") or "fireflies")
+        return _provider_class_for_flag(args, flag="meeting", default="fireflies", classes_dict=MEETINGS)
 
 
 class TaskScopedMeetingExtractor(TaskScopedExtractor):
@@ -243,25 +309,20 @@ class TaskScopedMeetingExtractor(TaskScopedExtractor):
     `MeetingBackedExtractor` but for the JIT lifecycle."""
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        from briar.extract._meetings import MeetingProviderRegistry
+        from briar.extract._meetings import meeting_kinds
 
-        try:
-            parser.add_argument(
-                "--meeting",
-                default="fireflies",
-                choices=list(MeetingProviderRegistry.kinds()),
-                help="Meeting provider this extractor uses (default: fireflies)",
-            )
-        except argparse.ArgumentError:
-            pass
+        _register_provider_flag(
+            parser,
+            flag="meeting",
+            default="fireflies",
+            choices=list(meeting_kinds()),
+            help_text="Meeting provider this extractor uses (default: fireflies)",
+        )
 
     def _meeting(self, args: argparse.Namespace):
         from briar.extract._meetings import make_meeting
 
-        ns = vars(args)
-        kind = ns.get("meeting") or "fireflies"
-        company = ns.get("company") or ""
-        return make_meeting(kind, company=company)
+        return _resolve_provider_from_args(args, flag="meeting", default="fireflies", make_fn=make_meeting)
 
 
 class TaskScopedRepoExtractor(TaskScopedExtractor):
@@ -270,28 +331,23 @@ class TaskScopedRepoExtractor(TaskScopedExtractor):
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         from briar.extract._providers import RepositoryProviderRegistry
 
-        try:
-            parser.add_argument(
-                "--provider",
-                default="github",
-                choices=list(RepositoryProviderRegistry.kinds()),
-                help="Repository provider this extractor uses (default: github)",
-            )
-        except argparse.ArgumentError:
-            pass
+        _register_provider_flag(
+            parser,
+            flag="provider",
+            default="github",
+            choices=list(RepositoryProviderRegistry.kinds()),
+            help_text="Repository provider this extractor uses (default: github)",
+        )
 
     def _provider(self, args: argparse.Namespace):
         from briar.extract._providers import make_provider
 
-        ns = vars(args)
-        kind = ns.get("provider") or "github"
-        company = ns.get("company") or ""
-        return make_provider(kind, company=company)
+        return _resolve_provider_from_args(args, flag="provider", default="github", make_fn=make_provider)
 
     def provider_class_for(self, args: argparse.Namespace):
         from briar.extract._providers import PROVIDERS
 
-        return PROVIDERS.get(vars(args).get("provider") or "github")
+        return _provider_class_for_flag(args, flag="provider", default="github", classes_dict=PROVIDERS)
 
 
 class RepoBackedExtractor(KnowledgeExtractor):
@@ -306,46 +362,31 @@ class RepoBackedExtractor(KnowledgeExtractor):
     own ``add_arguments`` for repo lists + filters, but they call the
     provider's verbs (``list_pulls`` / ``read_file`` / …) instead of
     hard-coding `GithubApi`. Adding a Bitbucket-aware extractor =
-    inherit + implement; the provider lookup is shared."""
+    inherit + implement; the provider lookup is shared.
 
-    requires_repository_provider: ClassVar[bool] = True
+    Subclasses MUST call ``super().add_arguments(parser)`` if they
+    override it — that's how the shared ``--provider`` flag gets
+    registered. The flag-registration is idempotent (`briar extract`
+    shares one parser across every extractor), so the second-and-later
+    re-registration is silently skipped."""
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        """Subclasses MUST call ``super().add_arguments(parser)`` if
-        they override this — that's how the shared ``--provider`` flag
-        gets registered.
-
-        Idempotent: the one-shot ``briar extract`` command shares one
-        parser across every extractor, so every `RepoBackedExtractor`
-        would otherwise try to register ``--provider`` four times. The
-        guard catches the second-and-later registrations silently —
-        same flag, same default, same choices, no behavioural drift."""
         from briar.extract._providers import RepositoryProviderRegistry
 
-        try:
-            parser.add_argument(
-                "--provider",
-                default="github",
-                choices=list(RepositoryProviderRegistry.kinds()),
-                help="Repository provider this extractor uses (default: github)",
-            )
-        except argparse.ArgumentError:
-            pass
+        _register_provider_flag(
+            parser,
+            flag="provider",
+            default="github",
+            choices=list(RepositoryProviderRegistry.kinds()),
+            help_text="Repository provider this extractor uses (default: github)",
+        )
 
     def _provider(self, args: argparse.Namespace):
-        """Resolve the provider for this extraction run. ``args.company``
-        is set by the runbook executor before calling ``extract`` — for
-        one-shot ``briar extract`` it defaults to empty (GitHub treats
-        company as inert; Bitbucket would report `is_available() ==
-        False`)."""
         from briar.extract._providers import make_provider
 
-        ns = vars(args)
-        kind = ns.get("provider") or "github"
-        company = ns.get("company") or ""
-        return make_provider(kind, company=company)
+        return _resolve_provider_from_args(args, flag="provider", default="github", make_fn=make_provider)
 
     def provider_class_for(self, args: argparse.Namespace):
         from briar.extract._providers import PROVIDERS
 
-        return PROVIDERS.get(vars(args).get("provider") or "github")
+        return _provider_class_for_flag(args, flag="provider", default="github", classes_dict=PROVIDERS)

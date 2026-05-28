@@ -15,7 +15,7 @@ import logging
 from typing import List
 
 from briar.extract._tracker import Comment
-from briar.extract.base import EMPTY_SECTION, ExtractedSection, TaskScopedTrackerExtractor
+from briar.extract.base import ExtractedSection, TaskScopedTrackerExtractor, empty_section
 
 
 log = logging.getLogger(__name__)
@@ -23,6 +23,7 @@ log = logging.getLogger(__name__)
 
 class FetchTicketContext(TaskScopedTrackerExtractor):
     name = "ticket-context"
+    heading = "Ticket context"
     description = "Full body + ACs + comments for ONE specific ticket"
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
@@ -48,7 +49,7 @@ class FetchTicketContext(TaskScopedTrackerExtractor):
         # the boundary that converts None → EMPTY_SECTION lives here.
         if ticket is None or (not ticket.title and not ticket.description):
             log.warning("ticket-context: %s not found or empty", args.ticket_key)
-            return EMPTY_SECTION
+            return empty_section()
 
         comments: List[Comment] = tracker.list_comments(args.ticket_project, args.ticket_key)
         transitions = tracker.list_status_transitions(args.ticket_project, args.ticket_key)

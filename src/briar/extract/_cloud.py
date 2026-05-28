@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Dict, List
+from typing import Any, ClassVar, Dict, List, Optional
 
 
 log = logging.getLogger(__name__)
@@ -96,7 +96,7 @@ class CloudProvider(ABC):
     def list_log_groups(self, *, top_by_bytes: int = 10) -> List[LogGroup]:
         return []
 
-    def list_subsections(self, *, services: List[str] = None) -> List[Any]:  # type: ignore[assignment]
+    def list_subsections(self) -> List[Any]:  # type: ignore[assignment]
         """Provider-specific subsection rendering. Default impl walks
         the four list_* verbs above and builds generic Compute /
         Databases / Queues / Log-groups subsections. Subclasses with
@@ -106,8 +106,11 @@ class CloudProvider(ABC):
 
         Return type is List[ExtractedSection] but typed as List[Any]
         here to avoid an import cycle (`extract.base -> _cloud -> base`).
-        ``services`` is an optional whitelist filter — only AWS uses
-        it today; other clouds ignore it."""
+
+        The previous shape took an `services=` kwarg that only AWS read.
+        Other clouds silently ignored it (ISP violation). AWS-specific
+        knobs now live on `AwsCloudProvider.list_subsections(services=)`
+        and the extractor uses isinstance to pass the filter."""
         from briar.extract.base import ExtractedSection
 
         out: List[ExtractedSection] = []

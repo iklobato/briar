@@ -16,7 +16,6 @@ from briar.iac.scaffold.sources.base import SourceTemplate
 
 class SourceJira(SourceTemplate):
     kind = "jira"
-    family = "tracker"
     default_provider_for_oauth = "atlassian"
 
     _FILTER_FIELDS = (

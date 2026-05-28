@@ -23,14 +23,17 @@ import argparse
 import logging
 import sys
 from pathlib import Path
-from typing import ClassVar, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from briar._registry import build_registry
 from briar.agent._llm import LLMProvider
 from briar.agent._llms import LLMRegistry, make_llm
 from briar.commands._enums import ExitCode
-from briar.commands.base import Command, confirm
+from briar.commands.base import Subcommand, SubcommandCommand, confirm
 from briar.errors import CliError
+from briar.extract._meeting import DEFAULT_MEETING_MAX_BYTES, DEFAULT_MEETING_TOP_K
+from briar.extract._providers import PROVIDERS
+from briar.extract._trackers import TRACKERS
 from briar.formatting import render
 from briar.journal import JOURNAL_STORE_NAMES, make_journal_store, record, session
 from briar.plan import (
@@ -61,17 +64,8 @@ log = logging.getLogger(__name__)
 # ─── PlanOp Strategy + Registry ─────────────────────────────────────────────
 
 
-class PlanOp:
+class PlanOp(Subcommand):
     """One `briar plan` subcommand."""
-
-    name: ClassVar[str] = ""
-    help: ClassVar[str] = ""
-
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:  # pragma: no cover - abstract
-        raise NotImplementedError
-
-    def run(self, plan_cmd: "CommandPlan", args: argparse.Namespace) -> int:  # pragma: no cover - abstract
-        raise NotImplementedError
 
 
 def _add_store_arguments(parser: argparse.ArgumentParser) -> None:
@@ -384,8 +378,8 @@ class RunOp(PlanOp):
             default="",
             help="Tracker project key passed to `agent implement`. Defaults to <owner>/<repo>.",
         )
-        parser.add_argument("--tracker", default="github-issues", help="Tracker provider (default: github-issues).")
-        parser.add_argument("--provider", default="github", help="Repository provider (default: github).")
+        parser.add_argument("--tracker", default="github-issues", choices=sorted(TRACKERS.keys()), help="Tracker provider (default: github-issues).")
+        parser.add_argument("--provider", default="github", choices=sorted(PROVIDERS.keys()), help="Repository provider (default: github).")
         parser.add_argument("--max-iter", type=int, default=0, help="Iteration ceiling per card.")
         parser.add_argument("--git-user-name", default="")
         parser.add_argument("--git-user-email", default="")
@@ -400,8 +394,8 @@ class RunOp(PlanOp):
         parser.add_argument("--meeting", default="fireflies")
         parser.add_argument("--meeting-key", default="")
         parser.add_argument("--meeting-query", default="")
-        parser.add_argument("--meeting-top-k", type=int, default=3)
-        parser.add_argument("--meeting-max-bytes", type=int, default=50_000)
+        parser.add_argument("--meeting-top-k", type=int, default=DEFAULT_MEETING_TOP_K)
+        parser.add_argument("--meeting-max-bytes", type=int, default=DEFAULT_MEETING_MAX_BYTES)
         _add_llm_arguments(parser, required=True)
         _add_store_arguments(parser)
         _add_journal_arguments(parser)
@@ -535,7 +529,7 @@ class RunOp(PlanOp):
             return run_implement(impl_args), ""
         except Exception as exc:  # noqa: BLE001 — surface via journal + plan
             log.exception("plan run: implement raised for card=%s", card_key)
-            return 1, f"{type(exc).__name__}: {exc}"
+            return int(ExitCode.GENERAL_ERROR), f"{type(exc).__name__}: {exc}"
 
     @staticmethod
     def _build_implement_args(args: argparse.Namespace, card: PlanCard, tracker_project: str) -> argparse.Namespace:
@@ -591,23 +585,12 @@ PLAN_OPS: Dict[str, PlanOp] = build_registry(
 # ─── CommandPlan ────────────────────────────────────────────────────────────
 
 
-class CommandPlan(Command):
+class CommandPlan(SubcommandCommand):
     name = "plan"
     help = "Build and consume LLM-driven implementation plans from a tracker board."
-
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        sub = parser.add_subparsers(dest="plan_op", required=True, metavar="OP")
-        for op in PLAN_OPS.values():
-            op_parser = sub.add_parser(op.name, help=op.help)
-            op.add_arguments(op_parser)
-
-    def run(self, args: argparse.Namespace) -> int:
-        op = PLAN_OPS.get(args.plan_op)
-        if op is None:
-            known = ", ".join(sorted(PLAN_OPS.keys()))
-            log.error("unknown plan op: %s (known: %s)", args.plan_op, known)
-            return ExitCode.USAGE_ERROR
-        return op.run(self, args)
+    dest = "plan_op"
+    op_noun = "plan op"
+    ops = PLAN_OPS
 
     # ─── shared helpers ─────────────────────────────────────────────────
 
@@ -660,12 +643,15 @@ class CommandPlan(Command):
     @staticmethod
     def _gather_knowledge(store: KnowledgeStore, company: str) -> List[str]:
         """Pull whatever the operator already extracted for this
-        company. Best-effort — missing blobs degrade silently."""
+        company. Best-effort — missing blobs degrade gracefully but a
+        WARNING surfaces so the operator knows the plan is built
+        against partial context."""
         sections: List[str] = []
         for name in (f"knowledge:{company}", f"active-tickets:{company}", f"active-work:{company}"):
             try:
                 body = store.get(name)
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
+                log.warning("plan: knowledge blob %s could not be read (%s); proceeding without it", name, type(exc).__name__)
                 body = ""
             if body:
                 sections.append(f"## {name}\n\n{body}")

@@ -57,7 +57,10 @@ class GithubApi:
         from github import Auth, Github
 
         tok = cls._require_token(token)
-        return Github(auth=Auth.Token(tok), per_page=100, retry=3)
+        # timeout=30: PyGithub's default is 15s, but writes (PR creation,
+        # comment posts) sometimes take longer on Atlassian-style migration
+        # repos. Explicit so the boundary is obvious in code review.
+        return Github(auth=Auth.Token(tok), per_page=100, retry=3, timeout=30)
 
     @classmethod
     def get_json(cls, path: str, token: str = "") -> Any:
@@ -69,11 +72,11 @@ class GithubApi:
         gh = cls.client(token)
         started = time.perf_counter()
         log.debug("gh GET path=%s", path)
-        try:
-            headers, payload = gh._Github__requester.requestJsonAndCheck("GET", path)
-        except Exception:
-            log.exception("gh GET error path=%s", path)
-            raise
+        # Don't wrap in try/log/re-raise — callers wrapped by
+        # @swallow_errors will log the same exception on the way up;
+        # double-logging tracebacks confuses operators triaging from
+        # log aggregators.
+        headers, payload = gh._Github__requester.requestJsonAndCheck("GET", path)
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         remaining = cls._extract_rate_remaining(headers, gh)
         log.info(
@@ -101,11 +104,7 @@ class GithubApi:
         last_remaining = "?"
         log.debug("gh PAGINATED start path=%s per_page=%d max_pages=%d", path, per_page, max_pages)
         while next_path and visited < max_pages:
-            try:
-                headers, page = gh._Github__requester.requestJsonAndCheck("GET", next_path)
-            except Exception:
-                log.exception("gh PAGINATED error path=%s page=%d", path, visited + 1)
-                raise
+            headers, page = gh._Github__requester.requestJsonAndCheck("GET", next_path)
             last_remaining = cls._extract_rate_remaining(headers, gh) or last_remaining
             if isinstance(page, list):
                 all_rows.extend(page)

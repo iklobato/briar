@@ -52,7 +52,18 @@ class CommandJournal(Command):
         export = sub.add_parser("export", help="Write one session to a path.")
         _add_store_args(export)
         export.add_argument("session_id")
-        export.add_argument("--format", choices=("markdown", "json"), default="markdown")
+        # NOT `--format`: the global `--format` flag is extracted position-
+        # independently in `briar.cli` and a subparser `--format` default
+        # then clobbers it, making `--format json` unreachable here. `--as`
+        # sidesteps the collision (dest is explicit because `as` is a
+        # reserved word).
+        export.add_argument(
+            "--as",
+            dest="export_format",
+            choices=("markdown", "json"),
+            default="markdown",
+            help="Serialization for the exported session (default: markdown).",
+        )
         export.add_argument("--out", default="-", help="Output path (`-` for stdout).")
 
     _ACTIONS: ClassVar[Dict[str, str]] = {
@@ -90,9 +101,9 @@ class CommandJournal(Command):
         session = _open_store(args).get(args.session_id)
         if session is None:
             raise CliError(f"session {args.session_id!r} not found")
-        text = json.dumps(session.to_dict(), indent=2) if args.format == "json" else render_markdown(session)
+        text = json.dumps(session.to_dict(), indent=2) if args.export_format == "json" else render_markdown(session)
         if args.out == "-":
-            print(text, end="" if args.format == "markdown" else "\n")
+            print(text, end="" if args.export_format == "markdown" else "\n")
             return 0
         Path(args.out).write_text(text)
         print(f"wrote {args.out}")

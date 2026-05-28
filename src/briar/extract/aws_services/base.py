@@ -16,9 +16,16 @@ from briar.extract.base import ExtractedSection
 
 
 class AwsServiceGatherer(ABC):
-    """Subclasses set `name` + implement `gather(session)`."""
+    """Subclasses set `name` + `data_key` + implement `gather(session)`.
+
+    `data_key` names the field inside `ExtractedSection.data` that
+    holds the per-row list this gatherer produces (ECS: `services`,
+    Lambda: `functions`, etc.). Lets `AwsCloudProvider._gather_via`
+    locate the rows without an open-ended string dispatch like
+    ``for key in ("services", "functions", "queues", "items"):``."""
 
     name: ClassVar[str] = ""
+    data_key: ClassVar[str] = ""
 
     @abstractmethod
     def gather(self, session: Any) -> ExtractedSection:

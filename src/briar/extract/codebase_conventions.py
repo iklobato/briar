@@ -21,6 +21,7 @@ from briar.extract.language_detectors import LANGUAGE_DETECTORS, FileReader
 
 class ExtractCodebaseConventions(RepoBackedExtractor):
     name = "codebase-conventions"
+    heading = "Codebase conventions"
     description = "language, test runner, linter, migration tool per repo"
     requires_github = True  # legacy flag
 

@@ -125,20 +125,36 @@ def _install_id_path() -> Path:
     return _config_dir() / "install_id"
 
 
+# Module-level cache for the install-id. Without this, a read-only
+# home dir would force every call to `resolve()` to generate a fresh
+# UUID, inflating the "distinct installs" metric in Sentry. We cache
+# in-memory so subsequent reads within one process return the same id
+# even when persistence failed.
+_INSTALL_ID_CACHE: Optional[str] = None
+
+
 def _load_or_create_install_id() -> str:
     """Read the persisted install_id, or generate + persist a fresh one.
 
-    Failure to read/write is non-fatal — we just generate a one-shot id
-    in-memory so the rest of telemetry still works. Persistence is best-
-    effort so a read-only home directory (CI, container) doesn't break
-    every CLI invocation."""
+    Failure to read/write is non-fatal — we generate a one-shot id
+    in-memory so the rest of telemetry still works. The first generated
+    id is cached so subsequent calls within the process get the same
+    value even on read-only home directories (CI, containers)."""
+    global _INSTALL_ID_CACHE
+    if _INSTALL_ID_CACHE is not None:
+        return _INSTALL_ID_CACHE
     path = _install_id_path()
     try:
-        return path.read_text().strip() or _persist_new_install_id(path)
+        loaded = path.read_text().strip()
     except FileNotFoundError:
-        return _persist_new_install_id(path)
+        loaded = ""
     except OSError:
-        return uuid.uuid4().hex
+        # Generate once + cache so distinct-installs metric stays stable
+        # for the process lifetime even if disk is unwritable.
+        _INSTALL_ID_CACHE = uuid.uuid4().hex
+        return _INSTALL_ID_CACHE
+    _INSTALL_ID_CACHE = loaded or _persist_new_install_id(path)
+    return _INSTALL_ID_CACHE
 
 
 def _persist_new_install_id(path: Path) -> str:
@@ -189,12 +205,19 @@ def mark_banner_shown() -> None:
 def reset_install_id() -> str:
     """Regenerate the install_id (called by `briar telemetry reset`).
     Returns the new id."""
+    global _INSTALL_ID_CACHE
     path = _install_id_path()
     try:
         if path.exists():
             path.unlink()
     except OSError:
         pass
+    # Invalidate the in-memory cache BEFORE regenerating. Without this,
+    # `_load_or_create_install_id()` returns the value `resolve()` already
+    # cached this process — so `reset` deleted the file but handed back the
+    # OLD id and never persisted a new one (a no-op rotation in any process
+    # that touched telemetry first).
+    _INSTALL_ID_CACHE = None
     return _load_or_create_install_id()
 
 
@@ -203,4 +226,7 @@ def reset_install_id() -> str:
 config_dir = _config_dir
 state_path = _telemetry_state_path
 install_id_path = _install_id_path
-default_dsn = lambda: _DEFAULT_DSN  # noqa: E731
+
+
+def default_dsn() -> str:
+    return _DEFAULT_DSN

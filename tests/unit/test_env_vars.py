@@ -1,7 +1,8 @@
 """CredEnv — env-var template + per-company formatting.
 
-Catches: empty-company → double-underscore quirk, global vs per-company
-template branch, unset env reads return "" (not None)."""
+Catches: empty-company on a templated var is rejected (was a silent
+double-underscore quirk), global vs per-company template branch, unset
+env reads return "" (not None)."""
 
 from __future__ import annotations
 
@@ -20,10 +21,12 @@ class TestForCompany:
     def test_multiple_dashes_all_replaced(self) -> None:
         assert CredEnv.AWS_KEY_ID.for_company("a-b-c") == "AWS_A_B_C_ACCESS_KEY_ID"
 
-    def test_empty_company_yields_double_underscore_documented(self) -> None:
-        # KNOWN: empty company gives `AWS__ACCESS_KEY_ID`. Asserted so a
-        # future "reject empty" change is visible.
-        assert CredEnv.AWS_KEY_ID.for_company("") == "AWS__ACCESS_KEY_ID"
+    def test_empty_company_on_templated_var_raises(self) -> None:
+        # Empty company used to silently produce `AWS__ACCESS_KEY_ID`
+        # (double underscore) which never matched any operator-set env.
+        # for_company now refuses so the misuse surfaces immediately.
+        with pytest.raises(ValueError, match="non-empty company"):
+            CredEnv.AWS_KEY_ID.for_company("")
 
     def test_space_preserved_not_replaced(self) -> None:
         # Only `-` is replaced, not whitespace.

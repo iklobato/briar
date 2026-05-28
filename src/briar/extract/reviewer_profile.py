@@ -16,11 +16,12 @@ from collections import Counter, defaultdict
 from typing import Any, Dict, List
 
 from briar.extract._provider import PullRequest, ReviewComment
-from briar.extract.base import EMPTY_SECTION, ExtractedSection, RepoBackedExtractor
+from briar.extract.base import ExtractedSection, RepoBackedExtractor, empty_section
 
 
 class ExtractReviewerProfile(RepoBackedExtractor):
     name = "reviewer-profile"
+    heading = "Reviewer profiles"
     description = "per-reviewer comment cadence, file hotspots, common asks"
     requires_github = True  # legacy flag
 
@@ -62,7 +63,7 @@ class ExtractReviewerProfile(RepoBackedExtractor):
             if not section.is_empty:
                 per_repo.append(section)
         if not per_repo:
-            return EMPTY_SECTION
+            return empty_section()
         return ExtractedSection(
             title=f"Reviewer profiles — {len(per_repo)} repo(s)",
             body=(
@@ -76,7 +77,7 @@ class ExtractReviewerProfile(RepoBackedExtractor):
     def _profile_repo(self, repo: str, args: argparse.Namespace, provider) -> ExtractedSection:
         sample = provider.list_pulls(repo, state="merged", max_count=args.reviewer_pr_sample)
         if not sample:
-            return EMPTY_SECTION
+            return empty_section()
 
         # Aggregate: per-reviewer, total comments + which files they
         # commented on + sample of their actual comment bodies.
@@ -102,7 +103,7 @@ class ExtractReviewerProfile(RepoBackedExtractor):
                 prs_reviewed[r] += 1
 
         if not per_reviewer_comments:
-            return EMPTY_SECTION
+            return empty_section()
 
         top_reviewers = per_reviewer_comments.most_common(args.reviewer_top_n)
         body_parts: List[str] = [

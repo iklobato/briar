@@ -17,6 +17,7 @@ from briar.extract.base import ExtractedSection, RepoBackedExtractor
 
 class ExtractGithubDeployments(RepoBackedExtractor):
     name = "github-deployments"
+    heading = "GitHub deployments"
     description = "environments, deployments, recent CI runs"
     requires_github = True  # legacy flag
 

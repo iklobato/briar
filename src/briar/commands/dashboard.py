@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from pathlib import Path
 
 from briar.commands.base import Command
@@ -12,13 +13,20 @@ from briar.env_vars import CredEnv
 from briar.journal import JOURNAL_STORE_NAMES, make_journal_store
 from briar.storage import KNOWLEDGE_STORE_NAMES, make_store
 
+log = logging.getLogger(__name__)
+
 
 class CommandDashboard(Command):
     name = "dashboard"
     help = "Serve a read-only HTML dashboard summarising the droplet state."
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("--host", default="0.0.0.0", help="bind address (default: 0.0.0.0 — public)")
+        parser.add_argument(
+            "--host",
+            default="127.0.0.1",
+            help="bind address (default: 127.0.0.1 — loopback only; "
+            "pass `--host 0.0.0.0` to expose publicly, but verify firewall + auth first)",
+        )
         parser.add_argument("--port", type=int, default=8080, help="bind port (default: 8080)")
         parser.add_argument("--examples", default="./examples", help="directory of runbook YAMLs")
         parser.add_argument(
@@ -59,7 +67,14 @@ class CommandDashboard(Command):
                 args.journal_store,
                 file_root=Path(args.journal_root),
             )
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "dashboard: journal store unavailable (kind=%s root=%s err=%s); "
+                "journal collectors will be disabled for this session",
+                args.journal_store,
+                args.journal_root,
+                type(exc).__name__,
+            )
             journal_store = None
 
         server = DashboardServer(host=args.host, port=args.port)

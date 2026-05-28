@@ -1,8 +1,11 @@
-"""Meeting provider registry — Strategy + Factory.
+"""Meeting provider registry.
 
 Symmetric to `_trackers/` and `_providers/`. Adding a new vendor
-(Otter, Granola, Read.ai, …) = one module + one entry; zero extractor
-edits, zero archetype edits."""
+(Otter, Granola, Read.ai, …) = one entry in `MEETINGS` below.
+
+The Phase 13 demotion removed the static-only `MeetingProviderRegistry`
+namespace class — `meeting_kinds()` and `make_meeting()` are module
+functions now, matching the registry-as-data pattern used elsewhere."""
 
 from __future__ import annotations
 
@@ -20,25 +23,16 @@ MEETINGS: Dict[str, Type[MeetingProvider]] = build_registry(
 )
 
 
-class MeetingProviderRegistry:
-    """Factory + introspection. Static-only — provider construction is
-    cheap (env-var read + a typed client), so re-creating per extractor
-    call keeps the surface dependency-free."""
-
-    @classmethod
-    def kinds(cls) -> Tuple[str, ...]:
-        return tuple(MEETINGS.keys())
-
-    @classmethod
-    def make(cls, kind: str, company: str = "") -> MeetingProvider:
-        provider_cls = MEETINGS.get(kind)
-        if provider_cls is None:
-            known = ", ".join(sorted(MEETINGS.keys()))
-            raise CliError(f"unknown meeting provider {kind!r}; known: {known}")
-        return provider_cls(company=company)
+def meeting_kinds() -> Tuple[str, ...]:
+    return tuple(MEETINGS.keys())
 
 
-make_meeting = MeetingProviderRegistry.make
+def make_meeting(kind: str, company: str = "") -> MeetingProvider:
+    provider_cls = MEETINGS.get(kind)
+    if provider_cls is None:
+        known = ", ".join(sorted(MEETINGS.keys()))
+        raise CliError(f"unknown meeting provider {kind!r}; known: {known}")
+    return provider_cls(company=company)
 
 
-__all__ = ["MEETINGS", "MeetingProvider", "MeetingProviderRegistry", "make_meeting"]
+__all__ = ["MEETINGS", "MeetingProvider", "meeting_kinds", "make_meeting"]

@@ -31,7 +31,8 @@ from typing import ClassVar, Dict, List
 
 from briar.auth import AcquirerRegistry, CredentialExpired, Credentials, TerminalPromptIO
 from briar.auth._acquirer import DestinationPolicy
-from briar.commands.base import Command
+from briar.commands._enums import ExitCode
+from briar.commands.base import Command, confirm
 from briar.credentials import CredentialStoreRegistry, make_credential_store
 from briar.errors import CliError
 
@@ -144,8 +145,6 @@ class CommandAuth(Command):
             print(f"auth-logout: nothing to delete for target={args.target} company={args.company or '(none)'}")
             return 0
         if not args.yes:
-            from briar.commands.base import confirm
-
             print(f"auth-logout: will delete {len(names)} env vars from store={effective_store}:")
             for n in names:
                 print(f"  - {n}")
@@ -277,5 +276,8 @@ def _persist_and_report(creds: Credentials, *, store, store_kind: str) -> int:
     if failures:
         for f in failures:
             print(f"  reason: {f}")
-        return 3
-    return 0
+        # ExitCode was folded to {OK, GENERAL_ERROR, USAGE_ERROR} in
+        # Phase 8 — the granular 3 here was a leftover from the
+        # pre-fold contract.
+        return int(ExitCode.GENERAL_ERROR)
+    return int(ExitCode.OK)

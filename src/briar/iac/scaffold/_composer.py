@@ -11,6 +11,7 @@ import argparse
 import logging
 from typing import Any, Dict, List
 
+from briar.errors import ConfigError
 from briar.iac.scaffold._knowledge import KnowledgeSplicer
 from briar.iac.scaffold.archetypes import ARCHETYPES, AgentArchetype
 from briar.iac.scaffold.shapes import WORKFLOW_SHAPES, WorkflowShape
@@ -171,7 +172,7 @@ class ScaffoldComposer:
             log.exception("scaffold: could not open store=%s; skipping knowledge splice", store_name)
             return ""
         try:
-            splicer = KnowledgeSplicer(store, company)
+            splicer = KnowledgeSplicer.from_store(store, company)
             return splicer.prologue(archetype)
         except Exception:  # noqa: BLE001
             log.exception("scaffold: knowledge splice failed for company=%s store=%s", company, store_name)
@@ -184,7 +185,7 @@ class ScaffoldComposer:
             tmpl = SOURCE_TEMPLATES.get(kind)
             if tmpl is None:
                 known = ", ".join(sorted(SOURCE_TEMPLATES))
-                raise SystemExit(f"unknown source kind {kind!r}; known: {known}")
+                raise ConfigError(f"unknown source kind {kind!r}; known: {known}")
             out.append(tmpl)
         return out
 
@@ -193,7 +194,7 @@ class ScaffoldComposer:
         tmpl = registry.get(name)
         if tmpl is None:
             known = ", ".join(sorted(registry))
-            raise SystemExit(f"unknown {label} {name!r}; known: {known}")
+            raise ConfigError(f"unknown {label} {name!r}; known: {known}")
         return tmpl
 
     @staticmethod
@@ -214,127 +215,116 @@ class ScaffoldComposer:
         return out
 
 
-class ScaffoldResolver:
-    """Helpers for the scaffold templates that don't fit on the composer.
+def target_for(args: argparse.Namespace) -> str:
+    """Pick the agent target string from the chosen sources.
 
-    Right now this hosts `target_for` — the rule for picking the human-
-    readable agent target from the selected sources. Trackers (GitHub,
-    Bitbucket, Jira) declare their own identifier; cloud sources don't.
-    The composer needs *one* string, so we walk the source list in the
-    user's declared order and take the first non-empty result."""
+    Walks `args.source` in the user's declared order, asks each
+    `SourceTemplate.target(args)`, returns the first non-empty
+    answer. Falls back to the scaffold's `--prefix` when no source
+    declares a target (e.g. AWS-only scaffolds). The prefix path is
+    not great — every tracker source should be returning a real
+    identifier — but it's better than crashing on `{target}`
+    interpolation.
 
-    @staticmethod
-    def target_for(args: argparse.Namespace) -> str:
-        """Pick the agent target string from the chosen sources.
-
-        Walks `args.source` in the user's declared order, asks each
-        `SourceTemplate.target(args)`, returns the first non-empty
-        answer. Falls back to the scaffold's `--prefix` when no source
-        declares a target (e.g. AWS-only scaffolds). The prefix path is
-        not great — every tracker source should be returning a real
-        identifier — but it's better than crashing on `{target}`
-        interpolation."""
-        ns = vars(args)
-        kinds: List[str] = list(ns.get("source") or [])
-        for kind in kinds:
-            tmpl = SOURCE_TEMPLATES.get(kind)
-            if tmpl is None:
-                continue
-            ident = tmpl.target(args)
-            if ident:
-                return ident
-        prefix = (ns.get("prefix") or "").strip()
-        if prefix:
-            log.warning(
-                "scaffold: no source declared a target — falling back to --prefix=%r. "
-                "If this scaffold opens PRs, set the source's identity flags "
-                "(--owner/--repo for GitHub, --bitbucket-workspace/--bitbucket-repo for Bitbucket).",
-                prefix,
-            )
-            return prefix
-        raise SystemExit("scaffold: cannot derive agent target — pass --prefix or set the selected source's identity flags")
+    Was `ScaffoldResolver.target_for` before Phase 12 demoted the
+    static-only namespace class to a module function."""
+    ns = vars(args)
+    kinds: List[str] = list(ns.get("source") or [])
+    for kind in kinds:
+        tmpl = SOURCE_TEMPLATES.get(kind)
+        if tmpl is None:
+            continue
+        ident = tmpl.target(args)
+        if ident:
+            return ident
+    prefix = (ns.get("prefix") or "").strip()
+    if prefix:
+        log.warning(
+            "scaffold: no source declared a target — falling back to --prefix=%r. "
+            "If this scaffold opens PRs, set the source's identity flags "
+            "(--owner/--repo for GitHub, --bitbucket-workspace/--bitbucket-repo for Bitbucket).",
+            prefix,
+        )
+        return prefix
+    raise ConfigError("scaffold: cannot derive agent target — pass --prefix or set the selected source's identity flags")
 
 
-class ScaffoldArgs:
-    """Argparse contributions shared across every concrete scaffold."""
+def add_common_arguments(parser: argparse.ArgumentParser) -> None:
+    """Top-level flags every scaffold template shares.
 
-    @staticmethod
-    def add_common(parser: argparse.ArgumentParser) -> None:
-        """Top-level flags every scaffold template shares."""
-        parser.add_argument("--prefix", required=True, help="prefix prepended to every resource name")
-        parser.add_argument(
-            "--source",
-            action="append",
-            default=[],
-            choices=sorted(SOURCE_TEMPLATES.keys()),
-            help="Source kind(s) to gather context from. Repeat for multiple.",
-        )
-        parser.add_argument(
-            "--archetype",
-            default="engineer",
-            choices=sorted(ARCHETYPES.keys()),
-            help="Agent role + tool filter (default: engineer)",
-        )
-        parser.add_argument(
-            "--shape",
-            default="plan-approve-act",
-            choices=sorted(WORKFLOW_SHAPES.keys()),
-            help="Workflow graph shape (default: plan-approve-act)",
-        )
-        parser.add_argument(
-            "--trigger-kind",
-            default="github_webhook",
-            choices=sorted(TRIGGER_TEMPLATES.keys()),
-            help="What kind of trigger creates tasks for this workflow",
-        )
-        parser.add_argument(
-            "--llm-provider-key",
-            default="anthropic",
-            help="LLMProvider config key",
-        )
-        parser.add_argument(
-            "--model",
-            default="claude-sonnet-4-6",
-            help="LLM model id passed to LiteLLM as `<provider>/<model>`",
-        )
-        parser.add_argument(
-            "--auth-mode",
-            default="oauth",
-            choices=["oauth", "pat"],
-            help="GitHub auth mode (oauth handshake or stored PAT)",
-        )
-        parser.add_argument(
-            "--github-secret-id",
-            help="Secret UUID holding a GitHub PAT (with --auth-mode pat)",
-        )
-        parser.add_argument(
-            "--company",
-            default="",
-            help=(
-                "Company name whose extracted knowledge to splice into the "
-                "agent's system_prompt. When omitted, the scaffold emits a "
-                "knowledge-aware persona but without any cached sections."
-            ),
-        )
-        parser.add_argument(
-            "--knowledge-store",
-            default="",
-            help=("KnowledgeStore backend to read the splice from " "(default: postgres if BRIAR_DATABASE_URL is set, else file)"),
-        )
-
-    @staticmethod
-    def attach_sources(parser: argparse.ArgumentParser) -> None:
-        for tmpl in SOURCE_TEMPLATES.values():
-            tmpl.add_arguments(parser)
-
-    @staticmethod
-    def attach_triggers(parser: argparse.ArgumentParser) -> None:
-        for tmpl in TRIGGER_TEMPLATES.values():
-            tmpl.add_arguments(parser)
+    Was `ScaffoldArgs.add_common` before Phase 12 demoted the
+    static-only namespace class to module functions."""
+    parser.add_argument("--prefix", required=True, help="prefix prepended to every resource name")
+    parser.add_argument(
+        "--source",
+        action="append",
+        default=[],
+        choices=sorted(SOURCE_TEMPLATES.keys()),
+        help="Source kind(s) to gather context from. Repeat for multiple.",
+    )
+    parser.add_argument(
+        "--archetype",
+        default="engineer",
+        choices=sorted(ARCHETYPES.keys()),
+        help="Agent role + tool filter (default: engineer)",
+    )
+    parser.add_argument(
+        "--shape",
+        default="plan-approve-act",
+        choices=sorted(WORKFLOW_SHAPES.keys()),
+        help="Workflow graph shape (default: plan-approve-act)",
+    )
+    parser.add_argument(
+        "--trigger-kind",
+        default="github_webhook",
+        choices=sorted(TRIGGER_TEMPLATES.keys()),
+        help="What kind of trigger creates tasks for this workflow",
+    )
+    parser.add_argument(
+        "--llm-provider-key",
+        default="anthropic",
+        help="LLMProvider config key",
+    )
+    parser.add_argument(
+        "--model",
+        default="claude-sonnet-4-6",
+        help="LLM model id passed to LiteLLM as `<provider>/<model>`",
+    )
+    parser.add_argument(
+        "--auth-mode",
+        default="oauth",
+        choices=["oauth", "pat"],
+        help="GitHub auth mode (oauth handshake or stored PAT)",
+    )
+    parser.add_argument(
+        "--github-secret-id",
+        help="Secret UUID holding a GitHub PAT (with --auth-mode pat)",
+    )
+    parser.add_argument(
+        "--company",
+        default="",
+        help=(
+            "Company name whose extracted knowledge to splice into the "
+            "agent's system_prompt. When omitted, the scaffold emits a "
+            "knowledge-aware persona but without any cached sections."
+        ),
+    )
+    parser.add_argument(
+        "--knowledge-store",
+        default="",
+        help=("KnowledgeStore backend to read the splice from " "(default: postgres if BRIAR_DATABASE_URL is set, else file)"),
+    )
 
 
-# Back-compat aliases.
+def attach_source_arguments(parser: argparse.ArgumentParser) -> None:
+    for tmpl in SOURCE_TEMPLATES.values():
+        tmpl.add_arguments(parser)
+
+
+def attach_trigger_arguments(parser: argparse.ArgumentParser) -> None:
+    for tmpl in TRIGGER_TEMPLATES.values():
+        tmpl.add_arguments(parser)
+
+
+# Back-compat alias for the composer entry point.
 compose_bundle = ScaffoldComposer.compose
-add_common_arguments = ScaffoldArgs.add_common
-attach_source_arguments = ScaffoldArgs.attach_sources
-attach_trigger_arguments = ScaffoldArgs.attach_triggers

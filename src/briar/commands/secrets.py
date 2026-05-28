@@ -1,8 +1,10 @@
 """`briar secrets` — credential management surface.
 
 Subcommands:
-  doctor   walk the configured runbooks + report which (company, extractor,
-           env var) tuples are set vs missing — without ever printing values.
+  doctor      walk the configured runbooks + report which (company, extractor,
+              env var) tuples are set vs missing — without ever printing values.
+  bootstrap   one-off invocation of a credential bootstrap (e.g. Infisical
+              fetch) into the running process's env.
 
 The doctor reads required env-var lists FROM THE PROVIDER CLASSES
 (``RepositoryProvider.required_env_vars`` / etc.) rather than from a

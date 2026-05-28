@@ -23,24 +23,18 @@ from briar.extract._user_filter import (
     add_user_filter_arguments,
     apply_user_filter_objs,
 )
-from briar.extract.base import EMPTY_SECTION, ExtractedSection, RepoBackedExtractor
+from briar.extract._time_util import UNPARSABLE_HOURS, hours_between
+from briar.extract.base import ExtractedSection, RepoBackedExtractor, empty_section
 
 
 class ExtractPrArchaeology(RepoBackedExtractor):
-    UNPARSABLE_HOURS = -1.0
-
-    @classmethod
-    def _hours_between(cls, start_iso: str, end_iso: str) -> float:
-        """Hours between two ISO-8601 timestamps. Returns `-1.0` on a
-        parse error — callers filter that out before averaging."""
-        try:
-            s = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
-            e = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
-        except ValueError:
-            return cls.UNPARSABLE_HOURS
-        return (e - s).total_seconds() / 3600.0
+    # Re-exported as class attrs so existing call sites that used
+    # `cls._hours_between` / `cls.UNPARSABLE_HOURS` keep working.
+    UNPARSABLE_HOURS = UNPARSABLE_HOURS
+    _hours_between = staticmethod(hours_between)
 
     name = "pr-archaeology"
+    heading = "PR archaeology"
     description = "merged-PR patterns, review focus, reviewer profiles"
     requires_github = True  # legacy flag — kept for back-compat; new gate is requires_repository_provider
 
@@ -77,7 +71,7 @@ class ExtractPrArchaeology(RepoBackedExtractor):
             if not section.is_empty:
                 per_repo.append(section)
         if not per_repo:
-            return EMPTY_SECTION
+            return empty_section()
         return ExtractedSection(
             title=f"PR archaeology — {len(per_repo)} repo(s)",
             body=(
@@ -98,7 +92,7 @@ class ExtractPrArchaeology(RepoBackedExtractor):
         merged: List[PullRequest] = provider.list_pulls(repo, state="merged", max_count=max_prs)
         merged = apply_user_filter_objs(merged, args, prefix="pr")
         if not merged:
-            return EMPTY_SECTION
+            return empty_section()
 
         cycle_hours = [h for h in (self._hours_between(p.created_at, p.merged_at) for p in merged) if h >= 0]
         reviewers: Counter = Counter()

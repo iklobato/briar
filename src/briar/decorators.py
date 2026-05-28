@@ -24,22 +24,32 @@ T = TypeVar("T")
 
 
 def swallow_errors(*, default: Any = None, message: str = "") -> Callable[[Callable[..., T]], Callable[..., T]]:
-    """Decorator: log any exception and return ``default`` instead of
-    raising. Use on external-API adapter verbs where a single failed
-    call shouldn't kill the whole extract run.
+    """Decorator: log any *runtime* exception and return ``default``
+    instead of raising. Use on external-API adapter verbs where a
+    single failed call shouldn't kill the whole extract run.
 
     ``default`` is what gets returned on failure — usually ``[]`` for
     list-returning verbs, ``""`` for string-returning verbs.
     ``message`` is the log prefix (defaults to the qualified function
     name). The traceback is captured automatically via
-    ``log.exception``."""
+    ``log.exception``.
+
+    Caller errors (``ValueError``, ``TypeError``, ``AssertionError``)
+    are NOT swallowed — those signal a programming bug or invalid
+    input that the caller needs to see. Swallowing them used to mask
+    edge-input validation failures (jira project regex, github
+    owner/repo format) as "no results," which then looked like a
+    legitimate empty response downstream."""
 
     def decorator(fn: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             try:
                 return fn(*args, **kwargs)
-            except Exception:  # noqa: BLE001 — that's the whole point
+            except (ValueError, TypeError, AssertionError):
+                # Caller error — surface as bugs, don't paper over.
+                raise
+            except Exception:  # noqa: BLE001 — runtime/external failures
                 log.exception("%s failed", message or fn.__qualname__)
                 return default
 

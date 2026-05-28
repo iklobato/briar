@@ -13,23 +13,17 @@ from statistics import median
 from typing import Any, Dict, List
 
 from briar.extract._tracker import Ticket
-from briar.extract.base import EMPTY_SECTION, ExtractedSection, TrackerBackedExtractor
+from briar.extract._time_util import UNPARSABLE_HOURS, hours_between
+from briar.extract.base import ExtractedSection, TrackerBackedExtractor, empty_section
 
 
 class ExtractTicketArchaeology(TrackerBackedExtractor):
-    UNPARSABLE_HOURS = -1.0
+    UNPARSABLE_HOURS = UNPARSABLE_HOURS
+    _hours_between = staticmethod(hours_between)
 
     name = "ticket-archaeology"
+    heading = "Ticket archaeology"
     description = "closed-ticket patterns, assignee + label cadence"
-
-    @classmethod
-    def _hours_between(cls, start_iso: str, end_iso: str) -> float:
-        try:
-            s = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
-            e = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
-        except ValueError:
-            return cls.UNPARSABLE_HOURS
-        return (e - s).total_seconds() / 3600.0
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         super().add_arguments(parser)
@@ -63,7 +57,7 @@ class ExtractTicketArchaeology(TrackerBackedExtractor):
             if not section.is_empty:
                 per_project.append(section)
         if not per_project:
-            return EMPTY_SECTION
+            return empty_section()
         return ExtractedSection(
             title=f"Ticket archaeology — {len(per_project)} project(s)",
             body=("Patterns from the most recent closed tickets. Agents " "should match the project's triage + labelling conventions."),
@@ -73,7 +67,7 @@ class ExtractTicketArchaeology(TrackerBackedExtractor):
     def _mine_project(self, project: str, max_tickets: int, tracker) -> ExtractedSection:
         tickets: List[Ticket] = tracker.list_tickets(project, state="closed", max_count=max_tickets)
         if not tickets:
-            return EMPTY_SECTION
+            return empty_section()
 
         cycle_hours = [h for h in (self._hours_between(t.created_at, t.updated_at) for t in tickets) if h >= 0]
         reporters: Counter = Counter()

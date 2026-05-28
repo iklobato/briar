@@ -41,7 +41,7 @@ ACQUIRERS: Dict[str, Type[CredentialAcquirer]] = build_registry(
 
 class AcquirerRegistry:
     """Factory + introspection — mirrors ``TrackerRegistry`` /
-    ``JiraAuthRegistry`` shape."""
+    ``_JIRA_AUTHS`` registry shape."""
 
     @classmethod
     def kinds(cls) -> Tuple[str, ...]:

@@ -8,7 +8,7 @@ catch a missing method until call-time."""
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, List
+from typing import Any, Sequence
 
 
 class Formatter(ABC):
@@ -20,6 +20,6 @@ class Formatter(ABC):
     def render(
         self,
         payload: Any,
-        columns: List[str] = [],
+        columns: Sequence[str] = (),
     ) -> None:
         """Write the rendered payload to stdout."""

@@ -11,15 +11,41 @@ strategy contract; selection happens via
 from __future__ import annotations
 
 import logging
+import re
+from dataclasses import replace
 from typing import Any, Dict, List, Optional
 
 from briar.decorators import swallow_errors
 from briar.env_vars import CredEnv
 from briar.extract._tracker import Comment, Ticket, TrackerProvider
-from briar.extract._trackers._jira_auth import JiraAuthRegistry, JiraAuthStrategy
+from briar.extract._trackers._jira_auth import (
+    JiraAuthStrategy,
+    autodetect_jira_auth,
+    make_jira_auth,
+)
 
 
 log = logging.getLogger(__name__)
+
+
+# Standard Jira project key: starts with uppercase letter, then letters
+# digits and underscore. Validate at the JQL boundary so a malicious
+# project value can't escape the f-string into the JQL query.
+_PROJECT_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
+
+# ADF node types that should emit a trailing newline during plain-text
+# flattening. Membership-style check that replaces the open-coded tuple
+# inline in `_adf_walk`.
+_ADF_BLOCK_NODES = frozenset(
+    {
+        "paragraph",
+        "heading",
+        "bulletList",
+        "orderedList",
+        "listItem",
+        "codeBlock",
+    }
+)
 
 
 class JiraTracker(TrackerProvider):
@@ -32,9 +58,9 @@ class JiraTracker(TrackerProvider):
         if auth is not None:
             self._auth: JiraAuthStrategy = auth
         elif auth_kind:
-            self._auth = JiraAuthRegistry.make(auth_kind)
+            self._auth = make_jira_auth(auth_kind)
         else:
-            self._auth = JiraAuthRegistry.autodetect(company=company)
+            self._auth = autodetect_jira_auth(company=company)
         self._client = None
 
     def _jira(self):
@@ -42,7 +68,9 @@ class JiraTracker(TrackerProvider):
             from atlassian import Jira
 
             kwargs = self._auth.configure(company=self._company, base_url=self._url)
-            self._client = Jira(url=self._url, cloud=True, **kwargs)
+            # timeout=30: same as the messaging-side Jira clients (Phase 2);
+            # extract-side was missed until the re-audit.
+            self._client = Jira(url=self._url, cloud=True, timeout=30, **kwargs)
         return self._client
 
     def is_available(self) -> bool:
@@ -58,11 +86,13 @@ class JiraTracker(TrackerProvider):
         The operator only needs ONE strategy's full set to be present."""
         if not company:
             return []
-        auth = JiraAuthRegistry.autodetect(company=company)
+        auth = autodetect_jira_auth(company=company)
         return [CredEnv.JIRA_URL.for_company(company)] + auth.required_env_vars(company=company)
 
     @swallow_errors(default=[], message="jira list_tickets")
     def list_tickets(self, project: str, *, state: str, max_count: int) -> List[Ticket]:
+        if not _PROJECT_RE.match(project):
+            raise ValueError(f"jira project key must match ^[A-Z][A-Z0-9_]*$: got {project!r}")
         # Jira state vocabulary uses `statusCategory`: To Do | In Progress | Done.
         # Map "open" → not Done; "closed" → Done.
         if state == "closed":
@@ -114,20 +144,7 @@ class JiraTracker(TrackerProvider):
         # rendered HTML, less useful for an LLM than the raw ADF text).
         if isinstance(description, dict):
             description = self._adf_to_text(description)
-        return Ticket(
-            key=ticket.key,
-            title=ticket.title,
-            reporter=ticket.reporter,
-            assignee=ticket.assignee,
-            status=ticket.status,
-            kind=ticket.kind,
-            priority=ticket.priority,
-            created_at=ticket.created_at,
-            updated_at=ticket.updated_at,
-            labels=ticket.labels,
-            url=ticket.url,
-            description=str(description or "")[:8000],
-        )
+        return replace(ticket, description=str(description or "")[:8000])
 
     @classmethod
     def _adf_to_text(cls, doc: Dict[str, Any]) -> str:
@@ -148,7 +165,7 @@ class JiraTracker(TrackerProvider):
                 return
             for child in node.get("content") or []:
                 cls._adf_walk(child, out)
-            if kind in ("paragraph", "heading", "bulletList", "orderedList", "listItem", "codeBlock"):
+            if kind in _ADF_BLOCK_NODES:
                 out.append("\n")
         elif isinstance(node, list):
             for item in node:

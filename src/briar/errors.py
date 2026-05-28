@@ -40,7 +40,7 @@ class ApiError(CliError):
     def _short_body(body: Any) -> str:
         """Collapse a non-JSON HTML 500 page to one line so the caller
         gets a readable error instead of a wall of `<!doctype …>`."""
-        if type(body) is str:
+        if isinstance(body, str):
             stripped = body.lstrip()
             if stripped[:9].lower() in {"<!doctype", "<html lan"} or stripped.startswith("<!DOCTYPE"):
                 return "(server returned HTML — likely an unhandled backend " "exception; check api logs)"

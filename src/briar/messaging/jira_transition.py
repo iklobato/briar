@@ -10,11 +10,11 @@ transitions can carry a comment field)."""
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from briar.decorators import swallow_errors
-from briar.env_vars import CredEnv
-from briar.messaging._writer import MessageWriter, SendResult
+from briar.messaging._jira_creds import JiraCreds
+from briar.messaging._writer import MessageWriter, SendResult, with_ai_prefix
 
 
 log = logging.getLogger(__name__)
@@ -23,24 +23,28 @@ log = logging.getLogger(__name__)
 class JiraTransitionWriter(MessageWriter):
     kind = "jira-transition"
 
-    def __init__(self, *, company: str = "", config: Dict[str, Any] = None) -> None:
+    def __init__(self, *, company: str = "", config: Optional[Dict[str, Any]] = None) -> None:
         self._company = company
         self._config = config or {}
         self._default_status = str(self._config.get("status", ""))
-        self._url = CredEnv.JIRA_URL.read(company=company) if company else ""
-        self._email = CredEnv.JIRA_EMAIL.read(company=company) if company else ""
-        self._token = CredEnv.JIRA_TOKEN.read(company=company) if company else ""
+        self._creds = JiraCreds.from_env(company)
         self._client = None
 
     def _jira(self):
         if self._client is None:
             from atlassian import Jira
 
-            self._client = Jira(url=self._url, username=self._email, password=self._token, cloud=True)
+            self._client = Jira(
+                url=self._creds.url,
+                username=self._creds.email,
+                password=self._creds.token,
+                cloud=True,
+                timeout=20,
+            )
         return self._client
 
     def is_available(self) -> bool:
-        return bool(self._url and self._email and self._token)
+        return self._creds.is_complete()
 
     @swallow_errors(default=SendResult(ok=False, detail="exception"), message="jira-transition send")
     def send(self, *, target: str, body: str, **extras: Any) -> SendResult:
@@ -53,8 +57,10 @@ class JiraTransitionWriter(MessageWriter):
             return SendResult(ok=False, detail="jira-transition requires extras.status or binding config.status")
         # The library exposes `set_issue_status` which wraps the
         # /transitions endpoint + the transition-id resolution.
-        # `body` is appended as a comment via `comment=` when supplied.
-        result = self._jira().set_issue_status(target, status, comment=body or None)
+        # `body` is appended as a comment via `comment=` when supplied;
+        # mark it with [AI] per CLAUDE.md for operator-impersonated text.
+        comment = with_ai_prefix(body) if body else None
+        result = self._jira().set_issue_status(target, status, comment=comment)
         if result is None:
             return SendResult(ok=True, ref=f"{target}→{status}")
         # Atlassian's response shape varies — treat any non-None as ok.
@@ -62,10 +68,4 @@ class JiraTransitionWriter(MessageWriter):
 
     @classmethod
     def required_env_vars(cls, company: str = "") -> List[str]:
-        if not company:
-            return []
-        return [
-            CredEnv.JIRA_URL.for_company(company),
-            CredEnv.JIRA_EMAIL.for_company(company),
-            CredEnv.JIRA_TOKEN.for_company(company),
-        ]
+        return JiraCreds.required_env_vars(company)

@@ -16,7 +16,6 @@ from hypothesis import given, strategies as st
 
 from briar.formatting import FormatterRegistry, render, render_object
 from briar.formatting.csv import FormatCsv
-from briar.formatting.json import FormatJson
 from briar.formatting.quiet import FormatQuiet
 from briar.formatting.table import FormatTable
 from briar.formatting.yaml import FormatYaml
@@ -24,8 +23,14 @@ from briar.formatting.yaml import FormatYaml
 
 class TestRegistry:
     @pytest.mark.parametrize("name", ["", "unknown", "TABLE"])
-    def test_get_unknown_falls_back_to_table(self, name: str) -> None:
-        assert FormatterRegistry.get(name).name == "table"
+    def test_get_unknown_raises(self, name: str) -> None:
+        # get() deliberately raises (not silently falls back to table) so
+        # a typo like `--format yam` is loud at dispatch. Case-sensitive:
+        # `TABLE` is unknown.
+        from briar.errors import CliError
+
+        with pytest.raises(CliError, match="unknown format"):
+            FormatterRegistry.get(name)
 
     def test_render_object_promotes_table_to_json(self, capsys) -> None:
         render_object({"id": "x", "name": "y"}, "table")

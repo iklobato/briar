@@ -17,8 +17,9 @@ import json
 import logging
 import urllib.request
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
+from briar._http_retry import urlopen_with_retry
 from briar.decorators import swallow_errors
 from briar.env_vars import CredEnv
 from briar.extract._meeting import Meeting, MeetingDetail, MeetingProvider
@@ -51,7 +52,7 @@ class FirefliesMeetingProvider(MeetingProvider):
         return [CredEnv.FIREFLIES_API_KEY.for_company(company)]
 
     @swallow_errors(default=[], message="fireflies list_meetings")
-    def list_meetings(self, *, since_iso: str, until_iso: str, max_count: int, attendees: List[str] = None) -> List[Meeting]:
+    def list_meetings(self, *, since_iso: str, until_iso: str, max_count: int, attendees: Optional[List[str]] = None) -> List[Meeting]:
         variables: Dict[str, Any] = {
             "fromDate": since_iso,
             "toDate": until_iso,
@@ -115,10 +116,12 @@ class FirefliesMeetingProvider(MeetingProvider):
             },
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urlopen_with_retry(req, timeout=30) as resp:
             body = json.loads(resp.read().decode("utf-8"))
         if body.get("errors"):
-            log.warning("fireflies graphql errors: %s", body["errors"])
+            # See LinearTracker._gql for rationale — raise so @swallow_errors
+            # surfaces the failure rather than silently returning data:None.
+            raise RuntimeError(f"fireflies graphql errors: {body['errors']}")
         return body
 
     @staticmethod

@@ -1075,7 +1075,7 @@ class SourcesCollector(Collector):
     def collect(self) -> Dict[str, Any]:
         from briar.iac.scaffold.sources import SOURCE_TEMPLATES
 
-        rows = [{"kind": tmpl.kind, "family": tmpl.family or "(none)"} for tmpl in SOURCE_TEMPLATES.values()]
+        rows = [{"kind": tmpl.kind} for tmpl in SOURCE_TEMPLATES.values()]
         return {"rows": rows, "count": len(rows)}
 
 

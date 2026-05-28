@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from briar.dashboard.server import DashboardServer
 
 
@@ -38,17 +36,22 @@ class TestRenderIsolation:
     def test_one_collector_failure_does_not_abort_render(self, caplog_briar) -> None:
         server = DashboardServer()
         server.set_collectors(_stub_collectors(failing={"knowledge"}))
-        # The page should render — but the template references specific
-        # fields. We only assert the contract: render returns a string,
-        # the failing collector's section is recorded in the context as
-        # `{"_error": ...}`, and the log captured the trace.
-        try:
-            server.render_index()
-        except Exception:
-            # The page MAY error on missing keys; that's a template/key
-            # coupling, not the render isolation contract.
-            pass
+        # Contract: a single collector failure must NOT 500 the page —
+        # render returns HTML and the failure is logged. (The resilient
+        # Undefined in the Jinja env degrades the failed section's fields
+        # to blanks rather than raising mid-render.)
+        html = server.render_index()
+        assert isinstance(html, str) and html
         assert any("knowledge" in r.message for r in caplog_briar.records)
+
+    def test_all_collectors_failing_still_renders(self) -> None:
+        # The ultimate isolation check: even if EVERY collector throws,
+        # the page renders rather than 500ing. Guards against a
+        # regression that removes the env's resilient Undefined.
+        server = DashboardServer()
+        server.set_collectors(_stub_collectors(failing=set(_TEMPLATE_KEYS)))
+        html = server.render_index()
+        assert isinstance(html, str) and html
 
     def test_render_index_calls_every_collector(self) -> None:
         server = DashboardServer()
@@ -65,11 +68,9 @@ class TestRenderIsolation:
 
             c.collect = _wrap()
         server.set_collectors(collectors)
-        try:
-            server.render_index()
-        except Exception:
-            pass
-        # Even if template rendering raises, every collector must have run.
+        html = server.render_index()
+        assert isinstance(html, str)
+        # Every collector must have run, and the page rendered.
         assert set(called) == set(_TEMPLATE_KEYS)
 
 

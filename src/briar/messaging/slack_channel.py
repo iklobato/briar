@@ -16,11 +16,11 @@ import logging
 import os
 import urllib.error
 import urllib.request
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from briar.decorators import swallow_errors
 from briar.env_vars import CredEnv
-from briar.messaging._writer import MessageWriter, SendResult
+from briar.messaging._writer import MessageWriter, SendResult, with_ai_prefix
 
 
 log = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 class SlackChannelWriter(MessageWriter):
     kind = "slack-channel"
 
-    def __init__(self, *, company: str = "", config: Dict[str, Any] = None) -> None:
+    def __init__(self, *, company: str = "", config: Optional[Dict[str, Any]] = None) -> None:
         self._company = company
         self._config = config or {}
         webhook_env = self._config.get("webhook_env")
@@ -50,6 +50,9 @@ class SlackChannelWriter(MessageWriter):
         if not self._webhook_url:
             return SendResult(ok=False, detail="slack webhook URL missing")
         title = extras.get("title", "")
+        # CLAUDE.md mandates [AI] prefix on every operator-impersonated
+        # comment; the title is non-secret framing and survives prefixing.
+        body = with_ai_prefix(body)
         text = f"*{title}*\n{body}" if title else body
         payload = json.dumps({"text": text}).encode("utf-8")
         req = urllib.request.Request(
@@ -61,6 +64,11 @@ class SlackChannelWriter(MessageWriter):
         with urllib.request.urlopen(req, timeout=10) as resp:
             body_text = resp.read().decode("utf-8", errors="replace").strip()
         if body_text != "ok":
+            # WARNING so operators tailing logs see the failure even when
+            # the caller doesn't inspect SendResult.detail (notification
+            # sinks return SendResult through @swallow_errors which only
+            # logs on raised exceptions, not on ok=False).
+            log.warning("slack-channel send failed: response=%s", body_text[:200])
             return SendResult(ok=False, detail=body_text[:200])
         return SendResult(ok=True)
 

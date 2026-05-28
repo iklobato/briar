@@ -25,34 +25,61 @@ from __future__ import annotations
 import logging
 import os
 import re
-from pathlib import Path
 from typing import List
 
 from briar.credentials._bootstrap import CredentialBootstrap, HydrateResult
+from briar.credentials._paths import secrets_path as _resolve_secrets_path
 
 
 log = logging.getLogger(__name__)
-
-
-# Same resolution chain as EnvFileStore — re-implemented inline rather
-# than imported to avoid a cycle (envfile.py CredentialStore imports
-# CredentialBootstrap indirectly through _bootstraps/__init__).
-def _resolve_secrets_path() -> Path:
-    explicit = os.environ.get("BRIAR_SECRETS_FILE", "").strip()
-    if explicit:
-        return Path(explicit)
-    system = Path("/etc/briar/secrets.env")
-    if system.exists():
-        return system
-    base_str = os.environ.get("XDG_CONFIG_HOME", "").strip()
-    base = Path(base_str) if base_str else Path.home() / ".config"
-    return base / "briar" / "secrets.env"
 
 
 # `KEY=value` with an optional `export ` prefix, leading whitespace,
 # and a trailing `# comment`. Captures whatever follows `=` verbatim
 # so quoted values (containing `#`) survive without being truncated.
 _LINE_RE = re.compile(r"^\s*(?:export\s+)?([A-Z][A-Z0-9_]*)\s*=\s*(.*?)\s*$")
+
+
+# Env vars the dynamic-loader / interpreter / proxy stack reads at
+# process startup. An envfile is operator-owned but its contents can
+# come from a managed vault that operators don't control directly
+# (Infisical project, encrypted blob in CI). Refuse to hydrate these
+# from disk so a compromised vault entry can't smuggle code-execution
+# (LD_PRELOAD, PYTHONPATH) or traffic-interception (HTTP_PROXY) into
+# the briar process. Operators that genuinely need these can set them
+# in the shell or systemd unit.
+_DENY_ENV_VARS: frozenset = frozenset(
+    {
+        # Dynamic linker (Linux/glibc + macOS variants)
+        "LD_PRELOAD",
+        "LD_LIBRARY_PATH",
+        "LD_AUDIT",
+        "DYLD_INSERT_LIBRARIES",
+        "DYLD_LIBRARY_PATH",
+        "DYLD_FRAMEWORK_PATH",
+        # Python interpreter knobs
+        "PYTHONPATH",
+        "PYTHONSTARTUP",
+        "PYTHONHOME",
+        "PYTHONINSPECT",
+        # System PATH
+        "PATH",
+        # Outbound HTTP interception
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+        "no_proxy",
+        # SSL trust override (could disable verification globally)
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "REQUESTS_CA_BUNDLE",
+        "CURL_CA_BUNDLE",
+    }
+)
 
 
 def _strip_quotes(value: str) -> str:
@@ -111,6 +138,16 @@ class EnvFileBootstrap(CredentialBootstrap):
                 log.debug("envfile-bootstrap: skipping malformed line: %r", raw_line)
                 continue
             key, value = match.group(1), _strip_quotes(match.group(2))
+            if key in _DENY_ENV_VARS:
+                # A managed-vault entry trying to set LD_PRELOAD etc.
+                # is either an operator mistake or an injection attempt
+                # — either way, surface it loudly and skip.
+                log.warning(
+                    "envfile-bootstrap: refusing to hydrate disallowed env var %s "
+                    "(loader/interpreter/proxy var — set via shell or systemd if genuinely needed)",
+                    key,
+                )
+                continue
             if key in os.environ:
                 skipped.append(key)
                 continue

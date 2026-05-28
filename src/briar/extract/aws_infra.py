@@ -24,6 +24,7 @@ from briar.extract.base import CloudBackedExtractor, ExtractedSection
 
 class ExtractAwsInfra(CloudBackedExtractor):
     name = "aws-infra"
+    heading = "AWS infrastructure"
     description = "cloud resources via CloudProvider (AWS / GCP / Azure)"
     requires_aws = True  # legacy flag — kept for back-compat
 
@@ -70,8 +71,17 @@ class ExtractAwsInfra(CloudBackedExtractor):
                 body=f"Could not resolve caller identity — {exc}",
             )
 
-        services_filter = vars(args).get("aws_extract_service") or None
-        subsections = cloud.list_subsections(services=services_filter)
+        # AWS-specific filter — only the AWS subclass accepts `services=`.
+        # The base CloudProvider's signature is `list_subsections()` (no
+        # kwargs); ISP-respect means we don't force GCP/Azure to accept
+        # a kwarg they'd silently ignore.
+        from briar.extract._clouds.aws import AwsCloudProvider
+
+        if isinstance(cloud, AwsCloudProvider):
+            services_filter = vars(args).get("aws_extract_service") or None
+            subsections = cloud.list_subsections(services=services_filter)
+        else:
+            subsections = cloud.list_subsections()
         return ExtractedSection(
             title=f"{cloud.kind.upper()} infrastructure — account {identity.account_id}, region {identity.region}",
             body="Live resource inventory at extract time.",

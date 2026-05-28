@@ -5,7 +5,7 @@ unsorted (to preserve insertion order), Unicode-safe."""
 
 from __future__ import annotations
 
-from typing import Any, List
+from typing import Any, Sequence
 
 import yaml
 
@@ -18,7 +18,7 @@ class FormatYaml(Formatter):
     def render(
         self,
         payload: Any,
-        columns: List[str] = [],
+        columns: Sequence[str] = (),
     ) -> None:
         print(self.to_yaml(payload).rstrip("\n"))
 

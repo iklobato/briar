@@ -24,10 +24,8 @@ import argparse
 import logging
 from typing import List
 
-from briar.extract._meeting import Meeting, MeetingDetail, MeetingProvider
-from briar.extract._enums import MeetingExtractMode
-from briar.extract._types import MeetingExtractedData
-from briar.extract.base import EMPTY_SECTION, ExtractedSection, TaskScopedMeetingExtractor
+from briar.extract._meeting import Meeting, MeetingDetail, MeetingProvider, render_meeting_header
+from briar.extract.base import ExtractedSection, TaskScopedMeetingExtractor, empty_section
 
 log = logging.getLogger(__name__)
 
@@ -38,6 +36,7 @@ _DEFAULT_MAX_BYTES = 50_000
 
 class FetchMeetingContext(TaskScopedMeetingExtractor):
     name = "meeting-context"
+    heading = "Meeting context"
     description = "Transcript(s) relevant to one ticket or PR"
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
@@ -69,7 +68,7 @@ class FetchMeetingContext(TaskScopedMeetingExtractor):
         provider = self._meeting(args)
         if not provider.is_available():
             log.info("meeting-context: provider not available — skipping")
-            return EMPTY_SECTION
+            return empty_section()
 
         meeting_key = (getattr(args, "meeting_key", "") or "").strip()
         meeting_query = (getattr(args, "meeting_query", "") or "").strip()
@@ -81,31 +80,29 @@ class FetchMeetingContext(TaskScopedMeetingExtractor):
         if meeting_query:
             return self._fetch_by_query(provider, meeting_query, top_k, max_bytes)
         log.info("meeting-context: neither --meeting-key nor --meeting-query passed — skipping")
-        return EMPTY_SECTION
+        return empty_section()
 
     def _fetch_one(self, provider: MeetingProvider, meeting_id: str, max_bytes: int) -> ExtractedSection:
         detail = provider.get_meeting(meeting_id)
         if detail is None or not detail.meeting.meeting_id:
             log.warning("meeting-context: %s not found or empty", meeting_id)
-            return EMPTY_SECTION
+            return empty_section()
         body = _render_detail(detail, max_bytes)
-        data: MeetingExtractedData = {
-            "mode": MeetingExtractMode.BY_ID,
-            "meeting_id": detail.meeting.meeting_id,
-            "started_at": detail.meeting.started_at,
-            "attendees": detail.meeting.attendees,
-        }
         return ExtractedSection(
             title=f"Meeting context — {detail.meeting.title or detail.meeting.meeting_id}",
             body=body,
-            data=dict(data),
+            data={
+                "meeting_id": detail.meeting.meeting_id,
+                "started_at": detail.meeting.started_at,
+                "attendees": detail.meeting.attendees,
+            },
         )
 
     def _fetch_by_query(self, provider: MeetingProvider, query: str, top_k: int, max_bytes: int) -> ExtractedSection:
         meetings: List[Meeting] = provider.search_meetings(query=query, max_count=top_k)
         if not meetings:
             log.info("meeting-context: no matches for query=%r", query)
-            return EMPTY_SECTION
+            return empty_section()
 
         # Hydrate each matched meeting's transcript. Each get_meeting
         # is wrapped in swallow_errors at the adapter — a single
@@ -117,7 +114,7 @@ class FetchMeetingContext(TaskScopedMeetingExtractor):
             if detail is not None and detail.meeting.meeting_id:
                 details.append(detail)
         if not details:
-            return EMPTY_SECTION
+            return empty_section()
 
         per_meeting_budget = max(max_bytes // len(details), 2_000)
         parts: List[str] = [
@@ -132,8 +129,7 @@ class FetchMeetingContext(TaskScopedMeetingExtractor):
             parts.append(_render_detail(detail, per_meeting_budget))
             parts.append("")
 
-        data: MeetingExtractedData = {
-            "mode": MeetingExtractMode.SEARCH,
+        data = {
             "query": query,
             "match_count": len(details),
         }
@@ -149,18 +145,7 @@ def _render_detail(detail: MeetingDetail, max_bytes: int) -> str:
     at `max_bytes`. Header + summary + action items always render in
     full; the transcript is what gets truncated."""
     m = detail.meeting
-    lines: List[str] = [
-        f"**ID**: `{m.meeting_id}`",
-        f"**Date**: {m.started_at or '(unknown)'}",
-    ]
-    if m.organizer:
-        lines.append(f"**Organizer**: {m.organizer}")
-    if m.attendees:
-        lines.append(f"**Attendees**: {', '.join(m.attendees[:12])}")
-    if m.duration_sec:
-        lines.append(f"**Duration**: {m.duration_sec // 60} min")
-    if m.url:
-        lines.append(f"**URL**: {m.url}")
+    lines: List[str] = render_meeting_header(m, attendee_cap=12, show_more_suffix=False)
     if detail.topics:
         lines.append(f"**Topics**: {', '.join(detail.topics[:10])}")
     lines.append("")

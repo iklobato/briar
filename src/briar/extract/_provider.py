@@ -120,25 +120,29 @@ class Commit:
 
 
 class RepositoryProvider(ABC):
-    """Strategy contract. Each concrete subclass adapts one vendor
-    (GitHub, Bitbucket, GitLab, …) onto the same surface so extractors
-    AND the agent runner stay provider-agnostic.
+    """One vendor's (GitHub, Bitbucket, GitLab, …) repo surface.
 
-    Three data verbs are abstract because every provider must support
-    them (PRs and file-reads are the lowest common denominator). Three
-    are concrete with empty defaults because not every provider has a
-    native concept of deploy environments / deployments / CI runs —
-    Bitbucket Pipelines could implement them later, GitLab CI similarly,
-    but a SourceHut-style minimal provider can ignore them and the
-    extractor's section just renders empty.
+    Abstract verbs: list_pulls / read_file / resolve_token / clone_url /
+    authed_clone_url / pr_creation_recipe — the lowest common denominator
+    every provider must support.
 
-    Four clone/auth/recipe verbs are also abstract — they used to live
-    on a parallel `RepoCloner` hierarchy in `commands/agent.py`. Folding
-    them in here means one Strategy + Registry covers everything
-    vendor-specific. Adding a new vendor = one module + one entry in
-    `PROVIDERS`. No edits in `commands/agent.py` or in any extractor."""
+    Optional verbs (list_environments / list_deployments / list_ci_runs)
+    have empty defaults because a SourceHut-style minimal provider can
+    skip them and the extractor's section renders empty."""
 
     kind: ClassVar[str] = ""
+
+    @property
+    def company(self) -> str:
+        """Per-company tag this provider was built for, if any.
+
+        Concrete subclasses store this in `_company` for historical
+        reasons; the public property is the canonical accessor so
+        callers can stop reaching into the private attribute (the
+        `getattr(provider, "_company")` reach in commands/agent.py was
+        a Demeter smell that Phase 10 cleaned up). Default returns the
+        instance's `_company` attribute when present, empty otherwise."""
+        return str(getattr(self, "_company", "") or "")
 
     @abstractmethod
     def is_available(self) -> bool:

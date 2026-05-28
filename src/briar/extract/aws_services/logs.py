@@ -13,6 +13,7 @@ _TOP_N = 10
 
 class GatherLogs(AwsServiceGatherer):
     name = "logs"
+    data_key = "top_log_groups"
 
     def gather(self, session: Any) -> ExtractedSection:
         logs = session.client("logs")

@@ -1,6 +1,6 @@
-"""Credential store registry. The `EnvFileStore` is the only fully
-working backend today; the rest are stubs that fail loudly so callers
-know to wire them up before depending on them."""
+"""Credential store registry. All five backends (EnvFileStore,
+AwsSecretsManagerStore, SsmParameterStore, VaultStore, InfisicalStore)
+are live; pick one per company via `CredentialStoreRegistry.make(kind)`."""
 
 from __future__ import annotations
 

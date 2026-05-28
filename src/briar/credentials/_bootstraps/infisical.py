@@ -63,12 +63,17 @@ class InfisicalBootstrap(CredentialBootstrap):
             secrets = self._fetch_secrets()
         except Exception as exc:  # noqa: BLE001 — surface as result, don't crash startup
             # Config errors (bad creds, wrong project) are the common case
-            # here, not bugs. Keep the user-facing one-liner that cli.py
-            # already emits from HydrateResult.error and demote the full
-            # SDK traceback to debug — visible with `--log-level DEBUG`.
-            log.warning("infisical fetch failed: %s: %s", type(exc).__name__, exc)
-            log.debug("infisical traceback", exc_info=True)
-            return HydrateResult(backend=self.kind, error=f"fetch failed: {exc}")
+            # here, not bugs. Sanitize the message before logging: SDK
+            # APIErrors sometimes include the request URL (with project_id
+            # path segment), bearer tokens, or client_secret values. Keep
+            # the full traceback at DEBUG; WARNING + the user-facing
+            # HydrateResult.error get a sanitized form.
+            exc_msg = str(exc)
+            sensitive = any(m in exc_msg.lower() for m in ("://", "bearer ", "client_secret"))
+            safe_msg = type(exc).__name__ if sensitive else f"{type(exc).__name__}: {exc_msg}"
+            log.warning("infisical fetch failed: %s", safe_msg)
+            log.debug("infisical traceback: %s", exc, exc_info=True)
+            return HydrateResult(backend=self.kind, error=f"fetch failed: {safe_msg}")
 
         written: List[str] = []
         skipped: List[str] = []

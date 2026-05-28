@@ -19,11 +19,11 @@ import os
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from briar.decorators import swallow_errors
 from briar.env_vars import CredEnv
-from briar.messaging._writer import MessageWriter, SendResult
+from briar.messaging._writer import MessageWriter, SendResult, with_ai_prefix
 
 
 log = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ log = logging.getLogger(__name__)
 class TelegramChatWriter(MessageWriter):
     kind = "telegram-chat"
 
-    def __init__(self, *, company: str = "", config: Dict[str, Any] = None) -> None:
+    def __init__(self, *, company: str = "", config: Optional[Dict[str, Any]] = None) -> None:
         self._company = company
         self._config = config or {}
         self._token = CredEnv.TELEGRAM_BOT_TOKEN.read()
@@ -50,13 +50,16 @@ class TelegramChatWriter(MessageWriter):
         chat_id = target or self._chat_id
         if not self._token or not chat_id:
             return SendResult(ok=False, detail="telegram missing token or chat_id")
+        body = with_ai_prefix(body)
         url = f"https://api.telegram.org/bot{self._token}/sendMessage"
         data = urllib.parse.urlencode({"chat_id": chat_id, "text": body, "parse_mode": "Markdown"}).encode("utf-8")
         req = urllib.request.Request(url, data=data, method="POST")
         with urllib.request.urlopen(req, timeout=10) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
         if not payload.get("ok"):
-            return SendResult(ok=False, detail=str(payload.get("description") or payload))
+            detail = str(payload.get("description") or payload)
+            log.warning("telegram-chat send failed: %s", detail[:200])
+            return SendResult(ok=False, detail=detail)
         ref = str(((payload.get("result") or {}).get("message_id") or ""))
         return SendResult(ok=True, ref=ref)
 

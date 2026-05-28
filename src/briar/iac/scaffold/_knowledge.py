@@ -13,47 +13,41 @@ import logging
 import re
 from typing import Dict, List
 
+from briar.extract import EXTRACTORS, TASK_SCOPED_EXTRACTORS
 from briar.iac.scaffold.archetypes import AgentArchetype
 
 log = logging.getLogger(__name__)
 
 
 # Map extractor name → the `## <heading>` prefix the composer emits.
-# Order doesn't matter — `prologue()` walks the archetype's declared
-# order instead.
+# Derived from the extractor registries: each KnowledgeExtractor (and
+# TaskScopedExtractor) declares its own `heading` ClassVar. Adding a
+# new extractor with a heading automatically participates; an extractor
+# with empty heading is omitted (JIT-only or not splicer-bound).
 _EXTRACTOR_HEADINGS: Dict[str, str] = {
-    "pr-archaeology": "PR archaeology",
-    "active-work": "Active work",
-    "github-deployments": "GitHub deployments",
-    "codebase-conventions": "Codebase conventions",
-    "aws-infra": "AWS infrastructure",
-    "active-tickets": "Active tickets",
-    "ticket-archaeology": "Ticket archaeology",
-    "reviewer-profile": "Reviewer profiles",
-    "code-hotspots": "Code hotspots",
-    # JIT (task-scoped) sections — keys are the extractor names; the
-    # heading prefix is what `FetchTicketContext.fetch` / FetchPrReviewContext
-    # emit as their section.title. KnowledgeSplicer also looks these up
-    # for archetype `consumes` ordering when the JIT section is present.
-    "ticket-context": "Ticket context",
-    "pr-review-context": "PR review context",
-    "meeting-digest": "Meeting digest",
-    "meeting-context": "Meeting context",
+    name: ext.heading
+    for name, ext in {**EXTRACTORS, **TASK_SCOPED_EXTRACTORS}.items()
+    if ext.heading
 }
 
 
 class KnowledgeSplicer:
     """Pulls every blob for a company from a `KnowledgeStore`, slices
     them into per-extractor sections by `## <heading>` markers, and
-    returns the slices an archetype declares it consumes."""
+    returns the slices an archetype declares it consumes.
 
-    def __init__(self, store, company: str) -> None:
-        self._store = store
+    Construct via ``KnowledgeSplicer.from_store(store, company)`` —
+    the previous ``__init__`` did the network/Postgres fetch eagerly,
+    which made the class impossible to construct in unit tests without
+    a live store. The plain ``__init__`` now only takes pre-loaded
+    sections; ``from_store`` is the I/O entry point."""
+
+    def __init__(self, company: str, sections: Dict[str, str]) -> None:
         self._company = company
-        self._sections: Dict[str, str] = {}
-        self._load()
+        self._sections = sections
 
-    def _load(self) -> None:
+    @classmethod
+    def from_store(cls, store, company: str) -> "KnowledgeSplicer":
         """Concatenate every blob whose name starts with `knowledge:<company>`
         and parse out `## <heading>` sections. The most-recent section for
         each extractor wins (later blob overwrites earlier — irrelevant in
@@ -61,16 +55,18 @@ class KnowledgeSplicer:
 
         Bulk-fetches via `get_many` so a Postgres-backed store opens one
         connection for the whole prologue instead of one per blob."""
-        prefix = f"knowledge:{self._company}"
-        refs = self._store.list(prefix=prefix)
-        blobs = self._store.get_many([ref.name for ref in refs])
+        prefix = f"knowledge:{company}"
+        refs = store.list(prefix=prefix)
+        blobs = store.get_many([ref.name for ref in refs])
+        sections: Dict[str, str] = {}
         for ref in refs:
             text = blobs.get(ref.name, "")
             if not text:
                 continue
-            for heading, body in self._parse_sections(text).items():
-                self._sections[heading] = body
-        log.debug("KnowledgeSplicer(%s): loaded %d sections", self._company, len(self._sections))
+            for heading, body in cls._parse_sections(text).items():
+                sections[heading] = body
+        log.debug("KnowledgeSplicer(%s): loaded %d sections", company, len(sections))
+        return cls(company, sections)
 
     @staticmethod
     def _parse_sections(text: str) -> Dict[str, str]:

@@ -17,10 +17,8 @@ from datetime import datetime, timedelta, timezone
 from typing import List
 
 from briar.errors import CliError
-from briar.extract._meeting import Meeting
-from briar.extract._enums import MeetingExtractMode
-from briar.extract._types import MeetingExtractedData
-from briar.extract.base import EMPTY_SECTION, ExtractedSection, MeetingBackedExtractor
+from briar.extract._meeting import Meeting, render_meeting_header
+from briar.extract.base import ExtractedSection, MeetingBackedExtractor, empty_section
 
 _DEFAULT_SINCE_DAYS = 7
 _DEFAULT_MAX = 25
@@ -30,6 +28,7 @@ _ACTION_ITEMS_TRUNC = 8
 
 class ExtractMeetingDigest(MeetingBackedExtractor):
     name = "meeting-digest"
+    heading = "Meeting digest"
     description = "recent meetings: summaries + action items"
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
@@ -80,7 +79,7 @@ class ExtractMeetingDigest(MeetingBackedExtractor):
             attendees=attendees,
         )
         if not meetings:
-            return EMPTY_SECTION
+            return empty_section()
 
         subsections = [self._render_meeting(m) for m in meetings]
         return ExtractedSection(
@@ -93,31 +92,16 @@ class ExtractMeetingDigest(MeetingBackedExtractor):
                 "extractor (operator must pass `--meeting-key <id>`)."
             ),
             subsections=subsections,
-            data=dict(MeetingExtractedData(
-                mode=MeetingExtractMode.DIGEST,
-                meeting_count=len(meetings),
-                since_iso=since,
-                until_iso=until,
-            )),
+            data={
+                "meeting_count": len(meetings),
+                "since_iso": since,
+                "until_iso": until,
+            },
         )
 
     @staticmethod
     def _render_meeting(m: Meeting) -> ExtractedSection:
-        lines: List[str] = [
-            f"**ID**: `{m.meeting_id}`",
-            f"**Date**: {m.started_at or '(unknown)'}",
-        ]
-        if m.organizer:
-            lines.append(f"**Organizer**: {m.organizer}")
-        if m.attendees:
-            preview = ", ".join(m.attendees[:8])
-            if len(m.attendees) > 8:
-                preview += f" (+{len(m.attendees) - 8} more)"
-            lines.append(f"**Attendees**: {preview}")
-        if m.duration_sec:
-            lines.append(f"**Duration**: {m.duration_sec // 60} min")
-        if m.url:
-            lines.append(f"**URL**: {m.url}")
+        lines: List[str] = render_meeting_header(m, attendee_cap=8, show_more_suffix=True)
         lines.append("")
         if m.summary:
             lines.append("**Summary**:")

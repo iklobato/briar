@@ -356,17 +356,15 @@ reasoning and [`REFACTORING.md`](REFACTORING.md) for the runbook.
 The principle: **enums for closed domain enumerations; registries for
 open plug-in spaces.** The codebase already had 25+ Strategy + Registry
 families (the table below). The closed enumerations (LLM stop reasons,
-CLI exit codes, meeting extract modes, plan card lifecycle states) now
-get the symmetric treatment.
+CLI exit codes, plan card lifecycle states) now get the symmetric
+treatment.
 
 | Symbol | Kind | Replaces / why |
 |---|---|---|
 | `StopReason` (`agent/_enums.py`) | `class X(str, Enum)` | Canonical reasons an LLM turn ended (`END_TURN`, `TOOL_USE`, `DRY_RUN`, `MAX_ITERATIONS`, `UNEXPECTED`). 10+ magic-string sites across `runner.py` + 4 LLM-provider adapters that each translated their vendor's stop reason into the canonical set. Wire-compatible: `StopReason.END_TURN == "end_turn"` is `True`. |
 | `ExitCode` (`commands/_enums.py`) | `IntEnum` | CLI process exit codes (`OK`, `GENERAL_ERROR`, `USAGE_ERROR`, `STORE_OPEN_FAILED`, `CLONE_FAILED`, `GIT_CONFIG_FAILED`, `AGENT_ERROR`). Was 15+ bare integer literals in `commands/agent.py` + `commands/plan.py` whose meaning was inferred from inline comments. `return ExitCode.CLONE_FAILED` is identical to `return 4` at the OS level. |
-| `MeetingExtractMode` (`extract/_enums.py`) | `class X(str, Enum)` | Discriminator (`BY_ID`, `SEARCH`, `DIGEST`) on the `data` field of meeting `ExtractedSection`s. Was `"by-id"` / `"search"` magic strings in `meeting_context.py`; also added `mode` to `meeting_digest.py` for uniform consumer ergonomics. |
 | `PlanCardStatus` (`plan/_enums.py`) | `class X(str, Enum)` | Lifecycle states (`PENDING`, `IN_PROGRESS`, `DONE`, `BLOCKED`) for `PlanCard`. Was a `status: str` field annotated only by a comment at `plan/_models.py:39`. `PlanCardStatus("In_Progress")` now raises `ValueError` loud at the wire boundary instead of silently bucketing to a status that never matches. |
 | `AgentRunConfig` (`agent/runner.py`) | Frozen `@dataclass` value object | Replaces 13 keyword-only constructor parameters on `AgentRunner.__init__`. New shape: `AgentRunner(AgentRunConfig(...), *, llm=None, llm_kind="anthropic")`. Internal reads migrated from `self._company` → `self._cfg.company`. |
-| `MeetingExtractedData` (`extract/_types.py`) | `TypedDict(total=False)` | Internal contract documenting which fields the three `MeetingExtractMode` modes populate in `ExtractedSection.data`. Wire format stays `Dict[str, Any]` for backwards compatibility; type-only narrowing for consumers. |
 
 ### Correctness fixes shipped alongside (T0 in §17)
 

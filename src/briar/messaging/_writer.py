@@ -25,10 +25,32 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Dict, List
+from typing import Any, ClassVar, Dict, List, Tuple
 
 
 log = logging.getLogger(__name__)
+
+
+def parse_pr_target(target: str, extras: Dict[str, Any]) -> Tuple[str, int]:
+    """Parse a `owner/repo#42` or `workspace/repo#42` form into
+    `(repo_addr, number)`. Falls back to `target` + `extras["pr"]`
+    when no `#` is present. Returns `("", 0)` for malformed input.
+
+    Shared by `GithubPrCommentWriter` and `BitbucketPrCommentWriter` —
+    same format, same parsing rules, same fallback path."""
+    if "#" in target:
+        addr, _, n = target.rpartition("#")
+        try:
+            return addr, int(n)
+        except ValueError:
+            return "", 0
+    n_extras = extras.get("pr")
+    if target and n_extras is not None:
+        try:
+            return target, int(n_extras)
+        except (TypeError, ValueError):
+            return "", 0
+    return "", 0
 
 
 def with_ai_prefix(body: str) -> str:

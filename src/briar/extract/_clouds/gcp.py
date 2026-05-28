@@ -51,6 +51,15 @@ class GcpCloudProvider(CloudProvider):
             return False
         return _try_import("google.auth") is not None
 
+    # TODO(timeout-parity): every google.cloud.* client below accepts
+    # a `client_options` or `transport` kwarg whose timeout knob varies
+    # per SDK (`google.api_core.client_options.ClientOptions` for v2
+    # libs; `httplib2.Http(timeout=...)` for googleapiclient.discovery).
+    # AWS got `botocore Config` treatment in Phase 2; this GCP path
+    # was deferred because each SDK release exposes timeouts
+    # differently and the fix needs real-API testing. Until then,
+    # every GCP call inherits the SDK defaults (typically 60s).
+
     def caller_identity(self) -> AccountIdentity:
         # GCP doesn't have a single "caller identity" endpoint analogous
         # to STS; the project_id IS the identity. Just verify ADC works.
