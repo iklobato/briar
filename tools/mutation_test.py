@@ -28,10 +28,10 @@ MUTATIONS = [
         "if max_attempts <= 1:",
     ),
     (
-        "pagination:type(page) is list → is tuple",
+        "pagination:isinstance(page, list) → tuple",
         "src/briar/pagination.py",
-        "if type(page) is list:",
-        "if type(page) is tuple:",
+        "if isinstance(page, list):",
+        "if isinstance(page, tuple):",
     ),
     (
         "decorators:except Exception → except ValueError",
