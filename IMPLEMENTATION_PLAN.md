@@ -83,8 +83,8 @@ recipe; this document focuses on credentials + configuration.
 ## 3. Install + verify
 
 ```bash
-git clone git@github.com:iklobato/briar-cli.git
-cd briar-cli
+git clone git@github.com:iklobato/briar.git
+cd briar
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -e .                       # base install (or: pip install briar-cli)

@@ -110,8 +110,8 @@ briar = "briar.cli:main"
 
 [project.urls]
 "Homepage" = "https://usebriar.com"
-"Source" = "https://github.com/iklobato/briar-cli"
-"Issues" = "https://github.com/iklobato/briar-cli/issues"
+"Source" = "https://github.com/iklobato/briar"
+"Issues" = "https://github.com/iklobato/briar/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/briar"]

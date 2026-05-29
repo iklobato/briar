@@ -8,7 +8,7 @@ This file is self-contained — you do not need to read `README.md` to follow it
 
 ## What you're deploying
 
-Two long-lived processes from this repo (`github.com/iklobato/briar-cli`):
+Two long-lived processes from this repo (`github.com/iklobato/briar`):
 
 | Process | Command | Purpose |
 |---|---|---|
@@ -29,7 +29,7 @@ Stop and ask the operator if any of these are missing — do NOT guess values.
 2. **AWS region** (default to `us-east-1` if unspecified).
 3. **An EC2 SSH key pair name** in that region (create one if needed — `aws ec2 create-key-pair --key-name briar-deploy --query KeyMaterial --output text > ~/.ssh/briar-deploy.pem && chmod 600 ~/.ssh/briar-deploy.pem`).
 4. **Operator's public IP** for the SSH ingress rule (`curl -s ifconfig.me`).
-5. **A GitHub deploy key OR Personal Access Token** with `read` access to `iklobato/briar-cli` — the repo is private. The deploy-key path is preferred (no token rotation).
+5. **A GitHub deploy key OR Personal Access Token** with `read` access to `iklobato/briar` — the repo is private. The deploy-key path is preferred (no token rotation).
 6. **Application credentials** to put in `secrets.env`:
    - `GITHUB_TOKEN` — PAT with `repo` scope (used by every GitHub extractor).
    - `CLAUDE_CODE_OAUTH_TOKEN` — only if you plan to run `briar agent` from the box. Not needed if the box only runs the scheduler + dashboard.
@@ -130,17 +130,17 @@ Pick ONE of the two auth paths. **Deploy key is preferred.**
 # Generate a key as the briar user
 sudo -u briar ssh-keygen -t ed25519 -N "" -f /home/briar/.ssh/id_ed25519 -C "briar-ec2-deploy"
 sudo -u briar cat /home/briar/.ssh/id_ed25519.pub
-# Operator: paste that pubkey into github.com/iklobato/briar-cli → Settings → Deploy keys → Add deploy key (read-only).
+# Operator: paste that pubkey into github.com/iklobato/briar → Settings → Deploy keys → Add deploy key (read-only).
 # Then back on the EC2:
 sudo -u briar ssh-keyscan github.com >> /home/briar/.ssh/known_hosts
-sudo -u briar git clone git@github.com:iklobato/briar-cli.git /opt/briar-scheduler
+sudo -u briar git clone git@github.com:iklobato/briar.git /opt/briar-scheduler
 ```
 
 **Path B — HTTPS with a token (fallback, requires rotation):**
 
 ```bash
-sudo -u briar git clone https://<token>@github.com/iklobato/briar-cli.git /opt/briar-scheduler
-sudo -u briar git -C /opt/briar-scheduler remote set-url origin https://github.com/iklobato/briar-cli.git
+sudo -u briar git clone https://<token>@github.com/iklobato/briar.git /opt/briar-scheduler
+sudo -u briar git -C /opt/briar-scheduler remote set-url origin https://github.com/iklobato/briar.git
 # Don't leave the token in the remote URL — credential helper or operator-side `git pull` keeps it clean.
 ```
 
