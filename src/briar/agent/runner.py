@@ -26,7 +26,6 @@ from briar.agent.tools import BashTool, EditFileTool, ReadFileTool, SendMessageT
 from briar.iac.scaffold.archetypes import ARCHETYPES
 from briar.log_context import log_context
 
-
 log = logging.getLogger(__name__)
 
 
@@ -113,11 +112,13 @@ class AgentRunner:
         # Only bind the SendMessageTool when the runbook actually has
         # message channels configured for this company. Empty messages
         # dict → tool not registered → LLM falls back to bash.
-        self._send = (
-            SendMessageTool(messages=dict(config.messages), company=config.company)
-            if config.messages
-            else None
-        )
+        self._send = SendMessageTool(messages=dict(config.messages), company=config.company) if config.messages else None
+        # Dispatch registry — same instances as the attrs above, keyed by
+        # tool name so `_dispatch_tool` is a lookup, not an if-ladder.
+        # `_send` is registered only when channels are configured.
+        self._tools: Dict[str, Any] = {tool.name: tool for tool in (self._bash, self._read, self._write, self._edit)}
+        if self._send is not None:
+            self._tools[self._send.name] = self._send
 
     def run(self) -> AgentRunResult:
         with log_context(company=self._cfg.company, task=self._cfg.task, agent=self._archetype.name):
@@ -355,20 +356,15 @@ class AgentRunner:
         return tool_results
 
     def _dispatch_tool(self, name: str, raw_input: Any, result: AgentRunResult) -> Dict[str, Any]:
-        try:
-            if name == self._bash.name:
-                out = self._bash.run(**raw_input)
-                self._record_commit_if_any(out, result)
-                return {"content": out, "is_error": False}
-            if name == self._read.name:
-                return {"content": self._read.run(**raw_input), "is_error": False}
-            if name == self._write.name:
-                return {"content": self._write.run(**raw_input), "is_error": False}
-            if name == self._edit.name:
-                return {"content": self._edit.run(**raw_input), "is_error": False}
-            if self._send is not None and name == self._send.name:
-                return {"content": self._send.run(**raw_input), "is_error": False}
+        tool = self._tools.get(name)
+        if tool is None:
             return {"content": f"unknown tool {name!r}", "is_error": True}
+        try:
+            out = tool.run(**raw_input)
+            # `git commit` prints a sha line on bash stdout — capture it.
+            if tool is self._bash:
+                self._record_commit_if_any(out, result)
+            return {"content": out, "is_error": False}
         except ToolError as exc:
             log.warning("tool %s error: %s", name, exc)
             return {"content": str(exc), "is_error": True}
@@ -384,4 +380,3 @@ class AgentRunner:
         match = re.search(r"\[[^\]]+\s+([a-f0-9]{7,40})\]", bash_output)
         if match:
             result.commits.append(match.group(1))
-

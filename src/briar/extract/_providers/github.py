@@ -21,17 +21,7 @@ from typing import Any, Dict, List
 
 from briar.decorators import swallow_errors
 from briar.extract._gh import GithubApi
-from briar.extract._provider import (
-    CiFailure,
-    CiRun,
-    Commit,
-    Deployment,
-    Environment,
-    PullRequest,
-    RepositoryProvider,
-    ReviewComment,
-)
-
+from briar.extract._provider import CiFailure, CiRun, Commit, Deployment, Environment, PullRequest, RepositoryProvider, ReviewComment
 
 log = logging.getLogger(__name__)
 
@@ -238,11 +228,11 @@ class GithubProvider(RepositoryProvider):
 
     @swallow_errors(default=[], message="github list_ci_failures")
     def list_ci_failures(self, repo: str, number: int) -> List[CiFailure]:
-        _validate_repo(repo)
         """For the PR's head SHA, find failing check-runs and pull a
         short log tail per failure. GitHub's `/check-runs` endpoint
         gives status; the log requires a second call against
         `/actions/jobs/{job_id}/logs` (text, not JSON)."""
+        _validate_repo(repo)
         pr = GithubApi.get_json(f"/repos/{repo}/pulls/{number}")
         head_sha = (pr.get("head") or {}).get("sha") if isinstance(pr, dict) else ""
         if not head_sha:
@@ -304,11 +294,7 @@ class GithubProvider(RepositoryProvider):
         detail = GithubApi.get_json(f"/repos/{repo}/commits/{sha}")
         if not isinstance(detail, dict):
             return []
-        return [
-            f.get("filename") or ""
-            for f in (detail.get("files") or [])
-            if f.get("filename")
-        ]
+        return [f.get("filename") or "" for f in (detail.get("files") or []) if f.get("filename")]
 
     @swallow_errors(default=[], message="github list_recent_commits")
     def list_recent_commits(self, repo: str, *, since_days: int = 30, max_count: int = 200) -> List[Commit]:

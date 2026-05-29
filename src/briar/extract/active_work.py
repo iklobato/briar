@@ -13,12 +13,8 @@ import argparse
 from typing import Any, Dict, List
 
 from briar.extract._provider import PullRequest
-from briar.extract._user_filter import (
-    add_user_filter_arguments,
-    apply_user_filter_objs,
-)
+from briar.extract._user_filter import add_user_filter_arguments, apply_user_filter_objs
 from briar.extract.base import ExtractedSection, RepoBackedExtractor
-
 
 _MAX_PRS_PER_REPO = 25
 
@@ -39,14 +35,7 @@ class ExtractActiveWork(RepoBackedExtractor):
         )
         add_user_filter_arguments(parser, prefix="active")
 
-    def is_available(self, args: argparse.Namespace) -> bool:
-        if not args.active_repo:
-            return False
-        try:
-            provider = self._provider(args)
-        except Exception:  # noqa: BLE001
-            return False
-        return provider.is_available()
+    _availability_arg = "active_repo"
 
     def extract(self, args: argparse.Namespace) -> ExtractedSection:
         provider = self._provider(args)

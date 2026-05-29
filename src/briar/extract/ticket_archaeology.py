@@ -8,12 +8,11 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
-from datetime import datetime
 from statistics import median
 from typing import Any, Dict, List
 
-from briar.extract._tracker import Ticket
 from briar.extract._time_util import UNPARSABLE_HOURS, hours_between
+from briar.extract._tracker import Ticket
 from briar.extract.base import ExtractedSection, TrackerBackedExtractor, empty_section
 
 
@@ -40,14 +39,7 @@ class ExtractTicketArchaeology(TrackerBackedExtractor):
             help="Max closed tickets per project (default: 100)",
         )
 
-    def is_available(self, args: argparse.Namespace) -> bool:
-        if not args.ticket_archaeology_project:
-            return False
-        try:
-            tracker = self._tracker(args)
-        except Exception:  # noqa: BLE001
-            return False
-        return tracker.is_available()
+    _availability_arg = "ticket_archaeology_project"
 
     def extract(self, args: argparse.Namespace) -> ExtractedSection:
         tracker = self._tracker(args)

@@ -30,14 +30,7 @@ class ExtractGithubDeployments(RepoBackedExtractor):
             help="Repository slug to scan for deployments. Repeatable.",
         )
 
-    def is_available(self, args: argparse.Namespace) -> bool:
-        if not args.deploy_repo:
-            return False
-        try:
-            provider = self._provider(args)
-        except Exception:  # noqa: BLE001
-            return False
-        return provider.is_available()
+    _availability_arg = "deploy_repo"
 
     def extract(self, args: argparse.Namespace) -> ExtractedSection:
         provider = self._provider(args)

@@ -20,8 +20,8 @@ from typing import List
 
 from briar.agent._llm import LLMProvider
 from briar.errors import CliError
+from briar.plan._json_utils import extract_json
 from briar.plan._models import ImplementationPlan, PlanCard
-from briar.plan._selector import _extract_json
 from briar.storage import KnowledgeStore
 
 log = logging.getLogger(__name__)
@@ -78,7 +78,7 @@ class KnowledgeWriter:
         except Exception:  # noqa: BLE001 — writeback is best-effort
             log.exception("writeback: LLM call failed for card=%s", card.key)
             return False
-        payload = _extract_json(response.text)
+        payload = extract_json(response.text)
         if not payload:
             log.warning("writeback: unparseable response for card=%s", card.key)
             return False

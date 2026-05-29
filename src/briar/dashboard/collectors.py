@@ -25,6 +25,37 @@ import yaml
 log = logging.getLogger(__name__)
 
 
+def _tail_bytes(path: Path, cap: int) -> str:
+    """Read the last `cap` bytes of `path`, UTF-8 decoded (errors
+    replaced). Empty string when the file is absent. One edge for the
+    seek-to-tail dance the log collectors all need."""
+    if not path.exists():
+        return ""
+    with path.open("rb") as fh:
+        fh.seek(0, 2)
+        size = fh.tell()
+        fh.seek(max(0, size - cap))
+        return fh.read().decode("utf-8", errors="replace")
+
+
+# Numeric signals mined from the standard extractor markdown — shared by
+# KnowledgeCollector (per-blob) and KnowledgeAggregatesCollector (totals)
+# so a markdown-wording change is edited in exactly one place.
+_NUMERIC_SIGNALS: Tuple[Tuple[str, "re.Pattern[str]"], ...] = (
+    ("merged_prs", re.compile(r"merged PR sample:\s*\*\*(\d+)\*\*")),
+    ("open_prs", re.compile(r"—\s*(\d+)\s+open PR\(s\)")),
+    ("rds_instances", re.compile(r"RDS\s+\((\d+)\s+instance")),
+    ("sqs_queues", re.compile(r"SQS\s+\((\d+)\s+queue")),
+    ("log_groups", re.compile(r"CloudWatch Logs.*?of\s+(\d+)\)?")),
+)
+_REPO_SIGNAL_RE = re.compile(r"###\s+([A-Za-z0-9_\-]+/[A-Za-z0-9_\-]+)")
+
+
+def _sum_signal(text: str, pattern: "re.Pattern[str]") -> int:
+    """Sum the first integer capture across every match of `pattern`."""
+    return sum(int(m.group(1)) for m in pattern.finditer(text))
+
+
 class Collector(ABC):
     """Strategy contract — one section of the dashboard."""
 
@@ -86,18 +117,6 @@ class KnowledgeCollector(Collector):
     # as a stable approximation — close enough to surface "this blob
     # would cost ~500 tokens to read" magnitudes without bundling tiktoken.
     _CHARS_PER_TOKEN = 4
-
-    # Mined signal patterns. Each one pulls a typed integer out of the
-    # standard extractor markdown so the dashboard can render concrete
-    # counts ("open PRs: 25") next to the path.
-    _SIGNALS = (
-        ("merged_prs", re.compile(r"merged PR sample:\s*\*\*(\d+)\*\*")),
-        ("open_prs", re.compile(r"—\s*(\d+)\s+open PR\(s\)")),
-        ("rds_instances", re.compile(r"RDS\s+\((\d+)\s+instance")),
-        ("sqs_queues", re.compile(r"SQS\s+\((\d+)\s+queue")),
-        ("log_groups", re.compile(r"CloudWatch Logs.*?of\s+(\d+)\)?")),
-        ("repos_covered", re.compile(r"###\s+([A-Za-z0-9_\-]+/[A-Za-z0-9_\-]+)")),
-    )
 
     # Per-blob body cap when rendered into the dashboard. Set high enough
     # to show the full content of a typical knowledge blob (~10–40 KB)
@@ -197,22 +216,16 @@ class KnowledgeCollector(Collector):
         flush()
         return sections
 
-    @classmethod
-    def _mine_signals(cls, text: str) -> tuple:
+    @staticmethod
+    def _mine_signals(text: str) -> tuple:
         """Pull typed numbers and the repo list out of the standard
         extractor markdown. Returns `(signals_dict, repos_set)`."""
         signals: Dict[str, int] = {}
-        repos: set = set()
-        for key, pattern in cls._SIGNALS:
-            if key == "repos_covered":
-                for m in pattern.finditer(text):
-                    repos.add(m.group(1))
-                continue
-            total = 0
-            for m in pattern.finditer(text):
-                total += int(m.group(1))
+        for key, pattern in _NUMERIC_SIGNALS:
+            total = _sum_signal(text, pattern)
             if total:
                 signals[key] = total
+        repos = {m.group(1) for m in _REPO_SIGNAL_RE.finditer(text)}
         return signals, repos
 
     @staticmethod
@@ -244,23 +257,13 @@ class KnowledgeAggregatesCollector(Collector):
 
     name = "knowledge_aggregates"
 
-    _MERGED_PR_RE = re.compile(r"merged PR sample:\s*\*\*(\d+)\*\*")
-    _OPEN_PR_RE = re.compile(r"—\s*(\d+)\s+open PR\(s\)")
-    _RDS_RE = re.compile(r"RDS\s+\((\d+)\s+instance")
-    _SQS_RE = re.compile(r"SQS\s+\((\d+)\s+queue")
-    _LOG_RE = re.compile(r"CloudWatch Logs.*?of\s+(\d+)\)?")
-
     def __init__(self, store) -> None:  # KnowledgeStore
         self._store = store
 
     def collect(self) -> Dict[str, Any]:
         total_files = 0
         total_bytes = 0
-        merged_prs = 0
-        open_prs = 0
-        rds = 0
-        sqs = 0
-        log_groups = 0
+        totals: Dict[str, int] = {key: 0 for key, _ in _NUMERIC_SIGNALS}
         refs = self._store.list()
         blobs = self._store.get_many([ref.name for ref in refs])
         for ref in refs:
@@ -269,25 +272,9 @@ class KnowledgeAggregatesCollector(Collector):
                 continue
             total_files += 1
             total_bytes += len(text)
-            for m in self._MERGED_PR_RE.finditer(text):
-                merged_prs += int(m.group(1))
-            for m in self._OPEN_PR_RE.finditer(text):
-                open_prs += int(m.group(1))
-            for m in self._RDS_RE.finditer(text):
-                rds += int(m.group(1))
-            for m in self._SQS_RE.finditer(text):
-                sqs += int(m.group(1))
-            for m in self._LOG_RE.finditer(text):
-                log_groups += int(m.group(1))
-        return {
-            "files": total_files,
-            "total_bytes": total_bytes,
-            "merged_prs": merged_prs,
-            "open_prs": open_prs,
-            "rds_instances": rds,
-            "sqs_queues": sqs,
-            "log_groups": log_groups,
-        }
+            for key, pattern in _NUMERIC_SIGNALS:
+                totals[key] += _sum_signal(text, pattern)
+        return {"files": total_files, "total_bytes": total_bytes, **totals}
 
 
 # ---------------------------------------------------------------------------
@@ -647,11 +634,7 @@ class ScheduleCalendarCollector(Collector):
         """Tail the scheduler log and pair fire/result lines."""
         if not self._log.exists():
             return []
-        with self._log.open("rb") as fh:
-            fh.seek(0, 2)
-            size = fh.tell()
-            fh.seek(max(0, size - 256_000))
-            chunk = fh.read().decode("utf-8", errors="replace")
+        chunk = _tail_bytes(self._log, 256_000)
         fires: List[Dict[str, Any]] = []
         pending: Dict[Tuple[str, str], Dict[str, Any]] = {}
         for line in chunk.splitlines():
@@ -819,11 +802,7 @@ class GhStatsCollector(Collector):
 
         if not self._log.exists():
             return self._empty()
-        with self._log.open("rb") as fh:
-            fh.seek(0, 2)
-            size = fh.tell()
-            fh.seek(max(0, size - 512_000))
-            text = fh.read().decode("utf-8", errors="replace")
+        text = _tail_bytes(self._log, 512_000)
 
         now = datetime.now(timezone.utc).replace(microsecond=0)
         window_start = now - timedelta(hours=24)
@@ -938,11 +917,7 @@ class ScheduleLogCollector(Collector):
     def collect(self) -> Dict[str, Any]:
         if not self._path.exists():
             return {"present": False, "path": str(self._path), "lines": []}
-        with self._path.open("rb") as fh:
-            fh.seek(0, 2)
-            size = fh.tell()
-            fh.seek(max(0, size - 64_000))
-            chunk = fh.read().decode("utf-8", errors="replace")
+        chunk = _tail_bytes(self._path, 64_000)
         lines = chunk.splitlines()[-self._tail :]
         last_cycle = ""
         for line in reversed(lines):
@@ -954,7 +929,7 @@ class ScheduleLogCollector(Collector):
             "path": str(self._path),
             "lines": lines,
             "last_cycle": last_cycle,
-            "byte_count": size,
+            "byte_count": self._path.stat().st_size,
         }
 
 
@@ -974,8 +949,9 @@ class CycleOutcomeCollector(Collector):
     def collect(self) -> Dict[str, Any]:
         if not self._path.exists():
             return {"cycles": [], "by_company": {}}
-        with self._path.open("rb") as fh:
-            text = fh.read().decode("utf-8", errors="replace")
+        # Tail rather than slurp the whole log — only cycles[-10:] survive
+        # below, so a bounded window is enough and keeps render O(1) in log size.
+        text = _tail_bytes(self._path, 512_000)
         cycles: List[Dict[str, Any]] = []
         current: Dict[str, Any] = {}
         for line in text.splitlines():

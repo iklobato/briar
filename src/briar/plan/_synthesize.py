@@ -17,15 +17,14 @@ care which path produced it."""
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from briar.agent._llm import LLMProvider
+from briar.plan._json_utils import extract_json
 from briar.plan._models import PlanCard
-
 
 log = logging.getLogger(__name__)
 
@@ -57,8 +56,7 @@ def _validate_branch_name(name: str) -> str:
 
 class CardSynthesiser(ABC):
     @abstractmethod
-    def enrich(self, card: PlanCard, *, board_card_keys: List[str], context_sections: List[str]) -> PlanCard:
-        ...
+    def enrich(self, card: PlanCard, *, board_card_keys: List[str], context_sections: List[str]) -> PlanCard: ...
 
 
 class HeuristicSynthesiser(CardSynthesiser):
@@ -128,7 +126,7 @@ class LLMSynthesiser(CardSynthesiser):
         except Exception:  # noqa: BLE001 — synthesis is best-effort
             log.exception("plan: LLM synthesis failed for %s", card.key)
             return card
-        payload = _extract_json(response.text)
+        payload = extract_json(response.text)
         if not payload:
             log.warning("plan: LLM returned no parseable JSON for %s", card.key)
             return card
@@ -253,32 +251,3 @@ def _normalise_key(raw: str, board_card_keys: List[str]) -> str:
                 return key
         return upper
     return raw if raw in board_card_keys else ""
-
-
-def _extract_json(text: str) -> Dict[str, Any]:
-    """Best-effort JSON extraction. Handles fenced code blocks, leading
-    prose, trailing text — anything reasonable a model might emit."""
-    if not text:
-        return {}
-    candidate = text.strip()
-    # Strip code fences.
-    if candidate.startswith("```"):
-        first_newline = candidate.find("\n")
-        if first_newline != -1:
-            candidate = candidate[first_newline + 1 :]
-        if candidate.endswith("```"):
-            candidate = candidate[: -3]
-    candidate = candidate.strip()
-    try:
-        return json.loads(candidate)
-    except json.JSONDecodeError:
-        pass
-    # Locate the first '{' … matching '}' span.
-    start = candidate.find("{")
-    end = candidate.rfind("}")
-    if start == -1 or end == -1 or end < start:
-        return {}
-    try:
-        return json.loads(candidate[start : end + 1])
-    except json.JSONDecodeError:
-        return {}

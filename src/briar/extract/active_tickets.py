@@ -15,7 +15,6 @@ from typing import List
 from briar.extract._tracker import Ticket
 from briar.extract.base import ExtractedSection, TrackerBackedExtractor
 
-
 _MAX_TICKETS_PER_PROJECT = 25
 
 
@@ -33,21 +32,18 @@ class ExtractActiveTickets(TrackerBackedExtractor):
             help="Tracker project key to scan for active tickets. Repeatable.",
         )
 
-    def is_available(self, args: argparse.Namespace) -> bool:
-        if not args.ticket_project:
-            return False
-        try:
-            tracker = self._tracker(args)
-        except Exception:  # noqa: BLE001
-            return False
-        return tracker.is_available()
+    _availability_arg = "ticket_project"
 
     def extract(self, args: argparse.Namespace) -> ExtractedSection:
         tracker = self._tracker(args)
         sections = [self._scan_project(p, tracker) for p in args.ticket_project]
         return ExtractedSection(
             title=f"Active tickets — {len(sections)} project(s)",
-            body=("Live snapshot of open tickets. Agents should check this " "before opening a duplicate — match on title + reporter to " "avoid stepping on in-flight work."),
+            body=(
+                "Live snapshot of open tickets. Agents should check this "
+                "before opening a duplicate — match on title + reporter to "
+                "avoid stepping on in-flight work."
+            ),
             subsections=sections,
         )
 

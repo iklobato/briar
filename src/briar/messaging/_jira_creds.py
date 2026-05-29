@@ -36,6 +36,20 @@ class JiraCreds:
     def is_complete(self) -> bool:
         return bool(self.url and self.email and self.token)
 
+    def client(self):
+        """Build the `atlassian.Jira` client for these creds (cloud,
+        20s timeout). Callers cache the instance; this centralises the
+        construction every Jira writer shares."""
+        from atlassian import Jira
+
+        return Jira(
+            url=self.url,
+            username=self.email,
+            password=self.token,
+            cloud=True,
+            timeout=20,
+        )
+
     @staticmethod
     def required_env_vars(company: str) -> List[str]:
         """Env var names every Jira writer needs the doctor to report."""

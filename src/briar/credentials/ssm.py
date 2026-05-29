@@ -14,7 +14,6 @@ from typing import Dict, List, Optional
 
 from briar.credentials._store import CredentialStore
 
-
 log = logging.getLogger(__name__)
 
 
@@ -27,15 +26,10 @@ class SsmParameterStore(CredentialStore):
         self._cache: Dict[str, Optional[str]] = {}
 
     def _make_client(self):
-        if self._client is not None:
-            return self._client
-        import boto3
-        from botocore.config import Config
+        if self._client is None:
+            from briar.credentials._aws import boto_client
 
-        self._client = boto3.client(
-            "ssm",
-            config=Config(connect_timeout=5, read_timeout=15, retries={"mode": "standard", "max_attempts": 3}),
-        )
+            self._client = boto_client("ssm")
         return self._client
 
     def read(self, name: str) -> Optional[str]:

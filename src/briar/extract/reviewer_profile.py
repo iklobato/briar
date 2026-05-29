@@ -15,7 +15,7 @@ import argparse
 from collections import Counter, defaultdict
 from typing import Any, Dict, List
 
-from briar.extract._provider import PullRequest, ReviewComment
+from briar.extract._provider import ReviewComment
 from briar.extract.base import ExtractedSection, RepoBackedExtractor, empty_section
 
 
@@ -46,14 +46,7 @@ class ExtractReviewerProfile(RepoBackedExtractor):
             help="How many top reviewers to profile (default: 5)",
         )
 
-    def is_available(self, args: argparse.Namespace) -> bool:
-        if not args.reviewer_repo:
-            return False
-        try:
-            provider = self._provider(args)
-        except Exception:  # noqa: BLE001
-            return False
-        return provider.is_available()
+    _availability_arg = "reviewer_repo"
 
     def extract(self, args: argparse.Namespace) -> ExtractedSection:
         provider = self._provider(args)
@@ -122,7 +115,7 @@ class ExtractReviewerProfile(RepoBackedExtractor):
                 body_parts.append(f"- Hot files: {', '.join(top_files)}")
             samples = per_reviewer_samples.get(reviewer, [])
             if samples:
-                body_parts.append(f"- Sample asks (truncated):")
+                body_parts.append("- Sample asks (truncated):")
                 for s in samples:
                     body_parts.append(f"  - _{s}_")
             body_parts.append("")

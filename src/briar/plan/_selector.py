@@ -17,14 +17,13 @@ and the runner records `plan.next.invalid` in the journal."""
 
 from __future__ import annotations
 
-import json
 import logging
-import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from briar.agent._llm import LLMProvider
 from briar.errors import CliError
 from briar.plan._enums import PlanCardStatus, SelectorActionKind
+from briar.plan._json_utils import extract_json
 from briar.plan._models import ImplementationPlan, PlanCard, PlanContext, SelectorDecision
 
 log = logging.getLogger(__name__)
@@ -80,7 +79,7 @@ class Selector:
         except Exception as exc:  # noqa: BLE001 — surface as a CliError; runner journals
             raise CliError(f"selector LLM call failed: {exc}") from exc
 
-        payload = _extract_json(response.text)
+        payload = extract_json(response.text)
         if not payload:
             raise CliError(f"selector returned unparseable response: {response.text!r}")
 
@@ -154,31 +153,3 @@ class Selector:
             parts.append("")
         parts.append("Return STRICT JSON only.")
         return "\n".join(parts)
-
-
-# Reused by `_writeback.py` and tests; mirrors `_synthesize._extract_json`
-# but kept local so the selector module doesn't reach into a sibling's
-# private helper. Once a third caller wants this, lift it into a shared
-# `_json_utils.py`; until then, two ~10-line copies are the right cost.
-_FENCE_RE = re.compile(r"^```(?:json)?\s*\n(.*?)\n```\s*$", re.DOTALL)
-
-
-def _extract_json(text: str) -> Optional[Dict[str, Any]]:
-    if not text:
-        return None
-    candidate = text.strip()
-    fenced = _FENCE_RE.match(candidate)
-    if fenced:
-        candidate = fenced.group(1).strip()
-    try:
-        data = json.loads(candidate)
-    except json.JSONDecodeError:
-        start = candidate.find("{")
-        end = candidate.rfind("}")
-        if start == -1 or end == -1 or end < start:
-            return None
-        try:
-            data = json.loads(candidate[start : end + 1])
-        except json.JSONDecodeError:
-            return None
-    return data if isinstance(data, dict) else None

@@ -156,6 +156,21 @@ def _provider_class_for_flag(
     return classes_dict.get(ns.get(flag) or default)
 
 
+def _provider_is_available(args: argparse.Namespace, *, gate_arg: str, resolver) -> bool:
+    """Shared ``is_available`` shape for ``*BackedExtractor`` leaves:
+    skip when the leaf's gate arg (e.g. ``--pr-repo``) is empty, skip
+    when the provider can't be built, else defer to the provider's own
+    availability check. Each leaf supplies only the gate-arg name; the
+    base supplies the resolver (``_provider`` / ``_tracker``)."""
+    if not getattr(args, gate_arg, None):
+        return False
+    try:
+        provider = resolver(args)
+    except Exception:  # noqa: BLE001
+        return False
+    return provider.is_available()
+
+
 class CloudBackedExtractor(KnowledgeExtractor):
     """Base class for extractors that talk to a cloud provider (AWS,
     GCP, Azure). Registers the shared ``--cloud`` flag + helper."""
@@ -176,7 +191,10 @@ class CloudBackedExtractor(KnowledgeExtractor):
 
         ns = vars(args)
         return _resolve_provider_from_args(
-            args, flag="cloud", default="aws", make_fn=make_cloud,
+            args,
+            flag="cloud",
+            default="aws",
+            make_fn=make_cloud,
             region=ns.get("aws_extract_region") or ns.get("cloud_region") or "",
             profile=ns.get("aws_extract_profile") or ns.get("cloud_profile") or "",
         )
@@ -192,6 +210,14 @@ class TrackerBackedExtractor(KnowledgeExtractor):
     GitHub Issues, Bitbucket Issues, Linear). Symmetric to
     `RepoBackedExtractor` — same `--tracker` flag + `_tracker(args)`
     helper, just a different ABC behind it."""
+
+    # Leaf sets the arg whose presence gates availability (e.g. "ticket_project").
+    _availability_arg: ClassVar[str] = ""
+
+    def is_available(self, args: argparse.Namespace) -> bool:
+        if not self._availability_arg:
+            return super().is_available(args)
+        return _provider_is_available(args, gate_arg=self._availability_arg, resolver=self._tracker)
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         from briar.extract._trackers import TrackerRegistry
@@ -369,6 +395,14 @@ class RepoBackedExtractor(KnowledgeExtractor):
     registered. The flag-registration is idempotent (`briar extract`
     shares one parser across every extractor), so the second-and-later
     re-registration is silently skipped."""
+
+    # Leaf sets the arg whose presence gates availability (e.g. "pr_repo").
+    _availability_arg: ClassVar[str] = ""
+
+    def is_available(self, args: argparse.Namespace) -> bool:
+        if not self._availability_arg:
+            return super().is_available(args)
+        return _provider_is_available(args, gate_arg=self._availability_arg, resolver=self._provider)
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         from briar.extract._providers import RepositoryProviderRegistry

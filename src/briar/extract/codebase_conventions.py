@@ -34,14 +34,7 @@ class ExtractCodebaseConventions(RepoBackedExtractor):
             help="Repository slug to detect conventions for. Repeatable.",
         )
 
-    def is_available(self, args: argparse.Namespace) -> bool:
-        if not args.conventions_repo:
-            return False
-        try:
-            provider = self._provider(args)
-        except Exception:  # noqa: BLE001
-            return False
-        return provider.is_available()
+    _availability_arg = "conventions_repo"
 
     def extract(self, args: argparse.Namespace) -> ExtractedSection:
         provider = self._provider(args)

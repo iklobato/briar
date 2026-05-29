@@ -20,7 +20,6 @@ from typing import Dict, List, Optional
 
 from briar.credentials._store import CredentialStore
 
-
 log = logging.getLogger(__name__)
 
 
@@ -34,18 +33,10 @@ class AwsSecretsManagerStore(CredentialStore):
         self._cache: Dict[str, Optional[str]] = {}
 
     def _make_client(self):
-        if self._client is not None:
-            return self._client
-        import boto3
-        from botocore.config import Config
+        if self._client is None:
+            from briar.credentials._aws import boto_client
 
-        # Bounded timeouts so a hung managed-PG-style network blip doesn't
-        # block the whole CLI invocation. Standard-mode retries handle
-        # throttling on the SDK's terms.
-        self._client = boto3.client(
-            "secretsmanager",
-            config=Config(connect_timeout=5, read_timeout=15, retries={"mode": "standard", "max_attempts": 3}),
-        )
+            self._client = boto_client("secretsmanager")
         return self._client
 
     def read(self, name: str) -> Optional[str]:

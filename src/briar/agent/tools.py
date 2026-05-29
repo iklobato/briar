@@ -14,8 +14,7 @@ import shlex
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List
-
+from typing import Any, Dict, List, Optional
 
 log = logging.getLogger(__name__)
 
@@ -175,8 +174,32 @@ class BashTool:
         raise ToolError(f"bash-tool rejected: cwd {path} outside allowed roots {self._base}/, /tmp/, /var/lib/briar/")
 
 
-class ReadFileTool:
+class _RootScopedTool:
+    """Shared sandbox for the file tools: confine every path to one of
+    the allowed roots. `_validate` resolves the path (following symlinks
+    and ``..``) and rejects anything that escapes. This is the security
+    boundary — kept in one place so a hardening fix can't miss a tool.
+    Subclasses set `_verb` for the rejection message."""
+
+    _verb = "tool"
+
+    def __init__(self, allowed_roots: List[Path]) -> None:
+        self._roots = [r.resolve() for r in allowed_roots]
+
+    def _validate(self, path: str) -> Path:
+        p = Path(path).expanduser().resolve()
+        for root in self._roots:
+            try:
+                p.relative_to(root)
+                return p
+            except ValueError:
+                continue
+        raise ToolError(f"{self._verb} rejected: {p} outside allowed roots {self._roots}")
+
+
+class ReadFileTool(_RootScopedTool):
     name = "read_file"
+    _verb = "read_file"
     description = "Read the contents of a file. Useful for inspecting source files before editing."
 
     INPUT_SCHEMA: Dict[str, Any] = {
@@ -187,9 +210,6 @@ class ReadFileTool:
         "required": ["path"],
     }
 
-    def __init__(self, allowed_roots: List[Path]) -> None:
-        self._roots = [r.resolve() for r in allowed_roots]
-
     def run(self, path: str) -> str:
         p = self._validate(path)
         log.debug("read_file-tool: path=%s", p)
@@ -198,19 +218,10 @@ class ReadFileTool:
         except OSError as exc:
             raise ToolError(f"read_file: {exc}") from exc
 
-    def _validate(self, path: str) -> Path:
-        p = Path(path).expanduser().resolve()
-        for root in self._roots:
-            try:
-                p.relative_to(root)
-                return p
-            except ValueError:
-                continue
-        raise ToolError(f"read_file rejected: {p} outside allowed roots {self._roots}")
 
-
-class WriteFileTool:
+class WriteFileTool(_RootScopedTool):
     name = "write_file"
+    _verb = "write_file"
     description = "Overwrite a file with new contents. Caller is responsible for preserving content they want to keep."
 
     INPUT_SCHEMA: Dict[str, Any] = {
@@ -222,9 +233,6 @@ class WriteFileTool:
         "required": ["path", "content"],
     }
 
-    def __init__(self, allowed_roots: List[Path]) -> None:
-        self._roots = [r.resolve() for r in allowed_roots]
-
     def run(self, path: str, content: str) -> str:
         p = self._validate(path)
         log.info("write_file-tool: path=%s bytes=%d", p, len(content))
@@ -232,19 +240,10 @@ class WriteFileTool:
         p.write_text(content, encoding="utf-8")
         return f"wrote {len(content)} bytes to {p}"
 
-    def _validate(self, path: str) -> Path:
-        p = Path(path).expanduser().resolve()
-        for root in self._roots:
-            try:
-                p.relative_to(root)
-                return p
-            except ValueError:
-                continue
-        raise ToolError(f"write_file rejected: {p} outside allowed roots {self._roots}")
 
-
-class EditFileTool:
+class EditFileTool(_RootScopedTool):
     name = "edit_file"
+    _verb = "edit_file"
     description = "Replace one occurrence of old_text with new_text inside a file. The old_text must match exactly once."
 
     INPUT_SCHEMA: Dict[str, Any] = {
@@ -256,9 +255,6 @@ class EditFileTool:
         },
         "required": ["path", "old_text", "new_text"],
     }
-
-    def __init__(self, allowed_roots: List[Path]) -> None:
-        self._roots = [r.resolve() for r in allowed_roots]
 
     def run(self, path: str, old_text: str, new_text: str) -> str:
         p = self._validate(path)
@@ -273,16 +269,6 @@ class EditFileTool:
         p.write_text(content.replace(old_text, new_text, 1), encoding="utf-8")
         log.info("edit_file-tool: path=%s delta=%+d bytes", p, len(new_text) - len(old_text))
         return f"replaced 1 occurrence in {p} ({len(new_text) - len(old_text):+d} bytes)"
-
-    def _validate(self, path: str) -> Path:
-        p = Path(path).expanduser().resolve()
-        for root in self._roots:
-            try:
-                p.relative_to(root)
-                return p
-            except ValueError:
-                continue
-        raise ToolError(f"edit_file rejected: {p} outside allowed roots {self._roots}")
 
 
 class SendMessageTool:
@@ -332,7 +318,7 @@ class SendMessageTool:
     def channels(self) -> List[str]:
         return sorted(self._messages.keys())
 
-    def run(self, channel: str, body: str, target: str = "", extras: Dict[str, Any] = None) -> str:
+    def run(self, channel: str, body: str, target: str = "", extras: Optional[Dict[str, Any]] = None) -> str:
         binding = self._messages.get(channel)
         if binding is None:
             known = ", ".join(self.channels()) or "(none configured)"

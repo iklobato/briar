@@ -54,14 +54,7 @@ class ExtractCodeHotspots(RepoBackedExtractor):
             help="How many hotspot files to surface per repo (default: 10)",
         )
 
-    def is_available(self, args: argparse.Namespace) -> bool:
-        if not args.hotspots_repo:
-            return False
-        try:
-            provider = self._provider(args)
-        except Exception:  # noqa: BLE001
-            return False
-        return provider.is_available()
+    _availability_arg = "hotspots_repo"
 
     def extract(self, args: argparse.Namespace) -> ExtractedSection:
         provider = self._provider(args)

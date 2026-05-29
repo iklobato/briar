@@ -14,7 +14,6 @@ from briar.decorators import swallow_errors
 from briar.messaging._jira_creds import JiraCreds
 from briar.messaging._writer import MessageWriter, SendResult, with_ai_prefix
 
-
 log = logging.getLogger(__name__)
 
 
@@ -29,15 +28,7 @@ class JiraCommentWriter(MessageWriter):
 
     def _jira(self):
         if self._client is None:
-            from atlassian import Jira
-
-            self._client = Jira(
-                url=self._creds.url,
-                username=self._creds.email,
-                password=self._creds.token,
-                cloud=True,
-                timeout=20,
-            )
+            self._client = self._creds.client()
         return self._client
 
     def is_available(self) -> bool:
