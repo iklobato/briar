@@ -135,3 +135,37 @@ class TestBootstrap:
         result = cli("version")
         assert result.code == 0
         assert any("credential-bootstrap" in r.message and "failed" in r.message for r in caplog_briar.records)
+
+
+class TestMetadataOnlyInvocationsSkipBootstrap:
+    """`-h`/`--help`/no-command invocations print usage and exit without
+    dispatching a command, so they must NOT trigger credential bootstrap
+    (no Infisical fetch / 401, no journal dir) — only real commands do."""
+
+    def test_top_level_help_skips_bootstrap(self, cli, mocker) -> None:
+        boot = mocker.patch("briar.credentials._bootstraps.auto_bootstrap")
+        result = cli("-h")
+        assert result.code == 0
+        boot.assert_not_called()
+
+    def test_subcommand_help_skips_bootstrap(self, cli, mocker) -> None:
+        boot = mocker.patch("briar.credentials._bootstraps.auto_bootstrap")
+        result = cli("version", "--help")
+        assert result.code == 0
+        boot.assert_not_called()
+
+    def test_no_command_skips_bootstrap(self, cli, mocker) -> None:
+        # argparse rejects the missing required subcommand with exit 2;
+        # bootstrap must not have run on the way to that usage error.
+        boot = mocker.patch("briar.credentials._bootstraps.auto_bootstrap")
+        result = cli()
+        assert result.code == 2
+        boot.assert_not_called()
+
+    def test_real_command_still_runs_bootstrap(self, cli, mocker) -> None:
+        # Guard against the skip-guard going too far: a genuine command
+        # must still hydrate credentials.
+        boot = mocker.patch("briar.credentials._bootstraps.auto_bootstrap", return_value=[])
+        result = cli("version")
+        assert result.code == 0
+        boot.assert_called_once()

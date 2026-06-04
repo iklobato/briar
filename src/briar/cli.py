@@ -63,7 +63,7 @@ def _extract_global_flags(argv: List[str]) -> Tuple[Dict[str, str], Set[str], Li
         for flag in _GLOBAL_FLAGS_WITH_VALUE:
             prefix = f"{flag}="
             if token.startswith(prefix):
-                extracted[flag] = token[len(prefix):]
+                extracted[flag] = token[len(prefix) :]
                 matched_equals = True
                 break
         if matched_equals:
@@ -148,41 +148,53 @@ def main(argv: Optional[List[str]] = None) -> int:
     log = logging.getLogger("briar.cli")
     log.debug("argv=%r verbose=%s", raw_argv, verbose)
 
-    # Bootstrap credentials from any configured remote vault BEFORE
-    # the command registry imports (which transitively trigger
-    # provider / writer adapter construction that may read env vars
-    # at import time). auto_bootstrap() iterates the BOOTSTRAPS
-    # registry — typically a no-op locally, runs InfisicalBootstrap
-    # on hosts that have the universal-auth machine identity set.
-    from briar.credentials._bootstraps import auto_bootstrap
+    # Help and no-command invocations are pure metadata: argparse
+    # prints usage/help and exits at parse_args() below without ever
+    # dispatching a command. Skip credential bootstrap, journal, and
+    # telemetry for them so `briar -h` and `briar <cmd> -h` do no
+    # network or filesystem I/O — no Infisical fetch (and its 401
+    # noise), no ./journal directory created just to print help.
+    # `-h`/`--help` anywhere in argv makes argparse short-circuit to a
+    # help action; an empty `remaining` means no subcommand, which
+    # argparse rejects with a usage error. Either way, no command runs.
+    metadata_only = "-h" in raw_argv or "--help" in raw_argv or not remaining
 
-    # Cascade — every available bootstrap runs in registry order.
-    # Log each result independently so one backend's failure doesn't
-    # obscure another's success (envfile + Infisical commonly run
-    # together; a 401 from Infisical must not hide that envfile
-    # hydrated 12 vars successfully).
-    for result in auto_bootstrap():
-        if not result.ok:
-            log.warning("credential-bootstrap: %s failed — %s", result.backend, result.error)
-        elif result.count:
-            log.info("credential-bootstrap: %s hydrated %d env vars", result.backend, result.count)
+    if not metadata_only:
+        # Bootstrap credentials from any configured remote vault BEFORE
+        # the command registry imports (which transitively trigger
+        # provider / writer adapter construction that may read env vars
+        # at import time). auto_bootstrap() iterates the BOOTSTRAPS
+        # registry — typically a no-op locally, runs InfisicalBootstrap
+        # on hosts that have the universal-auth machine identity set.
+        from briar.credentials._bootstraps import auto_bootstrap
 
-    # Install the default journal. Commands that use
-    # `with briar.journal.session(...)` will record + persist;
-    # uninstrumented commands are unaffected (null-object default
-    # protects every call site from "is journaling active" guards).
-    _install_default_journal(log)
+        # Cascade — every available bootstrap runs in registry order.
+        # Log each result independently so one backend's failure doesn't
+        # obscure another's success (envfile + Infisical commonly run
+        # together; a 401 from Infisical must not hide that envfile
+        # hydrated 12 vars successfully).
+        for result in auto_bootstrap():
+            if not result.ok:
+                log.warning("credential-bootstrap: %s failed — %s", result.backend, result.error)
+            elif result.count:
+                log.info("credential-bootstrap: %s hydrated %d env vars", result.backend, result.count)
 
-    # Install telemetry — opt-out via BRIAR_TELEMETRY / DO_NOT_TRACK.
-    # Default is `full` (errors + usage); no PII / no values / no
-    # prompts ever leave the machine. See `briar.telemetry`.
-    try:
-        from briar import telemetry
+        # Install the default journal. Commands that use
+        # `with briar.journal.session(...)` will record + persist;
+        # uninstrumented commands are unaffected (null-object default
+        # protects every call site from "is journaling active" guards).
+        _install_default_journal(log)
 
-        telemetry.install()
-        telemetry.banner_if_needed()
-    except Exception:  # noqa: BLE001 — telemetry NEVER blocks the CLI
-        log.debug("telemetry: install failed", exc_info=True)
+        # Install telemetry — opt-out via BRIAR_TELEMETRY / DO_NOT_TRACK.
+        # Default is `full` (errors + usage); no PII / no values / no
+        # prompts ever leave the machine. See `briar.telemetry`.
+        try:
+            from briar import telemetry
+
+            telemetry.install()
+            telemetry.banner_if_needed()
+        except Exception:  # noqa: BLE001 — telemetry NEVER blocks the CLI
+            log.debug("telemetry: install failed", exc_info=True)
 
     commands = CommandRegistry.build()
     parser = _build_parser(commands)
