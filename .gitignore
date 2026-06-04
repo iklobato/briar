@@ -10,8 +10,9 @@ dist/
 knowledge/
 final.json
 
-# Decision-journal output — runtime artefact, not source
-journal/
+# Decision-journal output — runtime artefact, not source.
+# Anchored to repo root so it does NOT match the src/briar/journal/ package.
+/journal/
 
 # Anything that looks like a secret bundle
 .env
