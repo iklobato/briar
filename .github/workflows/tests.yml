@@ -28,11 +28,25 @@ jobs:
       - name: Sync deps
         run: uv sync --extra test
       - name: Run pytest (parallel + randomised)
-        run: uv run pytest -n auto -ra --strict-markers
+        # Integration tier runs in its own job below (real sockets/subprocess);
+        # keep this fast lane unit-only.
+        run: uv run pytest -n auto -ra --strict-markers -m "not integration"
         env:
           # pytest-randomly seeds itself differently per run; pin in CI
           # only when reproducing a failure locally.
           PYTHONHASHSEED: random
+
+  integration:
+    name: integration (real command + wire fake)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - run: uv sync --extra test
+      - name: Run integration tier (serial — real http servers + subprocess)
+        run: uv run pytest -m integration -ra --strict-markers
 
   property:
     name: hypothesis property tests (extended)
