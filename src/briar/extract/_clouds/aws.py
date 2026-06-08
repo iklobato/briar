@@ -14,15 +14,7 @@ from typing import Any, List, Optional  # noqa: F401  (Optional used below)
 
 from briar.decorators import swallow_errors
 from briar.env_vars import CredEnv
-from briar.extract._cloud import (
-    AccountIdentity,
-    CloudProvider,
-    ComputeResource,
-    DatabaseResource,
-    LogGroup,
-    QueueResource,
-)
-
+from briar.extract._cloud import AccountIdentity, CloudProvider, ComputeResource, DatabaseResource, LogGroup, QueueResource
 
 log = logging.getLogger(__name__)
 
@@ -144,7 +136,7 @@ class AwsCloudProvider(CloudProvider):
                     instance_class=str(row.get("class") or ""),
                     region=self._region,
                     multi_az=bool(row.get("multi_az")),
-                    extra={"allocated_gb": row.get("allocated_gb")},
+                    extra={"allocated_gb": row.get("storage_gb")},
                 )
             )
         return out

@@ -13,10 +13,10 @@ import argparse
 import json
 import os
 import unittest
-
-import schedule
 from pathlib import Path
 from unittest import mock
+
+import schedule
 
 
 class TrackerRegistryTests(unittest.TestCase):
@@ -290,11 +290,22 @@ class CredentialStoreTests(unittest.TestCase):
 
         store = make_credential_store("aws-secretsmanager")
         fake_client = mock.MagicMock()
-        fake_client.get_secret_value.return_value = {"SecretString": "ghp_xxx"}
+        # Return DIFFERENT values on each backend call. If the cache were
+        # broken (re-fetching every time), the second read would surface
+        # "second". Asserting both reads are "first" proves the cached value
+        # is actually served — a call_count==1 check alone would pass even
+        # if read() returned a fresh (but coincidentally equal) value.
+        fake_client.get_secret_value.side_effect = [
+            {"SecretString": "first"},
+            {"SecretString": "second"},
+        ]
         with mock.patch("boto3.client", return_value=fake_client):
-            self.assertEqual(store.read("GITHUB_TOKEN"), "ghp_xxx")
-            self.assertEqual(store.read("GITHUB_TOKEN"), "ghp_xxx")  # cached
+            self.assertEqual(store.read("GITHUB_TOKEN"), "first")
+            self.assertEqual(store.read("GITHUB_TOKEN"), "first")  # served from cache, not "second"
             self.assertEqual(fake_client.get_secret_value.call_count, 1)
+            # A different key must NOT be served the first key's cache entry.
+            self.assertEqual(store.read("OTHER_TOKEN"), "second")
+            self.assertEqual(fake_client.get_secret_value.call_count, 2)
         # Composite JSON secret: `{"value": "..."}` is extracted.
         store2 = make_credential_store("aws-secretsmanager")
         fake_client2 = mock.MagicMock()
@@ -625,6 +636,7 @@ class CredentialBootstrapTests(unittest.TestCase):
         """No backend is available → empty list. Startup must be
         robust to "no remote vault, no envfile present"."""
         import tempfile
+
         from briar.credentials._bootstraps import auto_bootstrap
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -645,6 +657,7 @@ class CredentialBootstrapTests(unittest.TestCase):
         Verifies the file-read path, the comment/blank-line skip, the
         export-prefix tolerance, and the quoted-value strip."""
         import tempfile
+
         from briar.credentials._bootstraps.envfile import EnvFileBootstrap
 
         contents = (
@@ -684,6 +697,7 @@ class CredentialBootstrapTests(unittest.TestCase):
         """No file → is_available() False, hydrate() returns a
         structured error not a crash."""
         import tempfile
+
         from briar.credentials._bootstraps.envfile import EnvFileBootstrap
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -701,6 +715,7 @@ class CredentialBootstrapTests(unittest.TestCase):
         values when both supply the same key (envfile is registered
         first; setdefault semantics)."""
         import tempfile
+
         from briar.credentials._bootstraps import auto_bootstrap
 
         contents = "FROM_ENVFILE=v1\nSHARED=envfile-wins\n"
@@ -736,6 +751,7 @@ class CredentialBootstrapTests(unittest.TestCase):
         """The cascade's reason for existing: Infisical 401 leaves
         envfile values in place. Operator can still work locally."""
         import tempfile
+
         from briar.credentials._bootstraps import auto_bootstrap
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -777,15 +793,11 @@ class CredentialBootstrapTests(unittest.TestCase):
         Already-set env vars are listed in `skipped`."""
         from briar.credentials._bootstraps.infisical import InfisicalBootstrap
 
-        fake_secret = mock.MagicMock(secretKey="NEW_VAR", secretValue="x")
-        already_set = mock.MagicMock(secretKey="GITHUB_TOKEN", secretValue="from-vault")
-        fake_result = mock.MagicMock(secrets=[fake_secret, already_set])
-
         env_creds = {
             "INFISICAL_CLIENT_ID": "id-x",
             "INFISICAL_CLIENT_SECRET": "secret-x",
             "INFISICAL_PROJECT_ID": "proj-x",
-            "GITHUB_TOKEN": "operator-supplied-token",   # would be preserved
+            "GITHUB_TOKEN": "operator-supplied-token",  # would be preserved
         }
         with mock.patch.dict("os.environ", env_creds, clear=True):
             bs = InfisicalBootstrap()
@@ -796,7 +808,7 @@ class CredentialBootstrapTests(unittest.TestCase):
                 result = bs.hydrate(dry_run=True)
         self.assertTrue(result.ok)
         self.assertIn("NEW_VAR", result.written)
-        self.assertIn("GITHUB_TOKEN", result.skipped)   # operator-supplied wins
+        self.assertIn("GITHUB_TOKEN", result.skipped)  # operator-supplied wins
         # dry-run: nothing actually written
         self.assertNotIn("NEW_VAR", os.environ)
 
@@ -952,9 +964,7 @@ class GitProviderRegistryTests(unittest.TestCase):
             def pr_creation_recipe(self, *, owner, repo, branch):
                 return "  6. DO THE FAKE THING.\n  7. DONE.\n"
 
-        text = CommandAgent._implement_specific_instructions(
-            provider=FakeProvider(), owner="acme", repo="app", ticket_key="ACME-1"
-        )
+        text = CommandAgent._implement_specific_instructions(provider=FakeProvider(), owner="acme", repo="app", ticket_key="ACME-1")
         self.assertIn("DO THE FAKE THING", text)
 
 
@@ -1004,9 +1014,7 @@ class AgentCommandTests(unittest.TestCase):
             "briar.extract.TASK_SCOPED_EXTRACTORS",
             {"ticket-context": fake_extractor},
         ):
-            sections = CommandAgent._fetch_ticket_context(
-                company="acme", tracker="jira", ticket_project="ACME", ticket_key="ACME-42"
-            )
+            sections = CommandAgent._fetch_ticket_context(company="acme", tracker="jira", ticket_project="ACME", ticket_key="ACME-42")
         self.assertEqual(sections, [])
 
     def test_dry_run_skips_llm_call_and_returns_marker(self) -> None:
@@ -1018,7 +1026,7 @@ class AgentCommandTests(unittest.TestCase):
         import sys
         from pathlib import Path
 
-        from briar.agent.runner import AgentRunner, AgentRunConfig
+        from briar.agent.runner import AgentRunConfig, AgentRunner
 
         fake_llm = mock.MagicMock()
         fake_llm.kind = "anthropic"
@@ -1072,9 +1080,7 @@ class AgentCommandTests(unittest.TestCase):
         from briar.extract._providers import make_provider
 
         provider = make_provider("github", company="acme")
-        instructions = CommandAgent._implement_specific_instructions(
-            provider=provider, owner="acme-co", repo="acme-app", ticket_key="ACME-42"
-        )
+        instructions = CommandAgent._implement_specific_instructions(provider=provider, owner="acme-co", repo="acme-app", ticket_key="ACME-42")
         self.assertIn("ACME-42", instructions)
         self.assertIn("chore/acme-42", instructions)
         self.assertIn("NEVER --force", instructions)
@@ -1219,6 +1225,7 @@ class StoreBindingResolutionTests(unittest.TestCase):
     def test_file_store_honours_binding_root(self) -> None:
         import tempfile
         from pathlib import Path
+
         from briar.storage import StoreBinding
         from briar.storage.file import StoreFile
 
@@ -1230,6 +1237,7 @@ class StoreBindingResolutionTests(unittest.TestCase):
     def test_file_store_falls_back_to_default_root(self) -> None:
         import tempfile
         from pathlib import Path
+
         from briar.storage import StoreBinding
         from briar.storage.file import StoreFile
 
@@ -1245,6 +1253,7 @@ class StoreBindingResolutionTests(unittest.TestCase):
         through `from_binding` — no special case for the CLI path."""
         import tempfile
         from pathlib import Path
+
         from briar.storage import make_store
         from briar.storage.file import StoreFile
 
@@ -1470,7 +1479,7 @@ class JiraAuthStrategyTests(unittest.TestCase):
 
     def test_jira_tracker_constructor_explicit_auth_kind(self) -> None:
         """Allow callers (future YAML wiring) to pass auth_kind directly."""
-        from briar.extract._trackers._jira_auth import JiraTokenAuth, JiraSessionAuth
+        from briar.extract._trackers._jira_auth import JiraSessionAuth, JiraTokenAuth
         from briar.extract._trackers.jira import JiraTracker
 
         t1 = JiraTracker(company="acme", auth_kind="session")
@@ -1532,7 +1541,8 @@ class JiraSessionJwtExpTests(unittest.TestCase):
 
     @staticmethod
     def _make_jwt(payload: dict) -> str:
-        import base64, json
+        import base64
+        import json
 
         enc = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
         return f"hdr.{enc}.sig"
@@ -1549,8 +1559,8 @@ class JiraSessionJwtExpTests(unittest.TestCase):
         from briar.auth._acquirers.jira_session import _decode_jwt_exp
 
         self.assertIsNone(_decode_jwt_exp("not-a-jwt-at-all"))
-        self.assertIsNone(_decode_jwt_exp("only.two"))           # 2 segments
-        self.assertIsNone(_decode_jwt_exp("a.b.c.d"))            # 4 segments
+        self.assertIsNone(_decode_jwt_exp("only.two"))  # 2 segments
+        self.assertIsNone(_decode_jwt_exp("a.b.c.d"))  # 4 segments
 
     def test_returns_none_for_malformed_payload(self) -> None:
         from briar.auth._acquirers.jira_session import _decode_jwt_exp
@@ -1559,6 +1569,7 @@ class JiraSessionJwtExpTests(unittest.TestCase):
         self.assertIsNone(_decode_jwt_exp("hdr.!!!not-b64!!!.sig"))
         # Valid base64 but not JSON
         import base64
+
         garbage = base64.urlsafe_b64encode(b"\xff\xfe garbage").decode().rstrip("=")
         self.assertIsNone(_decode_jwt_exp(f"hdr.{garbage}.sig"))
         # Valid JSON but no `exp` claim
@@ -1579,11 +1590,13 @@ class JiraAcquirerInteractiveTests(unittest.TestCase):
         from briar.auth._acquirers.jira_token import JiraTokenAcquirer
         from briar.auth._prompt import MockPromptIO
 
-        prompt = MockPromptIO(answers=[
-            "https://acme.atlassian.net",
-            "ops@acme.com",
-            "tok-secret-123",
-        ])
+        prompt = MockPromptIO(
+            answers=[
+                "https://acme.atlassian.net",
+                "ops@acme.com",
+                "tok-secret-123",
+            ]
+        )
         creds = JiraTokenAcquirer().acquire(company="acme", prompt=prompt)
         self.assertEqual(creds.entries["JIRA_ACME_URL"], "https://acme.atlassian.net")
         self.assertEqual(creds.entries["JIRA_ACME_EMAIL"], "ops@acme.com")
@@ -1611,10 +1624,12 @@ class JiraAcquirerInteractiveTests(unittest.TestCase):
         from briar.auth._acquirers.jira_session import JiraSessionAcquirer
         from briar.auth._prompt import MockPromptIO
 
-        prompt = MockPromptIO(answers=[
-            "https://acme.atlassian.net",
-            "tenant-jwt-blob",
-        ])
+        prompt = MockPromptIO(
+            answers=[
+                "https://acme.atlassian.net",
+                "tenant-jwt-blob",
+            ]
+        )
         creds = JiraSessionAcquirer().acquire(company="acme", prompt=prompt)
         self.assertEqual(creds.entries["JIRA_ACME_URL"], "https://acme.atlassian.net")
         self.assertEqual(creds.entries["JIRA_ACME_TENANT_SESSION_TOKEN"], "tenant-jwt-blob")
@@ -1657,10 +1672,12 @@ class JiraAcquirerInteractiveTests(unittest.TestCase):
 
         payload = base64.urlsafe_b64encode(json.dumps({"exp": 1800000000}).encode()).decode().rstrip("=")
         jwt = f"hdr.{payload}.sig"
-        prompt = MockPromptIO(answers=[
-            "https://acme.atlassian.net",
-            jwt,
-        ])
+        prompt = MockPromptIO(
+            answers=[
+                "https://acme.atlassian.net",
+                jwt,
+            ]
+        )
         creds = JiraSessionAcquirer().acquire(company="acme", prompt=prompt)
         self.assertIsNotNone(creds.expires_at)
         self.assertEqual(int(creds.expires_at.timestamp()), 1800000000)
@@ -1744,6 +1761,7 @@ class GitIdentityResolutionTests(unittest.TestCase):
 
     def test_yaml_used_when_cli_empty(self) -> None:
         import tempfile
+
         from briar.commands.agent import CommandAgent
 
         with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
@@ -1759,6 +1777,7 @@ class GitIdentityResolutionTests(unittest.TestCase):
 
     def test_cli_flag_wins_over_yaml(self) -> None:
         import tempfile
+
         from briar.commands.agent import CommandAgent
 
         with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
@@ -1780,6 +1799,7 @@ class GitIdentityResolutionTests(unittest.TestCase):
     def test_per_field_resolution_is_independent(self) -> None:
         """CLI sets only name; YAML provides both → CLI's name + YAML's email."""
         import tempfile
+
         from briar.commands.agent import CommandAgent
 
         with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
@@ -1803,6 +1823,7 @@ class GitIdentityResolutionTests(unittest.TestCase):
         provided nothing; CLI flags weren't passed; no source supplied
         an identity."""
         import tempfile
+
         from briar.commands.agent import CommandAgent
         from briar.errors import CliError
 
@@ -1841,9 +1862,7 @@ class ErrorPolicyTests(unittest.TestCase):
         from briar.error_policy import FollowUp, RetryAfter
 
         with mock.patch("briar.error_policy.time.sleep") as sleep:
-            result = RetryAfter(wait_seconds=5, reason="test").apply(
-                exc=RuntimeError("x"), attempt=1
-            )
+            result = RetryAfter(wait_seconds=5, reason="test").apply(exc=RuntimeError("x"), attempt=1)
         self.assertIs(result, FollowUp.RETRY)
         sleep.assert_called_once_with(5)
 
@@ -1920,12 +1939,7 @@ class ErrorPolicyTests(unittest.TestCase):
     def test_registry_returns_first_matching_policy(self) -> None:
         """Order is intentional — the policy at index 0 wins even if a
         later policy also matches."""
-        from briar.error_policy import (
-            Abort,
-            ErrorPolicyRegistry,
-            ExceptionTypePolicy,
-            RetryAfter,
-        )
+        from briar.error_policy import Abort, ErrorPolicyRegistry, ExceptionTypePolicy, RetryAfter
 
         first = ExceptionTypePolicy(exception_type=ValueError, decision=RetryAfter(1))
         second = ExceptionTypePolicy(exception_type=Exception, decision=Abort())
@@ -1947,19 +1961,10 @@ class ErrorPolicyTests(unittest.TestCase):
     def test_registry_with_prepends_higher_priority(self) -> None:
         """``registry.with_(override)`` returns a new registry with the
         override at index 0. Per-company overlays use this."""
-        from briar.error_policy import (
-            Abort,
-            ErrorPolicyRegistry,
-            ExceptionTypePolicy,
-            RetryAfter,
-        )
+        from briar.error_policy import Abort, ErrorPolicyRegistry, ExceptionTypePolicy, RetryAfter
 
-        base = ErrorPolicyRegistry(
-            policies=(ExceptionTypePolicy(exception_type=ValueError, decision=Abort()),)
-        )
-        overlay = ExceptionTypePolicy(
-            exception_type=ValueError, decision=RetryAfter(60, reason="override")
-        )
+        base = ErrorPolicyRegistry(policies=(ExceptionTypePolicy(exception_type=ValueError, decision=Abort()),))
+        overlay = ExceptionTypePolicy(exception_type=ValueError, decision=RetryAfter(60, reason="override"))
         merged = base.with_(overlay)
         # Base unchanged (immutable)
         self.assertIsInstance(base.resolve(ValueError()).decision, Abort)
@@ -1980,12 +1985,7 @@ class ErrorPolicyTests(unittest.TestCase):
         self.assertEqual(calls[0], 1)
 
     def test_executor_retries_then_succeeds(self) -> None:
-        from briar.error_policy import (
-            ErrorPolicyRegistry,
-            ExceptionTypePolicy,
-            RetryAfter,
-            RetryingExecutor,
-        )
+        from briar.error_policy import ErrorPolicyRegistry, ExceptionTypePolicy, RetryAfter, RetryingExecutor
 
         calls = [0]
 
@@ -1995,11 +1995,7 @@ class ErrorPolicyTests(unittest.TestCase):
                 raise ValueError("transient")
             return "ok"
 
-        registry = ErrorPolicyRegistry(
-            policies=(
-                ExceptionTypePolicy(exception_type=ValueError, decision=RetryAfter(0, reason="t")),
-            )
-        )
+        registry = ErrorPolicyRegistry(policies=(ExceptionTypePolicy(exception_type=ValueError, decision=RetryAfter(0, reason="t")),))
         with mock.patch("briar.error_policy.time.sleep"):
             result = RetryingExecutor(registry, max_attempts=5).run(fn)
         self.assertEqual(result, "ok")
@@ -2008,12 +2004,7 @@ class ErrorPolicyTests(unittest.TestCase):
     def test_executor_raises_when_decision_is_abort(self) -> None:
         """First attempt fails with a class matched by an Abort policy →
         executor MUST propagate immediately, no retry."""
-        from briar.error_policy import (
-            Abort,
-            ErrorPolicyRegistry,
-            ExceptionTypePolicy,
-            RetryingExecutor,
-        )
+        from briar.error_policy import Abort, ErrorPolicyRegistry, ExceptionTypePolicy, RetryingExecutor
 
         calls = [0]
 
@@ -2021,9 +2012,7 @@ class ErrorPolicyTests(unittest.TestCase):
             calls[0] += 1
             raise ValueError("auth-failed")
 
-        registry = ErrorPolicyRegistry(
-            policies=(ExceptionTypePolicy(exception_type=ValueError, decision=Abort()),)
-        )
+        registry = ErrorPolicyRegistry(policies=(ExceptionTypePolicy(exception_type=ValueError, decision=Abort()),))
         with self.assertRaises(ValueError):
             RetryingExecutor(registry).run(fn)
         self.assertEqual(calls[0], 1)
@@ -2042,21 +2031,12 @@ class ErrorPolicyTests(unittest.TestCase):
         self.assertEqual(calls[0], 1)
 
     def test_executor_exhausts_max_attempts_then_raises(self) -> None:
-        from briar.error_policy import (
-            ErrorPolicyRegistry,
-            ExceptionTypePolicy,
-            RetryAfter,
-            RetryingExecutor,
-        )
+        from briar.error_policy import ErrorPolicyRegistry, ExceptionTypePolicy, RetryAfter, RetryingExecutor
 
         def always_fail():
             raise ValueError("always")
 
-        registry = ErrorPolicyRegistry(
-            policies=(
-                ExceptionTypePolicy(exception_type=ValueError, decision=RetryAfter(0, reason="t")),
-            )
-        )
+        registry = ErrorPolicyRegistry(policies=(ExceptionTypePolicy(exception_type=ValueError, decision=RetryAfter(0, reason="t")),))
         with mock.patch("briar.error_policy.time.sleep"):
             with self.assertRaises(ValueError) as cm:
                 RetryingExecutor(registry, max_attempts=3).run(always_fail)
@@ -2082,28 +2062,23 @@ class ErrorPolicyTests(unittest.TestCase):
         OAuth 429s come with no `retry-after` header, so the agent has
         no honest basis for predicting recovery time anyway."""
         import anthropic
+
         from briar.agent._llms.anthropic_llm import AnthropicLLM
         from briar.error_policy import Abort, ExceptionTypePolicy
 
         registry = AnthropicLLM.default_error_policies()
-        rate_limit_policy = next(
-            p for p in registry.policies
-            if isinstance(p, ExceptionTypePolicy) and p.exception_type is anthropic.RateLimitError
-        )
+        rate_limit_policy = next(p for p in registry.policies if isinstance(p, ExceptionTypePolicy) and p.exception_type is anthropic.RateLimitError)
         self.assertIsInstance(rate_limit_policy.decision, Abort)
 
     def test_anthropic_aborts_on_401_immediately(self) -> None:
         """401 auth errors should NOT retry — they won't fix
         themselves and they burn the retry budget."""
-        import anthropic
+
         from briar.agent._llms.anthropic_llm import AnthropicLLM
         from briar.error_policy import Abort, HttpStatusPolicy
 
         registry = AnthropicLLM.default_error_policies()
-        auth_policy = next(
-            p for p in registry.policies
-            if isinstance(p, HttpStatusPolicy) and p.status == 401
-        )
+        auth_policy = next(p for p in registry.policies if isinstance(p, HttpStatusPolicy) and p.status == 401)
         self.assertIsInstance(auth_policy.decision, Abort)
 
 
@@ -2138,13 +2113,15 @@ class CredentialAcquirerTests(unittest.TestCase):
         from briar.auth import AcquirerRegistry, MockPromptIO
 
         acquirer = AcquirerRegistry.make("infisical")
-        prompt = MockPromptIO(answers=[
-            "client-id-uuid",
-            "client-secret-very-long",
-            "project-id-uuid",
-            "",  # env slug — accept default "prod"
-            "",  # host — accept default
-        ])
+        prompt = MockPromptIO(
+            answers=[
+                "client-id-uuid",
+                "client-secret-very-long",
+                "project-id-uuid",
+                "",  # env slug — accept default "prod"
+                "",  # host — accept default
+            ]
+        )
         creds = acquirer.acquire(company="", prompt=prompt)
         self.assertEqual(creds.entries["INFISICAL_CLIENT_ID"], "client-id-uuid")
         self.assertEqual(creds.entries["INFISICAL_CLIENT_SECRET"], "client-secret-very-long")
@@ -2167,12 +2144,9 @@ class CredentialAcquirerTests(unittest.TestCase):
         from briar.auth import AcquirerRegistry
         from briar.auth._acquirer import DestinationPolicy
 
-        for kind in ("github-pat", "github-device", "aws-static", "aws-sso",
-                     "jira-token", "jira-session", "linear-api-key",
-                     "bitbucket-app-password"):
+        for kind in ("github-pat", "github-device", "aws-static", "aws-sso", "jira-token", "jira-session", "linear-api-key", "bitbucket-app-password"):
             acquirer = AcquirerRegistry.make(kind)
-            self.assertIs(type(acquirer).destination_policy, DestinationPolicy.EXTERNAL,
-                          f"{kind} should be EXTERNAL")
+            self.assertIs(type(acquirer).destination_policy, DestinationPolicy.EXTERNAL, f"{kind} should be EXTERNAL")
 
     def test_infisical_acquirer_is_bootstrap_local(self) -> None:
         """Store-bootstrap acquirers must persist to envfile only —
@@ -2336,11 +2310,13 @@ class InfisicalStoreTests(unittest.TestCase):
         from briar.auth import AcquirerRegistry, MockPromptIO
 
         acquirer = AcquirerRegistry.make("jira-token")
-        prompt = MockPromptIO(answers=[
-            "https://acme.atlassian.net/",  # URL (trailing / stripped)
-            "ops@acme.com",
-            "atlassian-api-token-xyz",
-        ])
+        prompt = MockPromptIO(
+            answers=[
+                "https://acme.atlassian.net/",  # URL (trailing / stripped)
+                "ops@acme.com",
+                "atlassian-api-token-xyz",
+            ]
+        )
         creds = acquirer.acquire(company="acme", prompt=prompt)
         self.assertEqual(creds.entries["JIRA_ACME_URL"], "https://acme.atlassian.net")
         self.assertEqual(creds.entries["JIRA_ACME_EMAIL"], "ops@acme.com")
@@ -2353,6 +2329,7 @@ class InfisicalStoreTests(unittest.TestCase):
         import base64
         import json
         import time
+
         from briar.auth import AcquirerRegistry, MockPromptIO
 
         # Build a tiny 3-segment JWT with exp = now + 1 hour
@@ -2362,10 +2339,12 @@ class InfisicalStoreTests(unittest.TestCase):
         jwt = f"eyJhbGciOiJIUzI1NiJ9.{b64}.fake-sig"
 
         acquirer = AcquirerRegistry.make("jira-session")
-        prompt = MockPromptIO(answers=[
-            "https://acme.atlassian.net",
-            jwt,
-        ])
+        prompt = MockPromptIO(
+            answers=[
+                "https://acme.atlassian.net",
+                jwt,
+            ]
+        )
         creds = acquirer.acquire(company="acme", prompt=prompt)
         self.assertEqual(creds.entries["JIRA_ACME_TENANT_SESSION_TOKEN"], jwt)
         self.assertEqual(creds.entries["JIRA_ACME_AUTH_KIND"], "session")
@@ -2518,6 +2497,7 @@ class EnvFileStoreWriteTests(unittest.TestCase):
         The store must `mkdir(parents=True)` rather than fail."""
         import tempfile
         from pathlib import Path
+
         from briar.credentials.envfile import EnvFileStore
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -2533,6 +2513,7 @@ class EnvFileStoreWriteTests(unittest.TestCase):
         write MUST raise — the misleading 'fall through to os.environ
         only' behaviour is what caused the 'persisted 4/4' lie."""
         from pathlib import Path
+
         from briar.credentials.envfile import EnvFileStore
 
         # /dev/null/x — /dev/null is a char device, can't have children.
@@ -2550,9 +2531,9 @@ class EnvFileStoreWriteTests(unittest.TestCase):
 
 class EnvFileSecretsPathResolutionTests(unittest.TestCase):
     """Three-step resolution chain for the secrets file path:
-       1. $BRIAR_SECRETS_FILE       (explicit)
-       2. /etc/briar/secrets.env    (droplet, if exists)
-       3. XDG path                  (laptop default)"""
+    1. $BRIAR_SECRETS_FILE       (explicit)
+    2. /etc/briar/secrets.env    (droplet, if exists)
+    3. XDG path                  (laptop default)"""
 
     def tearDown(self) -> None:
         for k in list(os.environ):
@@ -2572,6 +2553,7 @@ class EnvFileSecretsPathResolutionTests(unittest.TestCase):
         We force the system path to a guaranteed-nonexistent location so
         the assertion is deterministic on droplets and laptops alike."""
         from pathlib import Path
+
         from briar.credentials.envfile import _secrets_path
 
         missing_system = Path("/nonexistent/etc/briar/secrets.env")
@@ -2583,6 +2565,7 @@ class EnvFileSecretsPathResolutionTests(unittest.TestCase):
 
     def test_xdg_config_home_override_honoured(self) -> None:
         from pathlib import Path
+
         from briar.credentials.envfile import _secrets_path
 
         with mock.patch.dict(os.environ, {"BRIAR_SECRETS_FILE": "", "XDG_CONFIG_HOME": "/custom/cfg"}, clear=False):
@@ -2711,6 +2694,7 @@ class Phase1CredentialHardeningTests(unittest.TestCase):
         left a microsecond window where the secret was world-readable."""
         import stat
         import tempfile
+
         from briar.credentials.envfile import EnvFileStore
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -2745,6 +2729,7 @@ class Phase1CredentialHardeningTests(unittest.TestCase):
         digests for the same value — prevents pre-computed rainbow
         tables across machines."""
         import hashlib
+
         from briar.credentials._store import _fingerprint_salt
 
         # Direct check: re-deriving with a different HOME yields a
@@ -2761,6 +2746,7 @@ class Phase1CredentialHardeningTests(unittest.TestCase):
         """Regression: an attacker who steals the fingerprint cannot
         check it against MD5 of common values."""
         import hashlib
+
         from briar.credentials import make_credential_store
 
         store = make_credential_store("envfile")
@@ -2825,6 +2811,7 @@ class Phase2BoundaryDefaultsTests(unittest.TestCase):
     def test_urlopen_with_retry_retries_on_429(self) -> None:
         import io
         import urllib.error
+
         from briar._http_retry import urlopen_with_retry
 
         # 429 then 200: should succeed on second attempt.
@@ -2851,6 +2838,7 @@ class Phase2BoundaryDefaultsTests(unittest.TestCase):
         endpoint typo. Retry doesn't help and wastes the rate budget."""
         import io
         import urllib.error
+
         from briar._http_retry import urlopen_with_retry
 
         call_count = {"n": 0}
@@ -2870,6 +2858,7 @@ class Phase2BoundaryDefaultsTests(unittest.TestCase):
         at max_wait) instead of the computed exponential backoff."""
         import io
         import urllib.error
+
         from briar._http_retry import urlopen_with_retry
 
         success = mock.MagicMock()
@@ -2898,6 +2887,7 @@ class Phase2BoundaryDefaultsTests(unittest.TestCase):
     def test_urlopen_with_retry_exhausts_then_raises_last(self) -> None:
         import io
         import urllib.error
+
         from briar._http_retry import urlopen_with_retry
 
         def fake_urlopen(req, timeout):  # noqa: ARG001
@@ -2943,7 +2933,7 @@ class Phase2BoundaryDefaultsTests(unittest.TestCase):
     def test_jira_project_validation_rejects_jql_injection(self) -> None:
         """End-to-end: bad project → list_tickets raises ValueError.
         Pinned now that Phase 3 swallow_errors excludes caller errors."""
-        from briar.extract._trackers.jira import JiraTracker, _PROJECT_RE
+        from briar.extract._trackers.jira import _PROJECT_RE, JiraTracker
 
         bad_inputs = [
             'foo" OR project != "bar',
@@ -2971,8 +2961,8 @@ class Phase2BoundaryDefaultsTests(unittest.TestCase):
         """Previous shape logged WARNING then returned a body with
         data:None — downstream silently treated it as empty results,
         masking schema/auth errors. Now: raise."""
-        import io
         import json as _json
+
         from briar.extract._trackers.linear import LinearTracker
 
         body = _json.dumps({"errors": [{"message": "Invalid token"}]}).encode("utf-8")
@@ -3089,11 +3079,11 @@ class Phase3ErrorHandlingTests(unittest.TestCase):
 
         env = {
             "BRIAR_SECRETS_FILE": "/etc/briar/secrets.env",  # config — must NOT list
-            "BRIAR_NOTIFY_SINKS": "telegram,slack",          # config — must NOT list
-            "BRIAR_VERBOSE": "1",                            # config — must NOT list
-            "BRIAR_DATABASE_URL": "postgres://x",            # credential — must list
-            "BRIAR_ACME_DATABASE_URL": "postgres://y",       # per-company cred — must list
-            "GITHUB_TOKEN": "ghp_x",                         # credential — must list
+            "BRIAR_NOTIFY_SINKS": "telegram,slack",  # config — must NOT list
+            "BRIAR_VERBOSE": "1",  # config — must NOT list
+            "BRIAR_DATABASE_URL": "postgres://x",  # credential — must list
+            "BRIAR_ACME_DATABASE_URL": "postgres://y",  # per-company cred — must list
+            "GITHUB_TOKEN": "ghp_x",  # credential — must list
         }
         with mock.patch.dict("os.environ", env, clear=True):
             names = EnvFileStore().list()
@@ -3151,6 +3141,7 @@ class Phase4PythonStyleHygieneTests(unittest.TestCase):
         cadences silently drop tz, which surprised operators relying
         on it for hourly jobs."""
         import logging as _logging
+
         from briar.iac.runbook.scheduler import EveryParser
 
         with self.assertLogs("briar.iac.runbook.scheduler", level=_logging.WARNING) as captured:
@@ -3194,9 +3185,9 @@ class Phase5DispatchEliminationTests(unittest.TestCase):
         """iac/config_file.py:section used to rebuild a 7-entry closure
         dict on every call. Now derived from ConfigSpec.model_fields
         and validated against a ClassVar set."""
+        from briar.errors import ConfigError
         from briar.iac.config_file import ConfigFile
         from briar.iac.models import ConfigSpec
-        from briar.errors import ConfigError
 
         # The derived set matches ConfigSpec exactly
         self.assertEqual(ConfigFile._VALID_SECTIONS, frozenset(ConfigSpec.model_fields.keys()))
@@ -3265,6 +3256,7 @@ class Phase6PrimitiveObsessionTests(unittest.TestCase):
         """Literal annotation + validator combined: typos are caught
         at parse time, not when the store is first instantiated."""
         from pydantic import ValidationError
+
         from briar.iac.runbook.models import KnowledgeBinding
 
         # Valid stores parse
@@ -3287,6 +3279,7 @@ class Phase6PrimitiveObsessionTests(unittest.TestCase):
         callers pass empty string by default; programmatic callers
         may pass None."""
         import inspect
+
         from briar.iac.runbook.executor import RunbookExtractor
 
         sig = inspect.signature(RunbookExtractor.extract)
@@ -3297,6 +3290,7 @@ class Phase6PrimitiveObsessionTests(unittest.TestCase):
         """Constraining the substring needle set catches typos in
         archetype subclass tool_filter assignments at type-check time."""
         from typing import get_args
+
         from briar.iac.scaffold.archetypes.base import ToolFilterNeedle
 
         needles = set(get_args(ToolFilterNeedle))
@@ -3308,6 +3302,7 @@ class Phase6PrimitiveObsessionTests(unittest.TestCase):
         entries are members of ToolFilterNeedle. If a new archetype
         adds a typo, this test catches it at runtime too."""
         from typing import get_args
+
         from briar.iac.scaffold.archetypes import ARCHETYPES
         from briar.iac.scaffold.archetypes.base import ToolFilterNeedle
 
@@ -3408,6 +3403,7 @@ class Phase7DeduplicationTests(unittest.TestCase):
         instead of `Ticket(key=t.key, title=t.title, ..., description=...)`.
         Confirms replace() actually preserves the other 11 fields."""
         from dataclasses import replace
+
         from briar.extract._tracker import Ticket
 
         original = Ticket(
@@ -3579,6 +3575,7 @@ class Phase9SpeculativeGeneralityCollapseTests(unittest.TestCase):
         """3 one-method ABC subclasses → 1 frozen dataclass holding
         the per-shape graph-builder callable."""
         import dataclasses
+
         from briar.iac.scaffold.shapes import WORKFLOW_SHAPES, WorkflowShape
 
         self.assertTrue(dataclasses.is_dataclass(WorkflowShape))
@@ -3609,6 +3606,7 @@ class Phase9SpeculativeGeneralityCollapseTests(unittest.TestCase):
         AWS-specific `services=` kwarg (ISP). AwsCloudProvider has it;
         every other cloud just gets list_subsections() with no args."""
         import inspect
+
         from briar.extract._cloud import CloudProvider
         from briar.extract._clouds.aws import AwsCloudProvider
 
@@ -3627,6 +3625,7 @@ class Phase10PolishTests(unittest.TestCase):
         per handler) used to apply the prefix twice. Sentinel flag
         prevents that."""
         import logging as _logging
+
         from briar.log_context import ContextFilter, log_context
 
         filt_a = ContextFilter()
@@ -3713,6 +3712,7 @@ class Phase11FollowupTests(unittest.TestCase):
         gatherer writes 'id'. Phase 11 threaded gatherer.data_key like
         _gather_via does."""
         import inspect
+
         from briar.extract._clouds.aws import AwsCloudProvider
 
         src = inspect.getsource(AwsCloudProvider.list_databases)
@@ -3727,6 +3727,7 @@ class Phase11FollowupTests(unittest.TestCase):
         logs gatherer's data_key is 'top_log_groups' — always-empty
         bug in production."""
         import inspect
+
         from briar.extract._clouds.aws import AwsCloudProvider
 
         src = inspect.getsource(AwsCloudProvider.list_log_groups)
@@ -3741,6 +3742,7 @@ class Phase11FollowupTests(unittest.TestCase):
         identical to the anti-pattern I removed from error_policy.py
         in Phase 0. -O strips asserts, leaving `raise None`."""
         import inspect
+
         from briar import _http_retry
 
         src = inspect.getsource(_http_retry.urlopen_with_retry)
@@ -3755,16 +3757,12 @@ class Phase11FollowupTests(unittest.TestCase):
         smuggle code execution / outbound interception. Phase 11
         denied them via _DENY_ENV_VARS."""
         import tempfile
+
         from briar.credentials._bootstraps.envfile import EnvFileBootstrap
 
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "secrets.env"
-            path.write_text(
-                "LD_PRELOAD=/tmp/evil.so\n"
-                "PYTHONPATH=/tmp/evil-modules\n"
-                "HTTP_PROXY=http://attacker:8080\n"
-                "ANTHROPIC_API_KEY=sk-real\n"
-            )
+            path.write_text("LD_PRELOAD=/tmp/evil.so\n" "PYTHONPATH=/tmp/evil-modules\n" "HTTP_PROXY=http://attacker:8080\n" "ANTHROPIC_API_KEY=sk-real\n")
             with mock.patch.dict(os.environ, {"BRIAR_SECRETS_FILE": str(path)}, clear=True):
                 result = EnvFileBootstrap().hydrate()
                 # All assertions must run inside the patched-env context;
@@ -3787,6 +3785,7 @@ class Phase11FollowupTests(unittest.TestCase):
         on disk, effectively letting one credential write inject
         another credential."""
         import tempfile
+
         from briar.credentials.envfile import EnvFileStore
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -3799,6 +3798,7 @@ class Phase11FollowupTests(unittest.TestCase):
 
     def test_envfile_write_rejects_null_byte(self) -> None:
         import tempfile
+
         from briar.credentials.envfile import EnvFileStore
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -3814,6 +3814,7 @@ class Phase11FollowupTests(unittest.TestCase):
         """CLAUDE.md mandates [AI] prefix on operator-impersonated
         messages on ANY channel. Slack was missing it."""
         import inspect
+
         from briar.messaging.slack_channel import SlackChannelWriter
 
         src = inspect.getsource(SlackChannelWriter.send)
@@ -3821,6 +3822,7 @@ class Phase11FollowupTests(unittest.TestCase):
 
     def test_telegram_writer_applies_ai_prefix(self) -> None:
         import inspect
+
         from briar.messaging.telegram_chat import TelegramChatWriter
 
         src = inspect.getsource(TelegramChatWriter.send)
@@ -3828,6 +3830,7 @@ class Phase11FollowupTests(unittest.TestCase):
 
     def test_jira_transition_writer_applies_ai_prefix(self) -> None:
         import inspect
+
         from briar.messaging.jira_transition import JiraTransitionWriter
 
         src = inspect.getsource(JiraTransitionWriter.send)
@@ -3872,6 +3875,7 @@ class Phase11FollowupTests(unittest.TestCase):
         """The vestigial `_placeholder` arg and module-level
         _DEFAULT_BOTO_CONFIG global from Phase 2 are both gone."""
         import inspect
+
         from briar.extract._clouds import aws
 
         sig = inspect.signature(aws._apply_default_config)
@@ -3942,8 +3946,8 @@ class Phase12FollowupTests(unittest.TestCase):
     def test_scaffold_source_auth_helper_uses_classvars(self) -> None:
         """The hoisted SourceTemplate._auth pulls per-source values
         from auth_secret_arg + default_provider_for_oauth ClassVars."""
-        from briar.iac.scaffold.sources.github import SourceGithub
         from briar.iac.scaffold.sources.bitbucket import SourceBitbucket
+        from briar.iac.scaffold.sources.github import SourceGithub
 
         self.assertEqual(SourceGithub.auth_secret_arg, "github_secret_id")
         self.assertEqual(SourceBitbucket.auth_secret_arg, "bitbucket_secret_id")
@@ -3962,8 +3966,8 @@ class Phase12FollowupTests(unittest.TestCase):
         """PAT mode without the per-source secret-id raises a ConfigError
         that names the right --{kind}-secret-id flag."""
         from briar.errors import ConfigError
-        from briar.iac.scaffold.sources.github import SourceGithub
         from briar.iac.scaffold.sources.bitbucket import SourceBitbucket
+        from briar.iac.scaffold.sources.github import SourceGithub
 
         ns = argparse.Namespace(auth_mode="pat", github_secret_id=None, bitbucket_secret_id=None)
         with self.assertRaises(ConfigError) as ctx:
@@ -3977,8 +3981,8 @@ class Phase12FollowupTests(unittest.TestCase):
         """Hoisted _user_filters reads `{kind}_authors_allow` etc. so a
         new source-template that just sets `kind = "linear"` gets the
         right argparse-attr lookups for free."""
-        from briar.iac.scaffold.sources.github import SourceGithub
         from briar.iac.scaffold.sources.bitbucket import SourceBitbucket
+        from briar.iac.scaffold.sources.github import SourceGithub
 
         gh_ns = argparse.Namespace(
             github_authors_allow=["a"],
@@ -3986,12 +3990,15 @@ class Phase12FollowupTests(unittest.TestCase):
             github_assignees_allow=["c"],
             github_assignees_block=["d"],
         )
-        self.assertEqual(SourceGithub()._user_filters(gh_ns), {
-            "authors_allow": ["a"],
-            "authors_block": ["b"],
-            "assignees_allow": ["c"],
-            "assignees_block": ["d"],
-        })
+        self.assertEqual(
+            SourceGithub()._user_filters(gh_ns),
+            {
+                "authors_allow": ["a"],
+                "authors_block": ["b"],
+                "assignees_allow": ["c"],
+                "assignees_block": ["d"],
+            },
+        )
         bb_ns = argparse.Namespace(
             bitbucket_authors_allow=["x"],
             bitbucket_authors_block=[],
@@ -4015,6 +4022,7 @@ class Phase13StructuralFollowupTests(unittest.TestCase):
 
     def test_language_detector_is_dataclass_not_abc(self) -> None:
         import dataclasses
+
         from briar.extract.language_detectors import LANGUAGE_DETECTORS, LanguageDetector
 
         self.assertTrue(dataclasses.is_dataclass(LanguageDetector))
@@ -4129,13 +4137,7 @@ class Phase14StructuralCleanupTests(unittest.TestCase):
         read anywhere. Phase 13 deleted them; only the 2 that the
         dashboard collector actually reads (`requires_github` /
         `requires_aws`) survive."""
-        from briar.extract.base import (
-            CloudBackedExtractor,
-            KnowledgeExtractor,
-            MeetingBackedExtractor,
-            RepoBackedExtractor,
-            TrackerBackedExtractor,
-        )
+        from briar.extract.base import CloudBackedExtractor, KnowledgeExtractor, MeetingBackedExtractor, RepoBackedExtractor, TrackerBackedExtractor
 
         # Base + 4 *Backed* subclasses no longer declare the dead flags
         for cls in (KnowledgeExtractor, CloudBackedExtractor, TrackerBackedExtractor, MeetingBackedExtractor, RepoBackedExtractor):
@@ -4169,6 +4171,7 @@ class Phase14StructuralCleanupTests(unittest.TestCase):
         under 50 lines (the spec + per-op context-fetch + AgentRunner
         construction, no boilerplate)."""
         import inspect
+
         from briar.commands.agent import CommandAgent
 
         prfix_lines = len(inspect.getsource(CommandAgent._run_prfix).splitlines())
@@ -4211,8 +4214,12 @@ class Phase14BackedExtractorHelpersTests(unittest.TestCase):
 
         ns = argparse.Namespace(cloud="gcp", company="acme", region="us-east-1", profile="acme-prod")
         result = _resolve_provider_from_args(
-            ns, flag="cloud", default="aws", make_fn=fake_make,
-            region=ns.region, profile=ns.profile,
+            ns,
+            flag="cloud",
+            default="aws",
+            make_fn=fake_make,
+            region=ns.region,
+            profile=ns.profile,
         )
         self.assertEqual(captured["kind"], "gcp")
         self.assertEqual(captured["company"], "acme")
@@ -4264,11 +4271,7 @@ class JiraAuthModuleFunctionsTests(unittest.TestCase):
         self.assertEqual(set(kinds), {"token", "session"})
 
     def test_make_jira_auth_returns_strategy_instance(self) -> None:
-        from briar.extract._trackers._jira_auth import (
-            JiraSessionAuth,
-            JiraTokenAuth,
-            make_jira_auth,
-        )
+        from briar.extract._trackers._jira_auth import JiraSessionAuth, JiraTokenAuth, make_jira_auth
 
         self.assertIsInstance(make_jira_auth("token"), JiraTokenAuth)
         self.assertIsInstance(make_jira_auth("session"), JiraSessionAuth)

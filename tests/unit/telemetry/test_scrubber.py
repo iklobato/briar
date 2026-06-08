@@ -37,13 +37,13 @@ class TestSecretRedaction:
     @pytest.mark.parametrize(
         "value",
         [
-            "AKIA" + "IOSFODNN7EXAMPLE",                                    # AWS access key id
-            "ghp" + "_" + "a" * 36,                                         # GitHub PAT classic
-            "github" + "_pat_" + "11ABCDEFG_" + "x" * 22,                   # GH fine-grained
-            "sk-ant" + "-api01_" + "a" * 30,                                # Anthropic key
-            "sk-" + "a" * 36,                                               # OpenAI key
-            "xoxb" + "-12345-67890-abcdefghij",                             # Slack token
-            "-----" + "BEGIN " + "RSA " + "PRIVATE " + "KEY" + "-----",     # PEM
+            "AKIA" + "IOSFODNN7EXAMPLE",  # AWS access key id
+            "ghp" + "_" + "a" * 36,  # GitHub PAT classic
+            "github" + "_pat_" + "11ABCDEFG_" + "x" * 22,  # GH fine-grained
+            "sk-ant" + "-api01_" + "a" * 30,  # Anthropic key
+            "sk-" + "a" * 36,  # OpenAI key
+            "xoxb" + "-12345-67890-abcdefghij",  # Slack token
+            "-----" + "BEGIN " + "RSA " + "PRIVATE " + "KEY" + "-----",  # PEM
             # JWT — three base64url segments of 20+ chars
             ("e" + "y" * 40) + "." + ("e" + "y" * 30) + "." + ("S" + "f" * 40),
         ],
@@ -78,6 +78,20 @@ class TestLengthCap:
 
     def test_short_value_untouched(self, scrubber: Scrubber) -> None:
         assert scrubber.scrub_value("plan.run") == "plan.run"
+
+    def test_value_exactly_at_cap_not_truncated(self, scrubber: Scrubber) -> None:
+        # Boundary: the cap is `len(text) > cap`, so a value of EXACTLY the
+        # cap length passes through unchanged. An off-by-one (`>=`) would
+        # truncate a value that's within the documented limit.
+        exact = "y" * scrubber.value_length_cap
+        out = scrubber.scrub_value(exact)
+        assert out == exact
+        assert "<truncated>" not in out
+
+    def test_value_one_over_cap_is_truncated(self, scrubber: Scrubber) -> None:
+        out = scrubber.scrub_value("z" * (scrubber.value_length_cap + 1))
+        assert out.endswith("...<truncated>")
+        assert len(out) <= scrubber.value_length_cap
 
 
 class TestPrimitiveCoercion:

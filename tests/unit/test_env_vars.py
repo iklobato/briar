@@ -60,6 +60,15 @@ class TestRead:
         # Passing a company name doesn't matter for a global var.
         assert CredEnv.GITHUB_TOKEN.read("acme") == "global-value"
 
+    def test_templated_var_without_company_returns_empty_not_template(self, monkeypatch) -> None:
+        # A per-company var read with no company is "not configured" → "".
+        # It must NOT leak the raw template ("AWS_{c}_ACCESS_KEY_ID") or the
+        # literal env key — callers branch on truthiness, and a non-empty
+        # template would read as "configured" and then never match any env.
+        monkeypatch.setenv("AWS_{c}_ACCESS_KEY_ID", "should-not-be-read")
+        assert CredEnv.AWS_KEY_ID.read("") == ""
+        assert CredEnv.AWS_KEY_ID.read() == ""
+
 
 class TestEnumShape:
     def test_every_per_company_template_has_brace_c_placeholder(self) -> None:
