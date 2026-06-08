@@ -16,8 +16,12 @@ from briar.decorators import swallow_errors
 from briar.env_vars import CredEnv
 from briar.notify._sink import NotificationSink
 
-
 log = logging.getLogger(__name__)
+
+
+# Bot API host. Module-level so tests can point the real urllib send at a
+# wire-level mock (the live host has no env/base-url override of its own).
+_API_BASE = "https://api.telegram.org"
 
 
 class TelegramSink(NotificationSink):
@@ -37,7 +41,7 @@ class TelegramSink(NotificationSink):
             log.warning("telegram send skipped — no token or chat_id (company=%s)", self._company)
             return False
         text = f"*{title}*\n\n{body}"
-        url = f"https://api.telegram.org/bot{self._token}/sendMessage"
+        url = f"{_API_BASE}/bot{self._token}/sendMessage"
         data = urllib.parse.urlencode({"chat_id": self._chat_id, "text": text, "parse_mode": "Markdown"}).encode("utf-8")
         req = urllib.request.Request(url, data=data, method="POST")
         with urllib.request.urlopen(req, timeout=10) as resp:

@@ -8,7 +8,8 @@ which resolves the transition id then POSTs):
   204 No Content on success (no body) — hence the writer treats `None`
   as success. Error envelope: {"errorMessages": [...], "errors": {...}}.
 
-The writer calls `self._jira().set_issue_status(key, status, comment=...)`.
+The writer calls `self._jira().set_issue_status(key, status, update=...)`
+(a resolution comment rides the transition POST via the `update` field).
 """
 
 from __future__ import annotations
@@ -55,8 +56,9 @@ class TestSend:
 
         assert result.ok is True
         assert result.ref == "PROJ-7→Done"
-        # Comment is [AI]-prefixed; status + key passed through.
-        client.set_issue_status.assert_called_once_with("PROJ-7", "Done", comment="[AI] resolving")
+        # Comment is [AI]-prefixed and rides the transition POST via `update`
+        # (the atlassian client's set_issue_status has no `comment` param).
+        client.set_issue_status.assert_called_once_with("PROJ-7", "Done", update={"comment": [{"add": {"body": "[AI] resolving"}}]})
 
     def test_status_from_binding_config_default(self, monkeypatch, mocker) -> None:
         _creds(monkeypatch)
@@ -67,15 +69,15 @@ class TestSend:
 
         assert result.ok is True
         assert result.ref == "PROJ-9→In Review"
-        # Empty body → comment is None (no resolution note).
-        client.set_issue_status.assert_called_once_with("PROJ-9", "In Review", comment=None)
+        # Empty body → no update payload (no resolution note).
+        client.set_issue_status.assert_called_once_with("PROJ-9", "In Review", update=None)
 
     def test_extras_status_overrides_config_default(self, monkeypatch, mocker) -> None:
         _creds(monkeypatch)
         w = JiraTransitionWriter(company="acme", config={"status": "Done"})
         client = _mock_jira(mocker, w, set_status_return=None)
         w.send(target="PROJ-1", body="", status="Blocked")
-        client.set_issue_status.assert_called_once_with("PROJ-1", "Blocked", comment=None)
+        client.set_issue_status.assert_called_once_with("PROJ-1", "Blocked", update=None)
 
     def test_non_none_response_used_as_ref(self, monkeypatch, mocker) -> None:
         _creds(monkeypatch)

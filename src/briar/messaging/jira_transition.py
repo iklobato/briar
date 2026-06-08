@@ -47,11 +47,15 @@ class JiraTransitionWriter(MessageWriter):
         if not status:
             return SendResult(ok=False, detail="jira-transition requires extras.status or binding config.status")
         # The library exposes `set_issue_status` which wraps the
-        # /transitions endpoint + the transition-id resolution.
-        # `body` is appended as a comment via `comment=` when supplied;
-        # mark it with [AI] per CLAUDE.md for operator-impersonated text.
-        comment = with_ai_prefix(body) if body else None
-        result = self._jira().set_issue_status(target, status, comment=comment)
+        # /transitions endpoint + the transition-id resolution. It has no
+        # `comment` parameter; a resolution note rides along on the same
+        # transition POST via the `update` field, which is exactly what
+        # Jira's transitions API expects (update.comment[].add.body).
+        # Mark it with [AI] per CLAUDE.md for operator-impersonated text.
+        update = None
+        if body:
+            update = {"comment": [{"add": {"body": with_ai_prefix(body)}}]}
+        result = self._jira().set_issue_status(target, status, update=update)
         if result is None:
             return SendResult(ok=True, ref=f"{target}→{status}")
         # Atlassian's response shape varies — treat any non-None as ok.

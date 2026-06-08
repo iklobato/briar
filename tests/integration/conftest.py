@@ -23,14 +23,18 @@ class _MockApi:
         # twice for the same route enqueues a SEQUENCE (consumed in order, the
         # last response sticks) so multi-turn flows (tool_use -> end_turn) work.
         # Longest-prefix-first so specific routes beat generic ones.
-        self.routes: Dict[Tuple[str, str], List[Tuple[int, Any]]] = {}
+        # body is the value to return. With raw=False (default) it is JSON-encoded
+        # and served as application/json; with raw=True a `str`/`bytes` body is
+        # served verbatim as text/plain (for sinks whose API returns a bare
+        # non-JSON body, e.g. a Slack incoming webhook's literal "ok").
+        self.routes: Dict[Tuple[str, str], List[Tuple[int, Any, bool]]] = {}
         self.received: List[Dict[str, Any]] = []
         self.base_url = ""
 
-    def add(self, method: str, path_prefix: str, body: Any, status: int = 200) -> None:
-        self.routes.setdefault((method.upper(), path_prefix), []).append((status, body))
+    def add(self, method: str, path_prefix: str, body: Any, status: int = 200, raw: bool = False) -> None:
+        self.routes.setdefault((method.upper(), path_prefix), []).append((status, body, raw))
 
-    def _match(self, method: str, path: str) -> Tuple[int, Any] | None:
+    def _match(self, method: str, path: str) -> Tuple[int, Any, bool] | None:
         candidates = [(p, q) for (m, p), q in self.routes.items() if m == method and path.startswith(p) and q]
         if not candidates:
             return None
@@ -51,10 +55,15 @@ def _handler_for(api: _MockApi):
                 self.end_headers()
                 self.wfile.write(b'{"message":"no route"}')
                 return
-            status, body = match
-            payload = json.dumps(body).encode()
+            status, body, raw = match
+            if raw:
+                payload = body if isinstance(body, bytes) else str(body).encode()
+                content_type = "text/plain"
+            else:
+                payload = json.dumps(body).encode()
+                content_type = "application/json"
             self.send_response(status)
-            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)
@@ -123,6 +132,19 @@ def anthropic_at(mock_api, monkeypatch):
     honors natively. Caller seeds POST /v1/messages with a Messages-API body."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "PLACEHOLDER-not-a-secret")
     monkeypatch.setenv("ANTHROPIC_BASE_URL", mock_api.base_url)
+    return mock_api
+
+
+@pytest.fixture
+def bitbucket_at(mock_api, monkeypatch):
+    """Point the REAL atlassian Bitbucket Cloud client at the mock server by
+    overriding the writer's BASE. Sets the per-company basic-auth creds."""
+    from briar.messaging.bitbucket_pr_comment import BitbucketPrCommentWriter
+
+    monkeypatch.setattr(BitbucketPrCommentWriter, "BASE", mock_api.base_url + "/")
+    monkeypatch.setenv("BITBUCKET_ACME_USERNAME", "bot")
+    monkeypatch.setenv("BITBUCKET_ACME_APP_PASSWORD", "PLACEHOLDER-not-a-secret")
+    monkeypatch.setenv("BITBUCKET_ACME_WORKSPACE", "acme-ws")
     return mock_api
 
 
