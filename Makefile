@@ -27,11 +27,8 @@ test:
 
 smoke:
 	@$(BRIAR) --help >/dev/null && echo "  ✓ top-level"
-	@for c in login logout register whoami workspace memberships \
-	          agents tools skills sources workflows workflow-templates \
-	          triggers tasks runs llm-providers llm-models secrets \
-	          budgets budget-alerts audit-events checkpoints oauth \
-	          apply plan destroy scaffold export api config profile version; do \
+	@for c in extract runbook scaffold context dashboard agent \
+	          auth plan secrets journal telemetry version; do \
 	    $(BRIAR) "$$c" --help >/dev/null 2>&1 && echo "  ✓ $$c" \
 	      || { echo "  ✗ $$c"; exit 1; }; \
 	done
