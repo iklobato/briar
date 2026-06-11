@@ -69,6 +69,14 @@ companies:
     knowledge:
       store: file
       name: ./knowledge/acme.md
+      # Opt-in: also write a stable JSON inventory companion blob
+      # (./knowledge/acme.inventory.json, category `inventory`) holding the
+      # full structured `data` each extractor produced — e.g. every tagged
+      # AWS resource from the `tagging-inventory` gatherer. Byte-stable, so
+      # the postgres history table becomes an estate change log. Off by
+      # default; inspect with `briar context list --prefix inventory:`.
+      # config:
+      #   inventory: "true"
 
     # Per-company commit identity used by `briar agent prfix` and
     # `briar agent implement`. Resolved per-field with priority:

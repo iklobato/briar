@@ -396,6 +396,7 @@ be added without changing existing classes:
 | `MeetingProvider` | `extract/_meetings/` | **fireflies** | one adapter |
 | `JiraAuthStrategy` | `extract/_trackers/_jira_auth.py` | token, session | one strategy class |
 | `CloudProvider` | `extract/_clouds/` | aws, gcp, azure | one adapter |
+| `AwsServiceGatherer` | `extract/aws_services/` | ecs, rds, lambda, sqs, logs, **tagging-inventory** | one module + registry entry (powers `aws-infra`) |
 | `LLMProvider` | `agent/_llms/` | anthropic, openai, gemini, bedrock | one adapter; `default_error_policies()` declares retry shape |
 | `NotificationSink` | `notify/` | telegram, slack, email, pagerduty | one adapter |
 | `MessageWriter` | `messaging/` | jira-comment, jira-transition, slack-channel, telegram-chat, github-pr-comment, bitbucket-pr-comment | one writer |

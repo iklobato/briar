@@ -60,6 +60,10 @@ briar extract --company acme \
     --aws-extract-region us-east-1 \
     --aws-extract-service ecs --aws-extract-service rds
 
+# Account-wide inventory: every tagged AWS resource across all services
+briar extract --company acme --include aws-infra \
+    --aws-extract-service tagging-inventory
+
 # Last 14 days of Fireflies meeting summaries for an attendee list
 FIREFLIES_ACME_API_KEY=ff_xxx briar extract --company acme \
     --include meeting-digest --meeting-since-days 14 \

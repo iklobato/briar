@@ -64,6 +64,29 @@ User=briar
 EnvironmentFile=/etc/briar/secrets.env
 ```
 
+### Knowledge binding options
+
+Each company's `knowledge:` block selects the store and blob name:
+
+```yaml
+    knowledge:
+      store: postgres            # file | postgres
+      name: knowledge:acme       # blob name (file backend: ./knowledge/...)
+      # root: ./knowledge        # file backend only — override parent dir
+      config:
+        inventory: "true"        # also write the JSON inventory companion
+```
+
+With `config.inventory` truthy, every scheduled run additionally writes
+a stable JSON companion blob (`knowledge:acme` → `inventory:acme`,
+category `inventory`) holding the full structured `data` each extractor
+produced — the detail the prompt-baked markdown drops (e.g. every tagged
+AWS resource from `tagging-inventory`). It's byte-stable, so
+`put_if_changed` only rewrites it on real drift; the postgres history
+table becomes an estate change log. Inspect with `briar context get
+inventory:acme` / `briar context list --prefix inventory:`. Off by
+default — omit the block and behaviour is unchanged.
+
 ## Verifying success
 
 For one-shot:

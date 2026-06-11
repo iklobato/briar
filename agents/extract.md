@@ -24,7 +24,7 @@ after each successful card.
 | `active-tickets`, `ticket-archaeology` | `JIRA_<COMPANY>_*` or `GITHUB_<COMPANY>_TOKEN` (per tracker) |
 | `pr-archaeology`, `reviewer-profile`, `code-hotspots`, `codebase-conventions` | `GITHUB_<COMPANY>_TOKEN` |
 | `github-deployments` | `GITHUB_<COMPANY>_TOKEN` |
-| `aws-infra` | `AWS_<COMPANY>_*` env or `--aws-extract-profile` |
+| `aws-infra` | `AWS_<COMPANY>_*` env or `--aws-extract-profile` (the `tagging-inventory` gatherer also needs the `tag:GetResources` IAM permission) |
 | `meeting-digest` | `FIREFLIES_<COMPANY>_API_KEY` |
 
 Verify coverage with `briar secrets doctor --company <name>` before
@@ -54,6 +54,37 @@ The available extractor names:
 `active-tickets`, `active-work`, `aws-infra`, `code-hotspots`,
 `codebase-conventions`, `github-deployments`, `meeting-digest`,
 `pr-archaeology`, `reviewer-profile`, `ticket-archaeology`.
+
+### AWS resource inventory (every tagged resource)
+
+`aws-infra` runs a registry of per-service gatherers
+(`--aws-extract-service`): `ecs`, `lambda`, `logs`, `rds`, `sqs`, and
+`tagging-inventory`. The first five describe one service each; the last
+walks `resourcegroupstaggingapi:GetResources` to enumerate **every
+tagged resource across every service** in the region.
+
+```bash
+# Just the account-wide inventory:
+briar extract --company <COMPANY> --include aws-infra \
+    --aws-extract-service tagging-inventory
+```
+
+In the knowledge markdown the inventory section stays terse — a
+per-service **count** only, so it doesn't bloat agent prompts. The full
+per-resource detail (ARN, type, region, tags) lives in the section's
+structured `data`, surfaced via the JSON sidecar (`--out-json`) or the
+inventory companion blob (below). Note: `GetResources` only sees
+*tagged* resources; untagged ones are invisible to it.
+
+### Persisting full detail (inventory companion)
+
+When a runbook's `knowledge` binding sets `config: {inventory: "true"}`,
+each scheduled run also writes a stable JSON **inventory companion** blob
+(`knowledge:<company>` → `inventory:<company>`) carrying the full `data`
+payloads the markdown drops. It's byte-stable (no timestamp), so
+`put_if_changed` only rewrites it on real drift — the postgres history
+table then doubles as a cloud/repo-estate change log. List them with
+`briar context list --prefix inventory:`. See `agents/runbook.md`.
 
 ### Write to postgres instead of disk
 
