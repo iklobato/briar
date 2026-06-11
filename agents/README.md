@@ -88,7 +88,7 @@ secrets doctor --examples examples/` to see what's missing.
 
 | File | Command family |
 |---|---|
-| [flows.md](flows.md) | **End-to-end usage flows** — 13 recipes chaining commands into outcomes (start here for "how do I…") |
+| [flows.md](flows.md) | **End-to-end usage flows** — 14 multi-feature recipes chaining commands into outcomes (start here for "how do I…") |
 | [version.md](version.md) | `briar version` — sanity-check the install |
 | [extract.md](extract.md) | `briar extract` — one-shot knowledge extraction |
 | [runbook.md](runbook.md) | `briar runbook` — scheduled extraction (extract / sweep / serve) |

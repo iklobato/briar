@@ -1,8 +1,13 @@
 # Briar — end-to-end usage flows (cookbook)
 
-Recipes that chain several `briar` commands into a real outcome. Each
-flow lists the exact shell calls with example parameters, then how to
-verify it worked. Placeholders used throughout:
+Recipes that chain several `briar` commands into a real outcome. Most
+flows deliberately combine **more than one feature** — a typical shape is
+`secrets` (gate) → `extract` (mine) → `agent`/`plan` (act) → `context`
+(inspect) → `journal`/`dashboard` (audit). Each flow lists the exact
+shell calls with example parameters, a **Features combined** line so you
+can see what's working together, and how to verify it. Flow 14 is the
+capstone that strings the whole tool into one chain. Placeholders used
+throughout:
 
 | Placeholder | Example | Means |
 |---|---|---|
@@ -49,12 +54,16 @@ briar extract --company <COMPANY> \
 
 ## Flow 2 — Extract AWS + Fireflies + PRs, then fix a PR
 
-The headline flow: mine infra, meeting decisions, and PR history into the
-knowledge blob, then run the PR-fixer agent with the relevant meeting
-spliced in.
+The headline flow, touching five features end to end: **secrets** (gate)
+→ **extract** (mine infra + meetings + PRs) → **context** (inspect the
+blob) → **agent** (fix the PR with the meeting spliced in) → **journal**
+(audit what it decided).
 
 ```bash
-# 1. One extraction covering three sources
+# 1. secrets — gate on credential coverage before spending anything
+briar secrets doctor --examples examples/
+
+# 2. extract — one pass covering three sources into knowledge:<COMPANY>
 briar extract --company <COMPANY> \
     --include aws-infra \
     --include meeting-digest \
@@ -63,78 +72,119 @@ briar extract --company <COMPANY> \
     --aws-extract-region us-east-1 \
     --meeting-since-days 14
 
-# 2. Address the open review comments on PR #128, with the matching
-#    Fireflies transcript fetched just-in-time into the agent's prompt
+# 3. context — eyeball what landed before the agent reads it
+briar context get knowledge:<COMPANY> | head -40
+
+# 4. agent — address PR #128's open review comments, with the matching
+#    Fireflies transcript fetched just-in-time into the prompt.
+#    Add --dry-run first to preview the prompt + tools for free.
 briar agent prfix --company <COMPANY> \
     --owner <OWNER> --repo <REPO> \
     --pr 128 --branch fix/login-retry \
     --meeting fireflies --meeting-query "login retry" --meeting-top-k 3 \
     --runbook examples/<COMPANY>.yaml
+
+# 5. journal — audit the agent's decision trail
+briar journal list --command-prefix agent.
+briar journal show <SESSION_ID>
 ```
 
-**Verify:** step 2 prints `agent-done`; the PR shows new commits + inline
-replies prefixed `[AI] `. Preview without spending tokens first by adding
-`--dry-run` to step 2.
+**Features combined:** `secrets` · `extract` (3 extractors) · `context` ·
+`agent prfix` (+ JIT meeting context) · `journal`.
+
+**Verify:** step 4 prints `agent-done`; the PR shows new commits + inline
+replies prefixed `[AI] `; step 5 lists the session with its ordered
+`DecisionEvent`s.
 
 ---
 
 ## Flow 3 — Implement a Jira ticket end-to-end
 
-Clone, branch, code, test, open a draft PR — one ticket, autonomously.
+Clone, branch, code, test, open a draft PR — one ticket, autonomously —
+combining **extract** → **agent implement** → **journal**, with a
+**secrets** pre-check.
 
 ```bash
-# 1. Make sure the engineer agent has fresh conventions + ticket context
+# 1. secrets — confirm this company's tracker + repo creds are present
+briar secrets doctor --examples examples/
+
+# 2. extract — fresh conventions + ticket context for the engineer agent
 briar extract --company <COMPANY> \
     --include codebase-conventions --include active-tickets \
     --pr-repo <OWNER>/<REPO> --ticket-project <PROJECT>
 
-# 2. Implement one ticket (ticket-context is fetched JIT for this key)
+# 3. agent — implement one ticket (ticket-context fetched JIT for the key).
+#    --keep-worktree leaves the tree in /tmp to inspect; --dry-run previews.
 briar agent implement --company <COMPANY> \
     --owner <OWNER> --repo <REPO> \
     --ticket-project <PROJECT> --ticket-key <PROJECT>-412 \
     --tracker jira \
     --runbook examples/<COMPANY>.yaml
+
+# 4. journal — read back exactly what the agent did and why
+briar journal show <SESSION_ID>
 ```
 
+**Features combined:** `secrets` · `extract` · `agent implement` (+ JIT
+ticket context) · `journal`. For *many* tickets at once, graduate to the
+plan loop in Flow 4.
+
 **Verify:** exit `0`, `agent-done` logged, a new draft PR on a fresh
-branch. Use `--keep-worktree` to inspect the working tree in `/tmp`
-afterwards, or `--dry-run` to validate the prompt wiring first.
+branch, and a journal session recording the decisions.
 
 ---
 
 ## Flow 4 — Build and run an implementation plan from a board
 
 Turn a tracker board into an ordered plan, then let the selector→implement
-→writeback loop ship it card by card.
+→writeback loop ship it card by card — combining **extract** (knowledge),
+**plan**, **context** (watch the plan-knowledge blob learn), **dashboard**
+and **journal** (monitor + audit).
 
 ```bash
-# 1. Build the plan; splice the company knowledge blob into card synthesis
+# 0. extract — refresh the knowledge the synthesiser will splice in
+briar extract --company <COMPANY> --include codebase-conventions \
+    --include active-tickets --pr-repo <OWNER>/<REPO> --ticket-project <PROJECT>
+
+# 1. plan build — board → ordered plan, with knowledge:<COMPANY> spliced in
 briar plan build "https://github.com/orgs/<OWNER>/projects/7" \
     --company <COMPANY> --name q3-auth \
     --with-knowledge --llm anthropic --store postgres
 
-# 2. Inspect what got synthesised before spending money
+# 2. plan — inspect what got synthesised before spending money
 briar plan status q3-auth --company <COMPANY> --store postgres
 briar plan next   q3-auth --company <COMPANY> --store postgres   # what the selector would pick
 
-# 3. Smoke ONE card end-to-end
+# 3. plan run — smoke ONE card end-to-end
 briar plan run q3-auth \
     --owner <OWNER> --repo <REPO> \
     --tracker jira --tracker-project <PROJECT> \
     --llm anthropic --company <COMPANY> --store postgres \
     --limit 1
 
-# 4. Let the loop go wide; keep going past a failing card
+# 4. context — watch the plan-scoped knowledge blob the loop updates
+#    after each card (KnowledgeWriter merges learnings into it)
+briar context --store postgres get knowledge:<COMPANY>.q3-auth | tail -20
+
+# 5. plan run — let the loop go wide; keep going past a failing card
 briar plan run q3-auth \
     --owner <OWNER> --repo <REPO> \
     --tracker jira --tracker-project <PROJECT> \
     --llm anthropic --company <COMPANY> --store postgres \
     --continue-on-failure
+
+# 6. dashboard + journal — monitor progress and audit each card's run
+briar dashboard --examples examples/ --once
+briar journal list --command-prefix plan.
 ```
 
-**Verify:** `plan status` shows cards moving `pending → done`; each
-completed card has a PR and a journal session. Exit `1` means the run
-finished with blocked cards — read `plan status` to see which.
+**Features combined:** `extract` · `plan build/status/next/run` ·
+`context` (plan-knowledge blob) · `dashboard` · `journal`.
+
+**Verify:** `plan status` shows cards moving `pending → done`; the
+`knowledge:<COMPANY>.q3-auth` blob grows after each card; each completed
+card has a PR and a journal session. Exit `1` means the run finished with
+blocked cards — read `plan status` to see which.
 
 ---
 
@@ -371,6 +421,57 @@ briar context --store postgres list --prefix knowledge:
 
 **Verify:** `context get` round-trips what you `put`; `context categories`
 shows the distinct prefixes in use.
+
+---
+
+## Flow 14 — Full lifecycle in one sitting (onboard → schedule → ship → audit)
+
+The capstone: every major feature in one chain, taking a company from no
+credentials to merged AI-authored PRs with an audit trail.
+
+```bash
+# 1. auth + secrets — get credentials in, prove coverage
+briar auth login github-pat --company <COMPANY>
+briar auth login jira-token --company <COMPANY>
+briar auth login aws-static --company <COMPANY>
+briar secrets doctor --examples examples/
+
+# 2. runbook — stand up scheduled extraction so knowledge stays fresh
+#    (knowledge.config.inventory: "true" in the YAML also persists the
+#     AWS inventory companion — see Flow 5)
+briar runbook sweep examples/                 # one-shot refresh now
+# briar runbook serve examples/               # ...or run the daemon
+
+# 3. context — confirm the knowledge + inventory blobs exist
+briar context --store postgres list --prefix knowledge:
+briar context --store postgres list --prefix inventory:
+
+# 4. plan — board → ordered plan, knowledge spliced in
+briar plan build "https://github.com/orgs/<OWNER>/projects/7" \
+    --company <COMPANY> --name q3-auth --with-knowledge \
+    --llm anthropic --store postgres
+
+# 5. plan run — ship the plan card by card (engineer agent per card)
+briar plan run q3-auth --owner <OWNER> --repo <REPO> \
+    --tracker jira --tracker-project <PROJECT> \
+    --llm anthropic --company <COMPANY> --store postgres \
+    --continue-on-failure
+
+# 6. agent prfix — when a human reviews a shipped PR, address the comments
+briar agent prfix --company <COMPANY> --owner <OWNER> --repo <REPO> \
+    --pr 131 --branch q3-auth/card-3 \
+    --meeting fireflies --meeting-query "auth review" \
+    --runbook examples/<COMPANY>.yaml
+
+# 7. dashboard + journal — monitor the estate and audit every decision
+briar dashboard --examples examples/ --once
+briar journal list --command-prefix plan.
+briar journal list --command-prefix agent.
+```
+
+**Features combined:** `auth` · `secrets` · `runbook` (sweep/serve) ·
+`extract` (via runbook) · `context` · `plan build/run` · `agent prfix` ·
+`dashboard` · `journal` — the whole tool in nine commands.
 
 ---
 
