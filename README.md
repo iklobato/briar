@@ -198,7 +198,9 @@ Full command reference, every flag, runbook-YAML schema, configuration, and reci
 
 **📖 [usebriar.com/docs](https://usebriar.com/docs)**
 
-A comprehensive multi-company runbook lives in [`examples/all_features.yaml`](examples/all_features.yaml).
+- **End-to-end usage flows** (13 copy-paste recipes — onboard a company, extract AWS + Fireflies + fix a PR, build & run a plan, …): [`agents/flows.md`](agents/flows.md)
+- Per-command operator manual: [`agents/`](agents/README.md)
+- A comprehensive multi-company runbook lives in [`examples/all_features.yaml`](examples/all_features.yaml).
 
 ---
 

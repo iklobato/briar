@@ -27,8 +27,8 @@ after each successful card.
 | `aws-infra` | `AWS_<COMPANY>_*` env or `--aws-extract-profile` (the `tagging-inventory` gatherer also needs the `tag:GetResources` IAM permission) |
 | `meeting-digest` | `FIREFLIES_<COMPANY>_API_KEY` |
 
-Verify coverage with `briar secrets doctor --company <name>` before
-running. If anything is missing the relevant extractor will skip
+Verify coverage with `briar secrets doctor --examples examples/` before
+running (it audits every (company, extractor) pair in the runbook dir). If anything is missing the relevant extractor will skip
 silently — you'll see `skipped <name>  (not available in this env)`.
 
 ## Commands
