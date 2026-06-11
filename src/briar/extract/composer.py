@@ -53,6 +53,27 @@ class KnowledgeComposer:
         return json.dumps(payload, indent=2, default=str)
 
     @classmethod
+    def inventory(
+        cls,
+        *,
+        company: str,
+        sections: List[ExtractedSection],
+    ) -> str:
+        """Stable structured-inventory JSON for a section bundle.
+
+        Unlike `json()`, this OMITS the volatile `generated_at`
+        timestamp and sorts keys, so the output is byte-stable when the
+        underlying resources are unchanged. That lets `put_if_changed`
+        dedup it — the postgres history table then gains a row only when
+        the estate actually drifts, turning the inventory blob into a
+        change log rather than a per-run append."""
+        payload: Dict[str, Any] = {
+            "company": company,
+            "sections": [cls._section_to_dict(s) for s in sections],
+        }
+        return json.dumps(payload, indent=2, sort_keys=True, default=str)
+
+    @classmethod
     def _render_section(
         cls,
         section: ExtractedSection,

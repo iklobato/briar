@@ -280,8 +280,13 @@ def test_list_subsections_uses_native_gatherers(provider: AwsCloudProvider) -> N
     by_title = {s.title: s for s in sections}
     assert "RDS" in by_title and "_no instances_" in by_title["RDS"].body
     assert "Lambda" in by_title and "_no functions_" in by_title["Lambda"].body
-    # All five registered gatherers render a section.
-    assert len(sections) == 5
+    # The tagging-inventory gatherer also contributes a section. moto's
+    # resourcegroupstaggingapi aggregation is unreliable, so it may render
+    # either a real "Resource inventory" section or a caught "_skipped_"
+    # one — either way it's a non-empty section, so the count is 6.
+    assert any(t.startswith("Resource inventory") or t == "TAGGING-INVENTORY" for t in titles)
+    # All six registered gatherers render a section.
+    assert len(sections) == 6
 
 
 def test_list_subsections_services_filter(provider: AwsCloudProvider) -> None:

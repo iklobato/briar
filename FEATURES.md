@@ -90,12 +90,12 @@ src/briar/
 ├── extract/                          — knowledge extractors + provider abstractions
 │   ├── __init__.py                       EXTRACTORS + TASK_SCOPED_EXTRACTORS registries
 │   ├── base.py                           KnowledgeExtractor + 4 *BackedExtractor bases
-│   ├── composer.py                       KnowledgeComposer (markdown + json renderers)
+│   ├── composer.py                       KnowledgeComposer (markdown + json + inventory renderers)
 │   ├── _provider.py / _providers/        RepositoryProvider ABC + github/bitbucket impls
 │   ├── _tracker.py  / _trackers/         TrackerProvider ABC + 4 impls
 │   ├── _cloud.py    / _clouds/           CloudProvider ABC + 3 impls
 │   ├── _meeting.py  / _meetings/         MeetingProvider ABC + fireflies impl
-│   ├── aws_services/                     AWS_SERVICE_GATHERERS (ecs/rds/lambda/sqs/logs)
+│   ├── aws_services/                     AWS_SERVICE_GATHERERS (ecs/rds/lambda/sqs/logs/tagging-inventory)
 │   ├── language_detectors/               codebase-conventions sub-strategies
 │   ├── pr_archaeology.py, active_work.py, github_deployments.py,
 │   ├── codebase_conventions.py, reviewer_profile.py, code_hotspots.py,
@@ -181,7 +181,7 @@ edit anywhere else.
 | Trigger templates (`scaffold --trigger-kind`) | `briar.iac.scaffold.triggers.TRIGGER_TEMPLATES` | `bitbucket_webhook`, `github_webhook`, `manual`, `schedule_cron` |
 | Source templates (`scaffold --source`) | `briar.iac.scaffold.sources.SOURCE_TEMPLATES` | `aws`, `bitbucket`, `github`, `jira`, `sentry` |
 | Bootstraps (`secrets bootstrap --kind`) | `briar.credentials._bootstraps.BOOTSTRAPS` | `envfile`, `infisical` (registry order = precedence; earlier wins) |
-| AWS service gatherers (`--aws-extract-service`) | `briar.extract.aws_services.AWS_SERVICE_GATHERERS` | `ecs`, `lambda`, `logs`, `rds`, `sqs` |
+| AWS service gatherers (`--aws-extract-service`) | `briar.extract.aws_services.AWS_SERVICE_GATHERERS` | `ecs`, `lambda`, `logs`, `rds`, `sqs`, `tagging-inventory` |
 | Output formatters (global `--format`) | `briar.formatting.FORMATTERS` | `table`, `json`, `yaml`, `csv`, `quiet` |
 
 ---
@@ -272,6 +272,33 @@ Postgres backend (`storage/postgres.py`) overrides the default base
 implementation to do md5 server-side AND do compare+write in one
 transaction. Halves connection-slot pressure on managed PG and is
 atomic against concurrent writers.
+
+### Inventory companion (opt-in) — full detail without prompt bloat
+
+Each `ExtractedSection` carries a terse `body` (rendered into the
+prompt-baked markdown blob) **and** a structured `data` dict (the full
+payload — e.g. every resource the `tagging-inventory` gatherer found).
+The markdown drops `data`; the body stays small so agent prompts don't
+bloat.
+
+When `knowledge.config.inventory` is truthy, `_run_schedule` writes a
+second **inventory companion** blob carrying that `data`:
+
+```
+KnowledgeComposer.inventory(company, sections)   # stable JSON: no timestamp, sorted keys
+   → store.put_if_changed("inventory:<company>", json, category="inventory")
+```
+
+- Name derives from the knowledge blob: `knowledge:acme` → `inventory:acme`;
+  `acme.md` → `acme.inventory.json`. Distinct `inventory` category keeps it
+  **out of the agent knowledge splice** (list with `briar context list --prefix inventory:`).
+- `inventory()` omits the volatile `generated_at` and sorts keys, so it's
+  byte-stable — `put_if_changed` dedups it and `briar_knowledge_history`
+  gains a row only on real drift, turning the companion into a
+  cloud/repo-estate **change log**.
+- Best-effort: a companion failure records its own row but never fails the
+  already-written knowledge blob. Off by default — existing deployments are
+  unchanged.
 
 ---
 
@@ -578,7 +605,7 @@ One-shot manual extraction. All flags are extractor-specific or storage.
 | `--ticket-archaeology-project <key>` | `ticket-archaeology` (repeatable) | — |
 | `--ticket-max <N>` | `ticket-archaeology` | 100 |
 | `--aws-extract-region <region>` | `aws-infra` | `us-east-1` |
-| `--aws-extract-service <svc>` | `aws-infra` (repeatable; one of ecs/lambda/logs/rds/sqs) | (all) |
+| `--aws-extract-service <svc>` | `aws-infra` (repeatable; one of ecs/lambda/logs/rds/sqs/tagging-inventory) | (all) |
 | `--aws-extract-profile <name>` | `aws-infra` | — |
 | `--meeting-since-days <N>` | `meeting-digest` | 7 |
 | `--meeting-max <N>` | `meeting-digest` | 25 |

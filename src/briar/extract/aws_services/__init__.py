@@ -14,7 +14,7 @@ from briar.extract.aws_services.lambda_ import GatherLambda
 from briar.extract.aws_services.logs import GatherLogs
 from briar.extract.aws_services.rds import GatherRds
 from briar.extract.aws_services.sqs import GatherSqs
-
+from briar.extract.aws_services.tagging import GatherTaggingInventory
 
 AWS_SERVICE_GATHERERS: Dict[str, AwsServiceGatherer] = {
     g.name: g
@@ -24,6 +24,7 @@ AWS_SERVICE_GATHERERS: Dict[str, AwsServiceGatherer] = {
         GatherLambda(),
         GatherSqs(),
         GatherLogs(),
+        GatherTaggingInventory(),
     )
 }
 

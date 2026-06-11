@@ -85,6 +85,10 @@ class _FakeComposer:
         cls.rendered.append({"company": company, "sections": list(sections)})
         return f"# {company}\n" + "\n".join(s.title for s in sections)
 
+    @classmethod
+    def inventory(cls, *, company: str, sections: List[ExtractedSection]) -> str:
+        return '{"company": "%s", "sections": %d}' % (company, len(sections))
+
 
 def _make_store_returning(store: _FakeStore):
     def _make_store(kind: str, *, file_root, binding):  # noqa: ANN001
@@ -163,6 +167,99 @@ class TestRunScheduleHappyPath:
         # ".md" base → "<base>.<task>.md"
         assert store.put_calls[0]["blob_name"] == "acme.nightly.md"
         assert rows[0].output == "acme.nightly.md"
+
+
+class TestRunScheduleInventory:
+    def test_disabled_by_default_writes_single_blob(self) -> None:
+        rows: List[ExtractRow] = []
+        registry = _FakeRegistry(fake=_FakeExtractor())
+        store = _FakeStore(_FakeOutcome(wrote=True, byte_count=10))
+
+        RunbookExtractor._run_schedule(
+            company_name="acme",
+            schedule=_schedule(),
+            binding=KnowledgeBinding(store="file", name="acme.md"),
+            registry=registry,
+            composer=_FakeComposer,
+            make_store=_make_store_returning(store),
+            rows=rows,
+            company="acme",
+        )
+        # No config.inventory → only the knowledge blob is written.
+        assert len(store.put_calls) == 1
+        assert len(rows) == 1
+
+    def test_enabled_writes_inventory_companion(self) -> None:
+        rows: List[ExtractRow] = []
+        registry = _FakeRegistry(fake=_FakeExtractor())
+        store = _FakeStore(_FakeOutcome(wrote=True, byte_count=10))
+
+        RunbookExtractor._run_schedule(
+            company_name="acme",
+            schedule=_schedule(),
+            binding=KnowledgeBinding(store="file", name="acme.md", config={"inventory": "true"}),
+            registry=registry,
+            composer=_FakeComposer,
+            make_store=_make_store_returning(store),
+            rows=rows,
+            company="acme",
+        )
+        assert len(store.put_calls) == 2
+        inv = store.put_calls[1]
+        assert inv["blob_name"] == "acme.inventory.json"
+        assert inv["category"] == "inventory"
+        assert inv["content"] == '{"company": "acme", "sections": 1}'
+        assert rows[1].status == "inventory wrote (10 bytes)"
+        assert rows[1].output == "acme.inventory.json"
+
+    def test_enabled_derives_category_style_name(self) -> None:
+        rows: List[ExtractRow] = []
+        registry = _FakeRegistry(fake=_FakeExtractor())
+        store = _FakeStore(_FakeOutcome(wrote=True, byte_count=10))
+
+        RunbookExtractor._run_schedule(
+            company_name="acme",
+            schedule=_schedule(),
+            binding=KnowledgeBinding(store="file", name="knowledge:acme", config={"inventory": "on"}),
+            registry=registry,
+            composer=_FakeComposer,
+            make_store=_make_store_returning(store),
+            rows=rows,
+            company="acme",
+        )
+        assert store.put_calls[1]["blob_name"] == "inventory:acme"
+
+    def test_inventory_failure_is_best_effort(self) -> None:
+        rows: List[ExtractRow] = []
+        registry = _FakeRegistry(fake=_FakeExtractor())
+
+        class _FlakyStore:
+            """Succeeds on the knowledge write, raises on the inventory one."""
+
+            def __init__(self) -> None:
+                self.put_calls: List[Dict[str, Any]] = []
+
+            def put_if_changed(self, blob_name: str, content: str, category: str = "") -> _FakeOutcome:
+                self.put_calls.append({"blob_name": blob_name, "category": category})
+                if category == "inventory":
+                    raise RuntimeError("boom")
+                return _FakeOutcome(wrote=True, byte_count=10)
+
+        store = _FlakyStore()
+        RunbookExtractor._run_schedule(
+            company_name="acme",
+            schedule=_schedule(),
+            binding=KnowledgeBinding(store="file", name="acme.md", config={"inventory": "yes"}),
+            registry=registry,
+            composer=_FakeComposer,
+            make_store=_make_store_returning(store),
+            rows=rows,
+            company="acme",
+        )
+        # Main knowledge write still succeeded; inventory failure is its own row.
+        assert rows[0].status == "wrote 10 bytes via store=file"
+        assert rows[1].status == "inventory failed (see traceback)"
+        assert rows[1].output == "acme.inventory.json"
 
 
 class TestRunScheduleEmptyAndFailures:

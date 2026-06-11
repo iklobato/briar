@@ -60,6 +60,10 @@ briar extract --company acme \
     --aws-extract-region us-east-1 \
     --aws-extract-service ecs --aws-extract-service rds
 
+# Account-wide inventory: every tagged AWS resource across all services
+briar extract --company acme --include aws-infra \
+    --aws-extract-service tagging-inventory
+
 # Last 14 days of Fireflies meeting summaries for an attendee list
 FIREFLIES_ACME_API_KEY=ff_xxx briar extract --company acme \
     --include meeting-digest --meeting-since-days 14 \
@@ -194,7 +198,9 @@ Full command reference, every flag, runbook-YAML schema, configuration, and reci
 
 **📖 [usebriar.com/docs](https://usebriar.com/docs)**
 
-A comprehensive multi-company runbook lives in [`examples/all_features.yaml`](examples/all_features.yaml).
+- **End-to-end usage flows** (14 multi-feature recipes — onboard a company, extract AWS + Fireflies + fix a PR, build & run a plan, full lifecycle in one sitting, …): [`agents/flows.md`](agents/flows.md)
+- Per-command operator manual: [`agents/`](agents/README.md)
+- A comprehensive multi-company runbook lives in [`examples/all_features.yaml`](examples/all_features.yaml).
 
 ---
 

@@ -348,3 +348,93 @@ def test_rds_propagates_throttling() -> None:
     with pytest.raises(ClientError) as ctx:
         AWS_SERVICE_GATHERERS["rds"].gather(session)
     assert ctx.value.response["Error"]["Code"] == "ThrottlingException"
+
+
+# ─── Resource Groups Tagging inventory ────────────────────────────────
+#
+# Driven against a controlled paginator rather than moto: moto's
+# resourcegroupstaggingapi coverage is uneven across services, so a fake
+# get_resources paginator pins the EXACT normalisation (ARN parsing,
+# per-service counts, terse body, full data) deterministically.
+
+
+def _tagging_session(pages: Any) -> Any:
+    """A MagicMock session whose `get_resources` paginator yields `pages`."""
+    from unittest import mock
+
+    session = mock.MagicMock()
+    session.client.return_value.get_paginator.return_value.paginate.return_value = pages
+    return session
+
+
+def _mapping(arn: str, **tags: str) -> dict:
+    return {"ResourceARN": arn, "Tags": [{"Key": k, "Value": v} for k, v in tags.items()]}
+
+
+def test_tagging_inventory_is_registered() -> None:
+    assert "tagging-inventory" in AWS_SERVICE_GATHERERS
+    assert AWS_SERVICE_GATHERERS["tagging-inventory"].data_key == "resources"
+
+
+def test_tagging_normalises_arns_and_counts_by_service() -> None:
+    pages = [
+        {
+            "ResourceTagMappingList": [
+                _mapping("arn:aws:sqs:us-east-1:111:orders", app="web"),
+                _mapping("arn:aws:sqs:us-east-1:111:events.fifo"),
+                _mapping("arn:aws:rds:us-east-1:111:db:primary", env="prod"),
+                _mapping("arn:aws:s3:::my-bucket"),
+            ]
+        }
+    ]
+    section = AWS_SERVICE_GATHERERS["tagging-inventory"].gather(_tagging_session(pages))
+
+    rows = section.data["resources"]
+    assert len(rows) == 4
+    assert section.title == "Resource inventory (4 tagged resource(s), 3 service(s))"
+
+    by_name = {r["name"]: r for r in rows}
+    # bare resource → no type
+    assert by_name["orders"]["service"] == "sqs"
+    assert by_name["orders"]["type"] == ""
+    assert by_name["orders"]["tags"] == {"app": "web"}
+    # "type:id" resource form → split into type + name
+    assert by_name["primary"]["service"] == "rds"
+    assert by_name["primary"]["type"] == "db"
+    # S3 ARN has empty region/account segments
+    assert by_name["my-bucket"]["service"] == "s3"
+    assert by_name["my-bucket"]["region"] == ""
+
+    # body is per-service counts only, sorted — terse and prompt-safe.
+    assert section.body == "- rds: 1\n- s3: 1\n- sqs: 2"
+    # full detail must NOT leak into the body (that goes in the prompt blob).
+    assert "arn:aws" not in section.body
+
+
+def test_tagging_walks_every_page() -> None:
+    pages = [
+        {"ResourceTagMappingList": [_mapping(f"arn:aws:sqs:us-east-1:111:q{i}") for i in range(100)]},
+        {"ResourceTagMappingList": [_mapping(f"arn:aws:sqs:us-east-1:111:q{i}") for i in range(100, 150)]},
+    ]
+    section = AWS_SERVICE_GATHERERS["tagging-inventory"].gather(_tagging_session(pages))
+
+    assert len(section.data["resources"]) == 150
+    assert section.title == "Resource inventory (150 tagged resource(s), 1 service(s))"
+
+
+def test_tagging_empty_when_no_resources() -> None:
+    section = AWS_SERVICE_GATHERERS["tagging-inventory"].gather(_tagging_session([{"ResourceTagMappingList": []}]))
+    assert section.title == "Resource inventory"
+    assert "no tagged resources" in section.body
+    assert section.data == {}
+
+
+def test_tagging_propagates_access_denied() -> None:
+    from unittest import mock
+
+    session = mock.MagicMock()
+    session.client.return_value.get_paginator.return_value.paginate.side_effect = _client_error("GetResources", "AccessDeniedException")
+
+    with pytest.raises(ClientError) as ctx:
+        AWS_SERVICE_GATHERERS["tagging-inventory"].gather(session)
+    assert ctx.value.response["Error"]["Code"] == "AccessDeniedException"

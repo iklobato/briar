@@ -16,15 +16,8 @@ from pydantic import ValidationError
 
 from briar.errors import ConfigError
 from briar.extract.base import ExtractedSection
-from briar.iac.runbook.models import (
-    CompanyEntry,
-    ExtractEntry,
-    KnowledgeBinding,
-    RunbookFile,
-    ScheduleEntry,
-)
+from briar.iac.runbook.models import CompanyEntry, ExtractEntry, KnowledgeBinding, RunbookFile, ScheduleEntry
 from briar.log_context import log_context
-
 
 log = logging.getLogger(__name__)
 
@@ -243,6 +236,20 @@ class RunbookExtractor:
 
         cls._record_outcome(rows, company_name=company_name, binding=binding, schedule=schedule, blob_name=blob_name, outcome=outcome, wall_start=wall_start)
 
+        # Opt-in JSON inventory companion: persists the full structured
+        # `data` payloads the markdown blob drops. Best-effort — a failure
+        # here records a row but never fails the (already-written) schedule.
+        if cls._inventory_enabled(binding):
+            cls._write_inventory(
+                store=store,
+                knowledge_blob=blob_name,
+                company_name=company_name,
+                sections=sections,
+                composer=composer,
+                rows=rows,
+                task=schedule.task,
+            )
+
     @staticmethod
     def _open_store(binding: KnowledgeBinding, *, company_name: str, make_store: Any) -> Any:
         """Resolve binding → StoreBinding → live store handle.
@@ -326,6 +333,53 @@ class RunbookExtractor:
         if base_name.endswith(".md"):
             return f"{base_name[:-3]}.{task}.md"
         return f"{base_name}.{task}"
+
+    @staticmethod
+    def _inventory_enabled(binding: KnowledgeBinding) -> bool:
+        """Whether to also write the JSON inventory companion. Opt-in via
+        ``knowledge.config.inventory`` so default deployments keep their
+        single-blob behaviour unchanged."""
+        val = str((binding.config or {}).get("inventory", "")).strip().lower()
+        return val in {"1", "true", "yes", "on"}
+
+    @staticmethod
+    def _inventory_blob_name(blob_name: str) -> str:
+        """Companion name for the structured JSON inventory of a markdown
+        knowledge blob. ``knowledge:acme`` → ``inventory:acme``; a path
+        like ``acme.md`` → ``acme.inventory.json``. The distinct
+        ``inventory`` category keeps it out of the agent's knowledge
+        splice and groups it for `briar context list --prefix inventory:`."""
+        if "/" in blob_name or blob_name.endswith(".md"):
+            stem = blob_name[:-3] if blob_name.endswith(".md") else blob_name
+            return f"{stem}.inventory.json"
+        head, sep, rest = blob_name.partition(":")
+        if sep and head == "knowledge":
+            return f"inventory:{rest}"
+        return f"{blob_name}.inventory"
+
+    @classmethod
+    def _write_inventory(
+        cls,
+        *,
+        store: Any,
+        knowledge_blob: str,
+        company_name: str,
+        sections: List[ExtractedSection],
+        composer: Any,
+        rows: List[ExtractRow],
+        task: str,
+    ) -> None:
+        inv_name = cls._inventory_blob_name(knowledge_blob)
+        try:
+            payload = composer.inventory(company=company_name, sections=sections)
+            outcome = store.put_if_changed(inv_name, payload, category="inventory")
+        except Exception as exc:  # noqa: BLE001 — companion is best-effort
+            log.exception("inventory-failed: blob=%s — %s", inv_name, exc)
+            rows.append(ExtractRow(company_name, task, "inventory failed (see traceback)", inv_name))
+            return
+        verb = "wrote" if outcome.wrote else "skipped (unchanged)"
+        log.info("inventory-%s: blob=%s bytes=%d", "wrote" if outcome.wrote else "skip", inv_name, outcome.byte_count)
+        rows.append(ExtractRow(company_name, task, f"inventory {verb} ({outcome.byte_count} bytes)", inv_name))
 
     @staticmethod
     def _collect_sections(
