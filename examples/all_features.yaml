@@ -140,6 +140,10 @@ companies:
         headers:
           Authorization: SENTRY_MCP_BEARER
         purpose: "Production error/exception telemetry — stack traces, event frequency, regressions"
+        # Restrict to specific archetypes so each task sees a sharper menu.
+        # Empty/omitted = available to every archetype. Here: only the
+        # engineer (implement) gets Sentry, not the pr-fixer.
+        archetypes: [engineer]
         enabled: false                              # declared but skipped until turned on
 
     schedules:

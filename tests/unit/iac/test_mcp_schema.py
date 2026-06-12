@@ -55,6 +55,12 @@ def test_purpose_defaults_empty_and_accepts_text() -> None:
     assert b.purpose == "GitHub issues and PRs"
 
 
+def test_archetypes_defaults_empty_and_accepts_list() -> None:
+    assert McpServerBinding(command="npx").archetypes == []
+    b = McpServerBinding(command="npx", archetypes=["engineer", "pr-fixer"])
+    assert b.archetypes == ["engineer", "pr-fixer"]
+
+
 def test_roundtrips_through_runbook_file() -> None:
     rb = RunbookFile.model_validate(
         {

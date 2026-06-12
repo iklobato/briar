@@ -128,13 +128,31 @@ class AgentRunner:
         # the operator opted in, so the failure must be loud, not silent.
         self._mcp = None
         self._mcp_tools: List[Any] = []
-        if config.mcp_servers:
+        scoped_servers = self._scope_mcp_servers(config.mcp_servers)
+        if scoped_servers:
             from briar.mcp import McpClientManager
 
-            self._mcp = McpClientManager(config.mcp_servers)
+            self._mcp = McpClientManager(scoped_servers)
             self._mcp_tools = self._mcp.start()
             for tool in self._mcp_tools:
                 self._tools[tool.name] = tool
+
+    def _scope_mcp_servers(self, servers: Mapping[str, Any]) -> Dict[str, Any]:
+        """Keep only the servers this archetype is allowed to use (Lever 3).
+
+        A server's `archetypes` allowlist is empty → available to every
+        archetype; otherwise it binds only when this run's archetype is in
+        the list. Scoping the menu per task is the cheapest way to sharpen
+        the model's tool-selection judgment: fewer, more-relevant choices."""
+        name = self._archetype.name
+        out: Dict[str, Any] = {}
+        for handle, binding in (servers or {}).items():
+            allow = list(getattr(binding, "archetypes", None) or [])
+            if not allow or name in allow:
+                out[handle] = binding
+            else:
+                log.debug("mcp: server=%s scoped out for archetype=%s (allowed: %s)", handle, name, allow)
+        return out
 
     def run(self) -> AgentRunResult:
         try:

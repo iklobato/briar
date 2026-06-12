@@ -11,12 +11,16 @@ closes the manager on every exit path.
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Dict, List
 from unittest import mock
 
 from briar.agent._enums import StopReason
 from briar.agent._llm import LLMProvider, LLMResponse, LLMToolCall
 from briar.agent.runner import AgentRunConfig, AgentRunner
+from briar.iac.scaffold.archetypes import ARCHETYPES
+
+_ENGINEER = ARCHETYPES["engineer"].name
 
 
 class ScriptedLLM(LLMProvider):
@@ -185,6 +189,40 @@ def test_no_context_source_section_without_mcp(tmp_path: Path) -> None:
     system = runner._build_system_prompt()
 
     assert "Context sources" not in system
+
+
+def test_server_scoped_to_other_archetype_is_not_bound(tmp_path: Path, monkeypatch) -> None:
+    FakeManager.instances.clear()
+    monkeypatch.setattr("briar.mcp.McpClientManager", FakeManager)
+    llm = ScriptedLLM([_text_turn("done")])
+    # engineer run, server restricted to pr-fixer → scoped out entirely.
+    runner = _runner(tmp_path, llm, mcp_servers={"github": SimpleNamespace(archetypes=["pr-fixer"])})
+
+    assert runner._mcp is None
+    assert runner._mcp_tools == []
+    assert FakeManager.instances == []  # manager never even constructed
+    names = {t["name"] for t in runner._tool_specs()}
+    assert not any(n.startswith("mcp__") for n in names)
+
+
+def test_server_scoped_to_this_archetype_is_bound(tmp_path: Path, monkeypatch) -> None:
+    FakeManager.instances.clear()
+    monkeypatch.setattr("briar.mcp.McpClientManager", FakeManager)
+    llm = ScriptedLLM([_text_turn("done")])
+    runner = _runner(tmp_path, llm, mcp_servers={"github": SimpleNamespace(archetypes=[_ENGINEER])})
+
+    assert runner._mcp is not None
+    assert "mcp__github__search_issues" in {t.name for t in runner._mcp_tools}
+
+
+def test_empty_archetypes_binds_for_every_archetype(tmp_path: Path, monkeypatch) -> None:
+    FakeManager.instances.clear()
+    monkeypatch.setattr("briar.mcp.McpClientManager", FakeManager)
+    llm = ScriptedLLM([_text_turn("done")])
+    runner = _runner(tmp_path, llm, mcp_servers={"github": SimpleNamespace(archetypes=[])})
+
+    assert runner._mcp is not None
+    assert FakeManager.instances[0].bindings == {"github": SimpleNamespace(archetypes=[])}
 
 
 def test_manager_closed_even_on_dry_run(tmp_path: Path, monkeypatch) -> None:

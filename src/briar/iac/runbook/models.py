@@ -161,6 +161,11 @@ class McpServerBinding(_Strict):
     headers: Dict[str, str] = Field(default_factory=dict)
     tools: List[str] = Field(default_factory=list)
     enabled: bool = True
+    # Restrict this server to specific agent archetypes ("engineer",
+    # "pr-fixer", …). Empty = available to every archetype. Lets a runbook
+    # bind a docs server to the engineer but not the conflict-resolver, so
+    # each task sees a smaller, sharper tool menu and judges faster.
+    archetypes: List[str] = Field(default_factory=list)
     # Free-text "what this server is good for" used purely to steer the
     # agent's tool-selection judgment: it is appended to every tool's
     # advertised description AND listed in the system-prompt context-source
