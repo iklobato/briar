@@ -76,6 +76,7 @@ class AgentRunConfig:
     task_context_sections: Tuple[Any, ...] = ()
     dry_run: bool = False
     messages: Mapping[str, Any] = field(default_factory=dict)
+    mcp_servers: Mapping[str, Any] = field(default_factory=dict)
 
 
 class AgentRunner:
@@ -119,8 +120,32 @@ class AgentRunner:
         self._tools: Dict[str, Any] = {tool.name: tool for tool in (self._bash, self._read, self._write, self._edit)}
         if self._send is not None:
             self._tools[self._send.name] = self._send
+        # MCP servers (opt-in, same as SendMessageTool): when the runbook
+        # declares an `mcp:` block, connect at start time, list each
+        # server's tools, and register them as `mcp__<server>__<tool>`.
+        # The manager owns a background event loop; `run()` closes it in a
+        # finally. A missing `mcp` SDK or a dead supervisor raises here —
+        # the operator opted in, so the failure must be loud, not silent.
+        self._mcp = None
+        self._mcp_tools: List[Any] = []
+        if config.mcp_servers:
+            from briar.mcp import McpClientManager
+
+            self._mcp = McpClientManager(config.mcp_servers)
+            self._mcp_tools = self._mcp.start()
+            for tool in self._mcp_tools:
+                self._tools[tool.name] = tool
 
     def run(self) -> AgentRunResult:
+        try:
+            return self._run()
+        finally:
+            # MCP sessions hold subprocesses / open HTTP connections — tear
+            # them down on every exit path (dry-run, error, ceiling, done).
+            if self._mcp is not None:
+                self._mcp.close()
+
+    def _run(self) -> AgentRunResult:
         with log_context(company=self._cfg.company, task=self._cfg.task, agent=self._archetype.name):
             # Dry-run path: build the same prompts the LLM would see,
             # print them, and return. Don't gate on LLM creds (the
@@ -286,6 +311,8 @@ class AgentRunner:
             channels = self._send.channels()
             description = self._send.description + (f"\n\nAvailable channels: {', '.join(channels)}" if channels else "")
             specs.append({"name": self._send.name, "description": description, "input_schema": self._send.INPUT_SCHEMA})
+        for tool in self._mcp_tools:
+            specs.append({"name": tool.name, "description": tool.description, "input_schema": tool.INPUT_SCHEMA})
         return specs
 
     def _dry_run_report(self) -> AgentRunResult:

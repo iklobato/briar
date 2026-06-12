@@ -107,7 +107,9 @@ class ImplementOp(AgentOp):
         _add_common_agent_arguments(parser)
         parser.add_argument("--ticket-project", required=True, help="Tracker project key (Jira: PROJ; Linear team: ENG; GH/BB Issues: owner/repo)")
         parser.add_argument("--ticket-key", required=True, help="Ticket identifier (Jira: PROJ-123; GH/BB: #42; Linear: ENG-7)")
-        parser.add_argument("--tracker", default="jira", help="Tracker provider for the ticket (default: jira). One of: jira, github-issues, bitbucket-issues, linear.")
+        parser.add_argument(
+            "--tracker", default="jira", help="Tracker provider for the ticket (default: jira). One of: jira, github-issues, bitbucket-issues, linear."
+        )
         parser.add_argument(
             "--dry-run",
             action="store_true",
@@ -208,6 +210,7 @@ class CommandAgent(SubcommandCommand):
                 task_context_sections=tuple(task_sections),
                 dry_run=args.dry_run,
                 messages=self._load_messages_block(args),
+                mcp_servers=self._load_mcp_block(args),
             )
         ).run()
 
@@ -272,6 +275,7 @@ class CommandAgent(SubcommandCommand):
                 task_context_sections=tuple(task_sections),
                 dry_run=args.dry_run,
                 messages=self._load_messages_block(args),
+                mcp_servers=self._load_mcp_block(args),
             )
         ).run()
 
@@ -448,6 +452,27 @@ class CommandAgent(SubcommandCommand):
         return dict(getattr(company, "messages", {}) or {})
 
     @staticmethod
+    def _load_mcp_block(args: argparse.Namespace):
+        """Read the company's `mcp:` block from the optional --runbook
+        YAML. Returns an empty dict on any failure (the agent runs fine
+        without MCP servers — they're purely additive tools)."""
+        runbook_path = getattr(args, "runbook", "") or ""
+        if not runbook_path:
+            return {}
+        try:
+            from briar.iac.runbook import load_runbook_file
+
+            rb = load_runbook_file(Path(runbook_path))
+        except Exception:  # noqa: BLE001
+            log.exception("failed to load runbook=%s for mcp: block — continuing without MCP tools", runbook_path)
+            return {}
+        company = rb.companies.get(args.company)
+        if company is None:
+            log.warning("runbook=%s has no company=%s — agent will run without MCP servers", runbook_path, args.company)
+            return {}
+        return dict(getattr(company, "mcp", {}) or {})
+
+    @staticmethod
     def _resolve_git_identity(args: argparse.Namespace) -> Tuple[str, str]:
         """Resolve (user_name, user_email) for the worktree's commit identity.
 
@@ -487,8 +512,7 @@ class CommandAgent(SubcommandCommand):
         resolved_email = cli_email or yaml_email
         if not resolved_name or not resolved_email:
             raise CliError(
-                "git identity not configured: pass --git-user-name/--git-user-email "
-                "or set git_identity.name/.email in the runbook's company block."
+                "git identity not configured: pass --git-user-name/--git-user-email " "or set git_identity.name/.email in the runbook's company block."
             )
         return resolved_name, resolved_email
 

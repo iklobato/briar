@@ -108,6 +108,34 @@ companies:
       escalation:
         kind: telegram-chat
 
+    # MCP (Model Context Protocol) servers. The agent connects to each at
+    # run time, lists its tools, and binds them as `mcp__<handle>__<tool>`
+    # alongside the built-in bash/read_file/edit_file tools. Opt-in: no
+    # `mcp:` block → no MCP tools. Requires `pip install 'briar-cli[mcp]'`.
+    #
+    # SECURITY: MCP tools are arbitrary remote capability — the bash/file
+    # sandbox does NOT extend to them. Narrow each server with `tools:` and
+    # keep secrets out of YAML (env/headers values are env-var NAMES).
+    mcp:
+      # stdio transport — a local subprocess. `env` maps the subprocess
+      # env-var name → the env-var NAME to copy the value from (the secret
+      # itself stays in /etc/briar/secrets.env, never here).
+      github:
+        transport: stdio
+        command: docker
+        args: ["run", "-i", "--rm", "-e", "GITHUB_TOKEN", "ghcr.io/github/github-mcp-server"]
+        env:
+          GITHUB_TOKEN: GITHUB_TOKEN
+        tools: [search_issues, get_pull_request]   # optional allowlist; omit = bind all
+      # http transport — a hosted server over Streamable HTTP. `headers`
+      # values are env-var NAMES too (e.g. a bearer token).
+      sentry:
+        transport: http
+        url: https://mcp.sentry.dev/mcp
+        headers:
+          Authorization: SENTRY_MCP_BEARER
+        enabled: false                              # declared but skipped until turned on
+
     schedules:
 
       # ─── extractors: daily heavyweights ─────────────────────────────────

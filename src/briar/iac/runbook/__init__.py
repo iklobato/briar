@@ -2,19 +2,8 @@
 
 from __future__ import annotations
 
-from briar.iac.runbook.executor import (
-    ExtractRow,
-    RunbookSchedules,
-    extract_runbook,
-    load_runbook_file,
-)
-from briar.iac.runbook.models import (
-    CompanyEntry,
-    ExtractEntry,
-    KnowledgeBinding,
-    RunbookFile,
-    ScheduleEntry,
-)
+from briar.iac.runbook.executor import ExtractRow, RunbookSchedules, extract_runbook, load_runbook_file
+from briar.iac.runbook.models import CompanyEntry, ExtractEntry, KnowledgeBinding, McpServerBinding, RunbookFile, ScheduleEntry
 from briar.iac.runbook.scheduler import EveryParser, RunbookScheduler
 
 __all__ = [
@@ -22,6 +11,7 @@ __all__ = [
     "CompanyEntry",
     "ExtractEntry",
     "KnowledgeBinding",
+    "McpServerBinding",
     "ScheduleEntry",
     "RunbookSchedules",
     "load_runbook_file",
