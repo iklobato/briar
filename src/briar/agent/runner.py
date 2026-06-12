@@ -77,6 +77,10 @@ class AgentRunConfig:
     dry_run: bool = False
     messages: Mapping[str, Any] = field(default_factory=dict)
     mcp_servers: Mapping[str, Any] = field(default_factory=dict)
+    # Handles of always-on servers (the built-in defaults): connected
+    # unconditionally and excluded from the router, so two trivial local
+    # tools never trigger a pointless routing call. See briar.mcp.defaults.
+    mcp_always_on: Tuple[str, ...] = ()
 
 
 class AgentRunner:
@@ -166,18 +170,20 @@ class AgentRunner:
 
     def _route_servers(self, scoped: Dict[str, Any]) -> Dict[str, Any]:
         """Ask the LLM which scoped servers are worth connecting for this
-        task (Lever 4). Skips the call when there's nothing to choose
-        between (≤1 server). Fails OPEN — any routing failure connects all
-        scoped servers, so a flaky router never strands the agent without a
-        capability it might need."""
-        if len(scoped) <= 1:
-            return scoped
-        catalog = {handle: (getattr(binding, "purpose", "") or "") for handle, binding in scoped.items()}
+        task (Lever 4). Always-on servers (the built-in defaults) bypass the
+        router entirely — they're cheap, safe, and universally useful, so
+        routing them would only waste a call. Routing runs over the rest and
+        skips the LLM when there's nothing to choose between (≤1 routable).
+        Fails OPEN — any routing failure connects all routable servers, so a
+        flaky router never strands the agent without a capability it needs."""
+        always_on = {h: b for h, b in scoped.items() if h in self._cfg.mcp_always_on}
+        routable = {h: b for h, b in scoped.items() if h not in self._cfg.mcp_always_on}
+        if len(routable) <= 1:
+            return {**always_on, **routable}
+        catalog = {handle: (getattr(binding, "purpose", "") or "") for handle, binding in routable.items()}
         selected = self._llm_select_servers(catalog)
-        if not selected:
-            return scoped
-        chosen = {handle: binding for handle, binding in scoped.items() if handle in selected}
-        return chosen or scoped
+        chosen = {handle: binding for handle, binding in routable.items() if handle in selected} if selected else {}
+        return {**always_on, **(chosen or routable)}
 
     def _llm_select_servers(self, catalog: Dict[str, str]) -> Optional[set]:
         """One short completion: given the task + the source catalog, return

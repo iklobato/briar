@@ -310,3 +310,69 @@ def test_router_tokens_folded_into_result(tmp_path: Path, monkeypatch) -> None:
     # Router (5/2) + loop (10/3) both counted — the cost summary tells truth.
     assert result.input_tokens == 15
     assert result.output_tokens == 5
+
+
+# ── always-on defaults bypass the router ────────────────────────────────
+
+
+def test_always_on_servers_skip_the_router(tmp_path: Path, monkeypatch) -> None:
+    FakeManager.instances.clear()
+    monkeypatch.setattr("briar.mcp.McpClientManager", FakeManager)
+    llm = ScriptedLLM([_text_turn("done")])  # only the loop turn — NO router call
+    runner = _runner(
+        tmp_path,
+        llm,
+        mcp_servers={
+            "think": SimpleNamespace(archetypes=[], purpose="reasoning"),
+            "time": SimpleNamespace(archetypes=[], purpose="clock"),
+        },
+        mcp_always_on=("think", "time"),
+    )
+
+    runner.run()
+
+    # Two always-on servers but nothing routable → no wasted router call,
+    # and both connect unconditionally.
+    assert len(llm.seen_messages) == 1
+    assert set(FakeManager.instances[0].bindings) == {"think", "time"}
+
+
+def test_router_runs_over_routable_keeps_always_on(tmp_path: Path, monkeypatch) -> None:
+    FakeManager.instances.clear()
+    monkeypatch.setattr("briar.mcp.McpClientManager", FakeManager)
+    # 2 routable (github, sentry) → router runs; it picks github.
+    llm = ScriptedLLM([_text_turn('["github"]'), _text_turn("done")])
+    runner = _runner(
+        tmp_path,
+        llm,
+        mcp_servers={
+            "think": SimpleNamespace(archetypes=[], purpose="reasoning"),
+            **_two_servers(),
+        },
+        mcp_always_on=("think",),
+    )
+
+    runner.run()
+
+    # always-on `think` kept + routed `github`; `sentry` pruned.
+    assert set(FakeManager.instances[0].bindings) == {"think", "github"}
+
+
+def test_always_on_plus_single_routable_skips_router(tmp_path: Path, monkeypatch) -> None:
+    FakeManager.instances.clear()
+    monkeypatch.setattr("briar.mcp.McpClientManager", FakeManager)
+    llm = ScriptedLLM([_text_turn("done")])  # one routable → no router call
+    runner = _runner(
+        tmp_path,
+        llm,
+        mcp_servers={
+            "think": SimpleNamespace(archetypes=[], purpose="reasoning"),
+            "github": SimpleNamespace(archetypes=[], purpose="issues"),
+        },
+        mcp_always_on=("think",),
+    )
+
+    runner.run()
+
+    assert len(llm.seen_messages) == 1
+    assert set(FakeManager.instances[0].bindings) == {"think", "github"}

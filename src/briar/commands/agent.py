@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -55,6 +56,11 @@ def _add_common_agent_arguments(parser: argparse.ArgumentParser) -> None:
         "--git-user-email", default="", help="git config user.email on the worktree. Required unless company.git_identity.email is set in the runbook."
     )
     parser.add_argument("--keep-worktree", action="store_true", help="Leave the worktree in /tmp after the run for inspection")
+    parser.add_argument(
+        "--no-default-mcp",
+        action="store_true",
+        help="Skip briar's built-in default MCP servers (think/time). Also disabled by BRIAR_NO_DEFAULT_MCP. " "Use on hosts without npx/uvx.",
+    )
 
 
 def _add_meeting_arguments(parser: argparse.ArgumentParser, *, query_help: str) -> None:
@@ -191,6 +197,7 @@ class CommandAgent(SubcommandCommand):
         default_query = f"{args.owner}/{args.repo}#{args.pr}"
         task_sections += self._fetch_meeting_context_from_args(args, default_query)
 
+        mcp_servers, mcp_always_on = self._load_mcp_block(args)
         result = AgentRunner(
             AgentRunConfig(
                 company=args.company,
@@ -210,7 +217,8 @@ class CommandAgent(SubcommandCommand):
                 task_context_sections=tuple(task_sections),
                 dry_run=args.dry_run,
                 messages=self._load_messages_block(args),
-                mcp_servers=self._load_mcp_block(args),
+                mcp_servers=mcp_servers,
+                mcp_always_on=mcp_always_on,
             )
         ).run()
 
@@ -256,6 +264,7 @@ class CommandAgent(SubcommandCommand):
         # surfaces any meeting that mentioned ACME-123 in title or body.
         task_sections += self._fetch_meeting_context_from_args(args, args.ticket_key)
 
+        mcp_servers, mcp_always_on = self._load_mcp_block(args)
         result = AgentRunner(
             AgentRunConfig(
                 company=args.company,
@@ -275,7 +284,8 @@ class CommandAgent(SubcommandCommand):
                 task_context_sections=tuple(task_sections),
                 dry_run=args.dry_run,
                 messages=self._load_messages_block(args),
-                mcp_servers=self._load_mcp_block(args),
+                mcp_servers=mcp_servers,
+                mcp_always_on=mcp_always_on,
             )
         ).run()
 
@@ -452,10 +462,29 @@ class CommandAgent(SubcommandCommand):
         return dict(getattr(company, "messages", {}) or {})
 
     @staticmethod
-    def _load_mcp_block(args: argparse.Namespace):
-        """Read the company's `mcp:` block from the optional --runbook
-        YAML. Returns an empty dict on any failure (the agent runs fine
-        without MCP servers — they're purely additive tools)."""
+    def _load_mcp_block(args: argparse.Namespace) -> Tuple[Dict[str, Any], Tuple[str, ...]]:
+        """Resolve the MCP servers for this run and which are always-on.
+
+        Returns ``(servers, always_on)`` where `servers` is the company's
+        runbook `mcp:` block merged on top of briar's built-in defaults
+        (think/time), and `always_on` is the handles of the defaults that
+        survived (the runbook can override one by reusing its handle).
+        Built-in defaults are skipped entirely when the operator opts out
+        via `--no-default-mcp` or `BRIAR_NO_DEFAULT_MCP`."""
+        runbook_servers = CommandAgent._load_runbook_mcp(args)
+        if CommandAgent._default_mcp_disabled(args):
+            return runbook_servers, ()
+        from briar.mcp.defaults import DEFAULT_MCP_SERVERS
+
+        merged: Dict[str, Any] = dict(DEFAULT_MCP_SERVERS)
+        merged.update(runbook_servers)  # runbook overrides a default by handle
+        always_on = tuple(handle for handle in DEFAULT_MCP_SERVERS if handle not in runbook_servers)
+        return merged, always_on
+
+    @staticmethod
+    def _load_runbook_mcp(args: argparse.Namespace) -> Dict[str, Any]:
+        """Read the company's `mcp:` block from the optional --runbook YAML.
+        Empty dict on any failure — MCP servers are purely additive tools."""
         runbook_path = getattr(args, "runbook", "") or ""
         if not runbook_path:
             return {}
@@ -464,13 +493,19 @@ class CommandAgent(SubcommandCommand):
 
             rb = load_runbook_file(Path(runbook_path))
         except Exception:  # noqa: BLE001
-            log.exception("failed to load runbook=%s for mcp: block — continuing without MCP tools", runbook_path)
+            log.exception("failed to load runbook=%s for mcp: block — continuing without runbook MCP servers", runbook_path)
             return {}
         company = rb.companies.get(args.company)
         if company is None:
-            log.warning("runbook=%s has no company=%s — agent will run without MCP servers", runbook_path, args.company)
+            log.warning("runbook=%s has no company=%s — no runbook MCP servers", runbook_path, args.company)
             return {}
         return dict(getattr(company, "mcp", {}) or {})
+
+    @staticmethod
+    def _default_mcp_disabled(args: argparse.Namespace) -> bool:
+        if getattr(args, "no_default_mcp", False):
+            return True
+        return os.environ.get("BRIAR_NO_DEFAULT_MCP", "").strip().lower() in {"1", "true", "yes", "on"}
 
     @staticmethod
     def _resolve_git_identity(args: argparse.Namespace) -> Tuple[str, str]:

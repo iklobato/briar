@@ -110,8 +110,14 @@ companies:
 
     # MCP (Model Context Protocol) servers. The agent connects to each at
     # run time, lists its tools, and binds them as `mcp__<handle>__<tool>`
-    # alongside the built-in bash/read_file/edit_file tools. Opt-in: no
-    # `mcp:` block → no MCP tools. Requires `pip install 'briar-cli[mcp]'`.
+    # alongside the built-in bash/read_file/edit_file tools. Requires
+    # `pip install 'briar-cli[mcp]'`.
+    #
+    # DEFAULTS (on for every agent run, no `mcp:` block needed): `think`
+    # (sequential-thinking, via npx) + `time` (via uvx). They're always-on
+    # and bypass the router. Override one by reusing its handle below; turn
+    # them all off with `--no-default-mcp` or BRIAR_NO_DEFAULT_MCP=1 (e.g.
+    # on hosts without npx/uvx). Anything you add here is layered on top.
     #
     # SECURITY: MCP tools are arbitrary remote capability — the bash/file
     # sandbox does NOT extend to them. Narrow each server with `tools:` and
