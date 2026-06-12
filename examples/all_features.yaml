@@ -116,6 +116,12 @@ companies:
     # SECURITY: MCP tools are arbitrary remote capability — the bash/file
     # sandbox does NOT extend to them. Narrow each server with `tools:` and
     # keep secrets out of YAML (env/headers values are env-var NAMES).
+    #
+    # ROUTING: when 2+ servers are in scope for a task, the agent runs a
+    # short LLM pre-pass that picks which ones to actually connect for THIS
+    # task (matching the task against each server's `purpose`). It fails
+    # open — a routing miss connects everything — so `purpose` is what makes
+    # the pruning sharp. One server (or fewer) skips the pre-pass entirely.
     mcp:
       # stdio transport — a local subprocess. `env` maps the subprocess
       # env-var name → the env-var NAME to copy the value from (the secret

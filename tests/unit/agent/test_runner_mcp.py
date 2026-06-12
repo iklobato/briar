@@ -31,6 +31,7 @@ class ScriptedLLM(LLMProvider):
         self._i = 0
         self.seen_tools: List[List[Dict[str, Any]]] = []
         self.seen_messages: List[List[Dict[str, Any]]] = []
+        self.seen_systems: List[str] = []
 
     def is_available(self) -> bool:
         return True
@@ -38,6 +39,7 @@ class ScriptedLLM(LLMProvider):
     def complete(self, *, system: str, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]], max_tokens: int) -> LLMResponse:
         self.seen_tools.append(tools)
         self.seen_messages.append([dict(m) for m in messages])
+        self.seen_systems.append(system)
         turn = self._turns[self._i]
         self._i += 1
         return turn
@@ -84,8 +86,8 @@ class FakeManager:
         self.closed = True
 
 
-def _text_turn(text: str) -> LLMResponse:
-    return LLMResponse(text=text, tool_calls=[], stop_reason=StopReason.END_TURN, input_tokens=0, output_tokens=0)
+def _text_turn(text: str, *, in_tok: int = 0, out_tok: int = 0) -> LLMResponse:
+    return LLMResponse(text=text, tool_calls=[], stop_reason=StopReason.END_TURN, input_tokens=in_tok, output_tokens=out_tok)
 
 
 def _tool_turn(call: LLMToolCall) -> LLMResponse:
@@ -129,10 +131,14 @@ def test_mcp_block_binds_and_advertises_tool(tmp_path: Path, monkeypatch) -> Non
     monkeypatch.setattr("briar.mcp.McpClientManager", FakeManager)
     llm = ScriptedLLM([_text_turn("done")])
     runner = _runner(tmp_path, llm, mcp_servers={"github": object()})
+    # Connection is deferred to run(), not the constructor.
+    assert runner._mcp is None
+
+    runner.run()
 
     assert FakeManager.instances[0].started is True
-    names = {t["name"] for t in runner._tool_specs()}
-    assert "mcp__github__search_issues" in names
+    # The single-turn loop saw the MCP tool advertised in its tool specs.
+    assert any(t["name"] == "mcp__github__search_issues" for t in llm.seen_tools[0])
 
 
 def test_mcp_tool_is_dispatched_and_result_fed_back(tmp_path: Path, monkeypatch) -> None:
@@ -166,14 +172,15 @@ def test_manager_closed_after_run(tmp_path: Path, monkeypatch) -> None:
     assert FakeManager.instances[0].closed is True
 
 
-def test_context_source_section_lists_server_purpose(tmp_path: Path, monkeypatch) -> None:
+def test_context_source_section_reaches_the_model(tmp_path: Path, monkeypatch) -> None:
     FakeManager.instances.clear()
     monkeypatch.setattr("briar.mcp.McpClientManager", FakeManager)
     llm = ScriptedLLM([_text_turn("done")])
     runner = _runner(tmp_path, llm, mcp_servers={"github": object()})
 
-    system = runner._build_system_prompt()
+    runner.run()
 
+    system = llm.seen_systems[0]  # the system prompt the model actually received
     assert "## Context sources" in system
     # The server's purpose + its tool namespace steer the routing judgment.
     assert "GitHub issues and pull requests" in system
@@ -186,9 +193,9 @@ def test_no_context_source_section_without_mcp(tmp_path: Path) -> None:
     llm = ScriptedLLM([_text_turn("done")])
     runner = _runner(tmp_path, llm)
 
-    system = runner._build_system_prompt()
+    runner.run()
 
-    assert "Context sources" not in system
+    assert "Context sources" not in llm.seen_systems[0]
 
 
 def test_server_scoped_to_other_archetype_is_not_bound(tmp_path: Path, monkeypatch) -> None:
@@ -198,11 +205,12 @@ def test_server_scoped_to_other_archetype_is_not_bound(tmp_path: Path, monkeypat
     # engineer run, server restricted to pr-fixer → scoped out entirely.
     runner = _runner(tmp_path, llm, mcp_servers={"github": SimpleNamespace(archetypes=["pr-fixer"])})
 
+    runner.run()
+
     assert runner._mcp is None
     assert runner._mcp_tools == []
     assert FakeManager.instances == []  # manager never even constructed
-    names = {t["name"] for t in runner._tool_specs()}
-    assert not any(n.startswith("mcp__") for n in names)
+    assert not any(t["name"].startswith("mcp__") for t in llm.seen_tools[0])
 
 
 def test_server_scoped_to_this_archetype_is_bound(tmp_path: Path, monkeypatch) -> None:
@@ -210,6 +218,8 @@ def test_server_scoped_to_this_archetype_is_bound(tmp_path: Path, monkeypatch) -
     monkeypatch.setattr("briar.mcp.McpClientManager", FakeManager)
     llm = ScriptedLLM([_text_turn("done")])
     runner = _runner(tmp_path, llm, mcp_servers={"github": SimpleNamespace(archetypes=[_ENGINEER])})
+
+    runner.run()
 
     assert runner._mcp is not None
     assert "mcp__github__search_issues" in {t.name for t in runner._mcp_tools}
@@ -219,10 +229,13 @@ def test_empty_archetypes_binds_for_every_archetype(tmp_path: Path, monkeypatch)
     FakeManager.instances.clear()
     monkeypatch.setattr("briar.mcp.McpClientManager", FakeManager)
     llm = ScriptedLLM([_text_turn("done")])
-    runner = _runner(tmp_path, llm, mcp_servers={"github": SimpleNamespace(archetypes=[])})
+    binding = SimpleNamespace(archetypes=[])
+    runner = _runner(tmp_path, llm, mcp_servers={"github": binding})
+
+    runner.run()
 
     assert runner._mcp is not None
-    assert FakeManager.instances[0].bindings == {"github": SimpleNamespace(archetypes=[])}
+    assert FakeManager.instances[0].bindings == {"github": binding}
 
 
 def test_manager_closed_even_on_dry_run(tmp_path: Path, monkeypatch) -> None:
@@ -235,3 +248,65 @@ def test_manager_closed_even_on_dry_run(tmp_path: Path, monkeypatch) -> None:
 
     assert result.stop_reason == StopReason.DRY_RUN
     assert FakeManager.instances[0].closed is True
+
+
+# ── Lever 4: the always-on router pre-pass ──────────────────────────────
+
+
+def _two_servers() -> Dict[str, Any]:
+    return {
+        "github": SimpleNamespace(archetypes=[], purpose="issues and PRs"),
+        "sentry": SimpleNamespace(archetypes=[], purpose="production errors"),
+    }
+
+
+def test_router_connects_only_selected_servers(tmp_path: Path, monkeypatch) -> None:
+    FakeManager.instances.clear()
+    monkeypatch.setattr("briar.mcp.McpClientManager", FakeManager)
+    # turn 0 = router reply (picks github); turn 1 = the loop's end_turn.
+    llm = ScriptedLLM([_text_turn('["github"]'), _text_turn("done")])
+    runner = _runner(tmp_path, llm, mcp_servers=_two_servers())
+
+    runner.run()
+
+    # Manager was built with ONLY the routed subset.
+    assert set(FakeManager.instances[0].bindings) == {"github"}
+
+
+def test_router_fails_open_on_unparseable_reply(tmp_path: Path, monkeypatch) -> None:
+    FakeManager.instances.clear()
+    monkeypatch.setattr("briar.mcp.McpClientManager", FakeManager)
+    llm = ScriptedLLM([_text_turn("I cannot decide"), _text_turn("done")])
+    runner = _runner(tmp_path, llm, mcp_servers=_two_servers())
+
+    runner.run()
+
+    # No recognisable selection → connect ALL scoped servers, never strand.
+    assert set(FakeManager.instances[0].bindings) == {"github", "sentry"}
+
+
+def test_router_skipped_for_single_server(tmp_path: Path, monkeypatch) -> None:
+    FakeManager.instances.clear()
+    monkeypatch.setattr("briar.mcp.McpClientManager", FakeManager)
+    llm = ScriptedLLM([_text_turn("done")])  # only the loop turn — no router call
+    runner = _runner(tmp_path, llm, mcp_servers={"github": SimpleNamespace(archetypes=[], purpose="x")})
+
+    runner.run()
+
+    # Routing among one server is pointless, so the LLM saw exactly one
+    # call (the loop), not a wasted router pre-pass.
+    assert len(llm.seen_messages) == 1
+    assert set(FakeManager.instances[0].bindings) == {"github"}
+
+
+def test_router_tokens_folded_into_result(tmp_path: Path, monkeypatch) -> None:
+    FakeManager.instances.clear()
+    monkeypatch.setattr("briar.mcp.McpClientManager", FakeManager)
+    llm = ScriptedLLM([_text_turn('["github"]', in_tok=5, out_tok=2), _text_turn("done", in_tok=10, out_tok=3)])
+    runner = _runner(tmp_path, llm, mcp_servers=_two_servers())
+
+    result = runner.run()
+
+    # Router (5/2) + loop (10/3) both counted — the cost summary tells truth.
+    assert result.input_tokens == 15
+    assert result.output_tokens == 5
