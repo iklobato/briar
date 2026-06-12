@@ -63,16 +63,16 @@ class TestBootstrap:
         assert "no credential-bootstrap backend configured" in result.out
 
     def test_auto_bootstrap_success_reports_count_and_keys(self, cli, mocker) -> None:
-        res = HydrateResult(backend="infisical", written=["GITHUB_ACME_TOKEN", "AWS_ACME_KEY"], skipped=["JIRA_TOKEN"], error="")
+        res = HydrateResult(backend="vault", written=["GITHUB_ACME_TOKEN", "AWS_ACME_KEY"], skipped=["JIRA_TOKEN"], error="")
         mocker.patch("briar.credentials._bootstraps.auto_bootstrap", return_value=[res])
         result = cli("secrets", "bootstrap")
         assert result.code == 0
-        assert "bootstrap infisical: wrote 2 env vars (preserved 1 already-set)" in result.out
+        assert "bootstrap vault: wrote 2 env vars (preserved 1 already-set)" in result.out
         # Key NAMES are printed (sorted) — values are not part of the result at all.
         assert "keys: AWS_ACME_KEY, GITHUB_ACME_TOKEN" in result.out
 
     def test_dry_run_says_would_write_not_wrote(self, cli, mocker) -> None:
-        res = HydrateResult(backend="infisical", written=["GITHUB_ACME_TOKEN"], skipped=[], error="")
+        res = HydrateResult(backend="vault", written=["GITHUB_ACME_TOKEN"], skipped=[], error="")
         spy = mocker.patch("briar.credentials._bootstraps.auto_bootstrap", return_value=[res])
         result = cli("secrets", "bootstrap", "--dry-run")
         assert result.code == 0
@@ -82,45 +82,45 @@ class TestBootstrap:
         assert spy.call_args.kwargs == {"dry_run": True}
 
     def test_all_backends_failed_exit_1(self, cli, mocker) -> None:
-        res = HydrateResult(backend="infisical", written=[], skipped=[], error="503 from vault")
+        res = HydrateResult(backend="vault", written=[], skipped=[], error="503 from vault")
         mocker.patch("briar.credentials._bootstraps.auto_bootstrap", return_value=[res])
         result = cli("secrets", "bootstrap")
         assert result.code == 1
-        assert "bootstrap infisical failed: 503 from vault" in result.out
+        assert "bootstrap vault failed: 503 from vault" in result.out
 
     def test_partial_failure_still_exit_0(self, cli, mocker) -> None:
         # One backend ok, one failed → operator can proceed with what hydrated.
         ok = HydrateResult(backend="envfile", written=["A_VAR"], skipped=[], error="")
-        bad = HydrateResult(backend="infisical", written=[], skipped=[], error="boom")
+        bad = HydrateResult(backend="vault", written=[], skipped=[], error="boom")
         mocker.patch("briar.credentials._bootstraps.auto_bootstrap", return_value=[ok, bad])
         result = cli("secrets", "bootstrap")
         assert result.code == 0
-        assert "bootstrap infisical failed: boom" in result.out
+        assert "bootstrap vault failed: boom" in result.out
         assert "bootstrap envfile: wrote 1 env vars" in result.out
 
     def test_forced_kind_not_configured_exit_1(self, cli, mocker) -> None:
         bs = SimpleNamespace(
-            kind="infisical",
+            kind="envfile",
             is_available=lambda: False,
-            required_env_vars=lambda: ["INFISICAL_CLIENT_ID", "INFISICAL_CLIENT_SECRET"],
+            required_env_vars=lambda: ["BRIAR_SECRETS_FILE"],
         )
         mocker.patch("briar.credentials._bootstraps.make_bootstrap", return_value=bs)
-        result = cli("secrets", "bootstrap", "--kind", "infisical")
+        result = cli("secrets", "bootstrap", "--kind", "envfile")
         assert result.code == 1
-        assert "kind=infisical not configured" in result.out
-        assert "INFISICAL_CLIENT_ID, INFISICAL_CLIENT_SECRET" in result.out
+        assert "kind=envfile not configured" in result.out
+        assert "BRIAR_SECRETS_FILE" in result.out
 
     def test_forced_kind_available_hydrates(self, cli, mocker) -> None:
-        res = HydrateResult(backend="infisical", written=["GITHUB_ACME_TOKEN"], skipped=[], error="")
+        res = HydrateResult(backend="vault", written=["GITHUB_ACME_TOKEN"], skipped=[], error="")
         bs = SimpleNamespace(
-            kind="infisical",
+            kind="envfile",
             is_available=lambda: True,
             hydrate=lambda *, dry_run: res,
         )
         mocker.patch("briar.credentials._bootstraps.make_bootstrap", return_value=bs)
-        result = cli("secrets", "bootstrap", "--kind", "infisical")
+        result = cli("secrets", "bootstrap", "--kind", "envfile")
         assert result.code == 0
-        assert "bootstrap infisical: wrote 1 env vars" in result.out
+        assert "bootstrap vault: wrote 1 env vars" in result.out
 
     def test_invalid_kind_choice_rejected_by_argparse(self, cli) -> None:
         result = cli("secrets", "bootstrap", "--kind", "not-a-backend")

@@ -143,7 +143,7 @@ class AgentRunner:
                         f"LLM ({self._llm.kind}) credentials missing — set {needed} "
                         f"via one of: (1) shell env, (2) `briar auth login` if a vendor "
                         f"acquirer exists, (3) hand-edit ~/.config/briar/secrets.env. "
-                        f"If you expected a credential bootstrap (Infisical, …) to hydrate "
+                        f"If you expected a credential bootstrap to hydrate "
                         f"this, check the earlier `credential-bootstrap: … failed` log line."
                     ),
                 )

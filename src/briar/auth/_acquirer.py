@@ -32,8 +32,8 @@ class DestinationPolicy(enum.Enum):
     picks via ``--store``.
 
     ``BOOTSTRAP_LOCAL`` — the credentials DESCRIBE HOW TO REACH a
-    ``CredentialStore`` (e.g. Infisical machine-identity, Vault
-    address + token). They cannot be stored INSIDE that store —
+    ``CredentialStore`` (e.g. a future Vault address + token). They
+    cannot be stored INSIDE that store —
     chicken-and-egg. Always persisted to the local ``envfile`` store;
     ``--store`` is ignored with a warning if the operator passes it."""
 
@@ -83,7 +83,7 @@ class CredentialAcquirer(ABC):
     display_name: ClassVar[str] = ""
     # Where the result lands. Most acquirers obtain vendor credentials
     # that can be persisted to any store (EXTERNAL). Store-bootstrap
-    # acquirers (Infisical, Vault) obtain the credentials needed to
+    # acquirers (e.g. a future Vault) obtain the credentials needed to
     # talk to THAT store, so they must persist locally.
     destination_policy: ClassVar[DestinationPolicy] = DestinationPolicy.EXTERNAL
 

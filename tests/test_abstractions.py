@@ -597,40 +597,16 @@ class ProviderRequiredEnvVarsTests(unittest.TestCase):
 
 class CredentialBootstrapTests(unittest.TestCase):
     """`CredentialBootstrap` is a separate ABC from CredentialStore
-    (bulk-write-at-startup vs read-on-demand). InfisicalBootstrap is
-    the only concrete impl today; this test pins the contract so a
-    future addition stays in shape."""
+    (bulk-write-at-startup vs read-on-demand). EnvFileBootstrap is the
+    only concrete impl today; this test pins the contract so a future
+    addition stays in shape."""
 
-    def test_registry_lists_envfile_then_infisical(self) -> None:
-        """Registry order = precedence. envfile must come first so
-        locally-persisted creds beat remote-vault values and survive an
-        Infisical 401."""
+    def test_registry_lists_envfile(self) -> None:
+        """envfile is the only registered bootstrap today; it must be
+        present so startup hydration works."""
         from briar.credentials._bootstraps import BOOTSTRAPS
 
-        kinds = list(BOOTSTRAPS.keys())
-        self.assertIn("envfile", kinds)
-        self.assertIn("infisical", kinds)
-        self.assertLess(kinds.index("envfile"), kinds.index("infisical"))
-
-    def test_infisical_unavailable_without_creds(self) -> None:
-        from briar.credentials._bootstraps.infisical import InfisicalBootstrap
-
-        with mock.patch.dict("os.environ", {}, clear=True):
-            bs = InfisicalBootstrap()
-            self.assertFalse(bs.is_available())
-            # hydrate() returns a structured error, NOT raises — so a
-            # misconfigured host doesn't crash briar at startup.
-            result = bs.hydrate()
-            self.assertFalse(result.ok)
-            self.assertIn("missing INFISICAL_", result.error)
-
-    def test_infisical_required_env_vars(self) -> None:
-        from briar.credentials._bootstraps.infisical import InfisicalBootstrap
-
-        names = InfisicalBootstrap.required_env_vars()
-        self.assertIn("INFISICAL_CLIENT_ID", names)
-        self.assertIn("INFISICAL_CLIENT_SECRET", names)
-        self.assertIn("INFISICAL_PROJECT_ID", names)
+        self.assertEqual(list(BOOTSTRAPS.keys()), ["envfile"])
 
     def test_auto_bootstrap_no_backend_configured(self) -> None:
         """No backend is available → empty list. Startup must be
@@ -641,8 +617,8 @@ class CredentialBootstrapTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             # Point envfile resolution at a fresh path with no file →
-            # EnvFileBootstrap.is_available() returns False, and with
-            # no INFISICAL_* vars set, Infisical is also unavailable.
+            # EnvFileBootstrap.is_available() returns False, so no
+            # bootstrap runs.
             env = {
                 "BRIAR_SECRETS_FILE": str(Path(tmp) / "secrets.env"),
                 "HOME": tmp,  # force XDG fallback off any real ~/.config
@@ -708,127 +684,6 @@ class CredentialBootstrapTests(unittest.TestCase):
                 result = bs.hydrate()
                 self.assertFalse(result.ok)
                 self.assertIn("no envfile", result.error)
-
-    def test_auto_bootstrap_runs_envfile_then_infisical(self) -> None:
-        """Both backends configured → both fire. Infisical 401 does not
-        wipe out envfile's written keys; envfile values shadow Infisical
-        values when both supply the same key (envfile is registered
-        first; setdefault semantics)."""
-        import tempfile
-
-        from briar.credentials._bootstraps import auto_bootstrap
-
-        contents = "FROM_ENVFILE=v1\nSHARED=envfile-wins\n"
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "secrets.env"
-            path.write_text(contents)
-            env = {
-                "BRIAR_SECRETS_FILE": str(path),
-                "INFISICAL_CLIENT_ID": "id",
-                "INFISICAL_CLIENT_SECRET": "secret",
-                "INFISICAL_PROJECT_ID": "proj",
-            }
-            with mock.patch.dict("os.environ", env, clear=True):
-                with mock.patch(
-                    "briar.credentials._bootstraps.infisical.InfisicalBootstrap._fetch_secrets",
-                    return_value=[("FROM_INFISICAL", "v2"), ("SHARED", "infisical-loses")],
-                ):
-                    results = auto_bootstrap()
-
-        backends = [r.backend for r in results]
-        self.assertEqual(backends, ["envfile", "infisical"])
-        # envfile wrote 2 keys
-        envfile_result = results[0]
-        self.assertIn("FROM_ENVFILE", envfile_result.written)
-        self.assertIn("SHARED", envfile_result.written)
-        # infisical wrote 1 (FROM_INFISICAL); SHARED was skipped because
-        # envfile already populated it
-        infisical_result = results[1]
-        self.assertIn("FROM_INFISICAL", infisical_result.written)
-        self.assertIn("SHARED", infisical_result.skipped)
-
-    def test_auto_bootstrap_survives_infisical_failure(self) -> None:
-        """The cascade's reason for existing: Infisical 401 leaves
-        envfile values in place. Operator can still work locally."""
-        import tempfile
-
-        from briar.credentials._bootstraps import auto_bootstrap
-
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "secrets.env"
-            path.write_text("LOCAL_KEY=local-value\n")
-            env = {
-                "BRIAR_SECRETS_FILE": str(path),
-                "INFISICAL_CLIENT_ID": "id",
-                "INFISICAL_CLIENT_SECRET": "secret",
-                "INFISICAL_PROJECT_ID": "proj",
-            }
-            with mock.patch.dict("os.environ", env, clear=True):
-                with mock.patch(
-                    "briar.credentials._bootstraps.infisical.InfisicalBootstrap._fetch_secrets",
-                    side_effect=RuntimeError("401 invalid creds"),
-                ):
-                    results = auto_bootstrap()
-                # Assert envfile values landed in os.environ while the
-                # patched dict is still active — mock.patch.dict rolls
-                # back on exit, so checks outside the `with` would see
-                # the original (empty) env.
-                self.assertEqual(os.environ["LOCAL_KEY"], "local-value")
-
-        # envfile succeeded, infisical failed — both reported
-        envfile_result = next(r for r in results if r.backend == "envfile")
-        infisical_result = next(r for r in results if r.backend == "infisical")
-        self.assertTrue(envfile_result.ok)
-        self.assertIn("LOCAL_KEY", envfile_result.written)
-        self.assertFalse(infisical_result.ok)
-        # Error string contains the sanitized type+message (no URL in this
-        # case so the message survives) but never the bearer token / URL
-        # itself — see _bootstraps/infisical.py for the scrub logic.
-        self.assertIn("RuntimeError", infisical_result.error)
-        self.assertIn("401", infisical_result.error)
-
-    def test_infisical_hydrate_writes_via_setdefault_dry_run(self) -> None:
-        """Dry-run path: fetches from Infisical (mocked SDK), reports
-        the keys that WOULD be set, never writes to os.environ.
-        Already-set env vars are listed in `skipped`."""
-        from briar.credentials._bootstraps.infisical import InfisicalBootstrap
-
-        env_creds = {
-            "INFISICAL_CLIENT_ID": "id-x",
-            "INFISICAL_CLIENT_SECRET": "secret-x",
-            "INFISICAL_PROJECT_ID": "proj-x",
-            "GITHUB_TOKEN": "operator-supplied-token",  # would be preserved
-        }
-        with mock.patch.dict("os.environ", env_creds, clear=True):
-            bs = InfisicalBootstrap()
-            self.assertTrue(bs.is_available())
-            # Replace the lazy SDK import + the constructed client
-            # before hydrate() runs.
-            with mock.patch.object(bs, "_fetch_secrets", return_value=[("NEW_VAR", "x"), ("GITHUB_TOKEN", "from-vault")]):
-                result = bs.hydrate(dry_run=True)
-        self.assertTrue(result.ok)
-        self.assertIn("NEW_VAR", result.written)
-        self.assertIn("GITHUB_TOKEN", result.skipped)  # operator-supplied wins
-        # dry-run: nothing actually written
-        self.assertNotIn("NEW_VAR", os.environ)
-
-    def test_infisical_complete_raises_when_sdk_missing(self) -> None:
-        """Opt-in extra `pip install briar-cli[infisical]` brings the
-        SDK. Without it, hydrate() returns a structured error rather
-        than crashing at import time."""
-        from briar.credentials._bootstraps.infisical import InfisicalBootstrap
-
-        env_creds = {
-            "INFISICAL_CLIENT_ID": "id",
-            "INFISICAL_CLIENT_SECRET": "s",
-            "INFISICAL_PROJECT_ID": "p",
-        }
-        with mock.patch.dict("os.environ", env_creds, clear=True):
-            bs = InfisicalBootstrap()
-            with mock.patch("briar.credentials._bootstraps.infisical._import_infisical_sdk", return_value=None):
-                result = bs.hydrate()
-        self.assertFalse(result.ok)
-        self.assertIn("briar-cli[infisical]", result.error)
 
 
 class BuildRegistryTests(unittest.TestCase):
@@ -2103,41 +1958,9 @@ class CredentialAcquirerTests(unittest.TestCase):
             "jira-session",
             "linear-api-key",
             "fireflies",
-            "infisical",
         }
         self.assertEqual(set(kinds), expected)
 
-    def test_infisical_acquirer_writes_machine_identity_triplet(self) -> None:
-        """The "log into Infisical" bootstrap flow. Captures the
-        three machine-identity creds + the env-slug + host. Company
-        is irrelevant (Infisical is workspace-wide)."""
-        from briar.auth import AcquirerRegistry, MockPromptIO
-
-        acquirer = AcquirerRegistry.make("infisical")
-        prompt = MockPromptIO(
-            answers=[
-                "client-id-uuid",
-                "client-secret-very-long",
-                "project-id-uuid",
-                "",  # env slug — accept default "prod"
-                "",  # host — accept default
-            ]
-        )
-        creds = acquirer.acquire(company="", prompt=prompt)
-        self.assertEqual(creds.entries["INFISICAL_CLIENT_ID"], "client-id-uuid")
-        self.assertEqual(creds.entries["INFISICAL_CLIENT_SECRET"], "client-secret-very-long")
-        self.assertEqual(creds.entries["INFISICAL_PROJECT_ID"], "project-id-uuid")
-        self.assertEqual(creds.entries["INFISICAL_ENV"], "prod")
-        self.assertEqual(creds.entries["INFISICAL_HOST"], "https://app.infisical.com")
-        self.assertIn("machine-identities", prompt.opened_urls[0])
-
-    def test_infisical_acquirer_rejects_missing_required_triplet(self) -> None:
-        from briar.auth import AcquirerRegistry, MockPromptIO
-
-        acquirer = AcquirerRegistry.make("infisical")
-        prompt = MockPromptIO(answers=["", "", "", "", ""])  # all empty
-        with self.assertRaises(ValueError):
-            acquirer.acquire(company="", prompt=prompt)
 
     def test_fireflies_acquirer_writes_per_company_api_key(self) -> None:
         """The "log into Fireflies" paste flow. Stores the per-company
@@ -2170,17 +1993,6 @@ class CredentialAcquirerTests(unittest.TestCase):
             acquirer = AcquirerRegistry.make(kind)
             self.assertIs(type(acquirer).destination_policy, DestinationPolicy.EXTERNAL, f"{kind} should be EXTERNAL")
 
-    def test_infisical_acquirer_is_bootstrap_local(self) -> None:
-        """Store-bootstrap acquirers must persist to envfile only —
-        you can't store the credentials for a store inside that store."""
-        from briar.auth import AcquirerRegistry
-        from briar.auth._acquirer import DestinationPolicy
-
-        self.assertIs(
-            type(AcquirerRegistry.make("infisical")).destination_policy,
-            DestinationPolicy.BOOTSTRAP_LOCAL,
-        )
-
 
 class CommandAuthStoreResolutionTests(unittest.TestCase):
     """`briar auth` CLI surface — positional target + destination policy."""
@@ -2188,8 +2000,8 @@ class CommandAuthStoreResolutionTests(unittest.TestCase):
     def test_resolve_default_store_uses_env_when_known(self) -> None:
         from briar.commands.auth import _resolve_default_store
 
-        with mock.patch.dict(os.environ, {"BRIAR_DEFAULT_STORE": "infisical"}, clear=False):
-            self.assertEqual(_resolve_default_store(["envfile", "infisical", "vault"]), "infisical")
+        with mock.patch.dict(os.environ, {"BRIAR_DEFAULT_STORE": "vault"}, clear=False):
+            self.assertEqual(_resolve_default_store(["envfile", "vault", "ssm"]), "vault")
 
     def test_resolve_default_store_ignores_unknown_env(self) -> None:
         from briar.commands.auth import _resolve_default_store
@@ -2205,17 +2017,24 @@ class CommandAuthStoreResolutionTests(unittest.TestCase):
             self.assertEqual(_resolve_default_store(["envfile", "vault"]), "envfile")
 
     def test_effective_store_forces_envfile_for_bootstrap(self) -> None:
-        """If the operator types `--store infisical` with target
-        `infisical`, the bootstrap policy must override that — you'd
-        be trying to store Infisical's machine identity INSIDE the
-        Infisical store, which is impossible."""
-        from briar.auth import AcquirerRegistry
+        """A BOOTSTRAP_LOCAL acquirer's credentials can't be stored in a
+        remote store — ``_effective_store_kind`` must force envfile."""
+        from briar.auth._acquirer import CredentialAcquirer, Credentials, DestinationPolicy
         from briar.commands.auth import _effective_store_kind
 
-        acquirer = AcquirerRegistry.make("infisical")
-        self.assertEqual(_effective_store_kind(acquirer, requested="infisical"), "envfile")
+        class _FakeBootstrapLocal(CredentialAcquirer):
+            kind = "fake-bootstrap"
+            destination_policy = DestinationPolicy.BOOTSTRAP_LOCAL
+
+            def acquire(self, *, company, prompt):
+                return Credentials(provider_kind=self.kind, entries={})
+
+            @classmethod
+            def writes(cls, *, company):
+                return []
+
+        acquirer = _FakeBootstrapLocal()
         self.assertEqual(_effective_store_kind(acquirer, requested="vault"), "envfile")
-        # envfile + envfile is fine
         self.assertEqual(_effective_store_kind(acquirer, requested="envfile"), "envfile")
 
     def test_effective_store_honours_request_for_external(self) -> None:
@@ -2225,227 +2044,9 @@ class CommandAuthStoreResolutionTests(unittest.TestCase):
 
         for kind in ("github-pat", "jira-session", "aws-static"):
             acquirer = AcquirerRegistry.make(kind)
-            self.assertEqual(_effective_store_kind(acquirer, requested="infisical"), "infisical")
+            self.assertEqual(_effective_store_kind(acquirer, requested="ssm"), "ssm")
             self.assertEqual(_effective_store_kind(acquirer, requested="vault"), "vault")
             self.assertEqual(_effective_store_kind(acquirer, requested="envfile"), "envfile")
-
-
-class InfisicalStoreTests(unittest.TestCase):
-    """`InfisicalStore` — read/write/delete/list against the Infisical
-    Secrets API. SDK calls are mocked — these tests pin the contract
-    surface (what we call into the SDK with), not the SDK's behaviour."""
-
-    def setUp(self) -> None:
-        self._env_patch = mock.patch.dict(
-            os.environ,
-            {
-                "INFISICAL_CLIENT_ID": "test-cid",
-                "INFISICAL_CLIENT_SECRET": "test-cs",
-                "INFISICAL_PROJECT_ID": "test-pid",
-                "INFISICAL_ENV": "prod",
-                "INFISICAL_HOST": "https://app.infisical.com",
-            },
-            clear=False,
-        )
-        self._env_patch.start()
-
-    def tearDown(self) -> None:
-        self._env_patch.stop()
-
-    def test_registered_in_credential_store_registry(self) -> None:
-        from briar.credentials import CredentialStoreRegistry
-
-        self.assertIn("infisical", CredentialStoreRegistry.kinds())
-
-    def test_read_returns_none_when_creds_missing(self) -> None:
-        """Silent miss matches EnvFileStore semantics — the doctor can
-        audit without forcing operators to install the extra. Returns
-        None (not '') so callers distinguish unconfigured from empty."""
-        from briar.credentials.infisical import InfisicalStore
-
-        env = {"INFISICAL_CLIENT_ID": "", "INFISICAL_CLIENT_SECRET": "", "INFISICAL_PROJECT_ID": ""}
-        with mock.patch.dict(os.environ, env, clear=False):
-            store = InfisicalStore()
-            self.assertIsNone(store.read("ANYTHING"))
-
-    def test_write_calls_update_then_falls_back_to_create_on_not_found(self) -> None:
-        """Symmetric to AwsSecretsManagerStore — try update first, fall
-        through to create when the SDK reports 404. Uses a status-bearing
-        exception (mirrors the real APIError shape) so the typed check
-        passes; a generic 'Secret not found' message would NOT match
-        post-hardening, which is the point — auth errors stay loud."""
-        from briar.credentials.infisical import InfisicalStore
-
-        class _FakeApiError(Exception):
-            status_code = 404
-
-        store = InfisicalStore()
-        fake_client = mock.MagicMock()
-        fake_client.secrets.update_secret_by_name.side_effect = _FakeApiError("404 not found")
-        fake_client.secrets.create_secret_by_name.return_value = None
-        store._client = fake_client  # bypass _build_client
-
-        store.write("GITHUB_TOKEN", "ghp_xyz")
-        fake_client.secrets.update_secret_by_name.assert_called_once()
-        fake_client.secrets.create_secret_by_name.assert_called_once()
-        # cached
-        self.assertEqual(store._cache["GITHUB_TOKEN"], "ghp_xyz")
-
-    def test_delete_returns_false_on_not_found(self) -> None:
-        from briar.credentials.infisical import InfisicalStore
-
-        class _FakeApiError(Exception):
-            status_code = 404
-
-        store = InfisicalStore()
-        fake_client = mock.MagicMock()
-        fake_client.secrets.delete_secret_by_name.side_effect = _FakeApiError("not found")
-        store._client = fake_client
-        self.assertFalse(store.delete("DOES_NOT_EXIST"))
-
-    def test_list_empty_when_creds_missing(self) -> None:
-        from briar.credentials.infisical import InfisicalStore
-
-        env = {"INFISICAL_CLIENT_ID": "", "INFISICAL_CLIENT_SECRET": "", "INFISICAL_PROJECT_ID": ""}
-        with mock.patch.dict(os.environ, env, clear=False):
-            store = InfisicalStore()
-            self.assertEqual(store.list(), [])
-
-    def test_registry_rejects_unknown_kind(self) -> None:
-        from briar.auth import AcquirerRegistry
-        from briar.errors import CliError
-
-        with self.assertRaises(CliError):
-            AcquirerRegistry.make("not-a-real-provider")
-
-    def test_github_pat_flow_writes_github_token(self) -> None:
-        from briar.auth import AcquirerRegistry, MockPromptIO
-
-        acquirer = AcquirerRegistry.make("github-pat")
-        prompt = MockPromptIO(answers=["ghp_test_xyz"])
-        creds = acquirer.acquire(company="acme", prompt=prompt)
-        self.assertEqual(creds.provider_kind, "github-pat")
-        self.assertEqual(creds.entries, {"GITHUB_TOKEN": "ghp_test_xyz"})
-        self.assertIn("github.com/settings/tokens", prompt.opened_urls[0])
-
-    def test_jira_token_flow_writes_url_email_token_and_auth_kind(self) -> None:
-        from briar.auth import AcquirerRegistry, MockPromptIO
-
-        acquirer = AcquirerRegistry.make("jira-token")
-        prompt = MockPromptIO(
-            answers=[
-                "https://acme.atlassian.net/",  # URL (trailing / stripped)
-                "ops@acme.com",
-                "atlassian-api-token-xyz",
-            ]
-        )
-        creds = acquirer.acquire(company="acme", prompt=prompt)
-        self.assertEqual(creds.entries["JIRA_ACME_URL"], "https://acme.atlassian.net")
-        self.assertEqual(creds.entries["JIRA_ACME_EMAIL"], "ops@acme.com")
-        self.assertEqual(creds.entries["JIRA_ACME_TOKEN"], "atlassian-api-token-xyz")
-        # AUTH_KIND=token so autodetect_jira_auth picks this strategy
-        self.assertEqual(creds.entries["JIRA_ACME_AUTH_KIND"], "token")
-
-    def test_jira_session_flow_decodes_jwt_exp(self) -> None:
-        """`expires_at` should be populated from the JWT's exp claim."""
-        import base64
-        import json
-        import time
-
-        from briar.auth import AcquirerRegistry, MockPromptIO
-
-        # Build a tiny 3-segment JWT with exp = now + 1 hour
-        exp = int(time.time()) + 3600
-        payload = json.dumps({"exp": exp, "email": "h@acme.com"}).encode("utf-8")
-        b64 = base64.urlsafe_b64encode(payload).rstrip(b"=").decode("ascii")
-        jwt = f"eyJhbGciOiJIUzI1NiJ9.{b64}.fake-sig"
-
-        acquirer = AcquirerRegistry.make("jira-session")
-        prompt = MockPromptIO(
-            answers=[
-                "https://acme.atlassian.net",
-                jwt,
-            ]
-        )
-        creds = acquirer.acquire(company="acme", prompt=prompt)
-        self.assertEqual(creds.entries["JIRA_ACME_TENANT_SESSION_TOKEN"], jwt)
-        self.assertEqual(creds.entries["JIRA_ACME_AUTH_KIND"], "session")
-        self.assertNotIn("JIRA_ACME_SESSION_TOKEN", creds.entries)
-        self.assertNotIn("JIRA_ACME_XSRF_TOKEN", creds.entries)
-        self.assertIsNotNone(creds.expires_at)
-
-    def test_aws_static_writes_all_four_env_vars(self) -> None:
-        from briar.auth import AcquirerRegistry, MockPromptIO
-
-        acquirer = AcquirerRegistry.make("aws-static")
-        prompt = MockPromptIO(answers=["AKIATEST123", "secret-xyz", ""])  # region empty → default
-        creds = acquirer.acquire(company="acme", prompt=prompt)
-        self.assertEqual(creds.entries["AWS_ACME_ACCESS_KEY_ID"], "AKIATEST123")
-        self.assertEqual(creds.entries["AWS_ACME_SECRET_ACCESS_KEY"], "secret-xyz")
-        self.assertEqual(creds.entries["AWS_ACME_REGION"], "us-east-1")  # default
-
-    def test_bitbucket_writes_workspace_username_password(self) -> None:
-        from briar.auth import AcquirerRegistry, MockPromptIO
-
-        acquirer = AcquirerRegistry.make("bitbucket-app-password")
-        prompt = MockPromptIO(answers=["acme-ws", "alice", "app-pwd-secret"])
-        creds = acquirer.acquire(company="acme", prompt=prompt)
-        self.assertEqual(creds.entries["BITBUCKET_ACME_WORKSPACE"], "acme-ws")
-        self.assertEqual(creds.entries["BITBUCKET_ACME_USERNAME"], "alice")
-        self.assertEqual(creds.entries["BITBUCKET_ACME_APP_PASSWORD"], "app-pwd-secret")
-
-    def test_linear_writes_company_token(self) -> None:
-        from briar.auth import AcquirerRegistry, MockPromptIO
-
-        acquirer = AcquirerRegistry.make("linear-api-key")
-        prompt = MockPromptIO(answers=["lin_api_xyz"])
-        creds = acquirer.acquire(company="bitspark", prompt=prompt)
-        self.assertEqual(creds.entries, {"LINEAR_BITSPARK_TOKEN": "lin_api_xyz"})
-
-    def test_empty_company_rejected_by_per_company_acquirers(self) -> None:
-        """Acquirers that write per-company env vars must reject ``company=""``
-        instead of silently writing ``AWS__ACCESS_KEY_ID``."""
-        from briar.auth import AcquirerRegistry, MockPromptIO
-
-        for kind in ("aws-static", "bitbucket-app-password", "jira-token", "jira-session", "linear-api-key"):
-            acquirer = AcquirerRegistry.make(kind)
-            with self.assertRaises(ValueError):
-                acquirer.acquire(company="", prompt=MockPromptIO(answers=[]))
-
-    def test_paste_acquirers_refresh_raises_credential_expired(self) -> None:
-        """Default ``refresh()`` for paste-flow acquirers must raise
-        ``CredentialExpired`` so the CLI knows to ask for a fresh login."""
-        from briar.auth import AcquirerRegistry, CredentialExpired, Credentials
-
-        empty = Credentials(provider_kind="x", entries={})
-        for kind in ("github-pat", "jira-token", "jira-session", "linear-api-key", "aws-static", "bitbucket-app-password"):
-            with self.assertRaises(CredentialExpired):
-                AcquirerRegistry.make(kind).refresh(company="x", existing=empty)
-
-    def test_writes_classmethod_matches_acquire_keys(self) -> None:
-        """``writes()`` is the doctor's audit hook — must list the
-        same keys that ``acquire()`` returns. Drift here means
-        ``briar auth status`` reports wrong missing-vars."""
-        from briar.auth import AcquirerRegistry, MockPromptIO
-
-        cases = {
-            "github-pat": (["ghp_x"], "acme"),
-            "jira-token": (["https://u.atlassian.net", "e@u.com", "tok"], "acme"),
-            "linear-api-key": (["lin_x"], "acme"),
-            "aws-static": (["AKIA1", "sec1", "us-west-2"], "acme"),
-            "bitbucket-app-password": (["ws", "user", "pwd"], "acme"),
-        }
-        for kind, (answers, company) in cases.items():
-            acquirer = AcquirerRegistry.make(kind)
-            creds = acquirer.acquire(company=company, prompt=MockPromptIO(answers=answers))
-            declared = set(type(acquirer).writes(company=company))
-            # `writes` must be a subset of what `acquire` returns —
-            # acquirers may write optional extras (xsrf, AUTH_KIND)
-            # beyond the mandatory set the doctor audits.
-            self.assertTrue(
-                declared.issubset(set(creds.entries.keys())),
-                f"{kind}: writes() {declared} not subset of acquire() {set(creds.entries.keys())}",
-            )
 
 
 class EnvFileStoreWriteTests(unittest.TestCase):
@@ -2617,10 +2218,7 @@ class Phase1CredentialHardeningTests(unittest.TestCase):
          credential's env-var name or the credential value itself.
       5. The rotation-detection fingerprint must not be a bare MD5 — use
          a keyed digest so an attacker with the hash cannot brute-force
-         against common-secret rainbow tables.
-      6. Infisical SDK errors that contain a URL get sanitized before
-         landing in HydrateResult.error (which is logged + surfaced to
-         the operator)."""
+         against common-secret rainbow tables."""
 
     # ── auth-vs-not-found propagation ──────────────────────────────
 
@@ -2674,38 +2272,6 @@ class Phase1CredentialHardeningTests(unittest.TestCase):
             with self.assertRaises(_AccessDenied):
                 store.read("ABSENT_KEY")
 
-    def test_infisical_auth_failure_propagates(self) -> None:
-        """401 carries no status_code==404 → re-raised, not coerced to None."""
-        from briar.credentials.infisical import InfisicalStore
-
-        class _APIError(Exception):
-            status_code = 401
-
-        env = {"INFISICAL_CLIENT_ID": "x", "INFISICAL_CLIENT_SECRET": "y", "INFISICAL_PROJECT_ID": "z"}
-        with mock.patch.dict(os.environ, env, clear=False):
-            store = InfisicalStore()
-            fake_client = mock.MagicMock()
-            fake_client.secrets.get_secret_by_name.side_effect = _APIError("Invalid credentials")
-            store._client = fake_client
-            with self.assertRaises(_APIError):
-                store.read("ANYTHING")
-
-    def test_infisical_is_not_found_rejects_loose_substring(self) -> None:
-        """A 'Secret not found' string without a 404 marker MUST NOT
-        match — the original loose sniff would have accepted this and
-        silently swapped a permission denial into a CreateSecret call."""
-        from briar.credentials.infisical import _is_not_found
-
-        self.assertFalse(_is_not_found(RuntimeError("Secret not found")))
-        self.assertFalse(_is_not_found(RuntimeError("403 forbidden")))
-        # Real 404 markers DO match
-        self.assertTrue(_is_not_found(RuntimeError("404 not found")))
-        self.assertTrue(_is_not_found(RuntimeError("Status: 404")))
-
-        class _ApiError(Exception):
-            status_code = 404
-
-        self.assertTrue(_is_not_found(_ApiError("anything")))
 
     # ── envfile write atomicity + permissions ──────────────────────
 
@@ -2775,53 +2341,6 @@ class Phase1CredentialHardeningTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"GITHUB_TOKEN": "ghp_xxx"}, clear=False):
             digest = store.fingerprint("GITHUB_TOKEN")
             self.assertNotEqual(digest, hashlib.md5(b"ghp_xxx").hexdigest())
-
-    # ── infisical bootstrap scrub ──────────────────────────────────
-
-    def test_infisical_bootstrap_scrubs_url_from_error(self) -> None:
-        """SDK APIErrors sometimes embed the request URL with project_id.
-        That URL MUST be scrubbed before landing in HydrateResult.error
-        (which is logged + surfaced to the operator + may end up in
-        log aggregators)."""
-        from briar.credentials._bootstraps.infisical import InfisicalBootstrap
-
-        env_creds = {
-            "INFISICAL_CLIENT_ID": "id",
-            "INFISICAL_CLIENT_SECRET": "s",
-            "INFISICAL_PROJECT_ID": "p",
-        }
-        with mock.patch.dict(os.environ, env_creds, clear=True):
-            bs = InfisicalBootstrap()
-            with mock.patch.object(
-                bs,
-                "_fetch_secrets",
-                side_effect=RuntimeError("APIError: GET https://app.infisical.com/api/v3/secrets?projectId=proj-xyz failed"),
-            ):
-                result = bs.hydrate()
-        self.assertFalse(result.ok)
-        # The URL must NOT appear in the user-facing error
-        self.assertNotIn("://", result.error)
-        self.assertNotIn("proj-xyz", result.error)
-        # But the type name does
-        self.assertIn("RuntimeError", result.error)
-
-    def test_infisical_bootstrap_keeps_install_hint(self) -> None:
-        """The SDK-not-installed RuntimeError has no URL — its message
-        ('pip install briar-cli[infisical]') is the helpful hint we
-        WANT operators to see. Sanitization shouldn't eat it."""
-        from briar.credentials._bootstraps.infisical import InfisicalBootstrap
-
-        env_creds = {
-            "INFISICAL_CLIENT_ID": "id",
-            "INFISICAL_CLIENT_SECRET": "s",
-            "INFISICAL_PROJECT_ID": "p",
-        }
-        with mock.patch.dict(os.environ, env_creds, clear=True):
-            bs = InfisicalBootstrap()
-            with mock.patch("briar.credentials._bootstraps.infisical._import_infisical_sdk", return_value=None):
-                result = bs.hydrate()
-        self.assertFalse(result.ok)
-        self.assertIn("briar-cli[infisical]", result.error)
 
 
 class Phase2BoundaryDefaultsTests(unittest.TestCase):
@@ -3071,7 +2590,7 @@ class Phase3ErrorHandlingTests(unittest.TestCase):
     def test_known_matchers_cover_every_credenv_entry(self) -> None:
         """Adding a new credential to CredEnv must auto-propagate to
         envfile.list() — the previous hand-maintained tuple drifted
-        (INFISICAL_*, FIREFLIES_* were missing). A representative
+        (FIREFLIES_* was missing). A representative
         concrete env var for each template must match."""
         from briar.credentials.envfile import _KNOWN_MATCHERS
         from briar.env_vars import CredEnv

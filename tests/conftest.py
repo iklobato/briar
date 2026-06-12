@@ -28,7 +28,6 @@ _PREFIXES_TO_SCRUB = (
     "BITBUCKET_",
     "LINEAR_",
     "FIREFLIES_",
-    "INFISICAL_",
     "VAULT_",
     "SLACK_",
     "TELEGRAM_",

@@ -115,8 +115,8 @@ src/briar/
 ├── notify/                           — alert sinks (BRIAR_NOTIFY_SINKS)
 │   └── (SINKS registry: email, pagerduty, slack, telegram)
 ├── credentials/                      — CredentialStore + Bootstrap
-│   ├── _store.py, envfile.py, infisical.py, vault.py, aws_secrets.py, ssm.py
-│   └── _bootstraps/                       envfile, infisical (registry order = precedence)
+│   ├── _store.py, envfile.py, vault.py, aws_secrets.py, ssm.py
+│   └── _bootstraps/                       envfile (single backend today)
 ├── auth/_acquirers/                  — interactive credential flows
 │                                       (9 acquirers — see §3)
 ├── plan/                             — board → cards → selector → run loop
@@ -148,7 +148,7 @@ runbooks/                             — real per-company YAMLs (gitignored)
 examples/                             — public sample YAMLs
 agents/                               — per-command operator docs (agents/runbook.md, etc.)
 tools/mutation_test.py                — 7-mutant smoke test
-bin/                                  — populate-infisical-secrets.sh + helpers
+bin/                                  — helper scripts
 scripts/                              — none today
 ```
 
@@ -166,8 +166,8 @@ edit anywhere else.
 | JIT extractors | `briar.extract.TASK_SCOPED_EXTRACTORS` | `meeting-context`, `pr-review-context`, `ticket-context` |
 | Knowledge stores | `briar.storage.KnowledgeStoreRegistry.STORES` | `file`, `postgres` |
 | Message writers (runbook `messages.kind:`) | `briar.messaging.WRITERS` | `bitbucket-pr-comment`, `github-pr-comment`, `jira-comment`, `jira-transition`, `slack-channel`, `telegram-chat` |
-| Auth acquirers (`auth login <target>`) | `briar.auth._acquirers.ACQUIRERS` | `aws-sso`, `aws-static`, `bitbucket-app-password`, `fireflies`, `github-device`, `github-pat`, `infisical`, `jira-session`, `jira-token`, `linear-api-key` |
-| Credential stores (`auth --store`) | `briar.credentials.STORES` | `aws-secretsmanager`, `envfile`, `infisical`, `ssm`, `vault` |
+| Auth acquirers (`auth login <target>`) | `briar.auth._acquirers.ACQUIRERS` | `aws-sso`, `aws-static`, `bitbucket-app-password`, `fireflies`, `github-device`, `github-pat`, `jira-session`, `jira-token`, `linear-api-key` |
+| Credential stores (`auth --store`) | `briar.credentials.STORES` | `aws-secretsmanager`, `envfile`, `ssm`, `vault` |
 | Notify sinks (`$BRIAR_NOTIFY_SINKS`) | `briar.notify.SINKS` | `email`, `pagerduty`, `slack`, `telegram` |
 | Board readers (`plan build <board>`) | `briar.plan._boards.BOARD_READERS` | `github-project`, `jira` |
 | Journal sinks | `briar.journal.sinks.JOURNAL_SINKS` | `file` |
@@ -180,7 +180,7 @@ edit anywhere else.
 | Workflow shapes (`scaffold --shape`) | `briar.iac.scaffold.shapes.WORKFLOW_SHAPES` | `one-shot`, `plan-approve-act`, `triage` |
 | Trigger templates (`scaffold --trigger-kind`) | `briar.iac.scaffold.triggers.TRIGGER_TEMPLATES` | `bitbucket_webhook`, `github_webhook`, `manual`, `schedule_cron` |
 | Source templates (`scaffold --source`) | `briar.iac.scaffold.sources.SOURCE_TEMPLATES` | `aws`, `bitbucket`, `github`, `jira`, `sentry` |
-| Bootstraps (`secrets bootstrap --kind`) | `briar.credentials._bootstraps.BOOTSTRAPS` | `envfile`, `infisical` (registry order = precedence; earlier wins) |
+| Bootstraps (`secrets bootstrap --kind`) | `briar.credentials._bootstraps.BOOTSTRAPS` | `envfile` |
 | AWS service gatherers (`--aws-extract-service`) | `briar.extract.aws_services.AWS_SERVICE_GATHERERS` | `ecs`, `lambda`, `logs`, `rds`, `sqs`, `tagging-inventory` |
 | Output formatters (global `--format`) | `briar.formatting.FORMATTERS` | `table`, `json`, `yaml`, `csv`, `quiet` |
 
@@ -439,7 +439,6 @@ auto_bootstrap()  (briar/cli.py first thing after argparse)
 BOOTSTRAPS in registry order:
       1. envfile     ← runs FIRST (laptop default; resolves $BRIAR_SECRETS_FILE
       │                 → /etc/briar/secrets.env → ~/.config/briar/secrets.env)
-      2. infisical   ← runs SECOND (only fills env vars not yet present)
       │
       ▼
 Operator-supplied env vars take precedence (already-set keys preserved)
@@ -451,7 +450,6 @@ CLI subcommand runs
 On-demand reads (CredentialStore + CredEnv.<KEY>.for_company(company))
       │
       ├── EnvFileStore       — read from secrets.env
-      ├── InfisicalStore     — Universal Auth machine identity
       ├── VaultStore         — HashiCorp Vault KV v2
       ├── AwsSecretsMgr      — /briar/<NAME> prefix
       └── SsmParameterStore  — /briar/ prefix, SecureString
@@ -477,9 +475,8 @@ INTERACTIVE ACQUISITION  (briar auth login <target>)
 Resolution order at runtime (lowest precedence last):
 
 1. `os.environ` at process start — operator-supplied wins
-2. envfile bootstrap (registry order: first)
-3. infisical bootstrap (registry order: second — only fills gaps)
-4. On-demand `CredentialStore` reads for explicit `--store` flows
+2. envfile bootstrap
+3. On-demand `CredentialStore` reads for explicit `--store` flows
 
 ---
 
@@ -772,13 +769,13 @@ Subcommand flags:
 
 Acquirer destination policy:
 - **EXTERNAL** (default) — vendor credentials. `--store` is honoured as-is.
-- **BOOTSTRAP_LOCAL** — bootstrap targets (`infisical`, future `vault`). Forced to `envfile`. Warning printed if a different `--store` was passed.
+- **BOOTSTRAP_LOCAL** — bootstrap targets (future `vault`). Forced to `envfile`. Warning printed if a different `--store` was passed.
 
 ### `briar secrets <subcommand>`
 | Subcommand | Flags |
 |---|---|
 | `doctor` | `--examples <dir>` (default `./examples`); `--store {envfile,aws-secretsmanager,ssm,vault}` (default `envfile`) |
-| `bootstrap` | `--kind {envfile,infisical}` (default = auto-detect); `--dry-run` |
+| `bootstrap` | `--kind {envfile}` (default = envfile); `--dry-run` |
 
 ### `briar journal <subcommand>`
 | Subcommand | Flags |
@@ -835,9 +832,8 @@ known collision with the global (`xfail(strict=True)` in tests).
 
 | Env var | Effect |
 |---|---|
-| `BRIAR_DEFAULT_STORE={envfile,infisical,vault,aws-secretsmanager,ssm}` | default `--store` for `auth login` |
+| `BRIAR_DEFAULT_STORE={envfile,vault,aws-secretsmanager,ssm}` | default `--store` for `auth login` |
 | `BRIAR_SECRETS_FILE=/path/to/secrets.env` | overrides resolution: this → `/etc/briar/secrets.env` → `~/.config/briar/secrets.env` |
-| `INFISICAL_CLIENT_ID` / `_SECRET` / `_PROJECT_ID` (+ optional `_ENV`, `_HOST`) | Infisical machine identity |
 | `GITHUB_TOKEN` | workspace-wide GitHub PAT |
 | `BITBUCKET_<COMPANY>_WORKSPACE` / `_USERNAME` / `_APP_PASSWORD` | per-tenant Bitbucket |
 | `JIRA_<COMPANY>_URL` / `_EMAIL` / `_TOKEN` | token-auth Jira |
@@ -970,11 +966,10 @@ INTO the `_notify_failure` try/except and the loop continues
 ### Bootstrap precedence is *registry order*
 
 `BOOTSTRAPS` tuple in `credentials/_bootstraps/__init__.py` determines
-who runs first. Today: `envfile` then `infisical`. Earlier wins,
-because later bootstraps only fill vars not yet present. This is why
-a locally-stored `aws-static` cred beats an Infisical `aws-static`
-cred — operators who logged in locally aren't stranded by Infisical
-401s.
+who runs first. Today only `envfile` is registered. As future
+bootstraps are added, earlier wins because later bootstraps only fill
+vars not yet present — operators who logged in locally aren't stranded
+by a remote vault being unreachable.
 
 ### Knowledge store backends are NOT fully isomorphic
 

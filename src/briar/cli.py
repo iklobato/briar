@@ -152,8 +152,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     # prints usage/help and exits at parse_args() below without ever
     # dispatching a command. Skip credential bootstrap, journal, and
     # telemetry for them so `briar -h` and `briar <cmd> -h` do no
-    # network or filesystem I/O — no Infisical fetch (and its 401
-    # noise), no ./journal directory created just to print help.
+    # network or filesystem I/O — no remote bootstrap fetch, no
+    # ./journal directory created just to print help.
     # `-h`/`--help` anywhere in argv makes argparse short-circuit to a
     # help action; an empty `remaining` means no subcommand, which
     # argparse rejects with a usage error. Either way, no command runs.
@@ -164,15 +164,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         # the command registry imports (which transitively trigger
         # provider / writer adapter construction that may read env vars
         # at import time). auto_bootstrap() iterates the BOOTSTRAPS
-        # registry — typically a no-op locally, runs InfisicalBootstrap
-        # on hosts that have the universal-auth machine identity set.
+        # registry — typically a no-op locally; runs any configured
+        # bootstrap on hosts that have its credentials set.
         from briar.credentials._bootstraps import auto_bootstrap
 
         # Cascade — every available bootstrap runs in registry order.
         # Log each result independently so one backend's failure doesn't
-        # obscure another's success (envfile + Infisical commonly run
-        # together; a 401 from Infisical must not hide that envfile
-        # hydrated 12 vars successfully).
+        # obscure another's success.
         for result in auto_bootstrap():
             if not result.ok:
                 log.warning("credential-bootstrap: %s failed — %s", result.backend, result.error)

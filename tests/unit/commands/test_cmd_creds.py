@@ -26,7 +26,7 @@ class TestDoctor:
 class TestBootstrap:
     def test_bootstrap_no_kind_no_backend_available(self, cli, mocker) -> None:
         # `auto_bootstrap()` returns an empty list when no backend is
-        # available (no envfile, no Infisical creds). The command should
+        # available (no envfile, no remote vault). The command should
         # exit 0 with a "nothing configured" message — startup must be
         # robust to a fresh install.
         mocker.patch(
@@ -38,10 +38,10 @@ class TestBootstrap:
         assert "no credential-bootstrap" in result.out
 
     def test_bootstrap_kind_not_available(self, cli) -> None:
-        # `env_sandbox` autouse fixture clears INFISICAL_* and redirects
-        # BRIAR_SECRETS_FILE so envfile bootstrap can't restore them.
-        # InfisicalBootstrap.is_available() returns False
-        # deterministically — exit 1 with "not configured".
-        result = cli("secrets", "bootstrap", "--kind", "infisical")
+        # `env_sandbox` autouse fixture redirects BRIAR_SECRETS_FILE to a
+        # non-existent path so the envfile bootstrap can't restore anything.
+        # EnvFileBootstrap.is_available() returns False deterministically
+        # — exit 1 with "not configured".
+        result = cli("secrets", "bootstrap", "--kind", "envfile")
         assert result.code == 1
         assert "not configured" in result.out

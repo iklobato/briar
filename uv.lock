@@ -10,15 +10,6 @@ resolution-markers = [
 ]
 
 [[package]]
-name = "aenum"
-version = "3.1.17"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/07/e9/8b283567c1fef7c24d1f390b37daede8b61593d8cdaffb8e95d571699e83/aenum-3.1.17.tar.gz", hash = "sha256:a969a4516b194895de72c875ece355f17c0d272146f7fda346ef74f93cf4d5ba", size = 137648, upload-time = "2026-03-20T20:43:29.846Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/48/8d/1fe30c6fd8999b9d462547c4a1bb6690bda24af38f2913c4bec7decb81f2/aenum-3.1.17-py3-none-any.whl", hash = "sha256:8b883a37a04e74cc838ac442bdd28c266eae5bbf13e1342c7ef123ed25230139", size = 165560, upload-time = "2026-03-20T20:43:27.681Z" },
-]
-
-[[package]]
 name = "annotated-types"
 version = "0.7.0"
 source = { registry = "https://pypi.org/simple" }
@@ -296,7 +287,7 @@ wheels = [
 
 [[package]]
 name = "briar-cli"
-version = "1.1.20"
+version = "1.1.38"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
@@ -331,7 +322,6 @@ all = [
     { name = "google-cloud-run" },
     { name = "google-generativeai" },
     { name = "hvac" },
-    { name = "infisicalsdk" },
     { name = "openai" },
 ]
 azure = [
@@ -355,9 +345,6 @@ gcp = [
 ]
 gemini = [
     { name = "google-generativeai" },
-]
-infisical = [
-    { name = "infisicalsdk" },
 ]
 openai = [
     { name = "openai" },
@@ -391,7 +378,7 @@ requires-dist = [
     { name = "azure-mgmt-subscription", marker = "extra == 'azure'", specifier = ">=3.1,<4" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=25,<26" },
     { name = "boto3", specifier = ">=1.34,<2" },
-    { name = "briar-cli", extras = ["openai", "gemini", "vault", "gcp", "azure", "infisical"], marker = "extra == 'all'" },
+    { name = "briar-cli", extras = ["openai", "gemini", "vault", "gcp", "azure"], marker = "extra == 'all'" },
     { name = "gitpython", specifier = ">=3.1,<4" },
     { name = "google-api-python-client", marker = "extra == 'gcp'", specifier = ">=2.100,<3" },
     { name = "google-auth", marker = "extra == 'gcp'", specifier = ">=2.20,<3" },
@@ -402,7 +389,6 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27,<1" },
     { name = "hvac", marker = "extra == 'vault'", specifier = ">=2.0,<3" },
     { name = "hypothesis", marker = "extra == 'test'", specifier = ">=6.110,<7" },
-    { name = "infisicalsdk", marker = "extra == 'infisical'", specifier = ">=1.0,<2" },
     { name = "jinja2", specifier = ">=3.1,<4" },
     { name = "moto", extras = ["secretsmanager", "ssm"], marker = "extra == 'test'", specifier = ">=5,<6" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13,<2" },
@@ -426,7 +412,7 @@ requires-dist = [
     { name = "sqlalchemy", specifier = ">=2.0,<3" },
     { name = "time-machine", marker = "extra == 'test'", specifier = ">=2.14,<3" },
 ]
-provides-extras = ["test", "dev", "openai", "gemini", "vault", "infisical", "gcp", "azure", "all"]
+provides-extras = ["test", "dev", "openai", "gemini", "vault", "gcp", "azure", "all"]
 
 [[package]]
 name = "certifi"
@@ -1368,22 +1354,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/1a/88/bcf9709822fe69d02c2a6a77956c98ce6ea8ca8767a9aadcedc7eb6a2390/idna-3.16.tar.gz", hash = "sha256:d7a6da03db833450fca25d2358ac9ff06cd624577a4aea3a596d5c0f77b8e03d", size = 203770, upload-time = "2026-05-22T00:16:18.781Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/94/16/70255075a9859a0e3adb789b68ceb0e210dec03934245fd98d248226572f/idna-3.16-py3-none-any.whl", hash = "sha256:cc246e3a3f89580c3a951b5ad298ca4638078b2cdd4f115654332b5c26daded5", size = 74165, upload-time = "2026-05-22T00:16:16.698Z" },
-]
-
-[[package]]
-name = "infisicalsdk"
-version = "1.0.16"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "aenum" },
-    { name = "boto3" },
-    { name = "botocore" },
-    { name = "python-dateutil" },
-    { name = "requests" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/e6/36/1e8650cbdcdec755c85ca0293956b25efb7d4371f54b20ec53e35ab0502f/infisicalsdk-1.0.16.tar.gz", hash = "sha256:7518446a60418d46c7926f10447f28c9e24d7b25ba25885d9bae428297d32694", size = 17254, upload-time = "2026-02-18T17:41:34.747Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/15/16/797b84fa77b24a3a59288c0698d11fee59ba9e8e51b2a26a20feba03ae13/infisicalsdk-1.0.16-py3-none-any.whl", hash = "sha256:3e3f5f377f8c3017af7702ef3b1dfc5b4668f98936bb0e471f859e07abda0194", size = 21758, upload-time = "2026-02-18T17:41:33.41Z" },
 ]
 
 [[package]]

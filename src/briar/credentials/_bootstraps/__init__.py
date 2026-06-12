@@ -13,9 +13,8 @@ only set vars not yet present in ``os.environ``.
 
 Registry order is the precedence order: envfile (laptop default
 + droplet via systemd) runs FIRST so locally-persisted creds beat
-remote-vault values on conflict, and so a 401 from Infisical
-doesn't strand operators who already logged in via
-``briar auth login --store envfile``."""
+any later remote-vault values on conflict. Today envfile is the only
+registered bootstrap."""
 
 from __future__ import annotations
 
@@ -25,7 +24,6 @@ from typing import Dict, List, Tuple, Type
 from briar._registry import build_registry
 from briar.credentials._bootstrap import CredentialBootstrap, HydrateResult
 from briar.credentials._bootstraps.envfile import EnvFileBootstrap
-from briar.credentials._bootstraps.infisical import InfisicalBootstrap
 from briar.errors import CliError
 
 
@@ -33,10 +31,9 @@ log = logging.getLogger(__name__)
 
 
 # Order matters — see module docstring. EnvFileBootstrap first so
-# locally-persisted creds always win, and so an Infisical 401 leaves
-# envfile values in place.
+# locally-persisted creds always win.
 BOOTSTRAPS: Dict[str, Type[CredentialBootstrap]] = build_registry(
-    (EnvFileBootstrap, InfisicalBootstrap),
+    (EnvFileBootstrap,),
     kind="credential bootstrap",
     name_attr="kind",
 )
@@ -70,8 +67,8 @@ def auto_bootstrap(*, dry_run: bool = False) -> List[HydrateResult]:
     means no backend was configured — startup proceeds with
     ``os.environ`` as-is. Callers iterate the list and log each
     result independently; treating one failure as fatal would defeat
-    the cascade (an Infisical 401 should not erase a successful
-    envfile hydrate).
+    the cascade (a later backend's failure should not erase a
+    successful earlier hydrate).
 
     Cascade semantics: each bootstrap calls ``os.environ.setdefault``
     (or equivalent), so the first backend that supplies a given key

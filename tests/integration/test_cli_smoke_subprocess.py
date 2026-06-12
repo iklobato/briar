@@ -42,7 +42,6 @@ _CRED_PREFIXES = (
     "BITBUCKET_",
     "LINEAR_",
     "FIREFLIES_",
-    "INFISICAL_",
     "VAULT_",
     "SLACK_",
     "TELEGRAM_",

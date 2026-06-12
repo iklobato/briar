@@ -184,7 +184,6 @@ pip install 'briar-cli[gemini]'      # Google Gemini LLM
 pip install 'briar-cli[gcp]'         # GCP cloud provider
 pip install 'briar-cli[azure]'       # Azure cloud provider
 pip install 'briar-cli[vault]'       # HashiCorp Vault credential store
-pip install 'briar-cli[infisical]'   # Infisical credential bootstrap
 pip install 'briar-cli[all]'         # everything
 ```
 

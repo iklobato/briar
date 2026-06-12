@@ -4,7 +4,7 @@
 Audit credential coverage and one-shot any registered bootstrap.
 `doctor` answers "do I have what each (company, extractor) needs?".
 `bootstrap` is the testing knob for credential-bootstrap targets
-(e.g. fetching from Infisical) that normally fire on every CLI
+(e.g. envfile hydration) that normally fire on every CLI
 startup.
 
 ## Subcommands
@@ -12,7 +12,7 @@ startup.
 | Op | Purpose |
 |---|---|
 | `doctor` | Walk every (company, extractor) and report which env-vars are present / missing |
-| `bootstrap` | Run one credential-bootstrap (e.g. `infisical`) manually |
+| `bootstrap` | Run one credential-bootstrap (e.g. `envfile`) manually |
 
 ## When to use
 
@@ -25,8 +25,8 @@ startup.
 
 ## Prerequisites
 - For `doctor`: `--examples <dir>` (which company YAMLs to walk).
-- For `bootstrap`: the bootstrap target's prerequisites (e.g.
-  `INFISICAL_CLIENT_ID` / `INFISICAL_CLIENT_SECRET` for `infisical`).
+- For `bootstrap`: the bootstrap target's prerequisites (e.g. a
+  readable `secrets.env` for `envfile`).
 
 ## Commands
 
@@ -54,7 +54,7 @@ briar secrets doctor --examples examples/ --only-missing
 ### Manually run a bootstrap
 
 ```bash
-briar secrets bootstrap infisical
+briar secrets bootstrap --kind envfile
 ```
 
 Useful when debugging why the auto-bootstrap at CLI startup failed —
@@ -78,5 +78,4 @@ this prints the same error in foreground.
 |---|---|
 | `--examples` is required | Always pass it: `--examples examples/` (or wherever your company YAMLs live) |
 | Row says `MISSING` for a var you set | Wrong file. Check `BRIAR_SECRETS_FILE`, then `/etc/briar/secrets.env`, then `$XDG_CONFIG_HOME/briar/secrets.env`. The first one that exists wins |
-| `bootstrap infisical` fails | Client identity wrong, or the machine identity has no scope for the secret path. Check the Infisical dashboard's audit log |
 | `doctor` says OK but extractor still fails | The env-var is present but invalid (expired token, wrong scope). `briar auth login <target>` to re-acquire |
