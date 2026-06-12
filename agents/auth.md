@@ -43,14 +43,13 @@ directly to `/etc/briar/secrets.env`.
 | `jira-session` | Paste session cookie (workaround) |
 | `linear-api-key` | Paste API key → writes `LINEAR_<COMPANY>_API_KEY` |
 | `fireflies` | Paste API key → writes `FIREFLIES_<COMPANY>_API_KEY` (used by `meeting-digest` / `meeting-context`) |
-| `infisical` | Bootstrap machine-identity for the central store (not a vendor) |
 
 ## Prerequisites
 - A terminal (these flows print to stdout and read stdin / paste / open a browser).
 - `--company <name>` for every vendor target (the resulting env-var
   names are namespaced by it).
-- For `--store infisical` / `aws-secretsmanager` etc.: the relevant
-  backend already initialised (`briar auth login infisical` first).
+- For `--store aws-secretsmanager` etc.: the relevant
+  backend already initialised with credentials.
 
 ## Commands
 
@@ -78,12 +77,11 @@ briar auth login aws-sso --company <COMPANY>
 ### Persist into a non-default backend
 
 ```bash
-briar auth login github-pat --company <COMPANY> --store infisical
+briar auth login github-pat --company <COMPANY> --store vault
 ```
 
 `--store` options: `envfile` (default), `aws-secretsmanager`, `ssm`,
-`vault`, `infisical`. Bootstrap targets like `infisical` ignore
-`--store` (they always persist locally).
+`vault`.
 
 ### Refresh an existing bundle (OAuth/SSO only)
 
@@ -124,4 +122,3 @@ briar auth logout github-pat --company <COMPANY>
 | OAuth device flow times out | Re-run; the device code expires after 15 min |
 | `secrets.env` has no perms | The env file requires `0600` owner-readable. Fix with `chmod 600 /etc/briar/secrets.env` |
 | Token works in browser, fails in CLI | PAT lacks required scopes. GitHub needs `repo`, `read:org`. Jira tokens are tied to the account that minted them |
-| `infisical` bootstrap fails | Machine-identity client id/secret wrong. Re-run `briar auth login infisical` from scratch |

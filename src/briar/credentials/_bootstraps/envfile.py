@@ -14,11 +14,9 @@ it — that's where this bootstrap earns its keep, picking up
 credentials the operator persisted via
 ``briar auth login --store envfile``.
 
-Pairs with ``InfisicalBootstrap`` as a cascade: envfile runs first
-(local, cheap, no network), Infisical runs second and fills in
-anything envfile didn't have. If Infisical's machine-identity
-credentials 401, envfile values survive — the operator can still
-work against whatever they've already logged into locally."""
+Today this is the only registered bootstrap; it runs first in the
+cascade (local, cheap, no network) so any future remote-vault
+bootstrap only fills gaps it didn't already populate."""
 
 from __future__ import annotations
 
@@ -43,7 +41,7 @@ _LINE_RE = re.compile(r"^\s*(?:export\s+)?([A-Z][A-Z0-9_]*)\s*=\s*(.*?)\s*$")
 # Env vars the dynamic-loader / interpreter / proxy stack reads at
 # process startup. An envfile is operator-owned but its contents can
 # come from a managed vault that operators don't control directly
-# (Infisical project, encrypted blob in CI). Refuse to hydrate these
+# (an encrypted blob in CI). Refuse to hydrate these
 # from disk so a compromised vault entry can't smuggle code-execution
 # (LD_PRELOAD, PYTHONPATH) or traffic-interception (HTTP_PROXY) into
 # the briar process. Operators that genuinely need these can set them
@@ -97,8 +95,8 @@ class EnvFileBootstrap(CredentialBootstrap):
 
     ``is_available()`` checks file existence — no remote dependency.
     ``hydrate()`` returns a structured ``HydrateResult`` even on a
-    read failure (matches the InfisicalBootstrap shape, so startup
-    never crashes on a misconfigured envfile)."""
+    read failure (so startup never crashes on a misconfigured
+    envfile)."""
 
     kind = "envfile"
 

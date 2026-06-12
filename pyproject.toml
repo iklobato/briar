@@ -66,7 +66,6 @@ dev = [
 openai = ["openai>=1.40,<2"]
 gemini = ["google-generativeai>=0.7,<1"]
 vault = ["hvac>=2.0,<3"]
-infisical = ["infisicalsdk>=1.0,<2"]    # bulk-fetch secrets at process startup (CredentialBootstrap)
 gcp = [
     "google-cloud-run>=0.10,<1",
     "google-cloud-pubsub>=2.18,<3",
@@ -84,7 +83,7 @@ azure = [
 ]
 # Convenience meta-extra — `pip install briar-cli[all]` pulls everything.
 all = [
-    "briar-cli[openai,gemini,vault,gcp,azure,infisical]",
+    "briar-cli[openai,gemini,vault,gcp,azure]",
 ]
 
 

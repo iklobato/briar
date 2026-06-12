@@ -9,7 +9,7 @@ observable behavior: exit code, parsed stdout, files written on disk
 The `cli` fixture invokes the full startup path (credential bootstrap,
 default-journal install, telemetry install). `env_sandbox` (autouse in
 tests/conftest.py) strips every credential-shaped env var, so:
-  * Infisical bootstrap `is_available()` is False -> no network.
+  * No remote bootstrap configured -> no network.
   * provider-backed extractors report missing creds deterministically.
 `BRIAR_SECRETS_FILE` is already redirected per-test by `env_sandbox`.
 

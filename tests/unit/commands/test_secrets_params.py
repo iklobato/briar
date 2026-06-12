@@ -30,8 +30,8 @@ from briar.credentials._bootstraps import HydrateResult
 
 # Documented choices, mirrored from the manifest so a registry change that
 # drops a kind surfaces as a test failure here.
-_STORE_CHOICES = ["envfile", "aws-secretsmanager", "ssm", "vault", "infisical"]
-_BOOTSTRAP_KINDS = ["envfile", "infisical"]
+_STORE_CHOICES = ["envfile", "aws-secretsmanager", "ssm", "vault"]
+_BOOTSTRAP_KINDS = ["envfile"]
 
 
 # ─── doctor --store ─────────────────────────────────────────────────────
@@ -142,7 +142,7 @@ class TestBootstrapKindFlag:
 
 class TestBootstrapDryRunFlag:
     def test_dry_run_propagates_and_says_would_write(self, cli, mocker) -> None:
-        res = HydrateResult(backend="infisical", written=["GITHUB_ACME_TOKEN"], skipped=[], error="")
+        res = HydrateResult(backend="vault", written=["GITHUB_ACME_TOKEN"], skipped=[], error="")
         spy = mocker.patch("briar.credentials._bootstraps.auto_bootstrap", return_value=[res])
         result = cli("secrets", "bootstrap", "--dry-run")
         assert result.code == 0
@@ -151,7 +151,7 @@ class TestBootstrapDryRunFlag:
         assert "wrote" not in result.out.split("would write")[0]
 
     def test_without_dry_run_says_wrote_and_flag_false(self, cli, mocker) -> None:
-        res = HydrateResult(backend="infisical", written=["GITHUB_ACME_TOKEN"], skipped=[], error="")
+        res = HydrateResult(backend="vault", written=["GITHUB_ACME_TOKEN"], skipped=[], error="")
         spy = mocker.patch("briar.credentials._bootstraps.auto_bootstrap", return_value=[res])
         result = cli("secrets", "bootstrap")
         assert result.code == 0
@@ -160,15 +160,15 @@ class TestBootstrapDryRunFlag:
 
     def test_dry_run_propagates_through_forced_kind(self, cli, mocker) -> None:
         captured = {}
-        res = HydrateResult(backend="infisical", written=["GITHUB_ACME_TOKEN"], skipped=[], error="")
+        res = HydrateResult(backend="vault", written=["GITHUB_ACME_TOKEN"], skipped=[], error="")
 
         def _hydrate(*, dry_run):
             captured["dry_run"] = dry_run
             return res
 
-        bs = SimpleNamespace(kind="infisical", is_available=lambda: True, hydrate=_hydrate)
+        bs = SimpleNamespace(kind="envfile", is_available=lambda: True, hydrate=_hydrate)
         mocker.patch("briar.credentials._bootstraps.make_bootstrap", return_value=bs)
-        result = cli("secrets", "bootstrap", "--kind", "infisical", "--dry-run")
+        result = cli("secrets", "bootstrap", "--kind", "envfile", "--dry-run")
         assert result.code == 0
         assert captured["dry_run"] is True
         assert "would write" in result.out
@@ -182,7 +182,7 @@ class TestSecretValuesNeverPrinted:
         # written holds KEY NAMES; there is no value in the result envelope.
         # Use a placeholder that would be obvious if it leaked.
         secret_placeholder = "TOKEN-VALUE-PLACEHOLDER-not-a-secret"
-        res = HydrateResult(backend="infisical", written=["GITHUB_ACME_TOKEN"], skipped=[], error="")
+        res = HydrateResult(backend="vault", written=["GITHUB_ACME_TOKEN"], skipped=[], error="")
         mocker.patch("briar.credentials._bootstraps.auto_bootstrap", return_value=[res])
         result = cli("secrets", "bootstrap")
         assert "keys: GITHUB_ACME_TOKEN" in result.out

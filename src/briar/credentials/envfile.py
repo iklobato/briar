@@ -49,16 +49,16 @@ def _validate_value(value: str) -> None:
             raise ValueError(
                 f"EnvFileStore: value contains disallowed control character {ch!r}; "
                 "credentials with embedded newlines/NUL bytes can't be safely persisted "
-                "to the line-oriented envfile format. Use a different store (vault, "
-                "infisical) if you genuinely need to persist a multi-line secret."
+                "to the line-oriented envfile format. Use a different store (e.g. "
+                "vault) if you genuinely need to persist a multi-line secret."
             )
 
 
 # Env-var name MATCHERS that count as "credentials" for ``list()``.
 # Derived from ``CredEnv`` at import time so adding a new credential
 # enum entry can never silently fall out of the doctor's view (the
-# previous hand-maintained list drifted — INFISICAL_* + FIREFLIES_*
-# were missing from ``list()`` even though they exist in CredEnv).
+# previous hand-maintained list drifted — FIREFLIES_* was missing
+# from ``list()`` even though it exists in CredEnv).
 #
 # We match the FULL anchored template, NOT a bare prefix. A prefix match
 # (``startswith``) over-matches the shared ``BRIAR_`` namespace:

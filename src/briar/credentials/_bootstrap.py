@@ -14,10 +14,6 @@ Two operating modes coexist:
                                                                      ↑
                                                        briar reads here
 
-  INFISICAL_CLIENT_ID + creds   →  InfisicalBootstrap.hydrate()  →  os.environ
-                                                                     ↑
-                                                       briar reads here
-
 The local file path is the simpler default. Bootstrap mode is for
 deployments where secrets live in a remote vault and the operator
 only wants to bake the machine-identity credentials onto the host —
@@ -69,7 +65,7 @@ class CredentialBootstrap(ABC):
         """True iff the bootstrap has the machine-identity credentials
         it needs to authenticate against the remote vault. Without
         this signal, `auto_bootstrap()` skips the backend (so a host
-        without Infisical creds is a no-op, not an error)."""
+        without a configured bootstrap is a no-op, not an error)."""
 
     @abstractmethod
     def hydrate(self, *, dry_run: bool = False) -> HydrateResult:

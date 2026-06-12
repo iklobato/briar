@@ -99,7 +99,6 @@ in the error message:
 pip install -e '.[openai]'    # OpenAI LLM
 pip install -e '.[gemini]'    # Google Gemini LLM
 pip install -e '.[vault]'     # HashiCorp Vault credential store
-pip install -e '.[infisical]' # Infisical credential bootstrap + store
 pip install -e '.[gcp]'       # GCP cloud provider (~80 MB)
 pip install -e '.[azure]'     # Azure cloud provider (~40 MB)
 pip install -e '.[all]'       # everything above
@@ -129,7 +128,7 @@ to grant.
 > `secrets.env`). For every vendor below, an equivalent **`briar auth
 > login`** target walks the same steps interactively and writes the
 > resulting env-vars directly into your chosen store (env-file by
-> default; Infisical / Vault / AWS Secrets Manager / SSM if
+> default; Vault / AWS Secrets Manager / SSM if
 > configured). The manual flow stays the source-of-truth for what
 > the env vars need to contain; `briar auth login` is the
 > guided UX on top:
@@ -144,9 +143,8 @@ to grant.
 > | §4.4 Linear API key | `briar auth login linear-api-key --company X` | |
 > | §4.5 AWS static keys | `briar auth login aws-static --company X` | |
 > |               (AWS SSO) | `briar auth login aws-sso --company X` | OIDC device flow → STS vend, records expiry |
-> | Infisical machine identity | `briar auth login infisical` | bootstrap — always envfile |
 >
-> Pick `--store infisical` (or `--store vault`, etc.) on any of these
+> Pick `--store vault` (or `--store aws-secretsmanager`, etc.) on any of these
 > to persist into a password manager instead of the local file. See
 > the `briar auth` section of README.md for the full surface.
 

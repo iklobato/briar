@@ -28,7 +28,7 @@ from briar.auth._acquirer import DestinationPolicy
 _SECRET_PLACEHOLDER = "ACCESS-TOKEN-PLACEHOLDER-not-a-secret"
 
 # Documented choices from the manifest.
-_STORE_CHOICES = ["envfile", "aws-secretsmanager", "ssm", "vault", "infisical"]
+_STORE_CHOICES = ["envfile", "aws-secretsmanager", "ssm", "vault"]
 _TARGET_CHOICES = [
     "github-device",
     "github-pat",
@@ -39,7 +39,6 @@ _TARGET_CHOICES = [
     "jira-session",
     "linear-api-key",
     "fireflies",
-    "infisical",
 ]
 
 

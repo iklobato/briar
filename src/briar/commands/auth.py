@@ -4,9 +4,8 @@ Surface mirrors ``gh auth login`` / ``vault login`` / ``op signin``:
 the thing you're logging into is the **positional target**, not a
 named flag. One unified verb for both directions:
 
-  briar auth login infisical                    # bootstrap a password manager
   briar auth login github-pat --company acme  # acquire vendor credentials
-  briar auth login aws-sso --company acme --store infisical
+  briar auth login aws-sso --company acme --store vault
 
 The acquirer's ``destination_policy`` decides whether ``--store``
 applies (vendor flows) or is forced to envfile (bootstrap flows that
@@ -55,7 +54,7 @@ class CommandAuth(Command):
             "login",
             help=(
                 "Log into a target. Positional `target` is the thing you're authenticating to: "
-                "a password manager (infisical) bootstraps a connection; "
+                "a password manager bootstraps a connection; "
                 "a vendor (github-pat / aws-sso / jira-session) acquires credentials and stores them."
             ),
         )
@@ -66,7 +65,7 @@ class CommandAuth(Command):
             "--store", default=default_store, choices=store_kinds,
             help=(
                 "Where to persist acquired credentials. Defaults to $BRIAR_DEFAULT_STORE then envfile. "
-                "IGNORED for bootstrap targets (e.g. infisical) — those always persist locally."
+                "IGNORED for bootstrap targets — those always persist locally."
             ),
         )
 
@@ -80,7 +79,7 @@ class CommandAuth(Command):
             "refresh",
             help=(
                 "Renew an OAuth / SSO bundle without re-prompting. Paste-based targets (PAT, app-password, "
-                "Jira API token, Jira session cookie, Infisical machine identity) cannot refresh — re-run login."
+                "Jira API token, Jira session cookie) cannot refresh — re-run login."
             ),
         )
         refresh.add_argument("target", choices=targets)
@@ -233,7 +232,7 @@ def _resolve_default_store(known_kinds: List[str]) -> str:
 
 def _effective_store_kind(acquirer, *, requested: str) -> str:
     """Honour the acquirer's destination policy. Bootstrap acquirers
-    (Infisical machine identity, future Vault VAULT_ADDR/TOKEN) MUST
+    (e.g. a future Vault VAULT_ADDR/TOKEN) MUST
     persist locally — they can't store the credentials that describe
     how to reach their own store. Warn the operator if their
     ``--store`` choice gets overridden."""

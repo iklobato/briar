@@ -14,13 +14,13 @@ Three abstractions:
 
 - ``CredentialBootstrap`` (``briar.credentials._bootstraps``) — the
   *bulk-hydrate* side: pull a whole environment from a remote vault
-  at process startup (Infisical today). Orthogonal to acquisition;
-  meant for already-provisioned secrets.
+  at process startup. Orthogonal to acquisition; meant for
+  already-provisioned secrets.
 
 Each axis is independent: acquire via GitHub OAuth → persist to
 Vault; or acquire via paste-a-token → persist to env-file; or skip
 acquisition entirely and let CredentialBootstrap hydrate from
-Infisical at startup."""
+a configured source at startup."""
 
 from __future__ import annotations
 

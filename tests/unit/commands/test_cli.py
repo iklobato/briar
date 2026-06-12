@@ -140,7 +140,7 @@ class TestBootstrap:
 class TestMetadataOnlyInvocationsSkipBootstrap:
     """`-h`/`--help`/no-command invocations print usage and exit without
     dispatching a command, so they must NOT trigger credential bootstrap
-    (no Infisical fetch / 401, no journal dir) — only real commands do."""
+    (no remote bootstrap, no journal dir) — only real commands do."""
 
     def test_top_level_help_skips_bootstrap(self, cli, mocker) -> None:
         boot = mocker.patch("briar.credentials._bootstraps.auto_bootstrap")
