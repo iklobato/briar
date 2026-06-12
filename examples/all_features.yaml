@@ -152,6 +152,35 @@ companies:
         archetypes: [engineer]
         enabled: false                              # declared but skipped until turned on
 
+      # AWS via the official AWS Labs API MCP server, INSTEAD of briar's own
+      # boto3 code. The agent calls `mcp__aws__call_aws` (run an AWS CLI
+      # command) on demand — no per-service gatherer to hand-maintain.
+      #
+      # Credential bridge: this server reads the STANDARD AWS env vars, but
+      # briar stores creds per-company as AWS_<COMPANY>_*. The `env:` map
+      # below copies acme's per-company values into the names the server
+      # expects (value = the briar env-var NAME, resolved at run time — the
+      # secret never appears here). Same vars `briar auth login aws-sso`
+      # writes, so SSO-vended creds work unchanged.
+      #
+      # SAFETY: READ_OPERATIONS_ONLY restricts the server to read-only AWS
+      # calls — strongly recommended for an autonomous agent. env values are
+      # env-var NAMES, so set `READ_OPERATIONS_ONLY=true` in secrets.env and
+      # reference it by name here. Belt-and-suspenders: use a read-only IAM
+      # principal for AWS_ACME_* so the blast radius is capped at the source.
+      aws:
+        transport: stdio
+        command: uvx
+        args: ["awslabs.aws-api-mcp-server@latest"]
+        env:
+          AWS_ACCESS_KEY_ID: AWS_ACME_ACCESS_KEY_ID
+          AWS_SECRET_ACCESS_KEY: AWS_ACME_SECRET_ACCESS_KEY
+          AWS_SESSION_TOKEN: AWS_ACME_SESSION_TOKEN        # unset for static keys → dropped, not blanked
+          AWS_REGION: AWS_ACME_REGION
+          READ_OPERATIONS_ONLY: READ_OPERATIONS_ONLY       # set =true in secrets.env
+        tools: [call_aws, suggest_aws_commands]
+        purpose: "Live AWS account state — ECS/RDS/Lambda/SQS/CloudWatch, tags, any read-only AWS CLI query"
+
     schedules:
 
       # ─── extractors: daily heavyweights ─────────────────────────────────
