@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -55,6 +56,11 @@ def _add_common_agent_arguments(parser: argparse.ArgumentParser) -> None:
         "--git-user-email", default="", help="git config user.email on the worktree. Required unless company.git_identity.email is set in the runbook."
     )
     parser.add_argument("--keep-worktree", action="store_true", help="Leave the worktree in /tmp after the run for inspection")
+    parser.add_argument(
+        "--no-default-mcp",
+        action="store_true",
+        help="Skip briar's built-in default MCP servers (think/time). Also disabled by BRIAR_NO_DEFAULT_MCP. " "Use on hosts without npx/uvx.",
+    )
 
 
 def _add_meeting_arguments(parser: argparse.ArgumentParser, *, query_help: str) -> None:
@@ -107,7 +113,9 @@ class ImplementOp(AgentOp):
         _add_common_agent_arguments(parser)
         parser.add_argument("--ticket-project", required=True, help="Tracker project key (Jira: PROJ; Linear team: ENG; GH/BB Issues: owner/repo)")
         parser.add_argument("--ticket-key", required=True, help="Ticket identifier (Jira: PROJ-123; GH/BB: #42; Linear: ENG-7)")
-        parser.add_argument("--tracker", default="jira", help="Tracker provider for the ticket (default: jira). One of: jira, github-issues, bitbucket-issues, linear.")
+        parser.add_argument(
+            "--tracker", default="jira", help="Tracker provider for the ticket (default: jira). One of: jira, github-issues, bitbucket-issues, linear."
+        )
         parser.add_argument(
             "--dry-run",
             action="store_true",
@@ -208,6 +216,7 @@ class CommandAgent(SubcommandCommand):
                 task_context_sections=tuple(task_sections),
                 dry_run=args.dry_run,
                 messages=self._load_messages_block(args),
+                **self._mcp_config(args),
             )
         ).run()
 
@@ -272,6 +281,7 @@ class CommandAgent(SubcommandCommand):
                 task_context_sections=tuple(task_sections),
                 dry_run=args.dry_run,
                 messages=self._load_messages_block(args),
+                **self._mcp_config(args),
             )
         ).run()
 
@@ -448,6 +458,59 @@ class CommandAgent(SubcommandCommand):
         return dict(getattr(company, "messages", {}) or {})
 
     @staticmethod
+    def _load_mcp_block(args: argparse.Namespace) -> Tuple[Dict[str, Any], Tuple[str, ...]]:
+        """Resolve the MCP servers for this run and which are always-on.
+
+        Returns ``(servers, always_on)`` where `servers` is the company's
+        runbook `mcp:` block merged on top of briar's built-in defaults
+        (think/time), and `always_on` is the handles of the defaults that
+        survived (the runbook can override one by reusing its handle).
+        Built-in defaults are skipped entirely when the operator opts out
+        via `--no-default-mcp` or `BRIAR_NO_DEFAULT_MCP`."""
+        runbook_servers = CommandAgent._load_runbook_mcp(args)
+        if CommandAgent._default_mcp_disabled(args):
+            return runbook_servers, ()
+        from briar.mcp.defaults import DEFAULT_MCP_SERVERS
+
+        merged: Dict[str, Any] = dict(DEFAULT_MCP_SERVERS)
+        merged.update(runbook_servers)  # runbook overrides a default by handle
+        always_on = tuple(handle for handle in DEFAULT_MCP_SERVERS if handle not in runbook_servers)
+        return merged, always_on
+
+    @staticmethod
+    def _load_runbook_mcp(args: argparse.Namespace) -> Dict[str, Any]:
+        """Read the company's `mcp:` block from the optional --runbook YAML.
+        Empty dict on any failure — MCP servers are purely additive tools."""
+        runbook_path = getattr(args, "runbook", "") or ""
+        if not runbook_path:
+            return {}
+        try:
+            from briar.iac.runbook import load_runbook_file
+
+            rb = load_runbook_file(Path(runbook_path))
+        except Exception:  # noqa: BLE001
+            log.exception("failed to load runbook=%s for mcp: block — continuing without runbook MCP servers", runbook_path)
+            return {}
+        company = rb.companies.get(args.company)
+        if company is None:
+            log.warning("runbook=%s has no company=%s — no runbook MCP servers", runbook_path, args.company)
+            return {}
+        return dict(getattr(company, "mcp", {}) or {})
+
+    @staticmethod
+    def _mcp_config(args: argparse.Namespace) -> Dict[str, Any]:
+        """Resolved MCP servers + always-on handles as AgentRunConfig kwargs,
+        splatted with `**` so the orchestrator methods stay one line."""
+        servers, always_on = CommandAgent._load_mcp_block(args)
+        return {"mcp_servers": servers, "mcp_always_on": always_on}
+
+    @staticmethod
+    def _default_mcp_disabled(args: argparse.Namespace) -> bool:
+        if getattr(args, "no_default_mcp", False):
+            return True
+        return os.environ.get("BRIAR_NO_DEFAULT_MCP", "").strip().lower() in {"1", "true", "yes", "on"}
+
+    @staticmethod
     def _resolve_git_identity(args: argparse.Namespace) -> Tuple[str, str]:
         """Resolve (user_name, user_email) for the worktree's commit identity.
 
@@ -487,8 +550,7 @@ class CommandAgent(SubcommandCommand):
         resolved_email = cli_email or yaml_email
         if not resolved_name or not resolved_email:
             raise CliError(
-                "git identity not configured: pass --git-user-name/--git-user-email "
-                "or set git_identity.name/.email in the runbook's company block."
+                "git identity not configured: pass --git-user-name/--git-user-email " "or set git_identity.name/.email in the runbook's company block."
             )
         return resolved_name, resolved_email
 

@@ -108,6 +108,85 @@ companies:
       escalation:
         kind: telegram-chat
 
+    # MCP (Model Context Protocol) servers. The agent connects to each at
+    # run time, lists its tools, and binds them as `mcp__<handle>__<tool>`
+    # alongside the built-in bash/read_file/edit_file tools. Requires
+    # `pip install 'briar-cli[mcp]'`.
+    #
+    # DEFAULTS (on for every agent run, no `mcp:` block needed): `think`
+    # (sequential-thinking, via npx) + `time` (via uvx). They're always-on
+    # and bypass the router. Override one by reusing its handle below; turn
+    # them all off with `--no-default-mcp` or BRIAR_NO_DEFAULT_MCP=1 (e.g.
+    # on hosts without npx/uvx). Anything you add here is layered on top.
+    #
+    # SECURITY: MCP tools are arbitrary remote capability — the bash/file
+    # sandbox does NOT extend to them. Narrow each server with `tools:` and
+    # keep secrets out of YAML (env/headers values are env-var NAMES).
+    #
+    # ROUTING: when 2+ servers are in scope for a task, the agent runs a
+    # short LLM pre-pass that picks which ones to actually connect for THIS
+    # task (matching the task against each server's `purpose`). It fails
+    # open — a routing miss connects everything — so `purpose` is what makes
+    # the pruning sharp. One server (or fewer) skips the pre-pass entirely.
+    mcp:
+      # stdio transport — a local subprocess. `env` maps the subprocess
+      # env-var name → the env-var NAME to copy the value from (the secret
+      # itself stays in /etc/briar/secrets.env, never here).
+      github:
+        transport: stdio
+        command: docker
+        args: ["run", "-i", "--rm", "-e", "GITHUB_TOKEN", "ghcr.io/github/github-mcp-server"]
+        env:
+          GITHUB_TOKEN: GITHUB_TOKEN
+        tools: [search_issues, get_pull_request]   # optional allowlist; omit = bind all
+        # `purpose` steers the agent's tool-selection judgment: it is
+        # appended to each tool's description AND listed in the system
+        # prompt's "Context sources" map, so the model picks the most
+        # specific source per sub-question.
+        purpose: "GitHub issues, pull requests, review threads, and commit history"
+      # http transport — a hosted server over Streamable HTTP. `headers`
+      # values are env-var NAMES too (e.g. a bearer token).
+      sentry:
+        transport: http
+        url: https://mcp.sentry.dev/mcp
+        headers:
+          Authorization: SENTRY_MCP_BEARER
+        purpose: "Production error/exception telemetry — stack traces, event frequency, regressions"
+        # Restrict to specific archetypes so each task sees a sharper menu.
+        # Empty/omitted = available to every archetype. Here: only the
+        # engineer (implement) gets Sentry, not the pr-fixer.
+        archetypes: [engineer]
+        enabled: false                              # declared but skipped until turned on
+
+      # AWS via the official AWS Labs API MCP server, INSTEAD of briar's own
+      # boto3 code. The agent calls `mcp__aws__call_aws` (run an AWS CLI
+      # command) on demand — no per-service gatherer to hand-maintain.
+      #
+      # Credential bridge: this server reads the STANDARD AWS env vars, but
+      # briar stores creds per-company as AWS_<COMPANY>_*. The `env:` map
+      # below copies acme's per-company values into the names the server
+      # expects (value = the briar env-var NAME, resolved at run time — the
+      # secret never appears here). Same vars `briar auth login aws-sso`
+      # writes, so SSO-vended creds work unchanged.
+      #
+      # SAFETY: READ_OPERATIONS_ONLY restricts the server to read-only AWS
+      # calls — strongly recommended for an autonomous agent. env values are
+      # env-var NAMES, so set `READ_OPERATIONS_ONLY=true` in secrets.env and
+      # reference it by name here. Belt-and-suspenders: use a read-only IAM
+      # principal for AWS_ACME_* so the blast radius is capped at the source.
+      aws:
+        transport: stdio
+        command: uvx
+        args: ["awslabs.aws-api-mcp-server@latest"]
+        env:
+          AWS_ACCESS_KEY_ID: AWS_ACME_ACCESS_KEY_ID
+          AWS_SECRET_ACCESS_KEY: AWS_ACME_SECRET_ACCESS_KEY
+          AWS_SESSION_TOKEN: AWS_ACME_SESSION_TOKEN        # unset for static keys → dropped, not blanked
+          AWS_REGION: AWS_ACME_REGION
+          READ_OPERATIONS_ONLY: READ_OPERATIONS_ONLY       # set =true in secrets.env
+        tools: [call_aws, suggest_aws_commands]
+        purpose: "Live AWS account state — ECS/RDS/Lambda/SQS/CloudWatch, tags, any read-only AWS CLI query"
+
     schedules:
 
       # ─── extractors: daily heavyweights ─────────────────────────────────

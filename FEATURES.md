@@ -350,11 +350,14 @@ KnowledgeComposer.inventory(company, sections)   # stable JSON: no timestamp, so
             │ AgentRunner (Anthropic API + tools)  │
             │   tools bound:                       │
             │     bash, read_file, write_file,    │
-            │     edit_file, send_message         │
+            │     edit_file, send_message,        │
+            │     mcp__<server>__<tool> (opt-in)  │
             │                                      │
             │   send_message resolves handle →    │
             │   MessageWriter via runbook         │
             │   messages: block                    │
+            │   MCP tools come from runbook       │
+            │   mcp: block (McpClientManager)     │
             └──────────────────┬───────────────────┘
                                │
                                ▼
@@ -630,7 +633,7 @@ No subcommand-specific flags.
 | `--pr <N>` | ✓ | — |
 | `--branch <name>` | ✓ | — |
 | `--provider {github,bitbucket}` | | `github` |
-| `--runbook <yaml>` | | — (binds send_message) |
+| `--runbook <yaml>` | | — (binds send_message + mcp servers) |
 | `--store {file,postgres}` | | `file` |
 | `--knowledge <dir>` | | `./knowledge` |
 | `--dry-run` | | off |

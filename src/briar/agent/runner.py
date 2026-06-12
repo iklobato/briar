@@ -76,6 +76,11 @@ class AgentRunConfig:
     task_context_sections: Tuple[Any, ...] = ()
     dry_run: bool = False
     messages: Mapping[str, Any] = field(default_factory=dict)
+    mcp_servers: Mapping[str, Any] = field(default_factory=dict)
+    # Handles of always-on servers (the built-in defaults): connected
+    # unconditionally and excluded from the router, so two trivial local
+    # tools never trigger a pointless routing call. See briar.mcp.defaults.
+    mcp_always_on: Tuple[str, ...] = ()
 
 
 class AgentRunner:
@@ -119,8 +124,137 @@ class AgentRunner:
         self._tools: Dict[str, Any] = {tool.name: tool for tool in (self._bash, self._read, self._write, self._edit)}
         if self._send is not None:
             self._tools[self._send.name] = self._send
+        # MCP servers (opt-in, same as SendMessageTool). Only the
+        # archetype-scoping (Lever 3) — pure config, no I/O — happens here.
+        # Connection + the router pre-pass (Lever 4) are deferred to
+        # `_setup_mcp`, called from `run()` AFTER the dry-run / credentials
+        # gates so a constructor never spawns subprocesses or spends tokens.
+        self._mcp: Optional[Any] = None  # McpClientManager, built lazily in _setup_mcp
+        self._mcp_tools: List[Any] = []
+        self._router_usage: Tuple[int, int] = (0, 0)
+        self._scoped_servers = self._scope_mcp_servers(config.mcp_servers)
+
+    def _scope_mcp_servers(self, servers: Mapping[str, Any]) -> Dict[str, Any]:
+        """Keep only the servers this archetype is allowed to use (Lever 3).
+
+        A server's `archetypes` allowlist is empty → available to every
+        archetype; otherwise it binds only when this run's archetype is in
+        the list. Scoping the menu per task is the cheapest way to sharpen
+        the model's tool-selection judgment: fewer, more-relevant choices."""
+        name = self._archetype.name
+        out: Dict[str, Any] = {}
+        for handle, binding in (servers or {}).items():
+            allow = list(getattr(binding, "archetypes", None) or [])
+            if not allow or name in allow:
+                out[handle] = binding
+            else:
+                log.debug("mcp: server=%s scoped out for archetype=%s (allowed: %s)", handle, name, allow)
+        return out
+
+    def _setup_mcp(self, *, route: bool) -> None:
+        """Connect MCP servers and register their tools. Idempotent-guarded
+        by the caller (run() calls it once). `route=True` runs the Lever-4
+        router pre-pass first; `route=False` connects every scoped server
+        (used by dry-run, which must not spend tokens)."""
+        if not self._scoped_servers:
+            return
+        servers = self._route_servers(self._scoped_servers) if route else dict(self._scoped_servers)
+        if not servers:
+            return
+        from briar.mcp import McpClientManager
+
+        self._mcp = McpClientManager(servers)
+        self._mcp_tools = self._mcp.start()
+        for tool in self._mcp_tools:
+            self._tools[tool.name] = tool
+
+    def _route_servers(self, scoped: Dict[str, Any]) -> Dict[str, Any]:
+        """Ask the LLM which scoped servers are worth connecting for this
+        task (Lever 4). Always-on servers (the built-in defaults) bypass the
+        router entirely — they're cheap, safe, and universally useful, so
+        routing them would only waste a call. Routing runs over the rest and
+        skips the LLM when there's nothing to choose between (≤1 routable).
+        Fails OPEN — any routing failure connects all routable servers, so a
+        flaky router never strands the agent without a capability it needs."""
+        always_on = {h: b for h, b in scoped.items() if h in self._cfg.mcp_always_on}
+        routable = {h: b for h, b in scoped.items() if h not in self._cfg.mcp_always_on}
+        if len(routable) <= 1:
+            return {**always_on, **routable}
+        catalog = {handle: (getattr(binding, "purpose", "") or "") for handle, binding in routable.items()}
+        selected = self._llm_select_servers(catalog)
+        chosen = {handle: binding for handle, binding in routable.items() if handle in selected} if selected else {}
+        return {**always_on, **(chosen or routable)}
+
+    def _llm_select_servers(self, catalog: Dict[str, str]) -> Optional[set]:
+        """One short completion: given the task + the source catalog, return
+        the set of handles to enable (or None on any failure → caller fails
+        open). Records token use in `self._router_usage`."""
+        sources = "\n".join(f"- {handle}: {purpose or '(no description)'}" for handle, purpose in catalog.items())
+        system = (
+            "You route an autonomous agent to its context sources. Given the task and a list of "
+            "available sources, choose which ones are worth enabling. Return ONLY a JSON array of "
+            'source ids, e.g. ["github"]. Include a source if it could plausibly help the task; omit '
+            "only clearly irrelevant ones. When unsure, include it."
+        )
+        user = f"Task:\n{self._router_task_summary()}\n\nAvailable sources:\n{sources}\n\nReturn the JSON array of source ids to enable."
+        try:
+            response = self._llm.complete(
+                system=system,
+                messages=[{"role": "user", "content": user}],
+                tools=[],
+                max_tokens=200,
+            )
+        except Exception:  # noqa: BLE001 — router must never block the run; fail open
+            log.exception("mcp-router: LLM call failed — enabling all scoped servers")
+            return None
+        self._router_usage = (response.input_tokens, response.output_tokens)
+        handles = self._parse_handles(response.text, set(catalog))
+        log.info("mcp-router: selected %s of %s", sorted(handles), sorted(catalog))
+        return handles
+
+    def _router_task_summary(self) -> str:
+        """Concise task description for the router, assembled from cheap,
+        already-available signals (no extra I/O)."""
+        parts = [f"Archetype: {self._archetype.name}", f"Goal: {self._archetype.goal}", f"Target: {self._cfg.target}"]
+        if self._cfg.extra_user_instructions:
+            parts.append(self._cfg.extra_user_instructions)
+        for section in self._cfg.task_context_sections:
+            if getattr(section, "is_empty", False):
+                continue
+            title = getattr(section, "title", "")
+            body = (getattr(section, "body", "") or "")[:1000]
+            parts.append(f"{title}: {body}")
+        return "\n".join(parts)[:4000]
+
+    @staticmethod
+    def _parse_handles(text: str, known: set) -> set:
+        """Extract known source ids from the router's reply. Prefers a JSON
+        array; falls back to a lenient mention-scan. Empty set when nothing
+        recognised (caller treats that as fail-open)."""
+        import json
+        import re
+
+        match = re.search(r"\[.*?\]", text, re.S)
+        if match:
+            try:
+                arr = json.loads(match.group(0))
+                picked = {str(x) for x in arr} & known
+                if picked:
+                    return picked
+            except (ValueError, TypeError):
+                pass
+        return {handle for handle in known if handle in text}
 
     def run(self) -> AgentRunResult:
+        try:
+            return self._run()
+        finally:
+            # MCP sessions hold subprocesses / open HTTP connections — tear
+            # them down on every exit path (dry-run, error, ceiling, done).
+            if self._mcp is not None:
+                self._mcp.close()
+
+    def _run(self) -> AgentRunResult:
         with log_context(company=self._cfg.company, task=self._cfg.task, agent=self._archetype.name):
             # Dry-run path: build the same prompts the LLM would see,
             # print them, and return. Don't gate on LLM creds (the
@@ -128,6 +262,10 @@ class AgentRunner:
             # an LLM call) — but DO gate on JIT extractor / archetype
             # construction having succeeded, which happens at __init__.
             if self._cfg.dry_run:
+                # Connect every scoped server (no router — routing would
+                # spend tokens, and dry-run's contract is zero LLM calls)
+                # so the report shows the full available tool menu.
+                self._setup_mcp(route=False)
                 return self._dry_run_report()
             if not self._llm.is_available():
                 names = type(self._llm).required_env_vars()
@@ -147,8 +285,18 @@ class AgentRunner:
                         f"this, check the earlier `credential-bootstrap: … failed` log line."
                     ),
                 )
+            # Router pre-pass (Lever 4): pick which scoped servers to
+            # connect for this task, then connect them. Must run after the
+            # credentials gate (it calls the LLM) and before the system
+            # prompt (whose context-source map reflects the connected set).
+            self._setup_mcp(route=True)
             system = self._build_system_prompt()
             initial_user = self._build_initial_user_message()
+            result = AgentRunResult(company=self._cfg.company, task=self._cfg.task)
+            # Fold the router's token use into the run's accounting so the
+            # cost summary tells the truth about the extra pre-pass call.
+            result.input_tokens += self._router_usage[0]
+            result.output_tokens += self._router_usage[1]
             log.info(
                 "agent-start: archetype=%s llm=%s max_iter=%d workdir=%s",
                 self._archetype.name,
@@ -158,7 +306,6 @@ class AgentRunner:
             )
             log.debug("agent-system-prompt-bytes=%d initial-user-bytes=%d", len(system), len(initial_user))
             messages: List[Dict[str, Any]] = [{"role": "user", "content": initial_user}]
-            result = AgentRunResult(company=self._cfg.company, task=self._cfg.task)
             for iteration in range(1, self._max_iterations + 1):
                 result.iterations = iteration
                 try:
@@ -238,9 +385,52 @@ class AgentRunner:
             if getattr(section, "is_empty", False):
                 continue
             sections.append(f"## {section.title}\n\n{section.body}")
+        # Context-source routing map (Lever 2): when MCP servers are bound,
+        # give the model an explicit menu of where each kind of context
+        # lives + a selection policy, so it judges the most specific source
+        # per sub-question instead of inferring from a flat tool list.
+        routing = self._context_source_section()
+        if routing:
+            sections.append(routing)
         if not sections:
             return body
         return body + "\n\n" + "\n\n".join(sections)
+
+    def _context_source_section(self) -> str:
+        """Render the context-source map from the bound MCP tools, grouped
+        by server with its `purpose`. Empty when no MCP servers are bound —
+        non-MCP runs keep their existing prompt verbatim."""
+        if not self._mcp_tools:
+            return ""
+        # Group tool names by server; the server name is segment 2 of the
+        # `mcp__<server>__<tool>` convention (parsed so this works for any
+        # tool object that follows the naming, not just McpTool).
+        servers: Dict[str, Dict[str, Any]] = {}
+        for tool in self._mcp_tools:
+            parts = tool.name.split("__")
+            server = parts[1] if len(parts) >= 3 else getattr(tool, "server", "mcp")
+            info = servers.setdefault(server, {"purpose": "", "count": 0})
+            info["count"] += 1
+            purpose = getattr(tool, "purpose", "")
+            if purpose and not info["purpose"]:
+                info["purpose"] = purpose
+
+        lines = [
+            "## Context sources — pick the most specific one per sub-question",
+            "",
+            "Before each action, name the information you need, then use the source whose purpose matches it:",
+            "",
+            "- Local repository (code, configs, tests, history) — `read_file`, `bash`",
+        ]
+        for server, info in servers.items():
+            purpose = info["purpose"] or f"the {server} MCP server"
+            lines.append(f"- {purpose} — `mcp__{server}__*`")
+        lines.append("")
+        lines.append(
+            "Prefer local repository context before remote sources. Don't call a tool whose "
+            "purpose doesn't match what you need; when sources overlap, choose the most specific."
+        )
+        return "\n".join(lines)
 
     def _build_initial_user_message(self) -> str:
         intro = textwrap.dedent(
@@ -286,6 +476,8 @@ class AgentRunner:
             channels = self._send.channels()
             description = self._send.description + (f"\n\nAvailable channels: {', '.join(channels)}" if channels else "")
             specs.append({"name": self._send.name, "description": description, "input_schema": self._send.INPUT_SCHEMA})
+        for tool in self._mcp_tools:
+            specs.append({"name": tool.name, "description": tool.description, "input_schema": tool.INPUT_SCHEMA})
         return specs
 
     def _dry_run_report(self) -> AgentRunResult:

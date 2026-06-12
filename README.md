@@ -181,6 +181,7 @@ briar plan run acme-q3 --company acme --owner acme-co --repo acme-app \
 pip install briar-cli                # base: GitHub/Bitbucket/AWS, Jira/Linear, Anthropic + Bedrock, file + Postgres stores
 pip install 'briar-cli[openai]'      # OpenAI LLM
 pip install 'briar-cli[gemini]'      # Google Gemini LLM
+pip install 'briar-cli[mcp]'         # MCP-server tools for `briar agent` (runbook `mcp:` block)
 pip install 'briar-cli[gcp]'         # GCP cloud provider
 pip install 'briar-cli[azure]'       # Azure cloud provider
 pip install 'briar-cli[vault]'       # HashiCorp Vault credential store

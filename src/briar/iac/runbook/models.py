@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class _Strict(BaseModel):
@@ -114,6 +114,77 @@ class MessageBinding(_Strict):
         return value
 
 
+class McpServerBinding(_Strict):
+    """One MCP (Model Context Protocol) server the agent may call tools on.
+
+    A server is named by its handle (the key under the company's ``mcp:``
+    block). At agent-start time the runner connects, lists the server's
+    tools, and binds each one under the name ``mcp__<handle>__<tool>`` so
+    the LLM can call it like any built-in tool.
+
+    Two transports:
+
+      * ``stdio`` — the server is a local subprocess. Set ``command`` +
+        ``args``. ``env`` maps a subprocess env-var NAME → the NAME of an
+        env var in briar's own environment to copy the value from — never
+        the secret literal (same env-var-name indirection as
+        ``KnowledgeBinding.dsn_env`` / telegram's ``chat_env``).
+      * ``http`` — the server is reachable over Streamable HTTP. Set
+        ``url``. ``headers`` maps a header name → the NAME of an env var
+        holding its value (e.g. a bearer token).
+
+    ``tools`` is an optional allowlist: when non-empty, only those tool
+    names are bound and everything else the server advertises is dropped —
+    the same opt-in narrowing principle as the rest of the agent's tool
+    surface. ``enabled: false`` skips the server without deleting its block.
+
+    Example::
+
+      mcp:
+        github:
+          transport: stdio
+          command: docker
+          args: ["run", "-i", "--rm", "-e", "GITHUB_TOKEN", "ghcr.io/github/github-mcp-server"]
+          env: {GITHUB_TOKEN: GITHUB_TOKEN}
+          tools: [search_issues, get_pull_request]
+        sentry:
+          transport: http
+          url: https://mcp.sentry.dev/mcp
+          headers: {Authorization: SENTRY_MCP_BEARER}
+    """
+
+    transport: Literal["stdio", "http"] = "stdio"
+    command: str = ""
+    args: List[str] = Field(default_factory=list)
+    env: Dict[str, str] = Field(default_factory=dict)
+    url: str = ""
+    headers: Dict[str, str] = Field(default_factory=dict)
+    tools: List[str] = Field(default_factory=list)
+    enabled: bool = True
+    # Restrict this server to specific agent archetypes ("engineer",
+    # "pr-fixer", …). Empty = available to every archetype. Lets a runbook
+    # bind a docs server to the engineer but not the conflict-resolver, so
+    # each task sees a smaller, sharper tool menu and judges faster.
+    archetypes: List[str] = Field(default_factory=list)
+    # Free-text "what this server is good for" used purely to steer the
+    # agent's tool-selection judgment: it is appended to every tool's
+    # advertised description AND listed in the system-prompt context-source
+    # map, so the model can pick the most specific source for each
+    # sub-question. Empty = no extra steering.
+    purpose: str = ""
+
+    @model_validator(mode="after")
+    def _check_transport_fields(self) -> "McpServerBinding":
+        """A stdio server is nothing without a command; an http server is
+        nothing without a url. Catch the misconfiguration at load time
+        with a locator-aware error rather than at first tool call."""
+        if self.transport == "stdio" and not self.command:
+            raise ValueError("mcp stdio server requires a non-empty `command`")
+        if self.transport == "http" and not self.url:
+            raise ValueError("mcp http server requires a non-empty `url`")
+        return self
+
+
 class GitIdentity(BaseModel):
     """Per-company commit identity used by ``briar agent`` flows.
 
@@ -146,6 +217,10 @@ class CompanyEntry(BaseModel):
     # dict means the agent cannot send messages (it falls back to
     # the bash escape hatch for `gh` / `curl`).
     messages: Dict[str, MessageBinding] = Field(default_factory=dict)
+    # Optional named MCP (Model Context Protocol) servers. The agent
+    # connects to each at run time, lists its tools, and binds them as
+    # `mcp__<handle>__<tool>`. Empty dict means no MCP tools are bound.
+    mcp: Dict[str, McpServerBinding] = Field(default_factory=dict)
     # Per-company commit author for `briar agent` worktree commits.
     # Read by AgentCommand._resolve_git_identity at run time when
     # `--runbook` points at a YAML containing this block.
