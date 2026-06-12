@@ -25,7 +25,7 @@ after each successful card.
 | `pr-archaeology`, `reviewer-profile`, `code-hotspots`, `codebase-conventions` | `GITHUB_<COMPANY>_TOKEN` |
 | `github-deployments` | `GITHUB_<COMPANY>_TOKEN` |
 | `aws-infra` | `AWS_<COMPANY>_*` env or `--aws-extract-profile` (the `tagging-inventory` gatherer also needs the `tag:GetResources` IAM permission) |
-| `meeting-digest` | `FIREFLIES_<COMPANY>_API_KEY` |
+| `meeting-digest` | `FIREFLIES_<COMPANY>_API_KEY` (`briar auth login fireflies --company <name>`) |
 
 Verify coverage with `briar secrets doctor --examples examples/` before
 running (it audits every (company, extractor) pair in the runbook dir). If anything is missing the relevant extractor will skip

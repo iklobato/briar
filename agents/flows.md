@@ -34,11 +34,9 @@ snapshot of the world.
 briar auth login github-pat   --company <COMPANY>     # paste a PAT with repo + read:org
 briar auth login aws-static   --company <COMPANY>     # paste an access key / secret
 briar auth login jira-token   --company <COMPANY>     # paste a Jira API token + base URL
+briar auth login fireflies    --company <COMPANY>     # paste your Fireflies API key
 
-# 2. Fireflies has no auth target — it's a plain env var. Add it to secrets.env:
-echo 'FIREFLIES_<COMPANY>_API_KEY=ff_xxx' >> ~/.config/briar/secrets.env
-
-# 3. Prove every (company, extractor) pair in your runbooks is covered
+# 2. Prove every (company, extractor) pair in your runbooks is covered
 briar secrets doctor --examples examples/
 
 # 4. First cold extraction — everything available for the company
@@ -434,6 +432,7 @@ credentials to merged AI-authored PRs with an audit trail.
 briar auth login github-pat --company <COMPANY>
 briar auth login jira-token --company <COMPANY>
 briar auth login aws-static --company <COMPANY>
+briar auth login fireflies  --company <COMPANY>
 briar secrets doctor --examples examples/
 
 # 2. runbook — stand up scheduled extraction so knowledge stays fresh

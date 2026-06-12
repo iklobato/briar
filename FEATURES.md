@@ -166,7 +166,7 @@ edit anywhere else.
 | JIT extractors | `briar.extract.TASK_SCOPED_EXTRACTORS` | `meeting-context`, `pr-review-context`, `ticket-context` |
 | Knowledge stores | `briar.storage.KnowledgeStoreRegistry.STORES` | `file`, `postgres` |
 | Message writers (runbook `messages.kind:`) | `briar.messaging.WRITERS` | `bitbucket-pr-comment`, `github-pr-comment`, `jira-comment`, `jira-transition`, `slack-channel`, `telegram-chat` |
-| Auth acquirers (`auth login <target>`) | `briar.auth._acquirers.ACQUIRERS` | `aws-sso`, `aws-static`, `bitbucket-app-password`, `github-device`, `github-pat`, `infisical`, `jira-session`, `jira-token`, `linear-api-key` |
+| Auth acquirers (`auth login <target>`) | `briar.auth._acquirers.ACQUIRERS` | `aws-sso`, `aws-static`, `bitbucket-app-password`, `fireflies`, `github-device`, `github-pat`, `infisical`, `jira-session`, `jira-token`, `linear-api-key` |
 | Credential stores (`auth --store`) | `briar.credentials.STORES` | `aws-secretsmanager`, `envfile`, `infisical`, `ssm`, `vault` |
 | Notify sinks (`$BRIAR_NOTIFY_SINKS`) | `briar.notify.SINKS` | `email`, `pagerduty`, `slack`, `telegram` |
 | Board readers (`plan build <board>`) | `briar.plan._boards.BOARD_READERS` | `github-project`, `jira` |

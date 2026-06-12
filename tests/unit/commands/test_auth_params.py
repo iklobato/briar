@@ -38,6 +38,7 @@ _TARGET_CHOICES = [
     "jira-token",
     "jira-session",
     "linear-api-key",
+    "fireflies",
     "infisical",
 ]
 
