@@ -197,7 +197,6 @@ class CommandAgent(SubcommandCommand):
         default_query = f"{args.owner}/{args.repo}#{args.pr}"
         task_sections += self._fetch_meeting_context_from_args(args, default_query)
 
-        mcp_servers, mcp_always_on = self._load_mcp_block(args)
         result = AgentRunner(
             AgentRunConfig(
                 company=args.company,
@@ -217,8 +216,7 @@ class CommandAgent(SubcommandCommand):
                 task_context_sections=tuple(task_sections),
                 dry_run=args.dry_run,
                 messages=self._load_messages_block(args),
-                mcp_servers=mcp_servers,
-                mcp_always_on=mcp_always_on,
+                **self._mcp_config(args),
             )
         ).run()
 
@@ -264,7 +262,6 @@ class CommandAgent(SubcommandCommand):
         # surfaces any meeting that mentioned ACME-123 in title or body.
         task_sections += self._fetch_meeting_context_from_args(args, args.ticket_key)
 
-        mcp_servers, mcp_always_on = self._load_mcp_block(args)
         result = AgentRunner(
             AgentRunConfig(
                 company=args.company,
@@ -284,8 +281,7 @@ class CommandAgent(SubcommandCommand):
                 task_context_sections=tuple(task_sections),
                 dry_run=args.dry_run,
                 messages=self._load_messages_block(args),
-                mcp_servers=mcp_servers,
-                mcp_always_on=mcp_always_on,
+                **self._mcp_config(args),
             )
         ).run()
 
@@ -500,6 +496,13 @@ class CommandAgent(SubcommandCommand):
             log.warning("runbook=%s has no company=%s — no runbook MCP servers", runbook_path, args.company)
             return {}
         return dict(getattr(company, "mcp", {}) or {})
+
+    @staticmethod
+    def _mcp_config(args: argparse.Namespace) -> Dict[str, Any]:
+        """Resolved MCP servers + always-on handles as AgentRunConfig kwargs,
+        splatted with `**` so the orchestrator methods stay one line."""
+        servers, always_on = CommandAgent._load_mcp_block(args)
+        return {"mcp_servers": servers, "mcp_always_on": always_on}
 
     @staticmethod
     def _default_mcp_disabled(args: argparse.Namespace) -> bool:
