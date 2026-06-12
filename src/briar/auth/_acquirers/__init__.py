@@ -13,6 +13,7 @@ from briar.auth._acquirer import CredentialAcquirer
 from briar.auth._acquirers.aws_sso import AwsSsoAcquirer
 from briar.auth._acquirers.aws_static import AwsStaticAcquirer
 from briar.auth._acquirers.bitbucket import BitbucketAppPasswordAcquirer
+from briar.auth._acquirers.fireflies import FirefliesApiKeyAcquirer
 from briar.auth._acquirers.github_device import GithubDeviceAcquirer
 from briar.auth._acquirers.github_pat import GithubPatAcquirer
 from briar.auth._acquirers.infisical import InfisicalAcquirer
@@ -32,6 +33,7 @@ ACQUIRERS: Dict[str, Type[CredentialAcquirer]] = build_registry(
         JiraTokenAcquirer,
         JiraSessionAcquirer,
         LinearApiKeyAcquirer,
+        FirefliesApiKeyAcquirer,
         InfisicalAcquirer,
     ),
     kind="credential acquirer",

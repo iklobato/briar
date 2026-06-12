@@ -42,6 +42,7 @@ directly to `/etc/briar/secrets.env`.
 | `jira-token` | Paste API token → writes `JIRA_<COMPANY>_*` |
 | `jira-session` | Paste session cookie (workaround) |
 | `linear-api-key` | Paste API key → writes `LINEAR_<COMPANY>_API_KEY` |
+| `fireflies` | Paste API key → writes `FIREFLIES_<COMPANY>_API_KEY` (used by `meeting-digest` / `meeting-context`) |
 | `infisical` | Bootstrap machine-identity for the central store (not a vendor) |
 
 ## Prerequisites

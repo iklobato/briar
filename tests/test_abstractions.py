@@ -2102,6 +2102,7 @@ class CredentialAcquirerTests(unittest.TestCase):
             "jira-token",
             "jira-session",
             "linear-api-key",
+            "fireflies",
             "infisical",
         }
         self.assertEqual(set(kinds), expected)
@@ -2138,13 +2139,34 @@ class CredentialAcquirerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             acquirer.acquire(company="", prompt=prompt)
 
+    def test_fireflies_acquirer_writes_per_company_api_key(self) -> None:
+        """The "log into Fireflies" paste flow. Stores the per-company
+        FIREFLIES_<COMPANY>_API_KEY the meeting extractors read."""
+        from briar.auth import AcquirerRegistry, MockPromptIO
+
+        acquirer = AcquirerRegistry.make("fireflies")
+        prompt = MockPromptIO(answers=["ff_secret_key"])
+        creds = acquirer.acquire(company="acme", prompt=prompt)
+        self.assertEqual(creds.entries, {"FIREFLIES_ACME_API_KEY": "ff_secret_key"})
+        self.assertEqual(type(acquirer).writes(company="acme"), ["FIREFLIES_ACME_API_KEY"])
+        self.assertIn("fireflies.ai", prompt.opened_urls[0])
+
+    def test_fireflies_acquirer_requires_company_and_nonempty_key(self) -> None:
+        from briar.auth import AcquirerRegistry, MockPromptIO
+
+        acquirer = AcquirerRegistry.make("fireflies")
+        with self.assertRaises(ValueError):
+            acquirer.acquire(company="", prompt=MockPromptIO(answers=["ff_x"]))
+        with self.assertRaises(ValueError):
+            acquirer.acquire(company="acme", prompt=MockPromptIO(answers=["  "]))
+
     def test_default_destination_policy_is_external(self) -> None:
         """Vendor acquirers (github, aws, jira, …) should let --store
         decide where their result lands."""
         from briar.auth import AcquirerRegistry
         from briar.auth._acquirer import DestinationPolicy
 
-        for kind in ("github-pat", "github-device", "aws-static", "aws-sso", "jira-token", "jira-session", "linear-api-key", "bitbucket-app-password"):
+        for kind in ("github-pat", "github-device", "aws-static", "aws-sso", "jira-token", "jira-session", "linear-api-key", "fireflies", "bitbucket-app-password"):
             acquirer = AcquirerRegistry.make(kind)
             self.assertIs(type(acquirer).destination_policy, DestinationPolicy.EXTERNAL, f"{kind} should be EXTERNAL")
 
