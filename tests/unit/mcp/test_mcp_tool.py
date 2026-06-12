@@ -97,3 +97,23 @@ def test_empty_description_gets_fallback() -> None:
     tool = McpTool(FakeManager(_result([_text("ok")])), "sentry", "list_errors", "", {})
     assert "list_errors" in tool.description
     assert tool.INPUT_SCHEMA == {"type": "object", "properties": {}}
+
+
+def test_purpose_is_folded_into_description() -> None:
+    tool = McpTool(
+        FakeManager(_result([_text("ok")])),
+        "sentry",
+        "list_errors",
+        "List recent errors.",
+        {},
+        purpose="Production error telemetry",
+    )
+    assert "List recent errors." in tool.description
+    assert "When to use: Production error telemetry" in tool.description
+    assert tool.server == "sentry"
+    assert tool.purpose == "Production error telemetry"
+
+
+def test_no_purpose_leaves_description_plain() -> None:
+    tool = McpTool(FakeManager(_result([_text("ok")])), "sentry", "list_errors", "List recent errors.", {})
+    assert tool.description == "List recent errors."

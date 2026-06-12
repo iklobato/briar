@@ -161,6 +161,12 @@ class McpServerBinding(_Strict):
     headers: Dict[str, str] = Field(default_factory=dict)
     tools: List[str] = Field(default_factory=list)
     enabled: bool = True
+    # Free-text "what this server is good for" used purely to steer the
+    # agent's tool-selection judgment: it is appended to every tool's
+    # advertised description AND listed in the system-prompt context-source
+    # map, so the model can pick the most specific source for each
+    # sub-question. Empty = no extra steering.
+    purpose: str = ""
 
     @model_validator(mode="after")
     def _check_transport_fields(self) -> "McpServerBinding":

@@ -263,9 +263,52 @@ class AgentRunner:
             if getattr(section, "is_empty", False):
                 continue
             sections.append(f"## {section.title}\n\n{section.body}")
+        # Context-source routing map (Lever 2): when MCP servers are bound,
+        # give the model an explicit menu of where each kind of context
+        # lives + a selection policy, so it judges the most specific source
+        # per sub-question instead of inferring from a flat tool list.
+        routing = self._context_source_section()
+        if routing:
+            sections.append(routing)
         if not sections:
             return body
         return body + "\n\n" + "\n\n".join(sections)
+
+    def _context_source_section(self) -> str:
+        """Render the context-source map from the bound MCP tools, grouped
+        by server with its `purpose`. Empty when no MCP servers are bound —
+        non-MCP runs keep their existing prompt verbatim."""
+        if not self._mcp_tools:
+            return ""
+        # Group tool names by server; the server name is segment 2 of the
+        # `mcp__<server>__<tool>` convention (parsed so this works for any
+        # tool object that follows the naming, not just McpTool).
+        servers: Dict[str, Dict[str, Any]] = {}
+        for tool in self._mcp_tools:
+            parts = tool.name.split("__")
+            server = parts[1] if len(parts) >= 3 else getattr(tool, "server", "mcp")
+            info = servers.setdefault(server, {"purpose": "", "count": 0})
+            info["count"] += 1
+            purpose = getattr(tool, "purpose", "")
+            if purpose and not info["purpose"]:
+                info["purpose"] = purpose
+
+        lines = [
+            "## Context sources — pick the most specific one per sub-question",
+            "",
+            "Before each action, name the information you need, then use the source whose purpose matches it:",
+            "",
+            "- Local repository (code, configs, tests, history) — `read_file`, `bash`",
+        ]
+        for server, info in servers.items():
+            purpose = info["purpose"] or f"the {server} MCP server"
+            lines.append(f"- {purpose} — `mcp__{server}__*`")
+        lines.append("")
+        lines.append(
+            "Prefer local repository context before remote sources. Don't call a tool whose "
+            "purpose doesn't match what you need; when sources overlap, choose the most specific."
+        )
+        return "\n".join(lines)
 
     def _build_initial_user_message(self) -> str:
         intro = textwrap.dedent(

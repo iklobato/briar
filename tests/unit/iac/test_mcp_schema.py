@@ -49,6 +49,12 @@ def test_default_transport_is_stdio() -> None:
     assert b.transport == "stdio"
 
 
+def test_purpose_defaults_empty_and_accepts_text() -> None:
+    assert McpServerBinding(command="npx").purpose == ""
+    b = McpServerBinding(command="npx", purpose="GitHub issues and PRs")
+    assert b.purpose == "GitHub issues and PRs"
+
+
 def test_roundtrips_through_runbook_file() -> None:
     rb = RunbookFile.model_validate(
         {

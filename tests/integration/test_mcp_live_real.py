@@ -34,10 +34,10 @@ pytestmark = pytest.mark.integration
 _SERVER = str(Path(__file__).parent / "mcp_echo_server.py")
 
 
-def _stdio_binding(*, tools: list[str] | None = None) -> McpServerBinding:
+def _stdio_binding(*, tools: list[str] | None = None, purpose: str = "") -> McpServerBinding:
     # Launch the server with THIS interpreter (the one that has `mcp`),
     # so the subprocess can import the SDK from the same site-packages.
-    return McpServerBinding(transport="stdio", command=sys.executable, args=[_SERVER], tools=tools or [])
+    return McpServerBinding(transport="stdio", command=sys.executable, args=[_SERVER], tools=tools or [], purpose=purpose)
 
 
 @pytest.fixture
@@ -72,6 +72,17 @@ def test_failing_tool_becomes_tool_error(manager) -> None:
     tools = {t.name: t for t in manager.start()}
     with pytest.raises(ToolError, match="mcp__echo__boom"):
         tools["mcp__echo__boom"].run()
+
+
+def test_purpose_reaches_tool_description() -> None:
+    mgr = McpClientManager({"echo": _stdio_binding(purpose="echo service for tests")})
+    try:
+        tools = {t.name: t for t in mgr.start()}
+        echo = tools["mcp__echo__echo"]
+        assert echo.purpose == "echo service for tests"
+        assert "When to use: echo service for tests" in echo.description
+    finally:
+        mgr.close()
 
 
 def test_tools_allowlist_narrows_binding() -> None:

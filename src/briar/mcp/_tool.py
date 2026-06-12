@@ -51,17 +51,23 @@ class McpTool:
         tool_name: str,
         description: str,
         input_schema: Dict[str, Any],
+        purpose: str = "",
     ) -> None:
         self._manager = manager
-        self._server = server
+        self.server = server
+        self.purpose = purpose
         self._tool_name = tool_name
         self.name = f"mcp__{server}__{tool_name}"
-        self.description = description or f"MCP tool {tool_name!r} from server {server!r}."
+        base = description or f"MCP tool {tool_name!r} from server {server!r}."
+        # Fold the server's `purpose` into the advertised description so the
+        # model's tool-selection judgment sees *when to reach for this
+        # source*, not just what it does (Lever 1 of MCP routing).
+        self.description = f"{base}\n\nWhen to use: {purpose}" if purpose else base
         self.INPUT_SCHEMA = input_schema or {"type": "object", "properties": {}}
 
     def run(self, **kwargs: Any) -> str:
         try:
-            result = self._manager.call(self._server, self._tool_name, kwargs)
+            result = self._manager.call(self.server, self._tool_name, kwargs)
         except McpError as exc:
             raise ToolError(f"{self.name}: {exc}") from exc
 

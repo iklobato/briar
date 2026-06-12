@@ -97,7 +97,7 @@ class McpClientManager:
             self.close()
             raise McpError(f"MCP manager failed to start: {exc}") from exc
 
-        return [McpTool(self, handle, name, desc, schema) for (handle, name, desc, schema) in tool_meta]
+        return [McpTool(self, handle, name, desc, schema, purpose=self._purpose_for(handle)) for (handle, name, desc, schema) in tool_meta]
 
     def close(self) -> None:
         """Idempotent teardown. Signals the supervisor to unwind its
@@ -233,6 +233,12 @@ class McpClientManager:
         return await asyncio.wait_for(session.call_tool(tool_name, arguments), timeout=self._call_timeout_s)
 
     # -- helpers -----------------------------------------------------------
+
+    def _purpose_for(self, handle: str) -> str:
+        """The server's optional `purpose:` string — folded into each of
+        its tools' descriptions so the model can judge when to use it."""
+        binding = self._bindings.get(handle)
+        return (getattr(binding, "purpose", "") or "") if binding is not None else ""
 
     @staticmethod
     def _resolve_env(mapping: Optional[Mapping[str, str]]) -> Dict[str, str]:

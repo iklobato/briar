@@ -127,6 +127,11 @@ companies:
         env:
           GITHUB_TOKEN: GITHUB_TOKEN
         tools: [search_issues, get_pull_request]   # optional allowlist; omit = bind all
+        # `purpose` steers the agent's tool-selection judgment: it is
+        # appended to each tool's description AND listed in the system
+        # prompt's "Context sources" map, so the model picks the most
+        # specific source per sub-question.
+        purpose: "GitHub issues, pull requests, review threads, and commit history"
       # http transport — a hosted server over Streamable HTTP. `headers`
       # values are env-var NAMES too (e.g. a bearer token).
       sentry:
@@ -134,6 +139,7 @@ companies:
         url: https://mcp.sentry.dev/mcp
         headers:
           Authorization: SENTRY_MCP_BEARER
+        purpose: "Production error/exception telemetry — stack traces, event frequency, regressions"
         enabled: false                              # declared but skipped until turned on
 
     schedules:

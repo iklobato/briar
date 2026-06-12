@@ -48,6 +48,8 @@ class ScriptedLLM(LLMProvider):
 class _FakeMcpTool:
     name = "mcp__github__search_issues"
     description = "Search GitHub issues."
+    server = "github"
+    purpose = "GitHub issues and pull requests"
     INPUT_SCHEMA = {"type": "object", "properties": {"query": {"type": "string"}}}
 
     def __init__(self) -> None:
@@ -158,6 +160,31 @@ def test_manager_closed_after_run(tmp_path: Path, monkeypatch) -> None:
     runner.run()
 
     assert FakeManager.instances[0].closed is True
+
+
+def test_context_source_section_lists_server_purpose(tmp_path: Path, monkeypatch) -> None:
+    FakeManager.instances.clear()
+    monkeypatch.setattr("briar.mcp.McpClientManager", FakeManager)
+    llm = ScriptedLLM([_text_turn("done")])
+    runner = _runner(tmp_path, llm, mcp_servers={"github": object()})
+
+    system = runner._build_system_prompt()
+
+    assert "## Context sources" in system
+    # The server's purpose + its tool namespace steer the routing judgment.
+    assert "GitHub issues and pull requests" in system
+    assert "mcp__github__*" in system
+    # Local repo is always the first, most-preferred source.
+    assert "Local repository" in system
+
+
+def test_no_context_source_section_without_mcp(tmp_path: Path) -> None:
+    llm = ScriptedLLM([_text_turn("done")])
+    runner = _runner(tmp_path, llm)
+
+    system = runner._build_system_prompt()
+
+    assert "Context sources" not in system
 
 
 def test_manager_closed_even_on_dry_run(tmp_path: Path, monkeypatch) -> None:
