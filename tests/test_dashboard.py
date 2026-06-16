@@ -116,6 +116,7 @@ class FullRenderTests(unittest.TestCase):
             "at a glance",
             "<h2>connectivity",
             "<h2>schedulers",
+            'class="sched-company"',  # schedules grouped by company
             "github api quota",
             "recent cycles",
             "recent activity",
@@ -125,6 +126,34 @@ class FullRenderTests(unittest.TestCase):
         # The redesign is self-contained — no CDN, no client-side charting.
         for forbidden in ("chart.umd.min.js", "cdn.jsdelivr", "<canvas", "new Chart"):
             self.assertNotIn(forbidden, html, f"should be gone: {forbidden!r}")
+
+    def test_schedules_grouped_by_company(self) -> None:
+        two_companies = (
+            "version: 1\n"
+            "companies:\n"
+            "  acme:\n"
+            "    extract:\n"
+            "      - {name: pr-archaeology, args: {pr_repo: [acme/api]}}\n"
+            "  globex:\n"
+            "    extract:\n"
+            "      - {name: active-work, args: {active_repo: [globex/web]}}\n"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            ex = base / "examples"
+            ex.mkdir()
+            (ex / "co.yaml").write_text(two_companies)
+            paths = DashboardPaths(examples_dir=ex, log_path=base / "none.log", disk_path=base, repo_path=base)
+            dash = DashboardSelf(started_at=0.0, request_count_fn=lambda: 0, last_render_ms_fn=lambda: 0.0)
+            server = DashboardServer()
+            server.set_collectors(CollectorRegistry.from_paths(paths, dash))
+            html = server.render_index()
+
+        # One group header per company; the old flat per-row company column is gone.
+        self.assertEqual(html.count('class="sched-company"'), 2)
+        self.assertIn(">acme ", html)
+        self.assertIn(">globex ", html)
+        self.assertIn("2 companies", html)
 
 
 if __name__ == "__main__":
