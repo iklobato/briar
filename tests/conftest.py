@@ -15,7 +15,6 @@ from typing import Any, Callable, Iterator
 
 import pytest
 
-
 _PREFIXES_TO_SCRUB = (
     "BRIAR_",
     "GITHUB_",
@@ -110,8 +109,9 @@ def cli(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> Calla
     survives — the CLI normally calls `basicConfig(force=True)` which
     nukes all handlers including caplog's."""
 
-    # No-op configure so caplog's handler stays attached.
-    monkeypatch.setattr("briar.cli.configure_logging", lambda verbose=False: None)
+    # No-op configure so caplog's handler stays attached. Accept the same
+    # kwargs as the real `configure` (verbose + stream) so the stub matches.
+    monkeypatch.setattr("briar.cli.configure_logging", lambda verbose=False, stream=None: None)
 
     def invoke(*argv: str, env: dict[str, str] | None = None) -> SimpleNamespace:
         if env:

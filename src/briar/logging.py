@@ -16,14 +16,19 @@ import logging
 import os
 import sys
 import time
-
+from typing import IO, Optional
 
 _FORMAT = "%(asctime)s [%(levelname)-7s] %(name)s: %(message)s"
 _DATEFMT = "%Y-%m-%dT%H:%M:%SZ"
 
 
-def configure(verbose: bool = False) -> None:
+def configure(verbose: bool = False, *, stream: Optional[IO[str]] = None) -> None:
     """Configure root logger. INFO by default; `--verbose` → DEBUG.
+
+    Logs to stdout by default (so the droplet's `nohup` redirects capture
+    them). `stream` overrides the target — `briar mcp serve --transport stdio`
+    routes logs to stderr so they never corrupt the JSON-RPC protocol stream
+    that owns stdout.
 
     Force-reconfigures even if `logging.basicConfig` ran already, so
     test imports + repeated CLI invocations stay deterministic.
@@ -38,7 +43,7 @@ def configure(verbose: bool = False) -> None:
         level=level,
         format=_FORMAT,
         datefmt=_DATEFMT,
-        stream=sys.stdout,
+        stream=stream or sys.stdout,
         force=True,
     )
     # Always log in UTC.
