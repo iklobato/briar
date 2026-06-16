@@ -14,8 +14,8 @@ from typing import Callable, Dict
 from briar.commands.base import Command, confirm
 from briar.errors import CliError
 from briar.formatting import render
-from briar.storage import KNOWLEDGE_STORE_NAMES, KnowledgeRef, make_store
-
+from briar.service import knowledge as knowledge_service
+from briar.storage import KNOWLEDGE_STORE_NAMES
 
 Handler = Callable[[argparse.Namespace], int]
 
@@ -88,31 +88,20 @@ class ContextCommand(Command):
             raise CliError("no content provided — pass --content '<text>', " "--from-file <path>, or pipe in via stdin")
         return sys.stdin.read()
 
-    @staticmethod
-    def _ref_to_dict(ref: KnowledgeRef) -> dict:
-        return {
-            "name": ref.name,
-            "category": ref.category,
-            "byte_count": ref.byte_count,
-            "updated_at": ref.updated_at,
-            **ref.extra,
-        }
-
-    def _store(self, args: argparse.Namespace):
-        return make_store(args.store, file_root=Path(args.root))
-
     def _put(self, args: argparse.Namespace) -> int:
-        ref = self._store(args).put(
-            args.blob_name,
-            self._read_content(args),
+        outcome = knowledge_service.put_blob(
+            blob_name=args.blob_name,
+            content=self._read_content(args),
             category=args.category,
+            store=args.store,
+            root=args.root,
         )
-        render(self._ref_to_dict(ref), args.format)
+        render(outcome.result["ref"], args.format)
         return 0
 
     def _get(self, args: argparse.Namespace) -> int:
-        body = self._store(args).get(args.blob_name)
-        if not body:
+        body = knowledge_service.get_blob(blob_name=args.blob_name, store=args.store, root=args.root)
+        if body is None:
             raise CliError(f"blob not found: {args.blob_name}")
         sys.stdout.write(body)
         if not body.endswith("\n"):
@@ -120,8 +109,7 @@ class ContextCommand(Command):
         return 0
 
     def _list(self, args: argparse.Namespace) -> int:
-        refs = self._store(args).list(prefix=args.prefix)
-        items = [self._ref_to_dict(r) for r in refs]
+        items = knowledge_service.list_blobs(store=args.store, root=args.root, prefix=args.prefix)
         render(items, args.format, ["name", "category", "byte_count", "updated_at"])
         return 0
 
@@ -130,14 +118,11 @@ class ContextCommand(Command):
         if not ok:
             print("aborted")
             return 1
-        removed = self._store(args).delete(args.blob_name)
-        print(f"{'deleted' if removed else 'not found'} {args.blob_name}")
+        outcome = knowledge_service.delete_blob(blob_name=args.blob_name, store=args.store, root=args.root)
+        print(outcome.summary)
         return 0
 
     def _categories(self, args: argparse.Namespace) -> int:
-        seen: Dict[str, int] = {}
-        for ref in self._store(args).list():
-            seen[ref.category] = seen.get(ref.category, 0) + 1
-        items = [{"category": cat or "(none)", "blob_count": n} for cat, n in sorted(seen.items())]
+        items = knowledge_service.categories(store=args.store, root=args.root)
         render(items, args.format, ["category", "blob_count"])
         return 0

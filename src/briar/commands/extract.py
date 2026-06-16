@@ -4,15 +4,11 @@ result to a local markdown file."""
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
-from typing import List
 
 from briar.commands.base import Command
-from briar.errors import CliError
 from briar.extract import EXTRACTORS
-from briar.extract.base import ExtractedSection
-from briar.extract.composer import render_json, render_markdown
-from briar.storage import KNOWLEDGE_STORE_NAMES, make_store
+from briar.service import extract as extract_service
+from briar.storage import KNOWLEDGE_STORE_NAMES
 
 
 class CommandExtract(Command):
@@ -45,35 +41,19 @@ class CommandExtract(Command):
             ext.add_arguments(parser)
 
     def run(self, args: argparse.Namespace) -> int:
-        selected = args.include or list(EXTRACTORS.keys())
-
-        sections: List[ExtractedSection] = []
-        for name in selected:
-            ext = EXTRACTORS[name]
-            if not ext.is_available(args):
-                print(f"  skipped {name}  (not available in this env)")
-                continue
-            print(f"  running {name} ...")
-            section = ext.extract(args)
-            if section.is_empty:
-                print(f"  {name}: no data")
-                continue
-            sections.append(section)
-
-        if not sections:
-            raise CliError("nothing extracted — every enabled extractor returned empty")
-
-        md = render_markdown(company=args.company, sections=sections)
-        blob_name = args.blob_name or f"knowledge:{args.company}"
-
-        store = make_store(args.storage, file_root=Path(args.root))
-        ref = store.put(blob_name, md, category="knowledge")
-        print(f"\nwrote blob '{ref.name}' " f"({ref.byte_count} bytes, {len(sections)} sections) " f"via store={args.storage}")
-
-        if args.out_json:
-            json_path = Path(args.out_json)
-            json_path.parent.mkdir(parents=True, exist_ok=True)
-            json_path.write_text(render_json(company=args.company, sections=sections))
-            print(f"wrote {json_path}")
-
+        # The operator already typed the command — execute, don't dry-run.
+        # Per-extractor flags live on `args`; pass them through as overrides
+        # so the service's synthesized namespaces see the same values.
+        outcome = extract_service.run_extract(
+            company=args.company,
+            include=args.include or None,
+            storage=args.storage,
+            blob_name=args.blob_name,
+            root=args.root,
+            out_json=args.out_json,
+            extractor_args=vars(args),
+        )
+        print(outcome.summary)
+        if outcome.result and outcome.result.get("json_path"):
+            print(f"wrote {outcome.result['json_path']}")
         return 0
