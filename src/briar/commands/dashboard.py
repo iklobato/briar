@@ -18,14 +18,13 @@ log = logging.getLogger(__name__)
 
 class CommandDashboard(Command):
     name = "dashboard"
-    help = "Serve a read-only HTML dashboard summarising the droplet state."
+    help = "Serve the HTML control panel (read-write by default; --read-only for the legacy view)."
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
             "--host",
             default="127.0.0.1",
-            help="bind address (default: 127.0.0.1 — loopback only; "
-            "pass `--host 0.0.0.0` to expose publicly, but verify firewall + auth first)",
+            help="bind address (default: 127.0.0.1 — loopback only; " "pass `--host 0.0.0.0` to expose publicly, but verify firewall + auth first)",
         )
         parser.add_argument("--port", type=int, default=8080, help="bind port (default: 8080)")
         parser.add_argument("--examples", default="./examples", help="directory of runbook YAMLs")
@@ -53,6 +52,16 @@ class CommandDashboard(Command):
             help="Journal file root (only used when --journal-store=file)",
         )
         parser.add_argument("--once", action="store_true", help="render once to stdout and exit")
+        parser.add_argument(
+            "--read-only",
+            action="store_true",
+            help="disable the control panel (no writes) — the legacy view-only dashboard",
+        )
+        parser.add_argument(
+            "--runbook",
+            default="",
+            help="runbook YAML path for the control panel's config actions (omit to disable them)",
+        )
 
     def run(self, args: argparse.Namespace) -> int:
         store_name = args.knowledge_store or ("postgres" if CredEnv.BRIAR_DATABASE_URL.read() else "file")
@@ -69,15 +78,26 @@ class CommandDashboard(Command):
             )
         except Exception as exc:  # noqa: BLE001
             log.warning(
-                "dashboard: journal store unavailable (kind=%s root=%s err=%s); "
-                "journal collectors will be disabled for this session",
+                "dashboard: journal store unavailable (kind=%s root=%s err=%s); " "journal collectors will be disabled for this session",
                 args.journal_store,
                 args.journal_root,
                 type(exc).__name__,
             )
             journal_store = None
 
-        server = DashboardServer(host=args.host, port=args.port)
+        server = DashboardServer(host=args.host, port=args.port, read_only=args.read_only)
+        if not args.read_only:
+            from briar.dashboard.actions import ActionRouter
+
+            server.set_action_router(
+                ActionRouter(
+                    store=store_name,
+                    root=args.knowledge,
+                    csrf_token=server.csrf_token,
+                    render=server.render_template,
+                    runbook_path=args.runbook or None,
+                )
+            )
         paths = DashboardPaths(
             examples_dir=Path(args.examples),
             knowledge_store=knowledge_store,

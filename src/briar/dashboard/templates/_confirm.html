@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Confirm: {{ label }} · briar</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { background:#0b0d12; color:#e6e6e6; font-family:ui-monospace,Menlo,Consolas,monospace; padding:2rem; line-height:1.5; }
+  a { color:#7cc4ff; }
+  .box { background:#161a23; border:1px solid #232a36; border-radius:6px; padding:1rem 1.25rem; max-width:760px; }
+  h2 { margin-top:0; color:#d6a35a; }
+  .summary { background:#0a0c10; border:1px solid #232a36; border-radius:4px; padding:0.6rem; }
+  button { background:#5ad683; color:#0b0d12; border:0; border-radius:4px; padding:0.4rem 0.9rem; font:inherit; cursor:pointer; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <h2>confirm: {{ label }}</h2>
+    <p class="summary">{{ summary }}</p>
+    <form method="post" action="{{ action }}">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="confirm" value="1">
+      {% for k, v in fields.items() %}
+      <input type="hidden" name="{{ k }}" value="{{ v }}">
+      {% endfor %}
+      <button type="submit">confirm &amp; execute</button>
+      &nbsp;<a href="/">cancel</a>
+    </form>
+  </div>
+</body>
+</html>

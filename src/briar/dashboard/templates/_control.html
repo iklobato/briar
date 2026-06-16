@@ -1,0 +1,52 @@
+{# Read-write control panel — rendered only when the dashboard was started
+   read-write (CommandDashboard without --read-only) and an ActionRouter is set.
+   Every form carries the per-process CSRF token and posts to /action/*; gated
+   actions land on a confirm page before executing. #}
+{% if _writes_enabled %}
+<section>
+  <h2>control panel <span class="count">writes enabled — actions preview before they run</span></h2>
+  <div class="grid-2">
+
+    <form method="post" action="/action/knowledge/put">
+      <h3>write knowledge blob</h3>
+      <input type="hidden" name="csrf" value="{{ _csrf }}">
+      <label>name <input name="blob_name" placeholder="knowledge:acme" required></label>
+      <label>category <input name="category" placeholder="(derived from name)"></label>
+      <label>content<textarea name="content" rows="4" placeholder="markdown…"></textarea></label>
+      <button type="submit">preview write</button>
+    </form>
+
+    <form method="post" action="/action/knowledge/delete">
+      <h3>delete knowledge blob</h3>
+      <input type="hidden" name="csrf" value="{{ _csrf }}">
+      <label>name <input name="blob_name" placeholder="knowledge:acme" required></label>
+      <button type="submit">preview delete</button>
+    </form>
+
+    <form method="post" action="/action/extract/run">
+      <h3>run extractors</h3>
+      <input type="hidden" name="csrf" value="{{ _csrf }}">
+      <label>company <input name="company" placeholder="acme" required></label>
+      <label>include <input name="include" placeholder="ci-health, pr-hygiene (blank = all)"></label>
+      <label>blob name <input name="blob_name" placeholder="(default: knowledge:&lt;company&gt;)"></label>
+      <button type="submit">preview extract</button>
+    </form>
+
+    {% if _runbook_configured %}
+    <form method="post" action="/action/mcp/toggle">
+      <h3>toggle mcp server</h3>
+      <input type="hidden" name="csrf" value="{{ _csrf }}">
+      <label>company <input name="company" placeholder="acme" required></label>
+      <label>handle <input name="handle" placeholder="github" required></label>
+      <label>enabled
+        <select name="enabled"><option value="1">on</option><option value="0">off</option></select>
+      </label>
+      <button type="submit">preview toggle</button>
+    </form>
+    {% else %}
+    <div><h3>toggle mcp server</h3><p class="pill warn">start with --runbook to edit config</p></div>
+    {% endif %}
+
+  </div>
+</section>
+{% endif %}

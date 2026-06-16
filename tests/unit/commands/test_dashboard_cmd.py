@@ -1,9 +1,10 @@
-"""`briar dashboard` — boot the read-only dashboard server.
+"""`briar dashboard` — boot the control-panel server (read-write by default).
 
 The HTTP server, stores, and collector registry are mocked at the seam
 ``commands/dashboard.py`` imports them from. We assert the server is
-constructed with the right bind/port, that collectors are wired in, and
-that `--once` renders to stdout without ever calling `serve()`.
+constructed with the right bind/port + read_only flag, that the action router
+is wired for writes (and skipped under --read-only), that collectors are wired
+in, and that `--once` renders to stdout without ever calling `serve()`.
 """
 
 from __future__ import annotations
@@ -36,8 +37,8 @@ class TestServe:
     def test_default_bind_and_port(self, cli, wired) -> None:
         result = cli("dashboard")
         assert result.code == 0
-        # Server bound to loopback:8080 by default.
-        assert wired.server_ctor.call_args.kwargs == {"host": "127.0.0.1", "port": 8080}
+        # Server bound to loopback:8080 by default, read-write (control panel on).
+        assert wired.server_ctor.call_args.kwargs == {"host": "127.0.0.1", "port": 8080, "read_only": False}
         # Collectors were wired in, then the blocking serve loop started.
         wired.server.set_collectors.assert_called_once_with(["COLLECTOR"])
         wired.server.serve.assert_called_once_with()
@@ -45,7 +46,17 @@ class TestServe:
     def test_custom_host_and_port_forwarded(self, cli, wired) -> None:
         result = cli("dashboard", "--host", "0.0.0.0", "--port", "9001")
         assert result.code == 0
-        assert wired.server_ctor.call_args.kwargs == {"host": "0.0.0.0", "port": 9001}
+        assert wired.server_ctor.call_args.kwargs == {"host": "0.0.0.0", "port": 9001, "read_only": False}
+
+    def test_read_write_by_default_wires_action_router(self, cli, wired) -> None:
+        cli("dashboard")
+        wired.server.set_action_router.assert_called_once()
+
+    def test_read_only_flag_disables_writes(self, cli, wired) -> None:
+        result = cli("dashboard", "--read-only")
+        assert result.code == 0
+        assert wired.server_ctor.call_args.kwargs["read_only"] is True
+        wired.server.set_action_router.assert_not_called()
 
     def test_collectors_built_from_paths_and_dash(self, cli, wired) -> None:
         cli("dashboard")

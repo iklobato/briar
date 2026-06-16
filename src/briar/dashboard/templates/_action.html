@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ title }} · briar</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { background:#0b0d12; color:#e6e6e6; font-family:ui-monospace,Menlo,Consolas,monospace; padding:2rem; line-height:1.5; }
+  a { color:#7cc4ff; }
+  .box { background:#161a23; border:1px solid #232a36; border-radius:6px; padding:1rem 1.25rem; max-width:760px; }
+  h2 { margin-top:0; }
+  .ok { color:#5ad683; }
+  .bad { color:#d65a5a; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <h2 class="{{ 'ok' if ok else 'bad' }}">{{ title }}</h2>
+    <p>{{ message }}</p>
+    <p><a href="/">← back to dashboard</a></p>
+  </div>
+</body>
+</html>

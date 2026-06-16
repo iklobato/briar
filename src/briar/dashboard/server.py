@@ -7,16 +7,19 @@ other method falls through to `http.server`'s 501 default. Routes:
 from __future__ import annotations
 
 import logging
+import secrets
 import time
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Lock
-from typing import List
+from typing import List, Optional
+from urllib.parse import parse_qs
 
 from jinja2 import ChainableUndefined, Environment, FileSystemLoader, select_autoescape
 
+from briar.dashboard.actions import ActionRouter
 from briar.dashboard.collectors import Collector
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -135,10 +138,16 @@ _JINJA_FILTERS = {
 class DashboardServer:
     """Renders one Jinja page; tracks per-process self-stats."""
 
-    def __init__(self, host: str = "0.0.0.0", port: int = 8080) -> None:
+    def __init__(self, host: str = "0.0.0.0", port: int = 8080, *, read_only: bool = True) -> None:
         self._collectors: List[Collector] = []
         self._host = host
         self._port = port
+        self._read_only = read_only
+        # Per-process CSRF token: rendered into every write form, required on
+        # every POST. A new token each boot — no persistence needed for a
+        # single-operator local control panel.
+        self._csrf_token = secrets.token_urlsafe(32)
+        self._action_router: Optional[ActionRouter] = None
         self._env = Environment(
             loader=FileSystemLoader(str(_TEMPLATES_DIR)),
             autoescape=select_autoescape(["html"]),
@@ -159,6 +168,24 @@ class DashboardServer:
     def set_collectors(self, collectors: List[Collector]) -> None:
         self._collectors = collectors
         log.debug("dashboard collectors set: %d registered", len(collectors))
+
+    def set_action_router(self, router: Optional[ActionRouter]) -> None:
+        """Enable read-write actions. None (or read_only) keeps the dashboard
+        view-only and makes POST 501 like the historic server."""
+        self._action_router = router
+
+    def render_template(self, name: str, **ctx) -> str:
+        """Render one template through the configured env — used by the
+        action router for confirm/result pages."""
+        return self._env.get_template(name).render(**ctx)
+
+    @property
+    def csrf_token(self) -> str:
+        return self._csrf_token
+
+    @property
+    def writes_enabled(self) -> bool:
+        return self._action_router is not None and not self._read_only
 
     # ---- live counters used by the self-collector ---------------------
 
@@ -182,6 +209,11 @@ class DashboardServer:
             except Exception:  # noqa: BLE001
                 log.exception("collector %s.collect() raised; section will render empty", c.name)
                 context[c.name] = {"_error": "collector failed; see scheduler.log"}
+        # Control-panel context (reserved keys, never a collector name): the
+        # template renders the write forms only when writes are enabled.
+        context["_writes_enabled"] = self.writes_enabled
+        context["_csrf"] = self._csrf_token
+        context["_runbook_configured"] = bool(self._action_router and self._action_router.runbook_path)
         html = self._env.get_template("index.html").render(**context)
         self._last_render_ms = (time.monotonic() - started) * 1000
         log.debug("render: %d collectors, %.1f ms, %d bytes", len(self._collectors), self._last_render_ms, len(html))
@@ -190,6 +222,16 @@ class DashboardServer:
     def increment_requests(self) -> None:
         with self._req_lock:
             self._request_count += 1
+
+    def handle_post(self, path: str, body: bytes) -> "tuple[HTTPStatus, str]":
+        """Route a write action. Returns (status, html). Raises RuntimeError
+        if writes are disabled (the handler maps that to 501)."""
+        if not self.writes_enabled:
+            raise RuntimeError("writes disabled")
+        # Flatten the form (last value wins for repeated keys).
+        form = {k: v[-1] for k, v in parse_qs(body.decode("utf-8"), keep_blank_values=True).items()}
+        outcome = self._action_router.handle(path.split("?", 1)[0], form)
+        return outcome.status, outcome.html
 
     def serve(self) -> None:
         handler_cls = _build_handler(self)
@@ -231,6 +273,22 @@ def _build_handler(dashboard: DashboardServer):
                 self.do_GET()
             finally:
                 self._head_only = False
+
+        def do_POST(self) -> None:  # noqa: N802 — http.server interface
+            # No writes configured → behave like the historic read-only server.
+            if not dashboard.writes_enabled:
+                self.send_error(HTTPStatus.NOT_IMPLEMENTED, "writes are disabled (read-only dashboard)")
+                return
+            dashboard.increment_requests()
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            body = self.rfile.read(length) if length else b""
+            try:
+                status, html = dashboard.handle_post(self.path, body)
+            except Exception:  # noqa: BLE001
+                log.exception("post handler crashed for %s", self.path)
+                self._respond(HTTPStatus.INTERNAL_SERVER_ERROR, "internal error\n", "text/plain")
+                return
+            self._respond(status, html, "text/html; charset=utf-8")
 
         def _render_index(self) -> None:
             body = dashboard.render_index()
