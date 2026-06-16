@@ -46,6 +46,10 @@
   .stat .v.big { font-size: 1.45rem; color: var(--accent); }
   .stat .sub { color: var(--dim); font-size: 0.7rem; margin-top: 0.15rem; }
   .empty { color: var(--dim); font-style: italic; }
+  .sched-group { margin-bottom: 0.85rem; }
+  .sched-group:last-child { margin-bottom: 0; }
+  .sched-company { margin: 0 0 0.3rem; font-size: 0.82rem; color: var(--fg); display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; border-left: 2px solid var(--accent); padding-left: 0.5rem; }
+  .sched-company .count { color: var(--dim); font-weight: 400; font-size: 0.72rem; }
   .gh-cache-hits { margin-top: 0.6rem; font-size: 0.75rem; }
   .gh-cache-hits summary { color: var(--dim); cursor: pointer; padding: 0.25rem 0; }
   .gh-cache-hits table { margin-top: 0.4rem; }
@@ -60,7 +64,7 @@
   <div class="hdr-left">
     <h1>briar monitor · <span class="host">{{ system.hostname }}</span></h1>
     <dl class="hdr-meta">
-      <dt>rendered</dt><dd>{{ system.now }}</dd>
+      <dt>rendered</dt><dd title="{{ system.now }}">{{ system.now | stamp }}</dd>
       <dt>uptime</dt><dd>{{ system.uptime }} · {{ system.cpu_count }} CPU</dd>
       <dt>dashboard</dt><dd>pid {{ dashboard_process.pid }} · up {{ dashboard_process.uptime }} · {{ dashboard_process.request_count }} req · render {{ dashboard_process.last_render_ms }} ms</dd>
     </dl>
@@ -70,7 +74,7 @@
     <dt>sha</dt>      <dd><strong>{{ deploy.short_sha }}</strong> · <span class="pill">{{ deploy.branch }}</span></dd>
     <dt>subject</dt>  <dd>{{ deploy.subject }}</dd>
     <dt>author</dt>   <dd>{{ deploy.author }}</dd>
-    <dt>committed</dt><dd>{{ deploy.committed }}</dd>
+    <dt>committed</dt><dd title="{{ deploy.committed | stamp }}">{{ deploy.committed | reltime }}</dd>
     <dt>remote</dt>   <dd><code>{{ deploy.remote }}</code></dd>
   </dl>
   {% endif %}
@@ -131,24 +135,33 @@
   </section>
 
   <section>
-    <h2>schedulers <span class="count">{{ schedules.count }} (company, task) job(s)</span></h2>
+    <h2>schedulers
+      <span class="count">{{ schedules.count }} job(s) · {{ schedules.rows | map(attribute='company') | unique | list | length }} compan{{ 'y' if (schedules.rows | map(attribute='company') | unique | list | length) == 1 else 'ies' }}</span>
+    </h2>
     {% if not schedules.rows %}
       <p class="empty">no schedules declared in {{ schedules.dir if schedules.dir else "examples/" }}</p>
     {% else %}
-      <table>
-        <thead><tr><th>company</th><th>task</th><th>every</th><th>next fire (UTC)</th><th>extractors</th></tr></thead>
-        <tbody>
-          {% for r in schedules.rows %}
-          <tr>
-            <td><strong>{{ r.company }}</strong></td>
-            <td><span class="pill">{{ r.task }}</span></td>
-            <td><code>{{ r.every }}</code></td>
-            <td>{{ r.next_fire or "(unknown)" }}</td>
-            <td>{% for x in r.extractors %}<span class="pill">{{ x }}</span>{% endfor %}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+      {% for company, jobs in schedules.rows | groupby('company') %}
+      <div class="sched-group">
+        <h3 class="sched-company">{{ company }} <span class="count">{{ jobs | length }} task(s)</span></h3>
+        <table>
+          <thead><tr><th>task</th><th>every</th><th>next fire (UTC)</th><th>extractors</th></tr></thead>
+          <tbody>
+            {% for r in jobs %}
+            <tr>
+              <td><span class="pill">{{ r.task }}</span></td>
+              <td><code>{{ r.every }}</code></td>
+              <td title="{{ r.next_fire | stamp }}">{{ r.next_fire | reltime if r.next_fire else "(unknown)" }}</td>
+              <td>
+                {% for x in r.extractors %}<span class="pill">{{ x }}</span>{% endfor %}
+                {% if not r.extractors %}<span class="empty">—</span>{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endfor %}
     {% endif %}
   </section>
 </div>
@@ -204,7 +217,7 @@
     <tbody>
       {% for c in cycle_outcomes.cycles | reverse %}
       <tr>
-        <td>{{ c.finished_at or c.started_at }}</td>
+        <td title="{{ (c.finished_at or c.started_at) | stamp }}">{{ (c.finished_at or c.started_at) | reltime }}</td>
         <td>
           {% for row in c.rows %}
             <span class="pill {{ 'good' if row.status == 'ok' else 'bad' }}">{{ row.company }}{% if row.status == 'ok' %} · {{ row.bytes }}B{% else %} · failed{% endif %}</span>
@@ -232,7 +245,7 @@
 </section>
 
 <footer>
-  briar monitor · read-only · GET-only HTTP · {{ system.now }}
+  briar monitor · read-only · GET-only HTTP · {{ system.now | stamp }}
 </footer>
 
 <script>

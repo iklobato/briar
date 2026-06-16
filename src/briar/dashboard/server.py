@@ -125,10 +125,68 @@ def _short_id(value) -> str:
     return s[:8]
 
 
+def _parse_ts(value):
+    """Parse any timestamp the collectors emit → aware UTC datetime, or None.
+
+    Handles git ISO (`%cI`), raw log ISO (`2026-06-16T03:00:05`), and the
+    `... UTC` display forms the schedule/system collectors produce."""
+    if not value:
+        return None
+    s = str(value).strip()
+    for fmt in ("%Y-%m-%d %H:%M:%S UTC", "%Y-%m-%d %H:%M UTC"):
+        try:
+            return datetime.strptime(s, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+    try:
+        ts = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+
+
+def _fmt_chunk(seconds: int) -> str:
+    """Coarse duration → at most two units: '4h 12m', '3d', '45s'."""
+    days, rem = divmod(seconds, 86_400)
+    hours, rem = divmod(rem, 3_600)
+    minutes, secs = divmod(rem, 60)
+    if days:
+        return f"{days}d {hours}h" if hours else f"{days}d"
+    if hours:
+        return f"{hours}h {minutes}m" if minutes else f"{hours}h"
+    if minutes:
+        return f"{minutes}m"
+    return f"{secs}s"
+
+
+def _reltime(value) -> str:
+    """Timestamp → relative, human form: 'in 4h 12m', '5m ago', 'just now'.
+    Unparseable values pass through unchanged; empty → ''."""
+    ts = _parse_ts(value)
+    if ts is None:
+        return str(value or "")
+    delta = int((datetime.now(timezone.utc) - ts).total_seconds())
+    if abs(delta) < 45:
+        return "just now"
+    chunk = _fmt_chunk(abs(delta))
+    return f"in {chunk}" if delta < 0 else f"{chunk} ago"
+
+
+def _stamp(value) -> str:
+    """Timestamp → compact absolute for tooltips / the render clock:
+    'Jun 16 22:47 UTC'. Unparseable values pass through; empty → ''."""
+    ts = _parse_ts(value)
+    if ts is None:
+        return str(value or "")
+    return ts.strftime("%b %d %H:%M UTC")
+
+
 _JINJA_FILTERS = {
     "human_bytes": _human_bytes,
     "human_age": _human_age,
     "short_id": _short_id,
+    "reltime": _reltime,
+    "stamp": _stamp,
 }
 
 

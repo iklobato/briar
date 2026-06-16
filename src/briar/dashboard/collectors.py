@@ -113,7 +113,15 @@ class SchedulesCollector(Collector):
     def _row(file_name, company_name, entry, parser, scheduler):
         job = parser.parse(entry.every, scheduler=scheduler)
         job.do(_noop)  # binds + sets job.next_run
-        next_fire = job.next_run.strftime("%Y-%m-%d %H:%M UTC") if job.next_run else ""
+        # `schedule` computes next_run as a NAIVE LOCAL datetime. Convert via
+        # the time-until-fire delta so the stored stamp is real UTC ISO on any
+        # host tz (the droplet is UTC; a dev laptop is not) — the dashboard
+        # renders it relative ("in 4h").
+        if job.next_run:
+            delta = job.next_run - datetime.now()
+            next_fire = (datetime.now(timezone.utc) + delta).strftime("%Y-%m-%dT%H:%M:%SZ")
+        else:
+            next_fire = ""
         return {
             "file": file_name,
             "company": company_name,
