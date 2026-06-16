@@ -11,10 +11,11 @@ asserts the *observable effect* of every flag in
   delete     blob_name (positional) · --yes
   categories (no flags)
 
-The knowledge store is patched at the seam ``briar.commands.context.make_store``
-with a recording fake, so we assert the exact (kind, root) the factory was
-asked for and the exact put/get/list/delete payload — a swapped/dropped/
-ignored flag must make a test FAIL. No network, no postgres DSN needed.
+The knowledge store is patched at the seam ``briar.service.knowledge.make_store``
+(the command delegates flag→store forwarding to the service layer) with a
+recording fake, so we assert the exact (kind, root) the factory was asked for
+and the exact put/get/list/delete payload — a swapped/dropped/ignored flag must
+make a test FAIL. No network, no postgres DSN needed.
 """
 
 from __future__ import annotations
@@ -71,7 +72,7 @@ def ctx_seam(mocker):
         state.factory_calls.append((kind, file_root))
         return state.store
 
-    mocker.patch("briar.commands.context.make_store", side_effect=factory)
+    mocker.patch("briar.service.knowledge.make_store", side_effect=factory)
     return state
 
 
