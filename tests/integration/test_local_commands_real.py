@@ -545,52 +545,36 @@ class TestJournalRealStore:
 
 
 class TestDashboardOnceReal:
-    def test_once_renders_seeded_company_and_knowledge_into_html(self, cli, tmp_path) -> None:
+    def test_once_renders_seeded_schedules_into_html(self, cli, tmp_path) -> None:
         """`dashboard --once` runs the REAL collectors over a tmp sandbox
-        and renders the HTML to stdout (no serve). Assert the seeded
-        runbook company + knowledge blob appear in the page."""
+        and renders the HTML to stdout (no serve). The seeded runbook's
+        company + extractor surface in the schedules section."""
         examples = tmp_path / "examples"
         examples.mkdir()
         (examples / "acme.yaml").write_text(
-            "version: 1\n"
-            "companies:\n"
-            "  zzcorp:\n"
-            "    knowledge:\n"
-            "      store: file\n"
-            "      name: knowledge:zzcorp\n"
-            "    extract:\n"
-            "      - name: pr-archaeology\n"
-            "        args: {pr_repo: [zzcorp/api]}\n"
+            "version: 1\n" "companies:\n" "  zzcorp:\n" "    extract:\n" "      - name: pr-archaeology\n" "        args: {pr_repo: [zzcorp/api]}\n"
         )
-        knowledge = tmp_path / "knowledge"
-        from briar.storage import make_store
-
-        store = make_store("file", file_root=knowledge)
-        store.put("knowledge:zzcorp", "# zzcorp\n## PRs\nmerged PR sample: **3**\n", category="knowledge")
 
         result = cli(
             "dashboard",
             "--once",
             "--examples",
             str(examples),
-            "--knowledge-store",
-            "file",
-            "--knowledge",
-            str(knowledge),
-            "--journal-store",
-            "file",
-            "--journal-root",
-            str(tmp_path / "journal"),
+            "--log-file",
+            str(tmp_path / "no-such.log"),
+            "--repo-path",
+            str(tmp_path),
             env=_local_env(tmp_path),
         )
         assert result.code == 0, result.err
         html = result.out
         assert "<html" in html.lower() or "<!doctype" in html.lower()
-        # CompaniesCollector surfaced the seeded company + its extractor.
+        # SchedulesCollector surfaced the seeded company + its extractor.
         assert "zzcorp" in html
         assert "pr-archaeology" in html
-        # KnowledgeCollector surfaced the seeded blob name.
-        assert "knowledge:zzcorp" in html
+        # Self-contained: no Chart.js / CDN in the slim dashboard.
+        assert "cdn.jsdelivr" not in html
+        assert "<canvas" not in html
 
 
 # ════════════════════════════ runbook ═══════════════════════════════
