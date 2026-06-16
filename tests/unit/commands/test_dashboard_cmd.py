@@ -1,44 +1,35 @@
-"""`briar dashboard` — boot the read-only dashboard server.
+"""`briar dashboard` — boot the read-only monitoring dashboard.
 
-The HTTP server, stores, and collector registry are mocked at the seam
+The HTTP server and collector registry are mocked at the seam
 ``commands/dashboard.py`` imports them from. We assert the server is
-constructed with the right bind/port, that collectors are wired in, and
-that `--once` renders to stdout without ever calling `serve()`.
+constructed with the right bind/port, that paths + collectors are wired in,
+and that `--once` renders to stdout without ever calling `serve()`.
 """
 
 from __future__ import annotations
+
+from pathlib import Path
 
 import pytest
 
 
 @pytest.fixture
 def wired(mocker):
-    """Patch all dashboard collaborators and return handles to assert on."""
+    """Patch the dashboard collaborators and return handles to assert on."""
     fake_server = mocker.MagicMock()
     fake_server.started_at = 123.0
     fake_server.render_index.return_value = "<html>DASHBOARD</html>"
     server_ctor = mocker.patch("briar.commands.dashboard.DashboardServer", return_value=fake_server)
-
-    make_store = mocker.patch("briar.commands.dashboard.make_store", return_value="KNOWLEDGE_STORE")
-    make_journal = mocker.patch("briar.commands.dashboard.make_journal_store", return_value="JOURNAL_STORE")
     from_paths = mocker.patch("briar.commands.dashboard.CollectorRegistry.from_paths", return_value=["COLLECTOR"])
 
-    return mocker.MagicMock(
-        server=fake_server,
-        server_ctor=server_ctor,
-        make_store=make_store,
-        make_journal=make_journal,
-        from_paths=from_paths,
-    )
+    return mocker.MagicMock(server=fake_server, server_ctor=server_ctor, from_paths=from_paths)
 
 
 class TestServe:
     def test_default_bind_and_port(self, cli, wired) -> None:
         result = cli("dashboard")
         assert result.code == 0
-        # Server bound to loopback:8080 by default.
         assert wired.server_ctor.call_args.kwargs == {"host": "127.0.0.1", "port": 8080}
-        # Collectors were wired in, then the blocking serve loop started.
         wired.server.set_collectors.assert_called_once_with(["COLLECTOR"])
         wired.server.serve.assert_called_once_with()
 
@@ -47,12 +38,13 @@ class TestServe:
         assert result.code == 0
         assert wired.server_ctor.call_args.kwargs == {"host": "0.0.0.0", "port": 9001}
 
-    def test_collectors_built_from_paths_and_dash(self, cli, wired) -> None:
-        cli("dashboard")
-        # from_paths(paths, dash) — both positional; paths carries the wired stores.
+    def test_paths_built_from_flags(self, cli, wired) -> None:
+        cli("dashboard", "--examples", "/tmp/ex", "--log-file", "/tmp/s.log", "--repo-path", "/tmp/repo", "--disk-path", "/data")
         paths, dash = wired.from_paths.call_args.args
-        assert paths.knowledge_store == "KNOWLEDGE_STORE"
-        assert paths.journal_store == "JOURNAL_STORE"
+        assert paths.examples_dir == Path("/tmp/ex")
+        assert paths.log_path == Path("/tmp/s.log")
+        assert paths.repo_path == Path("/tmp/repo")
+        assert paths.disk_path == Path("/data")
         assert dash.started_at == 123.0
 
     def test_once_renders_and_does_not_serve(self, cli, wired) -> None:
@@ -60,30 +52,7 @@ class TestServe:
         assert result.code == 0
         assert "DASHBOARD" in result.out
         wired.server.render_index.assert_called_once_with()
-        # `--once` must short-circuit before the blocking serve loop.
         wired.server.serve.assert_not_called()
-
-    def test_knowledge_store_defaults_to_file_without_db_url(self, cli, wired) -> None:
-        cli("dashboard")
-        # No BRIAR_DATABASE_URL → file store (env_sandbox strips it).
-        assert wired.make_store.call_args.args[0] == "file"
-
-    def test_knowledge_store_defaults_to_postgres_with_db_url(self, cli, wired) -> None:
-        cli("dashboard", env={"BRIAR_DATABASE_URL": "postgresql://placeholder/db"})
-        assert wired.make_store.call_args.args[0] == "postgres"
-
-    def test_explicit_knowledge_store_overrides_default(self, cli, wired) -> None:
-        cli("dashboard", "--knowledge-store", "file", env={"BRIAR_DATABASE_URL": "postgresql://placeholder/db"})
-        # Explicit flag beats the DB-URL-implied postgres default.
-        assert wired.make_store.call_args.args[0] == "file"
-
-    def test_journal_store_failure_disables_journal_not_command(self, cli, wired) -> None:
-        # A broken journal store must not crash the dashboard — it degrades.
-        wired.make_journal.side_effect = RuntimeError("journal root missing")
-        result = cli("dashboard")
-        assert result.code == 0
-        paths, _dash = wired.from_paths.call_args.args
-        assert paths.journal_store is None
 
 
 class TestArgs:
@@ -91,12 +60,8 @@ class TestArgs:
         result = cli("dashboard", "--port", "not-an-int")
         assert result.code == 2  # argparse type=int rejects it
 
-    def test_invalid_knowledge_store_choice(self, cli, wired) -> None:
-        result = cli("dashboard", "--knowledge-store", "carrier-pigeon")
-        assert result.code == 2
-        assert "invalid choice" in result.err
-
-    def test_invalid_journal_store_choice(self, cli, wired) -> None:
-        result = cli("dashboard", "--journal-store", "carrier-pigeon")
-        assert result.code == 2
-        assert "invalid choice" in result.err
+    def test_removed_flags_are_rejected(self, cli, wired) -> None:
+        # The content/secrets/journal flags were dropped with their collectors.
+        for flag in ("--knowledge-store", "--journal-store", "--secrets-file", "--du-path"):
+            result = cli("dashboard", flag, "x")
+            assert result.code == 2, f"{flag} should no longer be accepted"
