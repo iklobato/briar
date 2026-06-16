@@ -28,7 +28,7 @@ test:
 smoke:
 	@$(BRIAR) --help >/dev/null && echo "  ✓ top-level"
 	@for c in extract runbook scaffold context dashboard agent \
-	          auth plan secrets journal telemetry version; do \
+	          auth plan secrets journal mcp chat telemetry version; do \
 	    $(BRIAR) "$$c" --help >/dev/null 2>&1 && echo "  ✓ $$c" \
 	      || { echo "  ✗ $$c"; exit 1; }; \
 	done
