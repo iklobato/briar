@@ -1,0 +1,11 @@
+.git
+.venv
+__pycache__
+*.egg-info
+src/*.egg-info
+.pytest_cache
+.mypy_cache
+tests
+node_modules
+*.pyc
+# Keep dist/ — the image installs the wheel built there in CI.
