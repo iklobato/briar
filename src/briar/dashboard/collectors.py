@@ -15,12 +15,10 @@ import socket
 import subprocess
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, ClassVar, Dict, List, Tuple
-
-import yaml
 
 log = logging.getLogger(__name__)
 
@@ -38,22 +36,13 @@ def _tail_bytes(path: Path, cap: int) -> str:
         return fh.read().decode("utf-8", errors="replace")
 
 
-# Numeric signals mined from the standard extractor markdown — shared by
-# KnowledgeCollector (per-blob) and KnowledgeAggregatesCollector (totals)
-# so a markdown-wording change is edited in exactly one place.
-_NUMERIC_SIGNALS: Tuple[Tuple[str, "re.Pattern[str]"], ...] = (
-    ("merged_prs", re.compile(r"merged PR sample:\s*\*\*(\d+)\*\*")),
-    ("open_prs", re.compile(r"—\s*(\d+)\s+open PR\(s\)")),
-    ("rds_instances", re.compile(r"RDS\s+\((\d+)\s+instance")),
-    ("sqs_queues", re.compile(r"SQS\s+\((\d+)\s+queue")),
-    ("log_groups", re.compile(r"CloudWatch Logs.*?of\s+(\d+)\)?")),
-)
-_REPO_SIGNAL_RE = re.compile(r"###\s+([A-Za-z0-9_\-]+/[A-Za-z0-9_\-]+)")
-
-
-def _sum_signal(text: str, pattern: "re.Pattern[str]") -> int:
-    """Sum the first integer capture across every match of `pattern`."""
-    return sum(int(m.group(1)) for m in pattern.finditer(text))
+def _parse_log_ts(ts: str) -> Any:
+    """Parse a scheduler-log ISO timestamp (UTC) → aware datetime, or None.
+    Shared by the log-scanning collectors."""
+    try:
+        return datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
 
 
 class Collector(ABC):
@@ -67,384 +56,7 @@ class Collector(ABC):
 
 
 # ---------------------------------------------------------------------------
-# Companies + knowledge
-# ---------------------------------------------------------------------------
-
-
-class CompaniesCollector(Collector):
-    """Walk the runbook YAML directory and describe each company."""
-
-    name = "companies"
-
-    def __init__(self, examples_dir: Path) -> None:
-        self._dir = examples_dir
-
-    def collect(self) -> Dict[str, Any]:
-        rows: List[Dict[str, Any]] = []
-        for path in sorted(self._dir.glob("*.yaml")):
-            try:
-                data = yaml.safe_load(path.read_text()) or {}
-            except yaml.YAMLError as exc:
-                rows.append(
-                    {
-                        "file": path.name,
-                        "error": str(exc),
-                        "companies": [],
-                    }
-                )
-                continue
-            for company_name, company in (data.get("companies") or {}).items():
-                rows.append(
-                    {
-                        "file": path.name,
-                        "company": company_name,
-                        "profile": company.get("profile") or "(none)",
-                        "extractors": [e.get("name", "?") for e in (company.get("extract") or [])],
-                        "knowledge_file": ((company.get("knowledge") or {}).get("name")) or company.get("knowledge_file") or f"./knowledge/{company_name}.md",
-                    }
-                )
-        return {"rows": rows, "count": len(rows)}
-
-
-class KnowledgeCollector(Collector):
-    """Per-blob detail: section breakdown, mined signals, fingerprint,
-    age, token estimate. The dashboard uses this to make each knowledge
-    file legible at a glance instead of just a byte count."""
-
-    name = "knowledge"
-
-    # Rough chars-per-token ratio for the GPT-family tokenisers. We use 4
-    # as a stable approximation — close enough to surface "this blob
-    # would cost ~500 tokens to read" magnitudes without bundling tiktoken.
-    _CHARS_PER_TOKEN = 4
-
-    # Per-blob body cap when rendered into the dashboard. Set high enough
-    # to show the full content of a typical knowledge blob (~10–40 KB)
-    # but low enough to keep the page bounded if someone parks a giant
-    # transcript dump in there. Truncation is marked in `body_truncated`.
-    _BODY_CAP_BYTES = 40_000
-
-    # Pattern that identifies a plan-scoped shard: `knowledge:<company>.<plan>`.
-    # The cold-rebuild parent is `knowledge:<company>` (everything before the dot).
-    _SHARD_RE = re.compile(r"^knowledge:(?P<company>[^.]+)\.(?P<plan>.+)$")
-
-    def __init__(self, store) -> None:  # KnowledgeStore — typed in storage/base
-        self._store = store
-
-    def collect(self) -> Dict[str, Any]:
-        rows: List[Dict[str, Any]] = []
-        now = datetime.now(timezone.utc)
-        refs = self._store.list()
-        # Bulk-fetch every blob's content in one round-trip on backends
-        # that support it (Postgres). Avoids one DB connection per blob
-        # under the previous `for ref in list: store.get(ref.name)` loop.
-        blobs = self._store.get_many([ref.name for ref in refs])
-        for ref in refs:
-            content = blobs.get(ref.name, "")
-            sections_detail = self._split_sections(content)
-            signals, repos = self._mine_signals(content)
-            head = "\n".join(content.splitlines()[:3])
-            body_truncated = len(content) > self._BODY_CAP_BYTES
-            body = content[: self._BODY_CAP_BYTES] if body_truncated else content
-            shard_match = self._SHARD_RE.match(ref.name)
-            shard_of = f"knowledge:{shard_match.group('company')}" if shard_match else ""
-            shard_plan = shard_match.group("plan") if shard_match else ""
-            fingerprint = ""
-            try:
-                fingerprint = self._store.fingerprint(ref.name) or ""
-            except Exception:  # noqa: BLE001
-                log.exception("knowledge-collect: fingerprint failed for %s", ref.name)
-            rows.append(
-                {
-                    "path": ref.name,
-                    "byte_count": ref.byte_count,
-                    "modified": ref.updated_at or "",
-                    "age_human": self._age_human(ref.updated_at, now),
-                    "head": head,
-                    "body": body,
-                    "body_truncated": body_truncated,
-                    "shard_of": shard_of,
-                    "shard_plan": shard_plan,
-                    "sections": len(sections_detail),
-                    "sections_detail": sections_detail,
-                    "token_estimate": ref.byte_count // self._CHARS_PER_TOKEN,
-                    "fingerprint": fingerprint[:8],
-                    "signals": signals,
-                    "repos_covered": sorted(repos),
-                }
-            )
-        return {
-            "rows": rows,
-            "root": self._store.name,
-            "chart": {
-                "labels": [r["path"] for r in rows],
-                "values": [r["byte_count"] for r in rows],
-            },
-        }
-
-    @staticmethod
-    def _split_sections(text: str) -> List[Dict[str, Any]]:
-        """Walk the markdown and emit one entry per `## ` heading with its
-        byte count, line count, and number of `- ` bullets — exactly what
-        the dashboard needs to surface 'this section grew from 200 to 8000
-        bytes' to a human eye."""
-        sections: List[Dict[str, Any]] = []
-        current_title = ""
-        current_lines: List[str] = []
-
-        def flush() -> None:
-            if not current_title:
-                return
-            body = "\n".join(current_lines)
-            bullets = sum(1 for line in current_lines if line.lstrip().startswith("- "))
-            sections.append(
-                {
-                    "title": current_title,
-                    "body_bytes": len(body),
-                    "line_count": len(current_lines),
-                    "bullet_count": bullets,
-                }
-            )
-
-        for line in text.splitlines():
-            if line.startswith("## "):
-                flush()
-                current_title = line[3:].strip()
-                current_lines = []
-                continue
-            current_lines.append(line)
-        flush()
-        return sections
-
-    @staticmethod
-    def _mine_signals(text: str) -> tuple:
-        """Pull typed numbers and the repo list out of the standard
-        extractor markdown. Returns `(signals_dict, repos_set)`."""
-        signals: Dict[str, int] = {}
-        for key, pattern in _NUMERIC_SIGNALS:
-            total = _sum_signal(text, pattern)
-            if total:
-                signals[key] = total
-        repos = {m.group(1) for m in _REPO_SIGNAL_RE.finditer(text)}
-        return signals, repos
-
-    @staticmethod
-    def _age_human(updated_at_iso: str, now: datetime) -> str:
-        """Render the gap between `now` and the blob's last-modified time
-        in a human chunk ('3m ago', '4h ago', '2d ago'). Falls back to
-        empty when the timestamp is missing or unparseable."""
-        if not updated_at_iso:
-            return ""
-        try:
-            ts = datetime.fromisoformat(updated_at_iso)
-        except ValueError:
-            return ""
-        if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=timezone.utc)
-        delta = now - ts
-        seconds = int(delta.total_seconds())
-        if seconds < 60:
-            return f"{seconds}s ago"
-        if seconds < 3600:
-            return f"{seconds // 60}m ago"
-        if seconds < 86400:
-            return f"{seconds // 3600}h ago"
-        return f"{seconds // 86400}d ago"
-
-
-class KnowledgeAggregatesCollector(Collector):
-    """Mine cross-company numbers out of the stored knowledge blobs."""
-
-    name = "knowledge_aggregates"
-
-    def __init__(self, store) -> None:  # KnowledgeStore
-        self._store = store
-
-    def collect(self) -> Dict[str, Any]:
-        total_files = 0
-        total_bytes = 0
-        totals: Dict[str, int] = {key: 0 for key, _ in _NUMERIC_SIGNALS}
-        refs = self._store.list()
-        blobs = self._store.get_many([ref.name for ref in refs])
-        for ref in refs:
-            text = blobs.get(ref.name, "")
-            if not text:
-                continue
-            total_files += 1
-            total_bytes += len(text)
-            for key, pattern in _NUMERIC_SIGNALS:
-                totals[key] += _sum_signal(text, pattern)
-        return {"files": total_files, "total_bytes": total_bytes, **totals}
-
-
-# ---------------------------------------------------------------------------
-# Plans + journal — surfaces the LLM-driven planning subsystem
-# ---------------------------------------------------------------------------
-
-
-class PlansCollector(Collector):
-    """Enumerate every `plan:<name>` blob, count cards by status, and
-    pair each plan with the most recent `plan.run` session from the
-    journal (last decision action + rationale).
-
-    Best-effort: a malformed plan blob renders as one row with an
-    `error` field instead of breaking the section."""
-
-    name = "plans"
-
-    def __init__(self, knowledge_store: Any, journal_store: Any = None) -> None:
-        self._kstore = knowledge_store
-        self._jstore = journal_store
-
-    def collect(self) -> Dict[str, Any]:
-        # Local imports so the dashboard module doesn't drag the plan
-        # subsystem into its import-time graph (board readers pull in
-        # PyGithub, etc.).
-        from briar.errors import CliError
-        from briar.plan import list_plans, load_plan
-        from briar.plan._enums import PlanCardStatus
-
-        rows: List[Dict[str, Any]] = []
-        try:
-            plan_names = list_plans(self._kstore)
-        except Exception:  # noqa: BLE001
-            log.exception("plans-collector: list_plans failed")
-            return {"rows": [], "count": 0, "_error": "list_plans failed; see scheduler.log"}
-
-        journal_by_plan = self._index_journal_by_plan(plan_names)
-        for blob_name in sorted(plan_names):
-            plan_name = blob_name.split(":", 1)[1] if blob_name.startswith("plan:") else blob_name
-            try:
-                plan = load_plan(self._kstore, plan_name)
-            except CliError as exc:
-                rows.append({"name": plan_name, "error": str(exc)})
-                continue
-            except Exception as exc:  # noqa: BLE001
-                log.exception("plans-collector: load_plan %s failed", plan_name)
-                rows.append({"name": plan_name, "error": f"{type(exc).__name__}: {exc}"})
-                continue
-
-            counts = {status.value: 0 for status in PlanCardStatus}
-            for c in plan.cards:
-                key = c.status.value if hasattr(c.status, "value") else str(c.status)
-                counts[key] = counts.get(key, 0) + 1
-            jrow = journal_by_plan.get(plan_name, {})
-            rows.append(
-                {
-                    "name": plan.name,
-                    "blob": blob_name,
-                    "company": plan.company,
-                    "board_url": plan.board_url,
-                    "tracker": plan.tracker,
-                    "project": plan.project,
-                    "default_branch": plan.default_branch,
-                    "created_at": plan.created_at,
-                    "total_cards": len(plan.cards),
-                    "counts": counts,
-                    "knowledge_shard": (f"knowledge:{plan.company}.{plan.name}" if plan.company else ""),
-                    "last_session_id": jrow.get("session_id", ""),
-                    "last_session_started": jrow.get("started_at", ""),
-                    "last_session_ended": jrow.get("ended_at", ""),
-                    "last_decision_action": jrow.get("last_decision_action", ""),
-                    "last_decision_why": jrow.get("last_decision_why", ""),
-                    "last_completed_count": jrow.get("completed_count", 0),
-                    "last_failed_count": jrow.get("failed_count", 0),
-                }
-            )
-        return {"rows": rows, "count": len(rows)}
-
-    def _index_journal_by_plan(self, plan_names: List[str]) -> Dict[str, Dict[str, Any]]:
-        """Map `<plan-name>` → most-recent plan.run session summary.
-
-        Returns `{}` when no journal store was configured or the store
-        is unreachable."""
-        if self._jstore is None:
-            return {}
-        try:
-            refs = self._jstore.list(command_prefix="plan.run")
-        except Exception:  # noqa: BLE001
-            log.exception("plans-collector: journal list failed")
-            return {}
-        # plan names as bare slugs (without `plan:` prefix)
-        bare = {n.split(":", 1)[1] if n.startswith("plan:") else n for n in plan_names}
-        out: Dict[str, Dict[str, Any]] = {}
-        for ref in refs:
-            target = getattr(ref, "target", "") or ""
-            # target shape: "<plan>@<owner>/<repo>"
-            plan_name = target.split("@", 1)[0] if "@" in target else ""
-            if not plan_name or plan_name not in bare or plan_name in out:
-                continue
-            try:
-                session = self._jstore.get(ref.session_id)
-            except Exception:  # noqa: BLE001
-                continue
-            if session is None:
-                continue
-            last_action = ""
-            last_why = ""
-            completed = 0
-            failed = 0
-            for ev in session.decisions:
-                if ev.choice == "plan.next.decision":
-                    last_action = str(ev.value or "")
-                    last_why = ev.rationale or ""
-                elif ev.choice == "plan.run.card.completed":
-                    completed += 1
-                elif ev.choice == "plan.run.card.failed":
-                    failed += 1
-            out[plan_name] = {
-                "session_id": ref.session_id,
-                "started_at": ref.started_at,
-                "ended_at": ref.ended_at,
-                "last_decision_action": last_action,
-                "last_decision_why": last_why,
-                "completed_count": completed,
-                "failed_count": failed,
-            }
-        return out
-
-
-class JournalSessionsCollector(Collector):
-    """Recent decision-journal sessions, grouped by command family.
-
-    The journal records every briar command's decisions (plan.run.*,
-    agent.run.*, scaffold.*, runbook.*, etc.). This section surfaces
-    the last N across all commands so an operator can see what the
-    droplet has been doing without SSH'ing in to read the log."""
-
-    name = "journal_sessions"
-
-    def __init__(self, journal_store: Any, limit: int = 50) -> None:
-        self._jstore = journal_store
-        self._limit = limit
-
-    def collect(self) -> Dict[str, Any]:
-        if self._jstore is None:
-            return {"groups": [], "total": 0, "_error": "no journal store configured"}
-        try:
-            refs = self._jstore.list(limit=self._limit)
-        except Exception:  # noqa: BLE001
-            log.exception("journal-sessions-collector: list failed")
-            return {"groups": [], "total": 0, "_error": "journal list failed"}
-
-        groups: Dict[str, List[Dict[str, Any]]] = {}
-        for ref in refs:
-            family = (ref.command or "").split(".", 1)[0] or "(none)"
-            row = {
-                "session_id": ref.session_id,
-                "command": ref.command,
-                "target": ref.target or "",
-                "started_at": ref.started_at,
-                "ended_at": ref.ended_at,
-                "decisions": ref.decision_count,
-            }
-            groups.setdefault(family, []).append(row)
-        ordered = [{"prefix": prefix, "count": len(rows), "sessions": rows} for prefix, rows in sorted(groups.items())]
-        return {"groups": ordered, "total": len(refs)}
-
-
-# ---------------------------------------------------------------------------
-# Schedulers + cycle outcomes + cron health
+# Scheduler observability
 # ---------------------------------------------------------------------------
 
 
@@ -517,255 +129,6 @@ def _noop() -> None:
     pass
 
 
-class ScheduleCalendarCollector(Collector):
-    """48-hour calendar of scheduler fires: past 24h (from the log) +
-    next 24h (computed from each schedule by simulating the job).
-
-    Output shape — designed for direct iteration in the template:
-        {
-            "window_start": "2026-05-19 22:00 UTC",  # now - 24h, hour-floored
-            "window_end":   "2026-05-21 22:00 UTC",  # now + 24h, hour-ceil
-            "now":          "2026-05-20 22:14 UTC",
-            "buckets": [                              # 48 rows, oldest first
-                {
-                    "hour":   "2026-05-20 18:00 UTC",
-                    "is_now": False,                  # true on the hour containing `now`
-                    "is_past": True,                  # bucket's hour < now's hour
-                    "fires":  [                       # one entry per fire in this hour
-                        {"company":"acme", "task":"prfix",
-                         "when":"2026-05-20 18:10 UTC", "kind":"past",
-                         "status":"ok", "bytes":3727},
-                    ],
-                },
-                ...
-            ],
-        }
-    """
-
-    name = "schedule_calendar"
-
-    _LOG_FIRE_RE = re.compile(
-        r"^(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})Z\s+\[[^\]]*\]\s+"
-        r"briar\.iac\.runbook\.scheduler:\s+"
-        r"fire\s+task=(?P<task>\S+)\s+company=(?P<company>\S+)"
-    )
-    _LOG_RESULT_RE = re.compile(
-        r"^(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})Z\s+\[[^\]]*\]\s+"
-        r"briar\.iac\.runbook\.scheduler:\s+"
-        r"result\s+task=(?P<task>\S+)\s+company=(?P<company>\S+)\s+"
-        r"status=(?P<status>.*?)$"
-    )
-
-    def __init__(self, examples_dir: Path, log_path: Path) -> None:
-        self._dir = examples_dir
-        self._log = log_path
-
-    def collect(self) -> Dict[str, Any]:
-        from datetime import timedelta
-
-        now = datetime.now(timezone.utc).replace(microsecond=0)
-        now_hour = now.replace(minute=0, second=0)
-        window_start = now_hour - timedelta(hours=24)
-        window_end = now_hour + timedelta(hours=25)  # 24 future hours INCLUSIVE
-
-        past_fires = self._past_fires(window_start, now)
-        future_fires = self._future_fires(now, window_end)
-
-        all_fires = past_fires + future_fires
-        all_fires.sort(key=lambda f: f["when_dt"])
-
-        buckets: List[Dict[str, Any]] = []
-        cursor = window_start
-        bucket_idx: Dict[str, int] = {}
-        while cursor < window_end:
-            key = cursor.strftime("%Y-%m-%dT%H")
-            bucket_idx[key] = len(buckets)
-            buckets.append(
-                {
-                    "hour": cursor.strftime("%Y-%m-%d %H:%M UTC"),
-                    "hour_short": cursor.strftime("%H:%M"),
-                    "date_label": cursor.strftime("%a %d %b"),
-                    "is_now": cursor == now_hour,
-                    "is_past": cursor < now_hour,
-                    "fires": [],
-                }
-            )
-            cursor = cursor + timedelta(hours=1)
-
-        for fire in all_fires:
-            key = fire["when_dt"].strftime("%Y-%m-%dT%H")
-            slot = bucket_idx.get(key)
-            if slot is None:
-                continue
-            buckets[slot]["fires"].append(
-                {
-                    "company": fire["company"],
-                    "task": fire["task"],
-                    "when": fire["when_dt"].strftime("%H:%M"),
-                    "kind": fire["kind"],
-                    "status": fire.get("status", ""),
-                    "bytes": fire.get("bytes", 0),
-                    "elapsed_ms": fire.get("elapsed_ms", 0),
-                }
-            )
-
-        # 24h aggregates so the calendar header can advertise the
-        # dedup hit rate ("3 writes, 9 skipped, 0 failed" = smart-
-        # scheduler is paying for itself).
-        past = [f for f in all_fires if f["kind"] == "past"]
-        write_count = sum(1 for f in past if f.get("status") == "ok")
-        skip_count = sum(1 for f in past if f.get("status") == "skipped")
-        fail_count = sum(1 for f in past if f.get("status") == "failed")
-        skip_pct = round(100 * skip_count / max(1, write_count + skip_count + fail_count), 1)
-        return {
-            "window_start": window_start.strftime("%Y-%m-%d %H:%M UTC"),
-            "window_end": (window_end - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M UTC"),
-            "now": now.strftime("%Y-%m-%d %H:%M:%S UTC"),
-            "buckets": buckets,
-            "past_count": len(past),
-            "future_count": sum(1 for f in all_fires if f["kind"] == "future"),
-            "write_count": write_count,
-            "skip_count": skip_count,
-            "fail_count": fail_count,
-            "skip_pct": skip_pct,
-        }
-
-    def _past_fires(self, window_start: datetime, now: datetime) -> List[Dict[str, Any]]:
-        """Tail the scheduler log and pair fire/result lines."""
-        if not self._log.exists():
-            return []
-        chunk = _tail_bytes(self._log, 256_000)
-        fires: List[Dict[str, Any]] = []
-        pending: Dict[Tuple[str, str], Dict[str, Any]] = {}
-        for line in chunk.splitlines():
-            fire_m = self._LOG_FIRE_RE.search(line)
-            if fire_m:
-                when = self._parse_log_ts(fire_m.group("ts"))
-                if when is None or when < window_start or when > now:
-                    continue
-                rec: Dict[str, Any] = {
-                    "company": fire_m.group("company"),
-                    "task": fire_m.group("task"),
-                    "when_dt": when,
-                    "kind": "past",
-                    "status": "running",
-                }
-                fires.append(rec)
-                pending[(rec["company"], rec["task"])] = rec
-                continue
-            result_m = self._LOG_RESULT_RE.search(line)
-            if result_m:
-                key = (result_m.group("company"), result_m.group("task"))
-                if key not in pending:
-                    continue
-                rec = pending.pop(key)
-                status_raw = result_m.group("status").strip()
-                skipped_m = re.search(r"skipped\s*\(unchanged,\s*(\d+)\s*bytes", status_raw)
-                if skipped_m:
-                    # Smart-scheduler dedup hit — output md5 matched the
-                    # previously-stored blob so no Postgres write happened.
-                    rec["status"] = "skipped"
-                    rec["bytes"] = int(skipped_m.group(1))
-                    continue
-                bytes_m = re.search(r"wrote\s+(\d+)\s+bytes", status_raw)
-                if bytes_m:
-                    rec["status"] = "ok"
-                    rec["bytes"] = int(bytes_m.group(1))
-                    continue
-                if "failed" in status_raw.lower() or "error" in status_raw.lower():
-                    rec["status"] = "failed"
-                    continue
-                rec["status"] = "done"
-        return fires
-
-    def _future_fires(self, now: datetime, window_end: datetime) -> List[Dict[str, Any]]:
-        """Simulate each schedule forward to enumerate fires inside the window."""
-        import schedule as schedule_mod
-
-        from briar.iac.runbook import EveryParser, RunbookSchedules, load_runbook_file
-
-        out: List[Dict[str, Any]] = []
-        for path in sorted(self._dir.glob("*.yaml")):
-            try:
-                runbook = load_runbook_file(path)
-            except Exception:  # noqa: BLE001
-                log.exception("calendar: failed to load %s", path.name)
-                continue
-            for company_name, company in runbook.companies.items():
-                for entry in RunbookSchedules.for_company(company):
-                    out.extend(
-                        self._project_one(
-                            company_name,
-                            entry,
-                            now,
-                            window_end,
-                            EveryParser,
-                            schedule_mod,
-                        )
-                    )
-        return out
-
-    @staticmethod
-    def _project_one(
-        company: str,
-        entry: Any,
-        now: datetime,
-        window_end: datetime,
-        parser: Any,
-        schedule_mod: Any,
-    ) -> List[Dict[str, Any]]:
-        """For a single (company, task) schedule, project future fires by
-        starting from job.next_run (the schedule library's correct
-        first-run computation) and then walking forward by `job.period`
-        because schedule._schedule_next_run rebases on now() each call
-        rather than advancing from the previous next_run. Caps at 32
-        fires to bound runtime."""
-        from datetime import timedelta
-
-        local = schedule_mod.Scheduler()
-        job = parser.parse(entry.every, scheduler=local)
-        job.do(_noop)
-        run_at = job.next_run
-        if run_at is None:
-            return []
-        if run_at.tzinfo is None:
-            run_at = run_at.replace(tzinfo=timezone.utc)
-        # Build the step interval from the job's declared cadence
-        # (`schedule.Job` exposes `interval` + `unit`, e.g. (4, "hours")
-        # or (1, "days"), but no public `period` attribute).
-        unit_to_kwarg = {
-            "seconds": "seconds",
-            "minutes": "minutes",
-            "hours": "hours",
-            "days": "days",
-            "weeks": "weeks",
-        }
-        kwarg = unit_to_kwarg.get(job.unit or "")
-        step = timedelta(**{kwarg: job.interval}) if kwarg else timedelta(hours=1)
-        out: List[Dict[str, Any]] = []
-        for _ in range(32):
-            if run_at >= window_end:
-                break
-            if run_at > now:
-                out.append(
-                    {
-                        "company": company,
-                        "task": entry.task,
-                        "when_dt": run_at,
-                        "kind": "future",
-                    }
-                )
-            run_at = run_at + step
-        return out
-
-    @staticmethod
-    def _parse_log_ts(ts: str) -> Any:
-        try:
-            return datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
-        except ValueError:
-            return None
-
-
 class GhStatsCollector(Collector):
     """GitHub API quota + ETag-cache hit count, mined from the
     `briar.extract._gh` log lines.
@@ -817,7 +180,7 @@ class GhStatsCollector(Collector):
         for line in text.splitlines():
             ok_m = self._OK_RE.search(line)
             if ok_m:
-                when = ScheduleCalendarCollector._parse_log_ts(ok_m.group("ts"))
+                when = _parse_log_ts(ok_m.group("ts"))
                 if when is None or when < window_start:
                     continue
                 remaining = int(ok_m.group("rem"))
@@ -829,7 +192,7 @@ class GhStatsCollector(Collector):
                 continue
             hit_m = self._CACHE_HIT_RE.search(line)
             if hit_m:
-                when = ScheduleCalendarCollector._parse_log_ts(hit_m.group("ts"))
+                when = _parse_log_ts(hit_m.group("ts"))
                 if when is None or when < window_start:
                     continue
                 cache_hit_count += 1
@@ -845,7 +208,7 @@ class GhStatsCollector(Collector):
                 continue
             err_m = self._ERR_RE.search(line)
             if err_m:
-                when = ScheduleCalendarCollector._parse_log_ts(err_m.group("ts"))
+                when = _parse_log_ts(err_m.group("ts"))
                 if when is None or when < window_start:
                     continue
                 err_count += 1
@@ -1023,123 +386,7 @@ class CycleOutcomeCollector(Collector):
 
 
 # ---------------------------------------------------------------------------
-# Registries (the Strategy plugin families)
-# ---------------------------------------------------------------------------
-
-
-class ExtractorsCollector(Collector):
-    name = "extractors"
-
-    def collect(self) -> Dict[str, Any]:
-        from briar.extract import EXTRACTORS
-
-        rows = [
-            {
-                "name": ext.name,
-                "description": ext.description,
-                "requires_github": ext.requires_github,
-                "requires_aws": ext.requires_aws,
-            }
-            for ext in EXTRACTORS.values()
-        ]
-        return {"rows": rows, "count": len(rows)}
-
-
-class SourcesCollector(Collector):
-    name = "source_templates"
-
-    def collect(self) -> Dict[str, Any]:
-        from briar.iac.scaffold.sources import SOURCE_TEMPLATES
-
-        rows = [{"kind": tmpl.kind} for tmpl in SOURCE_TEMPLATES.values()]
-        return {"rows": rows, "count": len(rows)}
-
-
-class TriggersCollector(Collector):
-    name = "trigger_templates"
-
-    def collect(self) -> Dict[str, Any]:
-        from briar.iac.scaffold.triggers import TRIGGER_TEMPLATES
-
-        rows = [{"kind": tmpl.kind, "description": tmpl.description} for tmpl in TRIGGER_TEMPLATES.values()]
-        return {"rows": rows, "count": len(rows)}
-
-
-class StorageCollector(Collector):
-    name = "storage_backends"
-
-    def collect(self) -> Dict[str, Any]:
-        from briar.storage import KnowledgeStoreRegistry
-
-        return {"rows": [{"name": n} for n in KnowledgeStoreRegistry.names()]}
-
-
-class AwsServicesCollector(Collector):
-    name = "aws_services"
-
-    def collect(self) -> Dict[str, Any]:
-        from briar.extract.aws_services import AWS_SERVICE_GATHERERS
-
-        return {
-            "rows": [{"name": n} for n in sorted(AWS_SERVICE_GATHERERS)],
-        }
-
-
-class LanguageDetectorsCollector(Collector):
-    name = "language_detectors"
-
-    def collect(self) -> Dict[str, Any]:
-        from briar.extract.language_detectors import LANGUAGE_DETECTORS
-
-        return {
-            "rows": [{"name": d.name, "manifest": d.manifest} for d in LANGUAGE_DETECTORS],
-        }
-
-
-class WorkflowShapesCollector(Collector):
-    name = "workflow_shapes"
-
-    def collect(self) -> Dict[str, Any]:
-        from briar.iac.scaffold.shapes import WORKFLOW_SHAPES
-
-        return {
-            "rows": [{"name": s.name, "description": s.description} for s in WORKFLOW_SHAPES.values()],
-        }
-
-
-class ArchetypesCollector(Collector):
-    name = "archetypes"
-
-    def collect(self) -> Dict[str, Any]:
-        from briar.iac.scaffold.archetypes import ARCHETYPES
-
-        return {
-            "rows": [
-                {
-                    "name": a.name,
-                    "description": a.description,
-                    "role": a.role,
-                    "tool_filter": list(a.tool_filter) or ["(no filter)"],
-                    "consumes": list(a.consumes) or ["(none)"],
-                }
-                for a in ARCHETYPES.values()
-            ],
-        }
-
-
-class CommandsCollector(Collector):
-    name = "commands"
-
-    def collect(self) -> Dict[str, Any]:
-        from briar.commands import CommandRegistry
-
-        return {
-            "rows": [{"name": cmd.name, "help": cmd.help} for cmd in CommandRegistry.build().values()],
-        }
-
-
-# ---------------------------------------------------------------------------
-# Deploy / git / secrets / connectivity / system health / self
+# Deploy + host health
 # ---------------------------------------------------------------------------
 
 
@@ -1171,49 +418,6 @@ class GitDeployCollector(Collector):
             "author": author,
             "committed": committed,
             "remote": remote_clean,
-        }
-
-
-class SecretsCollector(Collector):
-    """Read /etc/briar/secrets.env — names and lengths ONLY, never values."""
-
-    name = "secrets"
-
-    def __init__(self, secrets_path: Path) -> None:
-        self._path = secrets_path
-
-    def collect(self) -> Dict[str, Any]:
-        if not self._path.exists():
-            return {"present": False, "path": str(self._path), "rows": []}
-        rows: List[Dict[str, Any]] = []
-        for line in self._path.read_text().splitlines():
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
-                continue
-            if "=" not in stripped:
-                continue
-            key, _, value = stripped.partition("=")
-            key = key.strip()
-            value = value.strip()
-            if not key:
-                continue
-            rows.append(
-                {
-                    "name": key,
-                    "length": len(value),
-                    "set": bool(value),
-                }
-            )
-        stat = self._path.stat()
-        return {
-            "present": True,
-            "path": str(self._path),
-            "rows": rows,
-            "byte_count": stat.st_size,
-            "modified": datetime.fromtimestamp(
-                stat.st_mtime,
-                tz=timezone.utc,
-            ).strftime("%Y-%m-%d %H:%M UTC"),
         }
 
 
@@ -1293,29 +497,6 @@ class SystemCollector(Collector):
         }
 
 
-class DiskByDirCollector(Collector):
-    """Recursive size of each named directory."""
-
-    name = "disk_by_dir"
-
-    def __init__(self, paths: List[Path]) -> None:
-        self._paths = paths
-
-    def collect(self) -> Dict[str, Any]:
-        rows: List[Dict[str, Any]] = []
-        for path in self._paths:
-            size = _du(path)
-            rows.append(
-                {
-                    "path": str(path),
-                    "bytes": size,
-                    "human": _human_bytes(size),
-                    "present": path.exists(),
-                }
-            )
-        return {"rows": rows}
-
-
 class DashboardProcessCollector(Collector):
     """Self-observability: pid, uptime, requests served. Takes a single
     `DashboardSelf` struct so the constructor stays narrow."""
@@ -1345,24 +526,13 @@ class DashboardProcessCollector(Collector):
 
 @dataclass
 class DashboardPaths:
-    """Container for the filesystem paths + knowledge store the
-    dashboard's collectors read from. Bundling them into one struct
-    keeps the registry's `from_paths` constructor at a reasonable
-    arity.
+    """The filesystem paths the monitoring collectors read from. Bundled
+    into one struct so `from_paths` stays low-arity."""
 
-    `journal_store` is optional — when `None`, the plan and journal
-    collectors degrade gracefully (the plan collector still lists
-    plans; the journal-sessions collector renders an `_error` panel
-    instead of breaking)."""
-
-    examples_dir: Path
-    knowledge_store: Any  # KnowledgeStore — Any avoids a cycle
-    log_path: Path
-    disk_path: Path
-    repo_path: Path
-    secrets_path: Path
-    du_paths: List[Path] = field(default_factory=list)
-    journal_store: Any = None  # JournalStore | None
+    examples_dir: Path  # runbook YAMLs — SchedulesCollector
+    log_path: Path  # scheduler log — cycle/log/gh collectors
+    disk_path: Path  # SystemCollector disk-usage target
+    repo_path: Path  # GitDeployCollector checkout
 
 
 @dataclass
@@ -1379,35 +549,17 @@ class CollectorRegistry:
 
     @staticmethod
     def from_paths(paths: DashboardPaths, dash: DashboardSelf) -> List[Collector]:
+        # Monitoring order: health first, then "what's deployed", then the
+        # scheduler's liveness + recent activity, connectivity, self-stats.
         return [
             SystemCollector(disk_path=paths.disk_path),
             GitDeployCollector(repo_path=paths.repo_path),
-            PlansCollector(knowledge_store=paths.knowledge_store, journal_store=paths.journal_store),
-            JournalSessionsCollector(journal_store=paths.journal_store),
-            SchedulesCollector(examples_dir=paths.examples_dir),
-            ScheduleCalendarCollector(
-                examples_dir=paths.examples_dir,
-                log_path=paths.log_path,
-            ),
-            GhStatsCollector(log_path=paths.log_path),
             SchedulerProcessCollector(),
-            ScheduleLogCollector(log_path=paths.log_path),
+            SchedulesCollector(examples_dir=paths.examples_dir),
             CycleOutcomeCollector(log_path=paths.log_path),
+            ScheduleLogCollector(log_path=paths.log_path),
+            GhStatsCollector(log_path=paths.log_path),
             ConnectivityCollector(),
-            SecretsCollector(secrets_path=paths.secrets_path),
-            CompaniesCollector(examples_dir=paths.examples_dir),
-            KnowledgeCollector(store=paths.knowledge_store),
-            KnowledgeAggregatesCollector(store=paths.knowledge_store),
-            ExtractorsCollector(),
-            SourcesCollector(),
-            TriggersCollector(),
-            StorageCollector(),
-            AwsServicesCollector(),
-            LanguageDetectorsCollector(),
-            WorkflowShapesCollector(),
-            ArchetypesCollector(),
-            CommandsCollector(),
-            DiskByDirCollector(paths=paths.du_paths),
             DashboardProcessCollector(self_=dash),
         ]
 
@@ -1422,26 +574,6 @@ class CollectorRegistry:
 # ---------------------------------------------------------------------------
 # Module-private helpers
 # ---------------------------------------------------------------------------
-
-
-def _safe_head(path: Path, *, lines: int) -> str:
-    try:
-        with path.open("r", encoding="utf-8", errors="replace") as fh:
-            head: List[str] = []
-            for i, line in enumerate(fh):
-                if i >= lines:
-                    break
-                head.append(line.rstrip("\n"))
-            return "\n".join(head)
-    except OSError:
-        return ""
-
-
-def _count_sections(path: Path) -> int:
-    try:
-        return sum(1 for line in path.read_text(encoding="utf-8", errors="replace").splitlines() if line.startswith("## "))
-    except OSError:
-        return 0
 
 
 def _read_uptime() -> str:
@@ -1482,29 +614,6 @@ def _read_meminfo() -> Tuple[int, int, int]:
         )
     except (OSError, ValueError):
         return 0, 0, 0
-
-
-def _du(path: Path) -> int:
-    if not path.exists():
-        return 0
-    total = 0
-    for root, _dirs, files in os.walk(path):
-        for f in files:
-            try:
-                total += (Path(root) / f).stat().st_size
-            except OSError:
-                continue
-    return total
-
-
-def _human_bytes(n: int) -> str:
-    suffixes = ("B", "KB", "MB", "GB", "TB")
-    val = float(n)
-    for suffix in suffixes:
-        if val < 1024 or suffix == suffixes[-1]:
-            return f"{val:.1f} {suffix}"
-        val /= 1024
-    return f"{val:.1f} TB"
 
 
 def _run(cmd: List[str], *, timeout: float) -> str:

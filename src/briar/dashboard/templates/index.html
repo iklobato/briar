@@ -2,17 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>briar scheduler · {{ system.hostname }}</title>
+<title>briar monitor · {{ system.hostname }}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<script
-  src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"
-  crossorigin="anonymous"></script>
 <style>
   :root {
     --bg: #0b0d12; --fg: #e6e6e6; --dim: #8b97a7; --accent: #7cc4ff;
     --panel: #161a23; --border: #232a36;
     --good: #5ad683; --warn: #d6a35a; --bad: #d65a5a;
-    --c1: #7cc4ff; --c2: #5ad683; --c3: #d6a35a; --c4: #d65a5a; --c5: #c084fc; --c6: #f472b6;
   }
   * { box-sizing: border-box; }
   body { background: var(--bg); color: var(--fg); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: 0; padding: 1.5rem; line-height: 1.5; }
@@ -43,77 +39,26 @@
   .dot.bad  { background: var(--bad); }
   .dot.warn { background: var(--warn); }
   .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
   .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; }
-  .grid-6 { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.6rem; }
   .stat { background: #0a0c10; border: 1px solid var(--border); border-radius: 4px; padding: 0.55rem 0.75rem; }
   .stat .k { color: var(--dim); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; }
   .stat .v { font-size: 1.1rem; margin-top: 0.2rem; }
   .stat .v.big { font-size: 1.45rem; color: var(--accent); }
   .stat .sub { color: var(--dim); font-size: 0.7rem; margin-top: 0.15rem; }
   .empty { color: var(--dim); font-style: italic; }
-  .chart-wrap { position: relative; height: 180px; }
-  .chart-wrap.tall { height: 240px; }
-  footer { margin-top: 1.5rem; color: var(--dim); font-size: 0.72rem; text-align: center; }
-  @media (max-width: 900px) {
-    .grid-2, .grid-3, .grid-4, .grid-6 { grid-template-columns: 1fr 1fr; }
-  }
-  @media (max-width: 600px) {
-    .grid-2, .grid-3, .grid-4, .grid-6 { grid-template-columns: 1fr; }
-  }
-  .cal-window { color: var(--dim); font-size: 0.75rem; margin: -0.25rem 0 0.6rem; }
-  .cal-grid { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
-  .cal-row { display: grid; grid-template-columns: 7.5rem 1fr; border-bottom: 1px solid var(--border); min-height: 1.6rem; align-items: stretch; }
-  .cal-row:last-child { border-bottom: none; }
-  .cal-row.cal-past .cal-hour { background: #0a0c10; color: var(--dim); }
-  .cal-row.cal-future .cal-hour { background: #11141b; color: var(--fg); }
-  .cal-row.cal-now { background: rgba(124, 196, 255, 0.07); }
-  .cal-row.cal-now .cal-hour { background: var(--accent); color: #0b0d12; font-weight: 600; }
-  .cal-hour { padding: 0.25rem 0.6rem; border-right: 1px solid var(--border); font-size: 0.72rem; display: flex; flex-direction: column; justify-content: center; }
-  .cal-hour-time { font-weight: 600; }
-  .cal-hour-date { color: var(--dim); font-size: 0.65rem; margin-top: 0.05rem; }
-  .cal-row.cal-now .cal-hour-date { color: #0b0d12; opacity: 0.8; }
-  .cal-fires { padding: 0.2rem 0.5rem; display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
-  .cal-empty { color: var(--border); font-size: 0.7rem; }
-  .cal-now-marker { color: var(--accent); font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
-  .cal-fire { display: inline-flex; align-items: baseline; gap: 0.3rem; background: #0a0c10; border: 1px solid var(--border); border-radius: 3px; padding: 0.1rem 0.4rem; font-size: 0.7rem; }
-  .cal-fire-when { color: var(--dim); font-variant-numeric: tabular-nums; }
-  .cal-fire-company { color: var(--fg); font-weight: 600; }
-  .cal-fire-task { color: var(--accent); }
-  .cal-fire-status { font-weight: 700; color: var(--good); }
-  .cal-fire-status.bad { color: var(--bad); }
-  .cal-fire-future { border-color: var(--c3); }
-  .cal-fire-future .cal-fire-task { color: var(--c3); }
-  .cal-fire-past.cal-status-failed { border-color: var(--bad); }
-  .cal-fire-past.cal-status-running { border-color: var(--warn); }
-  .kn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 0.75rem; }
-  .kn-card { background: #0a0c10; border: 1px solid var(--border); border-radius: 4px; padding: 0.75rem 0.85rem; display: flex; flex-direction: column; gap: 0.5rem; }
-  .kn-card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
-  .kn-path { color: var(--accent); font-size: 0.85rem; }
-  .kn-fingerprint { color: var(--dim); font-size: 0.7rem; font-family: ui-monospace, SFMono-Regular, monospace; }
-  .kn-meta { display: flex; flex-wrap: wrap; gap: 0.6rem 1rem; font-size: 0.72rem; color: var(--dim); }
-  .kn-meta strong { color: var(--fg); font-weight: 600; }
-  .kn-signals { display: flex; flex-wrap: wrap; gap: 0.3rem; }
-  .kn-signals .pill { color: var(--fg); }
-  .kn-sections { font-size: 0.72rem; }
-  .kn-sections th, .kn-sections td { padding: 0.18rem 0.4rem; }
-  .kn-sections th { color: var(--dim); font-weight: 500; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.04em; }
-  .kn-sections td.num, .kn-sections th.num { text-align: right; font-variant-numeric: tabular-nums; }
-  .kn-sections tr td:first-child { color: var(--fg); }
-  .cal-aggregates { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
-  .cal-aggregates .pill { font-size: 0.78rem; padding: 0.15rem 0.6rem; }
-  .cal-fire-status.warn { color: var(--warn); }
   .gh-cache-hits { margin-top: 0.6rem; font-size: 0.75rem; }
   .gh-cache-hits summary { color: var(--dim); cursor: pointer; padding: 0.25rem 0; }
   .gh-cache-hits table { margin-top: 0.4rem; }
+  footer { margin-top: 1.5rem; color: var(--dim); font-size: 0.72rem; text-align: center; }
+  @media (max-width: 900px) { .grid-2, .grid-4 { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 600px) { .grid-2, .grid-4 { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
-{% import "_macros.html" as m %}
 
 <header>
   <div class="hdr-left">
-    <h1>briar scheduler · <span class="host">{{ system.hostname }}</span></h1>
+    <h1>briar monitor · <span class="host">{{ system.hostname }}</span></h1>
     <dl class="hdr-meta">
       <dt>rendered</dt><dd>{{ system.now }}</dd>
       <dt>uptime</dt><dd>{{ system.uptime }} · {{ system.cpu_count }} CPU</dd>
@@ -131,7 +76,7 @@
   {% endif %}
 </header>
 
-<!-- TOP-OF-PAGE STAT TILES -->
+<!-- HEALTH AT A GLANCE -->
 <section>
   <h2>at a glance</h2>
   <div class="grid-4">
@@ -163,104 +108,7 @@
   </div>
 </section>
 
-<!-- PLANS -->
-<section>
-  {{ m.section_header("plans", plans.count|string + " stored") }}
-  {% if m.error_panel(plans) %}
-  {% elif plans.rows %}
-  <table>
-    <thead>
-      <tr>
-        <th>plan</th>
-        <th>company</th>
-        <th>tracker</th>
-        <th>cards</th>
-        <th>status</th>
-        <th>last run</th>
-        <th>last decision</th>
-        <th>knowledge shard</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for r in plans.rows %}
-      <tr>
-        <td>
-          <strong>{{ r.name }}</strong>
-          {% if r.error %}<br><span class="pill bad">parse error</span> <em>{{ r.error }}</em>{% endif %}
-        </td>
-        <td>{{ r.company or "—" }}</td>
-        <td>{{ r.tracker or "—" }}{% if r.project %} · {{ r.project }}{% endif %}</td>
-        <td>{{ r.total_cards }}</td>
-        <td>{{ m.plan_status_pills(r.counts) }}</td>
-        <td>
-          {% if r.last_session_started %}
-            {{ m.time_cell(r.last_session_started) }}
-            <br><span class="pill">done {{ r.last_completed_count }}</span>
-            <span class="pill bad">fail {{ r.last_failed_count }}</span>
-          {% else %}
-            <span class="empty">never</span>
-          {% endif %}
-        </td>
-        <td>
-          {% if r.last_decision_action %}
-            <span class="pill">{{ r.last_decision_action }}</span>
-            {% if r.last_decision_why %}<br><em>{{ r.last_decision_why }}</em>{% endif %}
-          {% else %}
-            <span class="empty">—</span>
-          {% endif %}
-        </td>
-        <td>
-          {% if r.knowledge_shard %}<code>{{ r.knowledge_shard }}</code>{% else %}<span class="empty">—</span>{% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p class="empty">no plans stored. <code>briar plan build &lt;board&gt; --name &lt;slug&gt; --company &lt;name&gt;</code></p>
-  {% endif %}
-</section>
-
-<!-- JOURNAL SESSIONS -->
-<section>
-  {{ m.section_header("recent journal sessions", journal_sessions.total|string + " session(s)") }}
-  {% if m.error_panel(journal_sessions) %}
-  {% elif journal_sessions.groups %}
-    {% for g in journal_sessions.groups %}
-    <details {% if loop.first %}open{% endif %}>
-      <summary>
-        <strong>{{ g.prefix }}</strong> <span class="count">{{ g.count }} session(s)</span>
-      </summary>
-      <table>
-        <thead>
-          <tr>
-            <th>started</th>
-            <th>command</th>
-            <th>target</th>
-            <th>decisions</th>
-            <th>id</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for s in g.sessions %}
-          <tr>
-            <td>{{ m.time_cell(s.started_at) }}</td>
-            <td><code>{{ s.command }}</code></td>
-            <td>{{ s.target or "—" }}</td>
-            <td>{{ s.decisions }}</td>
-            <td><code>{{ s.session_id | short_id }}</code></td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </details>
-    {% endfor %}
-  {% else %}
-  <p class="empty">no journal sessions recorded yet.</p>
-  {% endif %}
-</section>
-
-<!-- CONNECTIVITY + CRON -->
+<!-- CONNECTIVITY + SCHEDULES -->
 <div class="grid-2">
   <section>
     <h2>connectivity <span class="count">{{ connectivity.rows|length }} target(s)</span></h2>
@@ -305,84 +153,7 @@
   </section>
 </div>
 
-<!-- SCHEDULE CALENDAR (past 24h + next 24h) -->
-<section class="cal">
-  <h2>calendar <span class="count">past 24h ({{ schedule_calendar.past_count }}) · next 24h ({{ schedule_calendar.future_count }})</span></h2>
-  <p class="cal-window">
-    window <code>{{ schedule_calendar.window_start }}</code> → <code>{{ schedule_calendar.window_end }}</code> · now <code>{{ schedule_calendar.now }}</code>
-  </p>
-  <div class="cal-aggregates">
-    <span class="pill good">✓ {{ schedule_calendar.write_count }} wrote</span>
-    <span class="pill warn">↻ {{ schedule_calendar.skip_count }} skipped</span>
-    {% if schedule_calendar.fail_count %}<span class="pill bad">✗ {{ schedule_calendar.fail_count }} failed</span>{% else %}<span class="pill">✗ 0 failed</span>{% endif %}
-    <span class="pill">skip-rate {{ schedule_calendar.skip_pct }}%</span>
-  </div>
-  {# Per-task filter: derive the distinct (company, task) pairs from
-     every fire across every bucket, then render a select. Empty value
-     means "show all" and is the default. Client-side JS toggles a
-     CSS class to hide non-matching fires (rows stay visible so the
-     hour-grid alignment doesn't shift). #}
-  {% set _seen = [] %}
-  {% for b in schedule_calendar.buckets %}
-    {% for f in b.fires %}
-      {% set key = f.company + "/" + f.task %}
-      {% if key not in _seen %}{% if _seen.append(key) %}{% endif %}{% endif %}
-    {% endfor %}
-  {% endfor %}
-  {% if _seen %}
-  <div style="margin-bottom:0.6rem;">
-    <label style="color:var(--dim);font-size:0.75rem;margin-right:0.5rem;">filter</label>
-    <select id="cal-filter" style="background:#0a0c10;color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:0.2rem 0.4rem;font-family:inherit;font-size:0.8rem;">
-      <option value="">all ({{ _seen|length }} tasks)</option>
-      {% for key in _seen|sort %}<option value="{{ key }}">{{ key }}</option>{% endfor %}
-    </select>
-  </div>
-  {% endif %}
-  <div class="cal-grid" id="cal-grid">
-    {% for b in schedule_calendar.buckets %}
-    <div class="cal-row {% if b.is_now %}cal-now{% elif b.is_past %}cal-past{% else %}cal-future{% endif %}">
-      <div class="cal-hour">
-        <div class="cal-hour-time">{{ b.hour_short }}</div>
-        <div class="cal-hour-date">{{ b.date_label }}</div>
-      </div>
-      <div class="cal-fires">
-        {% if b.is_now %}<span class="cal-now-marker">↳ now</span>{% endif %}
-        {% for f in b.fires %}
-          <span class="cal-fire cal-fire-{{ f.kind }} cal-status-{{ f.status }}" data-key="{{ f.company }}/{{ f.task }}" title="{{ f.company }} / {{ f.task }} at {{ f.when }} — {{ f.status or f.kind }}{% if f.bytes %} · {{ f.bytes }} bytes{% endif %}{% if f.elapsed_ms %} · {{ f.elapsed_ms }} ms{% endif %}">
-            <span class="cal-fire-when">{{ f.when }}</span>
-            <span class="cal-fire-company">{{ f.company }}</span>
-            <span class="cal-fire-task">{{ f.task }}</span>
-            {% if f.kind == "past" %}
-              {% if f.status == "ok" %}<span class="cal-fire-status">✓</span>
-              {% elif f.status == "skipped" %}<span class="cal-fire-status warn">↻</span>
-              {% elif f.status == "failed" %}<span class="cal-fire-status bad">✗</span>
-              {% else %}<span class="cal-fire-status">·</span>{% endif %}
-            {% endif %}
-          </span>
-        {% endfor %}
-        {% if not b.fires and not b.is_now %}<span class="cal-empty">—</span>{% endif %}
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-  <script>
-    (function () {
-      var select = document.getElementById('cal-filter');
-      var grid = document.getElementById('cal-grid');
-      if (!select || !grid) return;
-      select.addEventListener('change', function () {
-        var q = this.value;
-        var fires = grid.querySelectorAll('.cal-fire');
-        for (var f of fires) {
-          var key = f.getAttribute('data-key') || '';
-          f.style.display = (!q || key === q) ? '' : 'none';
-        }
-      });
-    })();
-  </script>
-</section>
-
-<!-- GITHUB API QUOTA + ETAG CACHE -->
+<!-- GITHUB API QUOTA -->
 <section>
   <h2>github api quota <span class="count">last 24h · {{ gh_stats.total }} GETs</span></h2>
   <div class="grid-4">
@@ -407,9 +178,6 @@
       <div class="sub">{{ gh_stats.ok_count }} live · {{ gh_stats.err_count }} err</div>
     </div>
   </div>
-  {% if gh_stats.samples %}
-  <div class="chart-wrap"><canvas id="ghQuotaChart"></canvas></div>
-  {% endif %}
   {% if gh_stats.recent_cache_hits %}
   <details class="gh-cache-hits">
     <summary>recent ETag cache hits ({{ gh_stats.cache_hit_count }} total)</summary>
@@ -425,294 +193,31 @@
   {% endif %}
 </section>
 
-<!-- KNOWLEDGE AGGREGATES + COMPANIES -->
-<section>
-  <h2>aggregated extraction <span class="count">mined from the knowledge files</span></h2>
-  <div class="grid-4">
-    <div class="stat"><div class="k">merged PRs</div><div class="v big">{{ knowledge_aggregates.merged_prs }}</div></div>
-    <div class="stat"><div class="k">open PRs</div><div class="v big">{{ knowledge_aggregates.open_prs }}</div></div>
-    <div class="stat"><div class="k">rds · sqs</div><div class="v big">{{ knowledge_aggregates.rds_instances }} · {{ knowledge_aggregates.sqs_queues }}</div></div>
-    <div class="stat"><div class="k">log groups</div><div class="v big">{{ knowledge_aggregates.log_groups }}</div></div>
-  </div>
-</section>
-
-<section>
-  <h2>companies <span class="count">{{ companies.count }} row(s)</span></h2>
-  {% if not companies.rows %}
-    <p class="empty">no companies declared</p>
-  {% else %}
-    <table>
-      <thead><tr><th>file</th><th>company</th><th>profile</th><th>extractors</th><th>knowledge file</th></tr></thead>
-      <tbody>
-        {% for r in companies.rows %}
-        <tr>
-          <td><code>{{ r.file }}</code></td>
-          <td><strong>{{ r.company }}</strong></td>
-          <td>{{ r.profile }}</td>
-          <td>{% for x in r.extractors %}<span class="pill">{{ x }}</span>{% endfor %}</td>
-          <td><code>{{ r.knowledge_file }}</code></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% endif %}
-</section>
-
-<!-- KNOWLEDGE FILES + CHART -->
-<section>
-  {{ m.section_header("knowledge files", knowledge.rows|length|string + " via " + knowledge.root) }}
-  {% if knowledge.missing %}
-    <p class="empty">root {{ knowledge.root }} does not exist yet — run a sweep</p>
-  {% elif not knowledge.rows %}
-    <p class="empty">no markdown files under {{ knowledge.root }}</p>
-  {% else %}
-    <input id="kn-filter" type="search"
-           placeholder="filter by blob name (case-insensitive)..."
-           autocomplete="off"
-           style="width:100%;background:#0a0c10;color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:0.4rem 0.6rem;font-family:inherit;font-size:0.82rem;margin-bottom:0.75rem;">
-    <div class="kn-grid" id="kn-grid">
-      {% for r in knowledge.rows %}
-      <div class="kn-card" data-path="{{ r.path }}">
-        <div class="kn-card-head">
-          <code class="kn-path">{{ r.path }}</code>
-          <span class="kn-fingerprint" title="md5 of content (first 8 chars)">#{{ r.fingerprint or "????????" }}</span>
-        </div>
-        <div class="kn-meta">
-          <span><strong>{{ r.byte_count | human_bytes }}</strong></span>
-          <span>~<strong>{{ r.token_estimate }}</strong> tokens</span>
-          <span><strong>{{ r.sections }}</strong> sections</span>
-          {% if r.age_human %}<span>{{ r.age_human }}</span>{% endif %}
-          {% if r.shard_of %}<span class="pill">shard of <code>{{ r.shard_of }}</code></span>{% endif %}
-        </div>
-        {% if r.signals or r.repos_covered %}
-        <div class="kn-signals">
-          {{ m.status_pill("merged PRs", r.signals.merged_prs, "good") }}
-          {{ m.status_pill("open PRs", r.signals.open_prs, "warn") }}
-          {{ m.status_pill("RDS", r.signals.rds_instances) }}
-          {{ m.status_pill("SQS", r.signals.sqs_queues) }}
-          {{ m.status_pill("log groups", r.signals.log_groups) }}
-          {% for repo in r.repos_covered[:6] %}<span class="pill">{{ repo }}</span>{% endfor %}
-          {% if r.repos_covered|length > 6 %}<span class="pill">+{{ r.repos_covered|length - 6 }} more</span>{% endif %}
-        </div>
-        {% endif %}
-        {% if r.sections_detail %}
-        <table class="kn-sections">
-          <thead><tr><th>section</th><th class="num">bytes</th><th class="num">lines</th><th class="num">bullets</th></tr></thead>
-          <tbody>
-            {% for s in r.sections_detail %}
-            <tr>
-              <td>{{ s.title }}</td>
-              <td class="num">{{ s.body_bytes }}</td>
-              <td class="num">{{ s.line_count }}</td>
-              <td class="num">{{ s.bullet_count }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-        {% endif %}
-        {% if r.body %}
-          {{ m.details_panel("read full body (" + (r.byte_count | human_bytes) + ")", r.body, r.body_truncated) }}
-        {% endif %}
-      </div>
-      {% endfor %}
-    </div>
-    <script>
-      (function () {
-        var input = document.getElementById('kn-filter');
-        var grid = document.getElementById('kn-grid');
-        if (!input || !grid) return;
-        input.addEventListener('input', function () {
-          var q = this.value.trim().toLowerCase();
-          for (var card of grid.children) {
-            var path = (card.getAttribute('data-path') || '').toLowerCase();
-            card.style.display = (!q || path.indexOf(q) !== -1) ? '' : 'none';
-          }
-        });
-      })();
-    </script>
-  {% endif %}
-</section>
-
-<section>
-  <h2>knowledge file sizes</h2>
-  <div class="chart-wrap tall"><canvas id="knowledgeChart"></canvas></div>
-</section>
-
-<!-- CYCLE OUTCOMES + CHART -->
+<!-- RECENT CYCLES -->
 <section>
   <h2>recent cycles <span class="count">last {{ cycle_outcomes.cycles|length }} (of {{ cycle_outcomes.total_cycles }})</span></h2>
   {% if not cycle_outcomes.cycles %}
     <p class="empty">no parsed cycles yet — wait for the next run or check the log</p>
   {% else %}
-    <div class="chart-wrap tall"><canvas id="cycleChart"></canvas></div>
+  <table>
+    <thead><tr><th>cycle</th><th>results</th></tr></thead>
+    <tbody>
+      {% for c in cycle_outcomes.cycles | reverse %}
+      <tr>
+        <td>{{ c.finished_at or c.started_at }}</td>
+        <td>
+          {% for row in c.rows %}
+            <span class="pill {{ 'good' if row.status == 'ok' else 'bad' }}">{{ row.company }}{% if row.status == 'ok' %} · {{ row.bytes }}B{% else %} · failed{% endif %}</span>
+          {% endfor %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
   {% endif %}
 </section>
 
-<!-- SECRETS PRESENCE + DISK BY DIR -->
-<div class="grid-2">
-  <section>
-    <h2>secrets presence <span class="count">{{ secrets.rows|length }} keys</span></h2>
-    {% if not secrets.present %}
-      <p class="empty">no secrets file at {{ secrets.path }}</p>
-    {% else %}
-      <p class="meta" style="color: var(--dim); font-size: 0.75rem;">{{ secrets.path }} · {{ secrets.byte_count }} bytes · modified {{ secrets.modified }} · <strong>values never displayed</strong></p>
-      <table>
-        <thead><tr><th>name</th><th>length</th><th>set</th></tr></thead>
-        <tbody>
-          {% for r in secrets.rows %}
-          <tr>
-            <td><code>{{ r.name }}</code></td>
-            <td>{{ r.length }}</td>
-            <td>{% if r.set %}<span class="dot good"></span>yes{% else %}<span class="dot bad"></span>no{% endif %}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    {% endif %}
-  </section>
-
-  <section>
-    <h2>disk by directory</h2>
-    <table>
-      <thead><tr><th>path</th><th>size</th><th>present</th></tr></thead>
-      <tbody>
-        {% for r in disk_by_dir.rows %}
-        <tr>
-          <td><code>{{ r.path }}</code></td>
-          <td>{{ r.human }}</td>
-          <td>{% if r.present %}<span class="dot good"></span>{% else %}<span class="dot bad"></span>{% endif %}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </section>
-</div>
-
-<!-- PLUGIN REGISTRIES -->
-<div class="grid-3">
-  <section>
-    <h2>extractors <span class="count">{{ extractors.count }}</span></h2>
-    <table>
-      <thead><tr><th>name</th><th>needs</th></tr></thead>
-      <tbody>
-        {% for r in extractors.rows %}
-        <tr>
-          <td><strong>{{ r.name }}</strong><br><span class="meta" style="color: var(--dim); font-size: 0.72rem;">{{ r.description }}</span></td>
-          <td>
-            {% if r.requires_github %}<span class="pill">gh</span>{% endif %}
-            {% if r.requires_aws %}<span class="pill">aws</span>{% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </section>
-
-  <section>
-    <h2>aws gatherers <span class="count">{{ aws_services.rows|length }}</span></h2>
-    <table><tbody>
-      {% for r in aws_services.rows %}
-      <tr><td><strong>{{ r.name }}</strong></td></tr>
-      {% endfor %}
-    </tbody></table>
-  </section>
-
-  <section>
-    <h2>language detectors <span class="count">{{ language_detectors.rows|length }}</span></h2>
-    <table>
-      <thead><tr><th>name</th><th>manifest</th></tr></thead>
-      <tbody>
-        {% for r in language_detectors.rows %}
-        <tr><td><strong>{{ r.name }}</strong></td><td><code>{{ r.manifest }}</code></td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </section>
-</div>
-
-<div class="grid-3">
-  <section>
-    <h2>sources <span class="count">{{ source_templates.count }}</span></h2>
-    <table>
-      <thead><tr><th>kind</th><th>family</th></tr></thead>
-      <tbody>
-        {% for r in source_templates.rows %}
-        <tr><td><strong>{{ r.kind }}</strong></td><td>{{ r.family }}</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </section>
-
-  <section>
-    <h2>triggers <span class="count">{{ trigger_templates.count }}</span></h2>
-    <table>
-      <thead><tr><th>kind</th><th>description</th></tr></thead>
-      <tbody>
-        {% for r in trigger_templates.rows %}
-        <tr><td><strong>{{ r.kind }}</strong></td><td>{{ r.description }}</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </section>
-
-  <section>
-    <h2>storage</h2>
-    <table><tbody>
-      {% for r in storage_backends.rows %}
-      <tr><td><strong>{{ r.name }}</strong></td></tr>
-      {% endfor %}
-    </tbody></table>
-  </section>
-</div>
-
-<div class="grid-3">
-  <section>
-    <h2>workflow shapes <span class="count">{{ workflow_shapes.rows|length }}</span></h2>
-    <table>
-      <thead><tr><th>name</th><th>description</th></tr></thead>
-      <tbody>
-        {% for r in workflow_shapes.rows %}
-        <tr><td><strong>{{ r.name }}</strong></td><td>{{ r.description }}</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </section>
-
-  <section>
-    <h2>archetypes <span class="count">{{ archetypes.rows|length }}</span></h2>
-    <table>
-      <thead><tr><th>name</th><th>role · consumes · tool filter</th></tr></thead>
-      <tbody>
-        {% for r in archetypes.rows %}
-        <tr>
-          <td><strong>{{ r.name }}</strong></td>
-          <td>
-            {{ r.role }}<br>
-            <span class="meta" style="color: var(--dim); font-size: 0.7rem;">
-              reads: {% for x in r.consumes %}<span class="pill">{{ x }}</span>{% endfor %}<br>
-              tools: {% for t in r.tool_filter %}<span class="pill">{{ t }}</span>{% endfor %}
-            </span>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </section>
-
-  <section>
-    <h2>commands <span class="count">{{ commands.rows|length }}</span></h2>
-    <table>
-      <thead><tr><th>name</th><th>help</th></tr></thead>
-      <tbody>
-        {% for r in commands.rows %}
-        <tr><td><strong>{{ r.name }}</strong></td><td>{{ r.help }}</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </section>
-</div>
-
-<!-- LOG TAIL -->
+<!-- RECENT ACTIVITY (scheduler log tail) -->
 <section>
   <h2>recent activity <span class="count">{{ scheduler_log.lines|length }} line(s)</span></h2>
   {% if not scheduler_log.present %}
@@ -727,108 +232,15 @@
 </section>
 
 <footer>
-  briar-cli dashboard v2 · read-only · GET-only HTTP · {{ system.now }}
+  briar monitor · read-only · GET-only HTTP · {{ system.now }}
 </footer>
 
 <script>
+// Pin the log tail to its bottom so the freshest lines are visible on load.
 (function () {
-  // Pin the log tail to its bottom so the freshest lines are visible
-  // on load. Runs independently of Chart.js so it works even if the
-  // CDN is unreachable.
   const logTail = document.getElementById("logTail");
-  if (logTail) {
-    logTail.scrollTop = logTail.scrollHeight;
-  }
-
-  if (typeof Chart === "undefined") return;
-
-  Chart.defaults.color = "#8b97a7";
-  Chart.defaults.borderColor = "#232a36";
-  Chart.defaults.font.family = "ui-monospace, SFMono-Regular, Menlo, monospace";
-
-  // ----- payload (JSON, server-rendered) -----
-  // `default({})` keeps the page rendering when a collector failed and
-  // its dict carries `_error` instead of `chart` — Jinja's Undefined
-  // would otherwise propagate into json.dumps and 500 the entire page.
-  const KNOWLEDGE = {{ knowledge.chart|default({})|tojson }};
-  const CYCLES = {{ cycle_outcomes.chart|default({})|tojson }};
-  const GH_QUOTA = {{ gh_stats.chart|default({})|tojson }};
-
-  // ----- GitHub API quota over the last 24h -----
-  if (GH_QUOTA && GH_QUOTA.labels && GH_QUOTA.labels.length > 0) {
-    new Chart(document.getElementById("ghQuotaChart"), {
-      type: "line",
-      data: {
-        labels: GH_QUOTA.labels,
-        datasets: [{
-          label: "ratelimit_remaining",
-          data: GH_QUOTA.values,
-          borderColor: "#7cc4ff",
-          backgroundColor: "rgba(124,196,255,0.12)",
-          fill: true,
-          tension: 0.25,
-          pointRadius: 1,
-        }],
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false }, tooltip: { mode: "index", intersect: false } },
-        scales: { y: { beginAtZero: false, title: { display: true, text: "quota" } } },
-      },
-    });
-  }
-
-  // ----- knowledge-file size bars -----
-  if (KNOWLEDGE && KNOWLEDGE.labels && KNOWLEDGE.labels.length > 0) {
-    new Chart(document.getElementById("knowledgeChart"), {
-      type: "bar",
-      data: {
-        labels: KNOWLEDGE.labels,
-        datasets: [{
-          label: "bytes",
-          data: KNOWLEDGE.values,
-          backgroundColor: "#7cc4ff",
-          borderWidth: 0,
-        }],
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        indexAxis: "y",
-        plugins: { legend: { display: false } },
-        scales: { x: { beginAtZero: true } },
-      },
-    });
-  }
-
-  // ----- per-cycle stacked bar (bytes by company over recent cycles) -----
-  if (CYCLES && CYCLES.companies && CYCLES.companies.length > 0) {
-    const palette = ["#7cc4ff", "#5ad683", "#d6a35a", "#c084fc", "#f472b6", "#d65a5a"];
-    new Chart(document.getElementById("cycleChart"), {
-      type: "bar",
-      data: {
-        labels: CYCLES.labels,
-        datasets: CYCLES.series.map((s, i) => ({
-          label: s.company,
-          data: s.values,
-          backgroundColor: palette[i % palette.length],
-          borderWidth: 0,
-        })),
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: {
-          legend: { position: "bottom", labels: { padding: 8 } },
-          tooltip: { mode: "index", intersect: false },
-        },
-        scales: {
-          x: { stacked: true },
-          y: { stacked: true, beginAtZero: true, title: { display: true, text: "bytes written" } },
-        },
-      },
-    });
-  }
+  if (logTail) { logTail.scrollTop = logTail.scrollHeight; }
 })();
 </script>
-
 </body>
 </html>

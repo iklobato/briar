@@ -1,52 +1,34 @@
-"""Dashboard tests — collectors + rendered output (no real HTTP)."""
+"""Dashboard tests — monitoring collectors + rendered output (no real HTTP)."""
 
 from __future__ import annotations
 
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
 from briar.dashboard.collectors import (
-    ArchetypesCollector,
-    AwsServicesCollector,
     CollectorRegistry,
-    CommandsCollector,
-    CompaniesCollector,
     ConnectivityCollector,
     CycleOutcomeCollector,
+    DashboardPaths,
+    DashboardSelf,
     GitDeployCollector,
-    KnowledgeAggregatesCollector,
-    KnowledgeCollector,
-    LanguageDetectorsCollector,
-    ScheduleLogCollector,
     SchedulesCollector,
-    SecretsCollector,
-    WorkflowShapesCollector,
-    _human_bytes,
 )
 from briar.dashboard.server import DashboardServer
-
 
 _RUNBOOK_YAML = """\
 version: 1
 companies:
   acme:
-    knowledge:
-      name: ./knowledge/acme.md
     extract:
       - name: pr-archaeology
         args:
           pr_repo: [acme/widgets]
-      - name: active-work
-        args:
-          active_repo: [acme/widgets]
-"""
-
-_CRON_FILE = """\
-SHELL=/bin/sh
-PATH=/x/bin:/usr/bin
-17 3 * * * root cd /opt/foo && briar runbook sweep examples/ >> /tmp/x.log 2>&1
+    schedules:
+      - task: prfix
+        every: hour
+        extract: []
 """
 
 _LOG_LINES = (
@@ -57,83 +39,18 @@ _LOG_LINES = (
     "[2026-05-20T01:00:01Z] cycle done\n"
 )
 
-_KNOWLEDGE_SAMPLE = """\
-# Briar knowledge — acme
-
-## PR archaeology — 1 repo(s)
-- merged PR sample: **42**
-
-## Active work — 1 repo(s)
-### acme/repo — 7 open PR(s)
-
-## AWS infrastructure
-### RDS (3 instance(s))
-### SQS (2 queue(s))
-### CloudWatch Logs (top 10 by size, of 15)
-"""
-
-
-class CompaniesCollectorTests(unittest.TestCase):
-    def test_reads_yaml(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            (Path(td) / "acme.yaml").write_text(_RUNBOOK_YAML)
-            result = CompaniesCollector(examples_dir=Path(td)).collect()
-        self.assertEqual(result["count"], 1)
-        self.assertEqual(result["rows"][0]["company"], "acme")
-
-
-class KnowledgeAggregatesTests(unittest.TestCase):
-    def test_mines_numbers(self) -> None:
-        from briar.storage import make_store
-
-        with tempfile.TemporaryDirectory() as td:
-            store = make_store("file", file_root=Path(td))
-            store.put("knowledge:acme", _KNOWLEDGE_SAMPLE)
-            result = KnowledgeAggregatesCollector(store=store).collect()
-        self.assertEqual(result["files"], 1)
-        self.assertEqual(result["merged_prs"], 42)
-        self.assertEqual(result["open_prs"], 7)
-        self.assertEqual(result["rds_instances"], 3)
-        self.assertEqual(result["sqs_queues"], 2)
-        self.assertEqual(result["log_groups"], 15)
-
-
-_SCHEDULES_YAML = """\
-version: 1
-companies:
-  acme:
-    knowledge:
-      name: ./knowledge/acme.md
-    schedules:
-      - task: extractors
-        every: "day at 03:17"
-        extract:
-          - name: pr-archaeology
-            args:
-              pr_repo: [acme/widgets]
-      - task: prfix
-        every: "hour"
-        extract:
-          - name: active-work
-            args:
-              active_repo: [acme/widgets]
-"""
-
 
 class SchedulesCollectorTests(unittest.TestCase):
     def test_reads_yaml_into_per_task_rows(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            (Path(td) / "acme.yaml").write_text(_SCHEDULES_YAML)
+            (Path(td) / "acme.yaml").write_text(_RUNBOOK_YAML)
             result = SchedulesCollector(examples_dir=Path(td)).collect()
         self.assertEqual(result["count"], 2)
         by_task = {r["task"]: r for r in result["rows"]}
         self.assertEqual(by_task["extractors"]["every"], "day at 03:17")
         self.assertEqual(by_task["prfix"]["every"], "hour")
-        self.assertEqual(
-            by_task["extractors"]["extractors"],
-            ["pr-archaeology"],
-        )
-        # next_fire must render even when extract list is empty.
+        self.assertEqual(by_task["extractors"]["extractors"], ["pr-archaeology"])
+        # next_fire must render even when the extract list is empty.
         self.assertTrue(by_task["prfix"]["next_fire"])
 
 
@@ -144,27 +61,9 @@ class CycleOutcomeTests(unittest.TestCase):
             f.close()
             result = CycleOutcomeCollector(log_path=Path(f.name)).collect()
         self.assertEqual(len(result["cycles"]), 1)
-        rows = result["cycles"][0]["rows"]
-        self.assertEqual({r["company"] for r in rows}, {"acme", "other"})
-        statuses = {r["company"]: r["status"] for r in rows}
+        statuses = {r["company"]: r["status"] for r in result["cycles"][0]["rows"]}
         self.assertEqual(statuses["acme"], "ok")
         self.assertEqual(statuses["other"], "failed")
-
-
-class SecretsCollectorTests(unittest.TestCase):
-    def test_returns_names_and_lengths_only(self) -> None:
-        with tempfile.NamedTemporaryFile("w", suffix=".env", delete=False) as f:
-            f.write("FOO=hello\nBAR=12345\n# comment\nEMPTY=\n")
-            f.close()
-            result = SecretsCollector(secrets_path=Path(f.name)).collect()
-        names = {r["name"]: (r["length"], r["set"]) for r in result["rows"]}
-        self.assertEqual(names["FOO"], (5, True))
-        self.assertEqual(names["BAR"], (5, True))
-        self.assertEqual(names["EMPTY"], (0, False))
-        # No value strings anywhere in output.
-        for row in result["rows"]:
-            self.assertNotIn("hello", str(row))
-            self.assertNotIn("12345", str(row))
 
 
 class GitDeployCollectorTests(unittest.TestCase):
@@ -179,14 +78,8 @@ class GitDeployCollectorTests(unittest.TestCase):
 
             subprocess.run(["git", "init", "-q", "-b", "main", td], check=True)
             (Path(td) / "a.txt").write_text("x")
-            subprocess.run(
-                ["git", "-C", td, "-c", "user.email=t@t", "-c", "user.name=t", "add", "."],
-                check=True,
-            )
-            subprocess.run(
-                ["git", "-C", td, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init"],
-                check=True,
-            )
+            subprocess.run(["git", "-C", td, "-c", "user.email=t@t", "-c", "user.name=t", "add", "."], check=True)
+            subprocess.run(["git", "-C", td, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init"], check=True)
             result = GitDeployCollector(repo_path=Path(td)).collect()
         self.assertTrue(result["present"])
         self.assertEqual(len(result["short_sha"]), 7)
@@ -197,114 +90,41 @@ class GitDeployCollectorTests(unittest.TestCase):
 class ConnectivityCollectorTests(unittest.TestCase):
     def test_unreachable_target(self) -> None:
         # Reserved unreachable port — connect should fail fast.
-        result = ConnectivityCollector(
-            targets=(("127.0.0.1", 1),),
-            timeout=0.5,
-        ).collect()
+        result = ConnectivityCollector(targets=(("127.0.0.1", 1),), timeout=0.5).collect()
         self.assertEqual(len(result["rows"]), 1)
         self.assertFalse(result["rows"][0]["reachable"])
 
 
-class HumanBytesTests(unittest.TestCase):
-    def test_units(self) -> None:
-        self.assertEqual(_human_bytes(0), "0.0 B")
-        self.assertEqual(_human_bytes(2048), "2.0 KB")
-        self.assertEqual(_human_bytes(5 * 1024 * 1024), "5.0 MB")
-
-
-class RegistryCollectorsTests(unittest.TestCase):
-    """The five registry-backed collectors all return non-empty rows."""
-
-    def test_aws_services(self) -> None:
-        self.assertGreater(len(AwsServicesCollector().collect()["rows"]), 0)
-
-    def test_language_detectors(self) -> None:
-        rows = LanguageDetectorsCollector().collect()["rows"]
-        self.assertGreater(len(rows), 0)
-        self.assertTrue(all(r["manifest"] for r in rows))
-
-    def test_workflow_shapes(self) -> None:
-        self.assertGreater(len(WorkflowShapesCollector().collect()["rows"]), 0)
-
-    def test_archetypes(self) -> None:
-        rows = ArchetypesCollector().collect()["rows"]
-        self.assertGreater(len(rows), 0)
-        self.assertTrue(all("role" in r for r in rows))
-
-    def test_commands(self) -> None:
-        names = {r["name"] for r in CommandsCollector().collect()["rows"]}
-        self.assertIn("extract", names)
-        self.assertIn("runbook", names)
-        self.assertIn("dashboard", names)
-
-
 class FullRenderTests(unittest.TestCase):
-    def test_render_includes_every_section_and_chart_canvas(self) -> None:
+    def test_render_has_monitoring_sections_and_no_chartjs(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             ex = base / "examples"
             ex.mkdir()
             (ex / "acme.yaml").write_text(_RUNBOOK_YAML)
-            kn = base / "knowledge"
-            kn.mkdir()
-            (kn / "acme.md").write_text(_KNOWLEDGE_SAMPLE)
-            cron = base / "cron"
-            cron.write_text(_CRON_FILE)
             log = base / "log"
             log.write_text(_LOG_LINES)
-            secrets = base / "secrets.env"
-            secrets.write_text("X=y\n")
 
-            from briar.dashboard.collectors import DashboardPaths, DashboardSelf
-            from briar.storage import make_store
-
-            paths = DashboardPaths(
-                examples_dir=ex,
-                knowledge_store=make_store("file", file_root=kn),
-                log_path=log,
-                disk_path=base,
-                repo_path=base,
-                secrets_path=secrets,
-                du_paths=[base],
-            )
-            dash = DashboardSelf(
-                started_at=0.0,
-                request_count_fn=lambda: 7,
-                last_render_ms_fn=lambda: 42.0,
-            )
+            paths = DashboardPaths(examples_dir=ex, log_path=log, disk_path=base, repo_path=base)
+            dash = DashboardSelf(started_at=0.0, request_count_fn=lambda: 7, last_render_ms_fn=lambda: 42.0)
             server = DashboardServer()
             server.set_collectors(CollectorRegistry.from_paths(paths, dash))
             html = server.render_index()
 
         for needle in (
-            "<title>briar scheduler",
+            "briar monitor",
             "at a glance",
-            '<canvas id="knowledgeChart"',
-            '<canvas id="cycleChart"',
             "<h2>connectivity",
             "<h2>schedulers",
-            "<h2>aggregated extraction",
-            "<h2>companies",
-            "<h2>knowledge files",
-            "<h2>recent cycles",
-            "<h2>secrets presence",
-            "<h2>disk by directory",
-            "<h2>extractors",
-            "<h2>aws gatherers",
-            "<h2>language detectors",
-            "<h2>sources",
-            "<h2>triggers",
-            "<h2>workflow shapes",
-            "<h2>archetypes",
-            "<h2>commands",
-            "<h2>recent activity",
+            "github api quota",
+            "recent cycles",
+            "recent activity",
             "acme",
-            "pr-archaeology",
-            "github_webhook",
-            "chart.umd.min.js",
-            "Chart.defaults",
         ):
             self.assertIn(needle, html, f"missing: {needle!r}")
+        # The redesign is self-contained — no CDN, no client-side charting.
+        for forbidden in ("chart.umd.min.js", "cdn.jsdelivr", "<canvas", "new Chart"):
+            self.assertNotIn(forbidden, html, f"should be gone: {forbidden!r}")
 
 
 if __name__ == "__main__":
