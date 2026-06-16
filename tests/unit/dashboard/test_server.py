@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from briar.dashboard.server import DashboardServer, _build_handler, _human_age, _human_bytes, _ResilientUndefined, _short_id
+from briar.dashboard.server import DashboardServer, _build_handler, _human_age, _human_bytes, _reltime, _ResilientUndefined, _short_id, _stamp
 
 # ── HTTP handler: drive without a real socket ────────────────────────
 
@@ -175,6 +175,41 @@ class TestHumanAge:
         # No tzinfo → treated as UTC; a few seconds back reads as "Ns ago".
         naive = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=2)).isoformat()
         assert _human_age(naive).endswith("s ago")
+
+
+class TestReltime:
+    def test_future_reads_in(self) -> None:
+        # +30s buffer so the few ms of test runtime don't floor 8m → 7m.
+        future = (datetime.now(timezone.utc) + timedelta(hours=4, minutes=8, seconds=30)).isoformat()
+        assert _reltime(future) == "in 4h 8m"
+
+    def test_past_reads_ago(self) -> None:
+        past = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+        assert _reltime(past) == "5m ago"
+
+    def test_now_reads_just_now(self) -> None:
+        assert _reltime(datetime.now(timezone.utc).isoformat()) == "just now"
+
+    def test_parses_the_old_utc_display_form(self) -> None:
+        # The "%Y-%m-%d %H:%M UTC" form some collectors still emit must parse.
+        past = (datetime.now(timezone.utc) - timedelta(days=2)).strftime("%Y-%m-%d %H:%M UTC")
+        assert _reltime(past).endswith("ago")
+
+    def test_empty_and_unparseable(self) -> None:
+        assert _reltime("") == ""
+        assert _reltime("not-a-timestamp") == "not-a-timestamp"
+
+
+class TestStamp:
+    def test_compact_absolute(self) -> None:
+        assert _stamp("2026-06-16T22:47:48+00:00") == "Jun 16 22:47 UTC"
+
+    def test_parses_utc_display_form(self) -> None:
+        assert _stamp("2026-06-17 00:17 UTC") == "Jun 17 00:17 UTC"
+
+    def test_empty_and_unparseable(self) -> None:
+        assert _stamp("") == ""
+        assert _stamp("garbage") == "garbage"
 
 
 class TestShortId:

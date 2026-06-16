@@ -64,7 +64,7 @@
   <div class="hdr-left">
     <h1>briar monitor · <span class="host">{{ system.hostname }}</span></h1>
     <dl class="hdr-meta">
-      <dt>rendered</dt><dd>{{ system.now }}</dd>
+      <dt>rendered</dt><dd title="{{ system.now }}">{{ system.now | stamp }}</dd>
       <dt>uptime</dt><dd>{{ system.uptime }} · {{ system.cpu_count }} CPU</dd>
       <dt>dashboard</dt><dd>pid {{ dashboard_process.pid }} · up {{ dashboard_process.uptime }} · {{ dashboard_process.request_count }} req · render {{ dashboard_process.last_render_ms }} ms</dd>
     </dl>
@@ -74,7 +74,7 @@
     <dt>sha</dt>      <dd><strong>{{ deploy.short_sha }}</strong> · <span class="pill">{{ deploy.branch }}</span></dd>
     <dt>subject</dt>  <dd>{{ deploy.subject }}</dd>
     <dt>author</dt>   <dd>{{ deploy.author }}</dd>
-    <dt>committed</dt><dd>{{ deploy.committed }}</dd>
+    <dt>committed</dt><dd title="{{ deploy.committed | stamp }}">{{ deploy.committed | reltime }}</dd>
     <dt>remote</dt>   <dd><code>{{ deploy.remote }}</code></dd>
   </dl>
   {% endif %}
@@ -151,7 +151,7 @@
             <tr>
               <td><span class="pill">{{ r.task }}</span></td>
               <td><code>{{ r.every }}</code></td>
-              <td>{{ r.next_fire or "(unknown)" }}</td>
+              <td title="{{ r.next_fire | stamp }}">{{ r.next_fire | reltime if r.next_fire else "(unknown)" }}</td>
               <td>
                 {% for x in r.extractors %}<span class="pill">{{ x }}</span>{% endfor %}
                 {% if not r.extractors %}<span class="empty">—</span>{% endif %}
@@ -217,7 +217,7 @@
     <tbody>
       {% for c in cycle_outcomes.cycles | reverse %}
       <tr>
-        <td>{{ c.finished_at or c.started_at }}</td>
+        <td title="{{ (c.finished_at or c.started_at) | stamp }}">{{ (c.finished_at or c.started_at) | reltime }}</td>
         <td>
           {% for row in c.rows %}
             <span class="pill {{ 'good' if row.status == 'ok' else 'bad' }}">{{ row.company }}{% if row.status == 'ok' %} · {{ row.bytes }}B{% else %} · failed{% endif %}</span>
@@ -245,7 +245,7 @@
 </section>
 
 <footer>
-  briar monitor · read-only · GET-only HTTP · {{ system.now }}
+  briar monitor · read-only · GET-only HTTP · {{ system.now | stamp }}
 </footer>
 
 <script>
