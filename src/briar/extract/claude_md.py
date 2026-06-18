@@ -37,12 +37,21 @@ class ClaudeMdMerger:
     ) -> str:
         """The short block that lives inside ``CLAUDE.md``: a pointer to
         the full detail file plus the list of topics it covers, so a
-        session knows when reading it is worthwhile."""
+        session knows when reading it is worthwhile.
+
+        Follows Claude Code's CLAUDE.md conventions: a plain imperative
+        instruction and bullet topics (not italic prose), kept lean
+        because CLAUDE.md is auto-loaded into every session. The
+        provenance line is a block-level HTML comment — Claude Code
+        strips those before injecting the file into context, so it costs
+        zero tokens yet stays visible to humans reading the file on
+        disk."""
         lines: List[str] = [
             BEGIN_MARKER,
+            (f"<!-- extracted {when}; managed by `briar extract --merge-claude-md` — " "edits between these markers are overwritten on re-run -->"),
             f"## Project knowledge — {company} (Briar)",
             "",
-            (f"_Extracted {when}. Full detail lives in `{detail_path}` — " "read that file on demand when a task needs context on any " "of these topics:_"),
+            f"Read `{detail_path}` when a task touches any of these topics:",
             "",
         ]
         lines.extend(f"- {section.title}" for section in sections)

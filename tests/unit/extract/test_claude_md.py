@@ -36,12 +36,29 @@ class IndexBlockTests(unittest.TestCase):
         self.assertTrue(block.startswith(BEGIN_MARKER))
         self.assertTrue(block.rstrip().endswith(END_MARKER))
 
-    def test_block_points_at_detail_and_lists_titles(self) -> None:
+    def test_block_points_at_detail_with_imperative_instruction(self) -> None:
         block = self._block()
-        self.assertIn(".briar/knowledge/acme.md", block)
-        self.assertIn("on demand", block)
+        self.assertIn("Read `.briar/knowledge/acme.md` when", block)
         self.assertIn("- CI health", block)
         self.assertIn("- PR hygiene", block)
+
+    def test_block_uses_plain_bullets_not_italic_prose(self) -> None:
+        # CLAUDE.md convention favours imperative bullets over italic prose.
+        block = self._block()
+        self.assertNotIn("_Extracted", block)
+        self.assertNotIn("on demand_", block)
+
+    def test_timestamp_lives_in_a_stripped_html_comment(self) -> None:
+        # Claude Code strips block-level HTML comments before injecting
+        # CLAUDE.md into context, so provenance costs zero tokens. The
+        # timestamp must therefore sit inside a comment, never bare text.
+        for line in self._block().splitlines():
+            if "2026-06-18T13:00Z" in line:
+                self.assertTrue(line.strip().startswith("<!--"))
+                self.assertTrue(line.strip().endswith("-->"))
+                break
+        else:
+            self.fail("timestamp not present in block")
 
     def test_block_omits_section_bodies(self) -> None:
         # Index stays light: titles only, never the detail bodies.
