@@ -226,6 +226,88 @@ companies:
               hotspots_max_commits: 100
               hotspots_top_n: 10
 
+      # ─── code-quality: git-history + repo-host health, daily ────────────
+      # All provider-agnostic (provider: github|bitbucket). The
+      # GitHub-native ones (dependency-health, code-scanning, ci-health,
+      # repo-governance, release-cadence, todo-density) render empty on a
+      # provider lacking the underlying API instead of erroring.
+      # dependency-health + code-scanning need a token with `security_events`.
+      - task: code-quality
+        every: "day at 04:00"
+        extract:
+
+          - name: defect-hotspots         # churn × bug-fix × size risk score
+            args:
+              provider: github
+              risk_repo: [acme-co/acme-app]
+              risk_since_days: 90
+              risk_top_n: 10
+
+          - name: pr-hygiene              # size, rubber-stamp rate, time-to-review
+            args:
+              provider: github
+              prhygiene_repo: [acme-co/acme-app]
+              prhygiene_max: 100
+              prhygiene_diffstat_sample: 30
+
+          - name: review-nits             # recurring reviewer asks → lint candidates
+            args:
+              provider: github
+              nits_repo: [acme-co/acme-app]
+              nits_pr_sample: 30
+
+          - name: revert-signals          # reverts + emergency fixes → fragile files
+            args:
+              provider: github
+              revert_repo: [acme-co/acme-app]
+              revert_since_days: 90
+
+          - name: commit-message-quality  # conventional-commits adherence
+            args:
+              provider: github
+              msg_repo: [acme-co/acme-app]
+
+          - name: ci-health               # pass rate, flaky workflows, duration
+            args:
+              provider: github
+              cihealth_repo: [acme-co/acme-app]
+
+          - name: dependency-health       # open Dependabot alerts by severity
+            args:
+              provider: github
+              deps_repo: [acme-co/acme-app]
+
+          - name: code-scanning           # open CodeQL findings by rule/file
+            args:
+              provider: github
+              scan_repo: [acme-co/acme-app]
+
+          - name: repo-governance         # branch protection + CODEOWNERS/pre-commit
+            args:
+              provider: github
+              gov_repo: [acme-co/acme-app]
+
+          - name: test-discipline         # test-to-source ratio + untested files
+            args:
+              provider: github
+              testdisc_repo: [acme-co/acme-app]
+
+          - name: release-cadence         # shipping frequency + recency
+            args:
+              provider: github
+              release_repo: [acme-co/acme-app]
+
+          - name: stale-prs               # open PRs idle past a threshold
+            args:
+              provider: github
+              stale_repo: [acme-co/acme-app]
+              stale_days: 14
+
+          - name: todo-density            # TODO/FIXME/HACK markers per file
+            args:
+              provider: github
+              todo_repo: [acme-co/acme-app]
+
       # ─── implementation: codebase + deploy state, every 4h ──────────────
       - task: implementation
         every: "4 hours"

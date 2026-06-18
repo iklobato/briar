@@ -21,7 +21,22 @@ from typing import Any, Dict, List
 
 from briar.decorators import swallow_errors
 from briar.extract._gh import GithubApi
-from briar.extract._provider import CiFailure, CiRun, Commit, Deployment, Environment, PullRequest, RepositoryProvider, ReviewComment
+from briar.extract._provider import (
+    BranchProtection,
+    CiFailure,
+    CiRun,
+    CodeSearchHit,
+    Commit,
+    Deployment,
+    Environment,
+    PullRequest,
+    Release,
+    RepositoryProvider,
+    ReviewComment,
+    ScanAlert,
+    SecurityAlert,
+    TreeEntry,
+)
 
 log = logging.getLogger(__name__)
 
@@ -137,6 +152,8 @@ class GithubProvider(RepositoryProvider):
                     conclusion=r.get("conclusion") or "",
                     head_branch=r.get("head_branch") or "",
                     created_at=r.get("created_at") or "",
+                    updated_at=r.get("updated_at") or "",
+                    run_attempt=int(r.get("run_attempt") or 1),
                 )
             )
         return out
@@ -324,6 +341,119 @@ class GithubProvider(RepositoryProvider):
             )
         return out
 
+    # ---- code-quality verbs ----------------------------------------------
+
+    @swallow_errors(default=[], message="github list_dependabot_alerts")
+    def list_dependabot_alerts(self, repo: str, *, max_count: int = 200) -> List[SecurityAlert]:
+        _validate_repo(repo)
+        pages = max(1, (max_count // 100) + 1)
+        rows = GithubApi.get_paginated(f"/repos/{repo}/dependabot/alerts?state=open", max_pages=pages)
+        out: List[SecurityAlert] = []
+        for a in rows[:max_count]:
+            advisory = a.get("security_advisory") or {}
+            dep = a.get("dependency") or {}
+            pkg = (dep.get("package") or {}).get("name") or ""
+            out.append(
+                SecurityAlert(
+                    package=pkg,
+                    severity=(advisory.get("severity") or "").lower(),
+                    summary=(advisory.get("summary") or "")[:300],
+                    state=a.get("state") or "open",
+                    manifest=(dep.get("manifest_path") or ""),
+                )
+            )
+        return out
+
+    @swallow_errors(default=[], message="github list_code_scanning_alerts")
+    def list_code_scanning_alerts(self, repo: str, *, max_count: int = 200) -> List[ScanAlert]:
+        _validate_repo(repo)
+        pages = max(1, (max_count // 100) + 1)
+        rows = GithubApi.get_paginated(f"/repos/{repo}/code-scanning/alerts?state=open", max_pages=pages)
+        out: List[ScanAlert] = []
+        for a in rows[:max_count]:
+            rule = a.get("rule") or {}
+            location = (a.get("most_recent_instance") or {}).get("location") or {}
+            out.append(
+                ScanAlert(
+                    rule_id=rule.get("id") or rule.get("name") or "",
+                    severity=(rule.get("security_severity_level") or rule.get("severity") or "").lower(),
+                    file_path=location.get("path") or "",
+                    message=((rule.get("description") or rule.get("name") or ""))[:300],
+                    state=a.get("state") or "open",
+                )
+            )
+        return out
+
+    @swallow_errors(default=None, message="github default_branch")
+    def default_branch(self, repo: str) -> str:
+        _validate_repo(repo)
+        data = GithubApi.get_json(f"/repos/{repo}")
+        return (data.get("default_branch") or "") if isinstance(data, dict) else ""
+
+    @swallow_errors(default=None, message="github get_branch_protection")
+    def get_branch_protection(self, repo: str, branch: str = "") -> BranchProtection:
+        _validate_repo(repo)
+        branch = branch or self.default_branch(repo) or "main"
+        try:
+            data = GithubApi.get_json(f"/repos/{repo}/branches/{branch}/protection")
+        except Exception:  # noqa: BLE001 — 404 = no protection rule, the common case
+            return BranchProtection(branch=branch, exists=False)
+        if not isinstance(data, dict):
+            return BranchProtection(branch=branch, exists=False)
+        reviews = data.get("required_pull_request_reviews") or {}
+        return BranchProtection(
+            branch=branch,
+            exists=True,
+            required_reviews=int(reviews.get("required_approving_review_count") or 0),
+            requires_status_checks=bool(data.get("required_status_checks")),
+            enforce_admins=bool((data.get("enforce_admins") or {}).get("enabled")),
+            requires_code_owner_review=bool(reviews.get("require_code_owner_reviews")),
+        )
+
+    @swallow_errors(default=[], message="github list_releases")
+    def list_releases(self, repo: str, *, max_count: int = 100) -> List[Release]:
+        _validate_repo(repo)
+        pages = max(1, (max_count // 100) + 1)
+        rows = GithubApi.get_paginated(f"/repos/{repo}/releases", max_pages=pages)
+        out: List[Release] = []
+        for r in rows[:max_count]:
+            out.append(
+                Release(
+                    tag=r.get("tag_name") or "",
+                    name=(r.get("name") or "")[:120],
+                    created_at=r.get("published_at") or r.get("created_at") or "",
+                    is_prerelease=bool(r.get("prerelease")),
+                )
+            )
+        return out
+
+    @swallow_errors(default=[], message="github search_code")
+    def search_code(self, repo: str, query: str, *, max_count: int = 200) -> List[CodeSearchHit]:
+        _validate_repo(repo)
+        # GitHub code-search is its own endpoint with a tight rate limit
+        # (10 req/min); one page is plenty for a density signal.
+        envelope = GithubApi.get_json(f"/search/code?q={query}+repo:{repo}&per_page={min(max_count, 100)}")
+        items = envelope.get("items", []) if isinstance(envelope, dict) else []
+        counts: Dict[str, int] = {}
+        for it in items[:max_count]:
+            path = it.get("path") or ""
+            if path:
+                counts[path] = counts.get(path, 0) + len(it.get("text_matches") or []) or 1
+        return [CodeSearchHit(file_path=p, matches=n) for p, n in counts.items()]
+
+    @swallow_errors(default=[], message="github list_tree")
+    def list_tree(self, repo: str, *, max_count: int = 5000) -> List[TreeEntry]:
+        _validate_repo(repo)
+        branch = self.default_branch(repo) or "main"
+        data = GithubApi.get_json(f"/repos/{repo}/git/trees/{branch}?recursive=1")
+        nodes = data.get("tree", []) if isinstance(data, dict) else []
+        out: List[TreeEntry] = []
+        for n in nodes[:max_count]:
+            path = n.get("path") or ""
+            if path:
+                out.append(TreeEntry(path=path, is_file=(n.get("type") == "blob")))
+        return out
+
     @staticmethod
     def _to_pull(p: Dict[str, Any]) -> PullRequest:
         return PullRequest(
@@ -340,4 +470,9 @@ class GithubProvider(RepositoryProvider):
             # Cap PR description at the boundary — long PR bodies are common
             # and would otherwise eat the agent's context budget.
             body=(p.get("body") or "")[:5000],
+            # Diffstat is present only on the single-PR GET, absent from the
+            # list endpoint — `.get(...) or 0` leaves list-built PRs at 0.
+            additions=int(p.get("additions") or 0),
+            deletions=int(p.get("deletions") or 0),
+            changed_files=int(p.get("changed_files") or 0),
         )

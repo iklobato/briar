@@ -68,7 +68,21 @@ briar extract --company acme --include aws-infra \
 FIREFLIES_ACME_API_KEY=ff_xxx briar extract --company acme \
     --include meeting-digest --meeting-since-days 14 \
     --meeting-attendee-allow alice@acme.com
+
+# Code-quality signal from git history + the repo-host API
+briar extract --company acme \
+    --include defect-hotspots --risk-repo acme-co/acme-app \
+    --include pr-hygiene --prhygiene-repo acme-co/acme-app \
+    --include review-nits --nits-repo acme-co/acme-app \
+    --include ci-health --cihealth-repo acme-co/acme-app
 ```
+
+**Code-quality extractors** (all `--provider github|bitbucket`): `defect-hotspots`
+(churn × bug-fix × size risk), `pr-hygiene` (size/rubber-stamp/time-to-review),
+`review-nits` (recurring reviewer asks → lint candidates), `revert-signals`,
+`commit-message-quality`, `stale-prs`, `ci-health`, `dependency-health`,
+`code-scanning`, `repo-governance`, `test-discipline`, `release-cadence`,
+`todo-density`. See [`agents/extract.md`](agents/extract.md).
 
 ### `briar runbook serve` — scheduled extraction, in-process
 

@@ -22,7 +22,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import ClassVar, List
 
-
 log = logging.getLogger(__name__)
 
 
@@ -47,6 +46,13 @@ class PullRequest:
     merged_at: str = ""
     requested_reviewers: List[str] = field(default_factory=list)
     body: str = ""  # PR description / body, capped at the boundary
+    # Diffstat — only populated by the single-PR GET (`get_pull`), NOT by
+    # the list endpoint (GitHub/Bitbucket both omit it from list payloads).
+    # Defaults keep `list_pulls`-built instances back-compatible. The
+    # `pr-hygiene` extractor hydrates a capped sample via `get_pull`.
+    additions: int = 0
+    deletions: int = 0
+    changed_files: int = 0
 
 
 @dataclass(frozen=True)
@@ -79,6 +85,12 @@ class CiRun:
     conclusion: str
     head_branch: str
     created_at: str
+    # Optional fields the `ci-health` extractor uses for flaky detection
+    # (a workflow+branch flipping conclusion across runs) and duration
+    # trend. Defaults keep `list_ci_runs` instances built before these
+    # existed back-compatible.
+    updated_at: str = ""
+    run_attempt: int = 1
 
 
 @dataclass(frozen=True)
@@ -117,6 +129,73 @@ class Commit:
     message: str  # first line / subject
     created_at: str
     file_paths: List[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class SecurityAlert:
+    """One dependency vulnerability alert (GitHub Dependabot, Bitbucket
+    security scan, …). Used by the `dependency-health` extractor."""
+
+    package: str
+    severity: str  # critical | high | medium | low
+    summary: str
+    state: str  # open | fixed | dismissed
+    manifest: str = ""  # path of the manifest declaring the dep
+
+
+@dataclass(frozen=True)
+class ScanAlert:
+    """One static-analysis / code-scanning finding (GitHub CodeQL,
+    Bitbucket Code Insights, …). Used by the `code-scanning` extractor."""
+
+    rule_id: str
+    severity: str  # critical | high | medium | low | warning | note
+    file_path: str
+    message: str
+    state: str = "open"  # open | fixed | dismissed
+
+
+@dataclass(frozen=True)
+class BranchProtection:
+    """Branch-protection posture for one branch. `exists=False` means the
+    branch has no protection rule at all (the strongest governance smell).
+    Used by the `repo-governance` extractor."""
+
+    branch: str
+    exists: bool
+    required_reviews: int = 0
+    requires_status_checks: bool = False
+    enforce_admins: bool = False
+    requires_code_owner_review: bool = False
+
+
+@dataclass(frozen=True)
+class Release:
+    """One published release / tag. Used by the `release-cadence`
+    extractor to compute shipping frequency."""
+
+    tag: str
+    name: str
+    created_at: str
+    is_prerelease: bool = False
+
+
+@dataclass(frozen=True)
+class CodeSearchHit:
+    """One code-search match (file + match count). Used by the
+    `todo-density` extractor."""
+
+    file_path: str
+    matches: int = 1
+
+
+@dataclass(frozen=True)
+class TreeEntry:
+    """One entry in the repository file tree. Used by the
+    `test-discipline` extractor to compute the test-to-source ratio."""
+
+    path: str
+    is_file: bool = True
 
 
 class RepositoryProvider(ABC):
@@ -247,6 +326,49 @@ class RepositoryProvider(ABC):
     def list_recent_commits(self, repo: str, *, since_days: int = 30, max_count: int = 200) -> List[Commit]:
         """Return recent commits with their file lists, used for
         co-change clustering. Empty default."""
+        return []
+
+    # ---- code-quality verbs (GitHub-native; empty default elsewhere) -----
+    #
+    # Each returns an empty list / "absent" value by default so a provider
+    # without the underlying API (Bitbucket Cloud, a minimal host) simply
+    # renders the corresponding extractor section empty — same graceful
+    # degradation as list_environments / list_deployments above.
+
+    def list_dependabot_alerts(self, repo: str, *, max_count: int = 200) -> List[SecurityAlert]:
+        """Open dependency-vulnerability alerts. Empty default. Used by
+        the `dependency-health` extractor."""
+        return []
+
+    def list_code_scanning_alerts(self, repo: str, *, max_count: int = 200) -> List[ScanAlert]:
+        """Open static-analysis findings. Empty default. Used by the
+        `code-scanning` extractor."""
+        return []
+
+    def get_branch_protection(self, repo: str, branch: str = "") -> BranchProtection:
+        """Branch-protection posture for `branch` (default branch when
+        empty). Default returns `exists=False`. Used by the
+        `repo-governance` extractor."""
+        return BranchProtection(branch=branch, exists=False)
+
+    def default_branch(self, repo: str) -> str:
+        """Name of the repo's default branch. Empty default — callers
+        fall back to common names. Used by `repo-governance`."""
+        return ""
+
+    def list_releases(self, repo: str, *, max_count: int = 100) -> List[Release]:
+        """Most-recent releases / tags. Empty default. Used by the
+        `release-cadence` extractor."""
+        return []
+
+    def search_code(self, repo: str, query: str, *, max_count: int = 200) -> List[CodeSearchHit]:
+        """Code-search matches for `query` within `repo`. Empty default.
+        Used by the `todo-density` extractor."""
+        return []
+
+    def list_tree(self, repo: str, *, max_count: int = 5000) -> List[TreeEntry]:
+        """Full file tree of the default branch. Empty default. Used by
+        the `test-discipline` extractor."""
         return []
 
     @classmethod
