@@ -586,6 +586,8 @@ One-shot manual extraction. All flags are extractor-specific or storage.
 | `--blob-name <name>` | override the derived name | `knowledge:<company>` |
 | `--root <dir>` | file-store root | `./knowledge` |
 | `--out-json <path>` | write parallel JSON | (skip) |
+| `--merge-claude-md` | merge a knowledge index into CLAUDE.md; write full detail to `.briar/knowledge/<company>.md` for on-demand reading | (off) |
+| `--claude-md-path <path>` | CLAUDE.md to merge into (with `--merge-claude-md`) | `./CLAUDE.md` |
 | `--provider {github,bitbucket}` | for repo extractors | `github` |
 | `--tracker {jira,github-issues,bitbucket-issues,linear}` | for tracker extractors | `jira` |
 | `--cloud {aws,gcp,azure}` | for cloud extractors | `aws` |

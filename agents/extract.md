@@ -145,6 +145,23 @@ briar extract --company <COMPANY> --out-json /tmp/<COMPANY>.json
 
 Markdown still lands in the configured store; JSON is a sidecar.
 
+### Feed the knowledge to Claude Code on demand
+
+```bash
+briar extract --company <COMPANY> --merge-claude-md
+```
+
+Writes the full bundle to `.briar/knowledge/<company>.md` and splices a
+short index — section titles plus a pointer to that file — into
+`CLAUDE.md` (override with `--claude-md-path`). The index sits inside a
+`<!-- BEGIN briar-knowledge -->`…`<!-- END briar-knowledge -->` block, so
+re-running replaces only Briar's block and leaves hand-written content
+untouched. Because only the index lives in `CLAUDE.md` (auto-loaded every
+session), the detail stays out of context until a task makes the agent
+`Read` the detail file — knowledge **on demand**, not permanent context
+cost. The detail file is always written locally even with
+`--storage postgres`, since the reference resolves from the project root.
+
 ## Verifying success
 
 1. Exit code `0`.
