@@ -100,7 +100,11 @@ src/briar/
 │   ├── pr_archaeology.py, active_work.py, github_deployments.py,
 │   ├── codebase_conventions.py, reviewer_profile.py, code_hotspots.py,
 │   ├── active_tickets.py, ticket_archaeology.py, aws_infra.py,
-│   ├── meeting_digest.py                 — the 10 scheduled extractors
+│   ├── meeting_digest.py,                — the original 10 scheduled extractors
+│   ├── defect_hotspots.py, pr_hygiene.py, review_nits.py, revert_signals.py,
+│   ├── commit_message_quality.py, stale_prs.py, ci_health.py, repo_governance.py,
+│   ├── dependency_health.py, code_scanning.py, test_discipline.py,
+│   ├── release_cadence.py, todo_density.py   — +13 code-quality extractors (23 total)
 │   └── ticket_context.py, pr_review_context.py, meeting_context.py
 │                                         — the 3 JIT (task-scoped) extractors
 ├── storage/                          — KnowledgeStore backends
@@ -162,7 +166,7 @@ edit anywhere else.
 
 | Registry | Symbol | Names |
 |---|---|---|
-| Scheduled extractors | `briar.extract.EXTRACTORS` | `active-tickets`, `active-work`, `aws-infra`, `code-hotspots`, `codebase-conventions`, `github-deployments`, `meeting-digest`, `pr-archaeology`, `reviewer-profile`, `ticket-archaeology` |
+| Scheduled extractors | `briar.extract.EXTRACTORS` | `active-tickets`, `active-work`, `aws-infra`, `ci-health`, `code-hotspots`, `code-scanning`, `codebase-conventions`, `commit-message-quality`, `defect-hotspots`, `dependency-health`, `github-deployments`, `meeting-digest`, `pr-archaeology`, `pr-hygiene`, `release-cadence`, `repo-governance`, `revert-signals`, `review-nits`, `reviewer-profile`, `stale-prs`, `test-discipline`, `ticket-archaeology`, `todo-density` (23) |
 | JIT extractors | `briar.extract.TASK_SCOPED_EXTRACTORS` | `meeting-context`, `pr-review-context`, `ticket-context` |
 | Knowledge stores | `briar.storage.KnowledgeStoreRegistry.STORES` | `file`, `postgres` |
 | Message writers (runbook `messages.kind:`) | `briar.messaging.WRITERS` | `bitbucket-pr-comment`, `github-pr-comment`, `jira-comment`, `jira-transition`, `slack-channel`, `telegram-chat` |
@@ -245,7 +249,7 @@ Each scheduled extractor inherits one of four `*BackedExtractor` bases
 
 | Base class | Flag auto-added | Helper | Extractors |
 |---|---|---|---|
-| `RepoBackedExtractor` | `--provider {github,bitbucket}` | `_provider(args)` | `pr-archaeology`, `active-work`, `github-deployments`, `codebase-conventions`, `reviewer-profile`, `code-hotspots` |
+| `RepoBackedExtractor` | `--provider {github,bitbucket}` | `_provider(args)` | `pr-archaeology`, `active-work`, `github-deployments`, `codebase-conventions`, `reviewer-profile`, `code-hotspots`, `defect-hotspots`, `pr-hygiene`, `review-nits`, `revert-signals`, `commit-message-quality`, `stale-prs`, `ci-health`, `dependency-health`, `code-scanning`, `repo-governance`, `test-discipline`, `release-cadence`, `todo-density` |
 | `TrackerBackedExtractor` | `--tracker {jira,github-issues,bitbucket-issues,linear}` | `_tracker(args)` | `active-tickets`, `ticket-archaeology` |
 | `CloudBackedExtractor` | `--cloud {aws,gcp,azure}` | `_cloud(args)` | `aws-infra` |
 | `MeetingBackedExtractor` | `--meeting {fireflies}` | `_meeting(args)` | `meeting-digest` |
@@ -610,6 +614,32 @@ One-shot manual extraction. All flags are extractor-specific or storage.
 | `--meeting-since-days <N>` | `meeting-digest` | 7 |
 | `--meeting-max <N>` | `meeting-digest` | 25 |
 | `--meeting-attendee-allow <email>` | `meeting-digest` (repeatable) | — |
+| `--risk-repo <slug>` | `defect-hotspots` (repeatable) | — |
+| `--risk-since-days <N>` / `--risk-max-commits <N>` / `--risk-top-n <N>` | `defect-hotspots` | 90 / 200 / 10 |
+| `--prhygiene-repo <slug>` | `pr-hygiene` (repeatable) | — |
+| `--prhygiene-max <N>` / `--prhygiene-diffstat-sample <N>` / `--prhygiene-large-loc <N>` | `pr-hygiene` | 100 / 30 / 400 |
+| `--nits-repo <slug>` | `review-nits` (repeatable) | — |
+| `--nits-pr-sample <N>` / `--nits-top-n <N>` | `review-nits` | 30 / 15 |
+| `--revert-repo <slug>` | `revert-signals` (repeatable) | — |
+| `--revert-since-days <N>` / `--revert-max-commits <N>` | `revert-signals` | 90 / 200 |
+| `--msg-repo <slug>` | `commit-message-quality` (repeatable) | — |
+| `--msg-since-days <N>` / `--msg-max-commits <N>` | `commit-message-quality` | 90 / 200 |
+| `--stale-repo <slug>` | `stale-prs` (repeatable) | — |
+| `--stale-max <N>` / `--stale-days <N>` | `stale-prs` | 100 / 14 |
+| `--cihealth-repo <slug>` | `ci-health` (repeatable) | — |
+| `--cihealth-limit <N>` | `ci-health` | 100 |
+| `--deps-repo <slug>` | `dependency-health` (repeatable) | — |
+| `--deps-max <N>` | `dependency-health` | 200 |
+| `--scan-repo <slug>` | `code-scanning` (repeatable) | — |
+| `--scan-max <N>` / `--scan-top-n <N>` | `code-scanning` | 200 / 10 |
+| `--gov-repo <slug>` | `repo-governance` (repeatable) | — |
+| `--gov-branch <name>` | `repo-governance` | (default branch) |
+| `--testdisc-repo <slug>` | `test-discipline` (repeatable) | — |
+| `--testdisc-top-n <N>` | `test-discipline` | 10 |
+| `--release-repo <slug>` | `release-cadence` (repeatable) | — |
+| `--release-max <N>` | `release-cadence` | 100 |
+| `--todo-repo <slug>` | `todo-density` (repeatable) | — |
+| `--todo-max <N>` / `--todo-top-n <N>` | `todo-density` | 200 / 10 |
 
 ### `briar runbook extract <file.yaml>`
 | Flag | Purpose |

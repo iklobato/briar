@@ -388,7 +388,7 @@ be added without changing existing classes:
 | Family | Registry location | Concretes today | Adding one |
 |---|---|---|---|
 | `Command` | `commands/__init__.py:CommandRegistry.COMMANDS` | extract, runbook, scaffold, context, dashboard, agent, **plan**, auth, secrets, version | one class + list entry |
-| `KnowledgeExtractor` | `extract/__init__.py:EXTRACTORS` | pr-archaeology, active-work, github-deployments, codebase-conventions, reviewer-profile, code-hotspots, active-tickets, ticket-archaeology, aws-infra, **meeting-digest** | one module + registry tuple |
+| `KnowledgeExtractor` | `extract/__init__.py:EXTRACTORS` | pr-archaeology, active-work, github-deployments, codebase-conventions, reviewer-profile, code-hotspots, active-tickets, ticket-archaeology, aws-infra, meeting-digest, **+13 code-quality**: defect-hotspots, pr-hygiene, review-nits, revert-signals, commit-message-quality, stale-prs, ci-health, dependency-health, code-scanning, repo-governance, test-discipline, release-cadence, todo-density (23 total) | one module + registry tuple |
 | `TaskScopedExtractor` | `extract/__init__.py:TASK_SCOPED_EXTRACTORS` | ticket-context, pr-review-context, **meeting-context** | one module + registry tuple |
 | `RepositoryProvider` | `extract/_providers/` | github, bitbucket | one adapter |
 | `TrackerProvider` | `extract/_trackers/` | jira, github-issues, bitbucket-issues, linear | one adapter |

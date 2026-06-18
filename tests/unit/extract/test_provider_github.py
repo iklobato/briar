@@ -28,7 +28,7 @@ from unittest import mock
 import pytest
 from github import GithubException
 
-from briar.extract._provider import CiRun, Commit, Deployment, Environment, PullRequest
+from briar.extract._provider import BranchProtection, CiRun, Commit, Deployment, Environment, PullRequest, Release, ScanAlert, SecurityAlert, TreeEntry
 from briar.extract._providers.github import GithubProvider, _validate_repo
 
 # ---------------------------------------------------------------------------
@@ -344,6 +344,175 @@ class SeamTests(unittest.TestCase):
             self.assertTrue(GithubProvider().is_available())
         with mock.patch.dict("os.environ", {}, clear=True):
             self.assertFalse(GithubProvider().is_available())
+
+
+# ---------------------------------------------------------------------------
+# get_pull diffstat + list_ci_runs new fields
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.boundary
+class DiffstatAndCiFieldTests(unittest.TestCase):
+    def test_get_pull_hydrates_diffstat(self) -> None:
+        # The single-PR GET carries additions/deletions/changed_files —
+        # the list endpoint does not. pr-hygiene relies on this.
+        row = _pull_row(number=12, additions=120, deletions=8, changed_files=4)
+        with mock.patch("briar.extract._gh.GithubApi.get_json", return_value=row):
+            pr = GithubProvider().get_pull("acme/app", 12)
+        self.assertEqual((pr.additions, pr.deletions, pr.changed_files), (120, 8, 4))
+
+    def test_list_pulls_leaves_diffstat_zero(self) -> None:
+        # List payload omits diffstat → defaults to 0, not a crash.
+        with mock.patch("briar.extract._gh.GithubApi.get_paginated", return_value=[_pull_row()]):
+            out = GithubProvider().list_pulls("acme/app", state="open", max_count=10)
+        self.assertEqual((out[0].additions, out[0].deletions, out[0].changed_files), (0, 0, 0))
+
+    def test_ci_run_carries_updated_at_and_attempt(self) -> None:
+        envelope = {
+            "workflow_runs": [
+                {
+                    "name": "CI",
+                    "status": "completed",
+                    "conclusion": "failure",
+                    "head_branch": "main",
+                    "created_at": "2026-05-01T00:00:00Z",
+                    "updated_at": "2026-05-01T00:10:00Z",
+                    "run_attempt": 2,
+                },
+            ]
+        }
+        with mock.patch("briar.extract._gh.GithubApi.get_json", return_value=envelope):
+            out = GithubProvider().list_ci_runs("acme/app", limit=5)
+        self.assertEqual(out[0].updated_at, "2026-05-01T00:10:00Z")
+        self.assertEqual(out[0].run_attempt, 2)
+
+
+# ---------------------------------------------------------------------------
+# list_dependabot_alerts
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.boundary
+class DependabotAlertsTests(unittest.TestCase):
+    def test_parses_alert(self) -> None:
+        # https://docs.github.com/en/rest/dependabot/alerts
+        rows = [
+            {
+                "state": "open",
+                "security_advisory": {"severity": "HIGH", "summary": "RCE in foo"},
+                "dependency": {"package": {"name": "foo"}, "manifest_path": "requirements.txt"},
+            }
+        ]
+        with mock.patch("briar.extract._gh.GithubApi.get_paginated", return_value=rows):
+            out = GithubProvider().list_dependabot_alerts("acme/app")
+        self.assertEqual(len(out), 1)
+        self.assertIsInstance(out[0], SecurityAlert)
+        self.assertEqual(out[0].package, "foo")
+        self.assertEqual(out[0].severity, "high")  # lowercased
+        self.assertEqual(out[0].manifest, "requirements.txt")
+
+    def test_error_swallowed_to_empty(self) -> None:
+        with mock.patch("briar.extract._gh.GithubApi.get_paginated", side_effect=GithubException(403, {}, {})):
+            self.assertEqual(GithubProvider().list_dependabot_alerts("acme/app"), [])
+
+
+# ---------------------------------------------------------------------------
+# list_code_scanning_alerts
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.boundary
+class CodeScanningAlertsTests(unittest.TestCase):
+    def test_parses_alert(self) -> None:
+        # https://docs.github.com/en/rest/code-scanning/code-scanning
+        rows = [
+            {
+                "state": "open",
+                "rule": {"id": "py/sql-injection", "security_severity_level": "critical", "description": "SQL injection"},
+                "most_recent_instance": {"location": {"path": "app/db.py"}},
+            }
+        ]
+        with mock.patch("briar.extract._gh.GithubApi.get_paginated", return_value=rows):
+            out = GithubProvider().list_code_scanning_alerts("acme/app")
+        self.assertEqual(len(out), 1)
+        self.assertIsInstance(out[0], ScanAlert)
+        self.assertEqual(out[0].rule_id, "py/sql-injection")
+        self.assertEqual(out[0].severity, "critical")
+        self.assertEqual(out[0].file_path, "app/db.py")
+
+
+# ---------------------------------------------------------------------------
+# get_branch_protection + default_branch
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.boundary
+class BranchProtectionTests(unittest.TestCase):
+    def test_default_branch(self) -> None:
+        with mock.patch("briar.extract._gh.GithubApi.get_json", return_value={"default_branch": "develop"}):
+            self.assertEqual(GithubProvider().default_branch("acme/app"), "develop")
+
+    def test_parses_protection(self) -> None:
+        # https://docs.github.com/en/rest/branches/branch-protection
+        data = {
+            "required_pull_request_reviews": {"required_approving_review_count": 2, "require_code_owner_reviews": True},
+            "required_status_checks": {"strict": True, "contexts": ["ci"]},
+            "enforce_admins": {"enabled": True},
+        }
+        with mock.patch("briar.extract._gh.GithubApi.get_json", return_value=data):
+            bp = GithubProvider().get_branch_protection("acme/app", "main")
+        self.assertIsInstance(bp, BranchProtection)
+        self.assertTrue(bp.exists)
+        self.assertEqual(bp.required_reviews, 2)
+        self.assertTrue(bp.requires_status_checks)
+        self.assertTrue(bp.enforce_admins)
+        self.assertTrue(bp.requires_code_owner_review)
+
+    def test_404_means_unprotected(self) -> None:
+        # A branch with no protection rule 404s — that's the strongest
+        # governance smell, surfaced as exists=False, not an error.
+        with mock.patch("briar.extract._gh.GithubApi.get_json", side_effect=GithubException(404, {"message": "Branch not protected"}, {})):
+            bp = GithubProvider().get_branch_protection("acme/app", "main")
+        self.assertFalse(bp.exists)
+        self.assertEqual(bp.branch, "main")
+
+
+# ---------------------------------------------------------------------------
+# list_releases / search_code / list_tree
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.boundary
+class ReleaseSearchTreeTests(unittest.TestCase):
+    def test_list_releases(self) -> None:
+        rows = [
+            {"tag_name": "v2.0", "name": "Two", "published_at": "2026-05-01T00:00:00Z", "prerelease": False},
+            {"tag_name": "v1.9", "name": "", "published_at": "2026-04-01T00:00:00Z", "prerelease": True},
+        ]
+        with mock.patch("briar.extract._gh.GithubApi.get_paginated", return_value=rows):
+            out = GithubProvider().list_releases("acme/app")
+        self.assertEqual(len(out), 2)
+        self.assertIsInstance(out[0], Release)
+        self.assertEqual(out[0].tag, "v2.0")
+        self.assertTrue(out[1].is_prerelease)
+
+    def test_search_code_counts_by_file(self) -> None:
+        envelope = {"items": [{"path": "a.py", "text_matches": [{}, {}]}, {"path": "b.py"}]}
+        with mock.patch("briar.extract._gh.GithubApi.get_json", return_value=envelope):
+            out = GithubProvider().search_code("acme/app", "TODO")
+        by_path = {h.file_path: h.matches for h in out}
+        self.assertEqual(by_path["a.py"], 2)
+        self.assertEqual(by_path["b.py"], 1)
+
+    def test_list_tree_marks_files_vs_dirs(self) -> None:
+        # default_branch lookup then the recursive tree fetch — two GETs.
+        tree = {"tree": [{"path": "src/a.py", "type": "blob"}, {"path": "src", "type": "tree"}]}
+        with mock.patch("briar.extract._gh.GithubApi.get_json", side_effect=[{"default_branch": "main"}, tree]):
+            out = GithubProvider().list_tree("acme/app")
+        self.assertEqual(len(out), 2)
+        self.assertIsInstance(out[0], TreeEntry)
+        self.assertTrue(out[0].is_file)
+        self.assertFalse(out[1].is_file)
 
 
 if __name__ == "__main__":
