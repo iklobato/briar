@@ -84,6 +84,25 @@ briar extract --company acme \
 `code-scanning`, `repo-governance`, `test-discipline`, `release-cadence`,
 `todo-density`. See [`agents/extract.md`](agents/extract.md).
 
+#### Feed the knowledge to Claude Code — on demand
+
+```bash
+# Merge a knowledge index into CLAUDE.md; full detail lands in
+# .briar/knowledge/<company>.md for the agent to read when relevant.
+briar extract --company acme --include defect-hotspots --include ci-health \
+    --risk-repo acme-co/acme-app --cihealth-repo acme-co/acme-app \
+    --merge-claude-md
+```
+
+`--merge-claude-md` writes the full bundle to `.briar/knowledge/<company>.md`
+and splices a short, marker-bounded index — section titles plus a pointer to
+that file — into `CLAUDE.md` (override with `--claude-md-path`). Because
+`CLAUDE.md` is auto-loaded into every Claude Code session but the detail file
+is not, the knowledge stays available **on demand** without paying a
+per-session context cost: the agent reads the detail file only when a task
+touches one of the listed topics. Re-runs replace just briar's block, leaving
+your hand-written `CLAUDE.md` untouched.
+
 ### `briar runbook serve` — scheduled extraction, in-process
 
 Describe every company + task in one YAML and let `briar` run the schedule forever — no cron, no external job runner.
