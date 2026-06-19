@@ -15,6 +15,7 @@ from briar.commands.completion import CommandCompletion
 from briar.commands.config import CommandConfig
 from briar.commands.context import ContextCommand
 from briar.commands.dashboard import CommandDashboard
+from briar.commands.doctor import CommandDoctor
 from briar.commands.extract import CommandExtract
 from briar.commands.iac import CommandScaffold
 from briar.commands.init import CommandInit
@@ -46,6 +47,7 @@ class CommandRegistry:
         CommandCompletion,
         CommandInit,
         CommandConfig,
+        CommandDoctor,
     ]
 
     @classmethod

@@ -64,6 +64,10 @@ def configure(verbose: bool = False) -> None:
         stream=sys.stderr,
         force=True,
     )
+    # Clear any per-run override on briar's own logger (e.g. a prior
+    # `daemon_logging()` bump) so reconfiguration is idempotent and the
+    # root level governs again.
+    logging.getLogger("briar").setLevel(logging.NOTSET)
     # Always log in UTC.
     logging.Formatter.converter = time.gmtime
     # Attach the context filter to every existing handler. New handlers

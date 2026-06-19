@@ -114,6 +114,21 @@ def _build_parser(commands: Dict[str, Command]) -> argparse.ArgumentParser:
     return parser
 
 
+def _notify_update(log: logging.Logger) -> None:
+    """Best-effort 'newer version available' notice on stderr. Throttled +
+    opt-out + swallow-on-error inside `update_check.maybe_notify`; the
+    extra guard here keeps even an import error from touching the exit."""
+    try:
+        from briar import __version__
+        from briar.update_check import maybe_notify
+
+        notice = maybe_notify(__version__)
+        if notice:
+            print(notice, file=sys.stderr)
+    except Exception:  # noqa: BLE001 — an update nudge must never break the CLI
+        log.debug("update-check: notify failed", exc_info=True)
+
+
 def _warn_legacy_flags(raw_argv: List[str], log: logging.Logger) -> None:
     """One consolidated stderr note when the command line uses a legacy
     per-extractor / per-source flag that a canonical flag now covers.
@@ -276,6 +291,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     try:
         with telemetry.command_span(args.command, args):
             rc = commands[args.command].run(args)
+        _notify_update(log)
         return rc
     except CliError as exc:
         log.error("command %s failed: %s", args.command, exc)
