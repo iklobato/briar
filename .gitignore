@@ -31,3 +31,6 @@ config.json
 
 # Real-company runbooks + planning docs — kept local, not for public repo
 runbooks/
+
+# Local Claude Code workspace (worktrees, caches)
+.claude/

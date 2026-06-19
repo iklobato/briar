@@ -68,6 +68,21 @@ briar scaffold implementation \
     --out <PATH>.json
 ```
 
+### Filter issues by author / assignee
+
+Shared `--authors-allow` / `--authors-block` / `--assignees-allow` /
+`--assignees-block` apply to **every** `--source` (repeatable):
+
+```bash
+briar scaffold implementation --prefix <NAME> \
+    --source github --source jira \
+    --owner <OWNER> --repo <REPO> --jira-project <KEY> \
+    --authors-block "dependabot[bot]" --assignees-allow alice
+```
+
+The per-source forms (`--jira-authors-allow`, …) still parse and override
+the shared flag for that one source, but are hidden from `-h`.
+
 ### Print to stdout (no file)
 
 Omit `--out` — bundle prints to stdout, pipe into `jq` or a deployer.

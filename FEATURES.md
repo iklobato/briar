@@ -576,72 +576,87 @@ Compact, current-state. For prose + extended examples see `README.md`.
 No flags. Prints `briar-cli <version>` from package metadata.
 
 ### `briar extract`
-One-shot manual extraction. All flags are extractor-specific or storage.
+One-shot manual extraction. Flags resolve through **CLI > env > `.briar.toml`
+/ `[tool.briar]` > built-in default** (see §10).
+
+**Core**
 
 | Flag | Used by | Default |
 |---|---|---|
-| `--company <name>` | required, drives blob title + name | — |
+| `--company <name>` | required (or `company` in config), drives blob title + name | — |
 | `--include <extractor>` | repeatable; default = all available | (all) |
-| `--storage {file,postgres}` | which backend | `file` |
+| `--store {file,postgres}` (alias `--storage`) | which backend | `file` |
 | `--blob-name <name>` | override the derived name | `knowledge:<company>` |
 | `--root <dir>` | file-store root | `./knowledge` |
 | `--out-json <path>` | write parallel JSON | (skip) |
 | `--merge-claude-md` | merge a knowledge index into CLAUDE.md; write full detail to `.briar/knowledge/<company>.md` for on-demand reading | (off) |
 | `--claude-md-path <path>` | CLAUDE.md to merge into (with `--merge-claude-md`) | `./CLAUDE.md` |
-| `--provider {github,bitbucket}` | for repo extractors | `github` |
-| `--tracker {jira,github-issues,bitbucket-issues,linear}` | for tracker extractors | `jira` |
-| `--cloud {aws,gcp,azure}` | for cloud extractors | `aws` |
-| `--meeting {fireflies}` | for meeting extractors | `fireflies` |
-| `--pr-repo <slug>` | `pr-archaeology` (repeatable) | — |
-| `--pr-max <N>` | `pr-archaeology` | 100 |
-| `--pr-authors-allow` / `--pr-authors-block` | `pr-archaeology` | — |
-| `--pr-assignees-allow` / `--pr-assignees-block` | `pr-archaeology` | — |
-| `--active-repo <slug>` | `active-work` (repeatable) | — |
-| `--active-authors-allow` / `--active-authors-block` | `active-work` | — |
-| `--deploy-repo <slug>` | `github-deployments` (repeatable) | — |
-| `--conventions-repo <slug>` | `codebase-conventions` (repeatable) | — |
-| `--reviewer-repo <slug>` | `reviewer-profile` (repeatable) | — |
-| `--reviewer-pr-sample <N>` | `reviewer-profile` | 20 |
-| `--reviewer-top-n <N>` | `reviewer-profile` | 5 |
-| `--hotspots-repo <slug>` | `code-hotspots` (repeatable) | — |
-| `--hotspots-since-days <N>` | `code-hotspots` | 30 |
-| `--hotspots-max-commits <N>` | `code-hotspots` | 100 |
-| `--hotspots-top-n <N>` | `code-hotspots` | 10 |
-| `--ticket-project <key>` | `active-tickets` (repeatable) | — |
-| `--ticket-archaeology-project <key>` | `ticket-archaeology` (repeatable) | — |
-| `--ticket-max <N>` | `ticket-archaeology` | 100 |
-| `--aws-extract-region <region>` | `aws-infra` | `us-east-1` |
-| `--aws-extract-service <svc>` | `aws-infra` (repeatable; one of ecs/lambda/logs/rds/sqs/tagging-inventory) | (all) |
-| `--aws-extract-profile <name>` | `aws-infra` | — |
-| `--meeting-since-days <N>` | `meeting-digest` | 7 |
-| `--meeting-max <N>` | `meeting-digest` | 25 |
-| `--meeting-attendee-allow <email>` | `meeting-digest` (repeatable) | — |
-| `--risk-repo <slug>` | `defect-hotspots` (repeatable) | — |
-| `--risk-since-days <N>` / `--risk-max-commits <N>` / `--risk-top-n <N>` | `defect-hotspots` | 90 / 200 / 10 |
-| `--prhygiene-repo <slug>` | `pr-hygiene` (repeatable) | — |
-| `--prhygiene-max <N>` / `--prhygiene-diffstat-sample <N>` / `--prhygiene-large-loc <N>` | `pr-hygiene` | 100 / 30 / 400 |
-| `--nits-repo <slug>` | `review-nits` (repeatable) | — |
-| `--nits-pr-sample <N>` / `--nits-top-n <N>` | `review-nits` | 30 / 15 |
-| `--revert-repo <slug>` | `revert-signals` (repeatable) | — |
-| `--revert-since-days <N>` / `--revert-max-commits <N>` | `revert-signals` | 90 / 200 |
-| `--msg-repo <slug>` | `commit-message-quality` (repeatable) | — |
-| `--msg-since-days <N>` / `--msg-max-commits <N>` | `commit-message-quality` | 90 / 200 |
-| `--stale-repo <slug>` | `stale-prs` (repeatable) | — |
-| `--stale-max <N>` / `--stale-days <N>` | `stale-prs` | 100 / 14 |
-| `--cihealth-repo <slug>` | `ci-health` (repeatable) | — |
-| `--cihealth-limit <N>` | `ci-health` | 100 |
-| `--deps-repo <slug>` | `dependency-health` (repeatable) | — |
-| `--deps-max <N>` | `dependency-health` | 200 |
-| `--scan-repo <slug>` | `code-scanning` (repeatable) | — |
-| `--scan-max <N>` / `--scan-top-n <N>` | `code-scanning` | 200 / 10 |
-| `--gov-repo <slug>` | `repo-governance` (repeatable) | — |
+| `--advanced-help` | print the full per-extractor override flags + exit | — |
+
+**Provider selectors** (one shared flag each, already canonical):
+
+| Flag | Used by | Default |
+|---|---|---|
+| `--provider {github,bitbucket}` | repo extractors | `github` |
+| `--tracker {jira,github-issues,bitbucket-issues,linear}` | tracker extractors | `jira` |
+| `--cloud {aws,gcp,azure}` | cloud extractors | `aws` |
+| `--meeting {fireflies}` | meeting extractors | `fireflies` |
+
+**Canonical extractor flags** — one knob per concept, applied to *every*
+extractor selected with `--include` (a per-extractor override wins when both
+are given):
+
+| Flag | Concept | Default |
+|---|---|---|
+| `--repo <slug>` | repo/project list (repeatable); also the tracker `project` for `active-tickets` / `ticket-archaeology` | — |
+| `--since-days <N>` | history lookback window | per-extractor (below) |
+| `--max <N>` | max items / commits / alerts per repo | per-extractor (below) |
+| `--top-n <N>` | results surfaced per repo | per-extractor (below) |
+| `--sample <N>` | recent PRs sampled per repo | per-extractor (below) |
+| `--authors-allow` / `--authors-block` | author allow/block (repeatable; allow ∩ ¬block) | — |
+| `--assignees-allow` / `--assignees-block` | assignee allow/block (repeatable) | — |
+
+**Per-extractor defaults** (the value a canonical flag overrides when unset):
+
+| Extractor | since-days | max | top-n | sample |
+|---|---|---|---|---|
+| `pr-archaeology` | — | 100 | — | — |
+| `reviewer-profile` | — | — | 5 | 20 |
+| `code-hotspots` | 30 | 100 | 10 | — |
+| `defect-hotspots` | 90 | 200 | 10 | — |
+| `pr-hygiene` | — | 100 | — | 30 |
+| `review-nits` | — | — | 15 | 30 |
+| `revert-signals` | 90 | 200 | — | — |
+| `commit-message-quality` | 90 | 200 | — | — |
+| `stale-prs` | — | 100 | — | — |
+| `ci-health` | — | 100 | — | — |
+| `dependency-health` | — | 200 | — | — |
+| `code-scanning` | — | 200 | 10 | — |
+| `test-discipline` | — | — | 10 | — |
+| `release-cadence` | — | 100 | — | — |
+| `todo-density` | — | 200 | 10 | — |
+| `ticket-archaeology` | — | 100 | — | — |
+| `meeting-digest` | 7 | 25 | — | — |
+
+**Genuinely extractor-specific flags** (no canonical analogue):
+
+| Flag | Used by | Default |
+|---|---|---|
 | `--gov-branch <name>` | `repo-governance` | (default branch) |
-| `--testdisc-repo <slug>` | `test-discipline` (repeatable) | — |
-| `--testdisc-top-n <N>` | `test-discipline` | 10 |
-| `--release-repo <slug>` | `release-cadence` (repeatable) | — |
-| `--release-max <N>` | `release-cadence` | 100 |
-| `--todo-repo <slug>` | `todo-density` (repeatable) | — |
-| `--todo-max <N>` / `--todo-top-n <N>` | `todo-density` | 200 / 10 |
+| `--stale-days <N>` | `stale-prs` staleness threshold | 14 |
+| `--prhygiene-large-loc <N>` | `pr-hygiene` "large PR" LOC cutoff | 400 |
+| `--aws-extract-region <region>` | `aws-infra` | `us-east-1` |
+| `--aws-extract-service <svc>` | `aws-infra` (repeatable; ecs/lambda/logs/rds/sqs/tagging-inventory) | (all) |
+| `--aws-extract-profile <name>` | `aws-infra` | — |
+| `--meeting-attendee-allow <email>` | `meeting-digest` (repeatable) | — |
+
+**Legacy per-extractor flags** (`--pr-repo`, `--risk-since-days`,
+`--reviewer-top-n`, the per-source `--*-authors-allow`, …) still parse but are
+hidden from `-h`; the canonical flags above replace them. `briar extract
+--advanced-help` lists the full set. Using one prints a one-line note pointing
+at its canonical replacement. They remain the escape hatch for the rare case
+where two extractors in one invocation need *different* values for the same
+concept.
 
 ### `briar runbook extract <file.yaml>`
 | Flag | Purpose |
@@ -755,6 +770,7 @@ Common: `--store`, `--root`, `--company`. `clear` adds `--yes`.
 | `--aws-role-arn` / `--aws-external-id` / `--aws-region` / `--aws-services` | when `--source aws` |
 | `--sentry-org` / `--sentry-project` / `--sentry-environment` / `--sentry-level` / `--sentry-query` | when `--source sentry` |
 | `--github-secret-id` / `--bitbucket-secret-id` / `--jira-secret-id` / `--sentry-secret-id` | with `--auth-mode pat` (Sentry: always) |
+| `--authors-allow` / `--authors-block` / `--assignees-allow` / `--assignees-block` | shared issue filters — apply to every `--source` (repeatable). Per-source `--jira-authors-allow` etc. still parse (hidden) and override |
 | `--model` / `--llm-provider-key` | LLM defaults baked into the bundle |
 | `--schedule "<cron>"` | with `--trigger-kind schedule_cron` |
 
@@ -845,6 +861,45 @@ Common: `--store {file}`, `--root <dir>`. Defaults match `BRIAR_JOURNAL_STORE` /
 Global flags can be positioned before OR after the subcommand
 (argparse tolerates both). `briar journal export --format` has a
 known collision with the global (`xfail(strict=True)` in tests).
+
+### Project config — `.briar.toml` / `[tool.briar]`
+
+Stable per-project values (company, store, repo, agent model + git
+identity) can live in a config file instead of being retyped every call.
+Resolution precedence, highest first:
+
+```
+CLI flag  >  env var  >  project config  >  built-in default
+```
+
+briar searches upward from cwd for `.briar.toml` (keys at top level) or a
+`pyproject.toml` carrying `[tool.briar]`. Config fills matching flags as
+their new default — so an explicit CLI flag still wins, and config can
+even satisfy an otherwise-required flag (`--company`, `agent --owner`/
+`--repo`). When neither config nor flag supplies `--owner`/`--repo`, they
+are inferred from the git `origin` remote.
+
+```toml
+# .briar.toml  (or [tool.briar] in pyproject.toml)
+company = "acme"
+store   = "postgres"          # alias: extract --storage
+root    = "./knowledge"
+tracker = "jira"
+
+repos = ["acme-co/web", "acme-co/api"]   # canonical extract --repo list
+
+[repo]                         # bare owner + name for agent / plan
+owner = "acme-co"
+repo  = "acme-app"
+
+[agent]
+model          = "claude-sonnet-4-6"
+git_user_name  = "acme-bot"
+git_user_email = "bot@acme.com"
+```
+
+Config keys map to dests via env override `BRIAR_COMPANY` (company) and
+`BRIAR_DEFAULT_STORE` (store).
 
 ### Env vars — operational
 

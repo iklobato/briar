@@ -16,6 +16,7 @@ from pydantic import ValidationError
 
 from briar.errors import ConfigError
 from briar.extract.base import ExtractedSection
+from briar.extract.canonical import apply_canonical
 from briar.iac.runbook.models import CompanyEntry, ExtractEntry, KnowledgeBinding, RunbookFile, ScheduleEntry
 from briar.log_context import log_context
 
@@ -405,6 +406,11 @@ class RunbookExtractor:
                     setattr(ns, "company", company)
                 for k, v in entry.args.items():
                     setattr(ns, k, v)
+                # Let runbook YAML use the canonical keys (repo/max/top_n/…)
+                # too — they fan out to each extractor's private dests, same
+                # as the `briar extract` CLI. Private keys in entry.args still
+                # win (they're non-default after the setattr loop above).
+                apply_canonical(ns, extractor)
                 log.debug("extractor-args: %s", _summarise_args(entry.args))
                 if not extractor.is_available(ns):
                     log.warning("extractor-skip: is_available() returned False — likely missing credentials")

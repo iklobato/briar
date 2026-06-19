@@ -12,6 +12,7 @@ from briar.commands.base import Command
 from briar.errors import CliError
 from briar.extract import EXTRACTORS
 from briar.extract.base import ExtractedSection
+from briar.extract.canonical import AdvancedHelpAction, apply_canonical, hide_canonicalised_flags, register_canonical_flags
 from briar.extract.claude_md import ClaudeMdMerger
 from briar.extract.composer import render_json, render_markdown
 from briar.storage import KNOWLEDGE_STORE_NAMES, make_store
@@ -46,8 +47,12 @@ class CommandExtract(Command):
             choices=sorted(EXTRACTORS.keys()),
             help="Which extractor(s) to run (repeatable; default: all available)",
         )
+        # `--store` is the name every other command uses; `--storage` is
+        # kept as an alias so existing scripts keep working.
         parser.add_argument(
+            "--store",
             "--storage",
+            dest="storage",
             default="file",
             choices=list(KNOWLEDGE_STORE_NAMES),
             help="Where to write the result (default: file)",
@@ -65,8 +70,20 @@ class CommandExtract(Command):
             default="./CLAUDE.md",
             help="CLAUDE.md to merge the knowledge index into (only used with --merge-claude-md)",
         )
+        parser.add_argument(
+            "--advanced-help",
+            action=AdvancedHelpAction,
+            help="Show the full per-extractor override flags and exit.",
+        )
+        # Canonical flags first (the headline surface), then the
+        # per-extractor private flags. The private flags stay registered
+        # for back-compat + the rare same-invocation-divergent case, but
+        # `hide_canonicalised_flags` suppresses the redundant ones from
+        # `-h` so the default help shows just the canonical + core knobs.
+        register_canonical_flags(parser)
         for ext in EXTRACTORS.values():
             ext.add_arguments(parser)
+        hide_canonicalised_flags(parser)
 
     def run(self, args: argparse.Namespace) -> int:
         selected = args.include or list(EXTRACTORS.keys())
@@ -74,6 +91,9 @@ class CommandExtract(Command):
         sections: List[ExtractedSection] = []
         for name in selected:
             ext = EXTRACTORS[name]
+            # Fan the canonical flags (--repo, --max, …) out to this
+            # extractor's private dests before availability / extraction.
+            apply_canonical(args, ext)
             if not ext.is_available(args):
                 print(f"  skipped {name}  (not available in this env)")
                 continue

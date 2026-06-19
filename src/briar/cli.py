@@ -10,6 +10,11 @@ from __future__ import annotations
 
 import warnings
 
+# E402 is expected here: the warnings filter below MUST run before any
+# pydantic-importing module loads, so the rest of the imports follow it.
+# ruff: noqa: E402
+
+
 # pydantic's plugin loader scans installed packages for plugins at import
 # time. When logfire is installed but its pinned opentelemetry-sdk symbol
 # drifts (ReadableLogRecord was renamed upstream), the loader emits a
@@ -99,6 +104,25 @@ def _build_parser(commands: Dict[str, Command]) -> argparse.ArgumentParser:
         sp = sub.add_parser(name, help=cmd.help)
         cmd.add_arguments(sp)
     return parser
+
+
+def _warn_legacy_flags(raw_argv: List[str], log: logging.Logger) -> None:
+    """One consolidated stderr note when the command line uses a legacy
+    per-extractor / per-source flag that a canonical flag now covers.
+
+    A plain print, NOT a `warnings.warn` — the test suite runs with
+    `filterwarnings=error`, and this is user guidance, not a code smell."""
+    from briar.extract.canonical import legacy_flag_suggestions
+
+    suggestions = legacy_flag_suggestions(raw_argv)
+    if not suggestions:
+        return
+    pairs = ", ".join(f"{old} → {new}" for old, new in sorted(suggestions.items()))
+    print(
+        f"note: these flags are deprecated in favour of shared canonical flags: {pairs}. " "They still work; see `briar extract --advanced-help`.",
+        file=sys.stderr,
+    )
+    log.debug("legacy-flags: %s", pairs)
 
 
 def _install_default_journal(log: logging.Logger) -> None:
@@ -197,6 +221,25 @@ def main(argv: Optional[List[str]] = None) -> int:
     commands = CommandRegistry.build()
     parser = _build_parser(commands)
 
+    # Fold project config (.briar.toml / [tool.briar]) + env into the
+    # parser defaults so a bare command inherits stable values (company,
+    # store, repo, model, …) and explicit flags still override. Skipped
+    # for help/usage so `briar -h` touches no config file.
+    if not metadata_only:
+        from briar.config import apply_config_defaults, load_project_config
+
+        satisfied = apply_config_defaults(parser, load_project_config())
+        if satisfied:
+            log.debug("config: satisfied defaults for %s", sorted(set(satisfied)))
+
+        # Below config in the precedence chain: infer --owner/--repo from
+        # the local git `origin` remote for whatever config didn't supply.
+        from briar.infer import apply_inference_defaults
+
+        inferred = apply_inference_defaults(parser, satisfied)
+        if inferred:
+            log.debug("infer: filled %s from git remote", sorted(set(inferred)))
+
     normalised: List[str] = []
     for flag, value in kv.items():
         normalised.extend([flag, value])
@@ -204,6 +247,8 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     args = parser.parse_args(normalised)
     log.debug("dispatching command=%s args=%r", args.command, vars(args))
+
+    _warn_legacy_flags(raw_argv, log)
 
     # Wrap dispatch in a telemetry span so duration + outcome land
     # in one place. The span captures uncaught exceptions, scrubs

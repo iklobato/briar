@@ -37,13 +37,37 @@ export ANTHROPIC_API_KEY=sk-ant-...        # LLM key comes from the environment
 # 2. Mine a repo's PR history into a knowledge blob
 briar extract --company acme \
     --include pr-archaeology \
-    --pr-repo acme-co/acme-app --pr-max 50
+    --repo acme-co/acme-app --max 50
 
 # 3. Read it back
 briar context get knowledge:acme
 ```
 
 > **Telemetry:** `briar` ships with opt-out error/usage analytics (Sentry). No prompts, file contents, ticket keys, repo names, paths, or secret values ever leave the machine. Turn it off any time with `briar telemetry off`, `BRIAR_TELEMETRY=off`, or `DO_NOT_TRACK=1`.
+
+### Less typing: shared flags, project config, inference
+
+briar resolves every flag through one chain — **CLI flag > env var > project config > built-in default** — so the stable values move off the command line:
+
+```toml
+# .briar.toml (or [tool.briar] in pyproject.toml), searched upward from cwd
+company = "acme"
+store   = "postgres"
+
+[repo]
+owner = "acme-co"
+repo  = "acme-app"
+```
+
+With that file present, and inside the git checkout, the same extract is just:
+
+```bash
+briar extract --include pr-archaeology        # company + repo come from config/git
+```
+
+- **Canonical extractor flags.** One shared knob per concept — `--repo`, `--since-days`, `--max`, `--top-n`, `--sample`, `--authors-allow/-block`, `--assignees-allow/-block` — applies to every extractor selected with `--include`. The old per-extractor flags (`--pr-repo`, `--risk-since-days`, …) still work but are hidden from `-h`; run `briar extract --advanced-help` to see them.
+- **Inference.** `--owner`/`--repo` are read from the git `origin` remote when neither the flag nor config supplies them.
+- A per-extractor override always wins over the shared flag when both are given.
 
 ---
 
@@ -55,8 +79,8 @@ briar context get knowledge:acme
 # PRs + AWS infra in one shot, filtered to your team
 briar extract --company acme \
     --include pr-archaeology --include aws-infra \
-    --pr-repo acme-co/acme-app \
-    --pr-authors-allow alice --pr-authors-allow bob \
+    --repo acme-co/acme-app \
+    --authors-allow alice --authors-allow bob \
     --aws-extract-region us-east-1 \
     --aws-extract-service ecs --aws-extract-service rds
 
@@ -69,12 +93,11 @@ FIREFLIES_ACME_API_KEY=ff_xxx briar extract --company acme \
     --include meeting-digest --meeting-since-days 14 \
     --meeting-attendee-allow alice@acme.com
 
-# Code-quality signal from git history + the repo-host API
-briar extract --company acme \
-    --include defect-hotspots --risk-repo acme-co/acme-app \
-    --include pr-hygiene --prhygiene-repo acme-co/acme-app \
-    --include review-nits --nits-repo acme-co/acme-app \
-    --include ci-health --cihealth-repo acme-co/acme-app
+# Code-quality signal from git history + the repo-host API.
+# One --repo feeds every selected extractor.
+briar extract --company acme --repo acme-co/acme-app \
+    --include defect-hotspots --include pr-hygiene \
+    --include review-nits --include ci-health
 ```
 
 **Code-quality extractors** (all `--provider github|bitbucket`): `defect-hotspots`
@@ -89,8 +112,8 @@ briar extract --company acme \
 ```bash
 # Merge a knowledge index into CLAUDE.md; full detail lands in
 # .briar/knowledge/<company>.md for the agent to read when relevant.
-briar extract --company acme --include defect-hotspots --include ci-health \
-    --risk-repo acme-co/acme-app --cihealth-repo acme-co/acme-app \
+briar extract --company acme --repo acme-co/acme-app \
+    --include defect-hotspots --include ci-health \
     --merge-claude-md
 ```
 
@@ -162,33 +185,40 @@ Plus `briar context` (local knowledge blobs), `briar dashboard` (read-only HTML 
 ### Repeatable flags — fan out across repos, projects, services
 
 Most list-style flags accept multiple occurrences: repeat the flag, once
-per value (there's no comma form — `--pr-repo a,b` is one repo named
-`a,b`). Mix them to cover a whole fleet in a single command.
+per value (there's no comma form — `--repo a,b` is one repo named `a,b`).
+The canonical `--repo` feeds every extractor selected with `--include`.
 
 ```bash
-# Mine several repos, keep the team's PRs, drop the bots, across two boards.
-# --pr-max applies per repo; author allow/block compose as allow ∩ ¬block.
+# Mine several repos, keep the team's PRs, drop the bots — one --repo,
+# every selected extractor. --max applies per repo; author allow/block
+# compose as allow ∩ ¬block.
 briar extract --company acme \
-    --include pr-archaeology --include active-tickets \
-    --tracker jira \
-    --pr-repo acme-co/web --pr-repo acme-co/api --pr-repo acme-co/mobile \
-    --pr-max 75 \
-    --pr-authors-block "dependabot[bot]" --pr-authors-block "renovate[bot]" \
-    --ticket-project ACME --ticket-project PLAT
+    --include pr-archaeology --include defect-hotspots \
+    --repo acme-co/web --repo acme-co/api --repo acme-co/mobile \
+    --max 75 \
+    --authors-block "dependabot[bot]" --authors-block "renovate[bot]"
 
-# Scaffold a triage flow from two sources, filtered by author + assignee.
-# Each tracker source carries its own repeatable *-authors/assignees-*.
+# Scaffold a triage flow from two sources — one shared author/assignee
+# filter applies to every --source.
 briar scaffold implementation --prefix acme-triage \
     --source github --source jira \
     --owner acme-co --repo acme-app --github-secret-id <uuid> \
-    --github-authors-block "dependabot[bot]" \
-    --github-assignees-allow alice --github-assignees-allow bob \
+    --authors-block "dependabot[bot]" \
+    --assignees-allow alice --assignees-allow bob \
     --jira-project ACME --jira-project PLAT --jira-secret-id <uuid> \
     --auth-mode pat
 ```
 
-The same lists map onto runbook YAML as arrays — e.g. `pr_repo:
-[acme-co/web, acme-co/api]` is two `--pr-repo` flags.
+The same lists map onto runbook YAML as arrays — e.g. `repo:
+[acme-co/web, acme-co/api]` under an extractor's `args:`.
+
+> **Divergent identifiers in one run.** Some extractors key off a tracker
+> *project* (`active-tickets`, `ticket-archaeology`) rather than an
+> `owner/repo` slug. When you run those alongside repo-based extractors in
+> a single invocation and they need *different* values, reach for the
+> per-extractor override flags (`--ticket-project`, `--pr-repo`, … — listed
+> by `briar extract --advanced-help`), or split into two invocations. The
+> runbook YAML models this cleanly: one `args:` block per extractor.
 
 ### Handy patterns
 

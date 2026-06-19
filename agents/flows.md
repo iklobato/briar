@@ -41,7 +41,7 @@ briar secrets doctor --examples examples/
 
 # 4. First cold extraction — everything available for the company
 briar extract --company <COMPANY> \
-    --pr-repo <OWNER>/<REPO> \
+    --repo <OWNER>/<REPO> \
     --ticket-project <PROJECT>
 ```
 
@@ -66,9 +66,9 @@ briar extract --company <COMPANY> \
     --include aws-infra \
     --include meeting-digest \
     --include pr-archaeology \
-    --pr-repo <OWNER>/<REPO> \
+    --repo <OWNER>/<REPO> \
     --aws-extract-region us-east-1 \
-    --meeting-since-days 14
+    --since-days 14
 
 # 3. context — eyeball what landed before the agent reads it
 briar context get knowledge:<COMPANY> | head -40
@@ -109,7 +109,7 @@ briar secrets doctor --examples examples/
 # 2. extract — fresh conventions + ticket context for the engineer agent
 briar extract --company <COMPANY> \
     --include codebase-conventions --include active-tickets \
-    --pr-repo <OWNER>/<REPO> --ticket-project <PROJECT>
+    --repo <OWNER>/<REPO> --ticket-project <PROJECT>
 
 # 3. agent — implement one ticket (ticket-context fetched JIT for the key).
 #    --keep-worktree leaves the tree in /tmp to inspect; --dry-run previews.
@@ -142,7 +142,7 @@ and **journal** (monitor + audit).
 ```bash
 # 0. extract — refresh the knowledge the synthesiser will splice in
 briar extract --company <COMPANY> --include codebase-conventions \
-    --include active-tickets --pr-repo <OWNER>/<REPO> --ticket-project <PROJECT>
+    --include active-tickets --repo <OWNER>/<REPO> --ticket-project <PROJECT>
 
 # 1. plan build — board → ordered plan, with knowledge:<COMPANY> spliced in
 briar plan build "https://github.com/orgs/<OWNER>/projects/7" \
@@ -317,7 +317,7 @@ briar auth login linear-api-key         --company <COMPANY>
 # 2. Mine Bitbucket PRs
 briar extract --company <COMPANY> \
     --include pr-archaeology --include codebase-conventions \
-    --provider bitbucket --pr-repo <OWNER>/<REPO>
+    --provider bitbucket --repo <OWNER>/<REPO>
 
 # 3. Implement a Linear ticket against a Bitbucket repo
 briar agent implement --company <COMPANY> \
@@ -332,16 +332,18 @@ Bitbucket PRs; the agent opens a Bitbucket PR.
 
 ## Flow 10 — Fan out across many repos, boards, and authors
 
-Repeatable flags compose: `--pr-repo` per repo, `--ticket-project` per
-board, author allow/block as `allow ∩ ¬block`.
+Repeatable flags compose: `--repo` per repo (canonical), `--ticket-project`
+per board (the per-extractor override for tracker extractors, since their
+project keys differ in shape from `owner/repo`), author allow/block as
+`allow ∩ ¬block`.
 
 ```bash
 briar extract --company <COMPANY> \
     --include pr-archaeology --include active-tickets --include reviewer-profile \
-    --pr-repo <OWNER>/web --pr-repo <OWNER>/api --pr-repo <OWNER>/infra \
+    --repo <OWNER>/web --repo <OWNER>/api --repo <OWNER>/infra \
     --ticket-project <PROJECT> --ticket-project OPS \
-    --pr-authors-allow alice --pr-authors-allow bob \
-    --pr-authors-block dependabot --pr-authors-block renovate
+    --authors-allow alice --authors-allow bob \
+    --authors-block dependabot --authors-block renovate
 ```
 
 **Verify:** the blob has one PR section spanning all three repos and one

@@ -15,7 +15,6 @@ from typing import Any, Callable, Iterator
 
 import pytest
 
-
 _PREFIXES_TO_SCRUB = (
     "BRIAR_",
     "GITHUB_",
@@ -112,6 +111,15 @@ def cli(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> Calla
 
     # No-op configure so caplog's handler stays attached.
     monkeypatch.setattr("briar.cli.configure_logging", lambda verbose=False: None)
+
+    # Hermetic resolution: neutralise the two AMBIENT inputs the CLI reads
+    # before dispatch — git `origin` inference and project-config discovery.
+    # Without this a test invoking `main()` would pick up the checkout's own
+    # remote (CI clones add an `origin`, so `--owner`/`--repo` get inferred
+    # and required-flag assertions flip) or a stray `.briar.toml`. Tests that
+    # exercise inference/config do so by calling the resolvers directly.
+    monkeypatch.setattr("briar.infer.git_remote_slug", lambda cwd=None: None)
+    monkeypatch.setattr("briar.config.load_project_config", lambda *a, **k: {})
 
     def invoke(*argv: str, env: dict[str, str] | None = None) -> SimpleNamespace:
         if env:
