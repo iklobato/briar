@@ -149,6 +149,42 @@ def _iter_subparsers(parser: argparse.ArgumentParser):
                 yield from _iter_subparsers(sub)
 
 
+def _derive_repo_slug(config: Dict[str, object]) -> Optional[str]:
+    """`owner/repo` from the `[repo]` section, or None if incomplete."""
+    section = config.get("repo")
+    if not isinstance(section, dict):
+        return None
+    owner, repo = section.get("owner"), section.get("repo")
+    if owner and repo:
+        return f"{owner}/{repo}"
+    return None
+
+
+def _repo_list_value(config: Dict[str, object]) -> Optional[List[str]]:
+    """Value for an append-style `--repo` (the canonical extract flag),
+    which wants a list of `owner/repo` slugs: prefer an explicit `repos`
+    array, else the single slug derived from `[repo]`."""
+    repos = config.get("repos")
+    if isinstance(repos, list) and repos:
+        return [str(r) for r in repos]
+    slug = _derive_repo_slug(config)
+    return [slug] if slug else None
+
+
+def _value_for_action(action: argparse.Action, config: Dict[str, object]) -> Optional[object]:
+    """The config/env value appropriate to this action, or None when the
+    config does not speak to it. Shape-aware: an append `--repo` gets a
+    list of slugs, a scalar `--repo` gets the bare repo name."""
+    if action.dest == "repo" and isinstance(action, argparse._AppendAction):
+        return _repo_list_value(config)
+    for spec in _CONFIG_SPECS:
+        if spec.dest == action.dest:
+            value = _resolve(spec, config)
+            if value is not None:
+                return value
+    return None
+
+
 def apply_config_defaults(
     parser: argparse.ArgumentParser,
     config: Optional[Dict[str, object]] = None,
@@ -161,17 +197,12 @@ def apply_config_defaults(
     logging / tests)."""
     resolved = {} if config is None else config
     satisfied: List[str] = []
-    by_dest: Dict[str, object] = {}
-    for spec in _CONFIG_SPECS:
-        if spec.dest in by_dest:
-            continue  # first spec for a dest wins (env order in _CONFIG_SPECS)
-        value = _resolve(spec, resolved)
-        if value is not None:
-            by_dest[spec.dest] = value
     for sub in _iter_subparsers(parser):
         for action in sub._actions:
-            if action.dest in by_dest:
-                action.default = by_dest[action.dest]
-                action.required = False
-                satisfied.append(action.dest)
+            value = _value_for_action(action, resolved)
+            if value is None:
+                continue
+            action.default = value
+            action.required = False
+            satisfied.append(action.dest)
     return satisfied

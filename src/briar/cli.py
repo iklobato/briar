@@ -213,6 +213,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         if satisfied:
             log.debug("config: satisfied defaults for %s", sorted(set(satisfied)))
 
+        # Below config in the precedence chain: infer --owner/--repo from
+        # the local git `origin` remote for whatever config didn't supply.
+        from briar.infer import apply_inference_defaults
+
+        inferred = apply_inference_defaults(parser, satisfied)
+        if inferred:
+            log.debug("infer: filled %s from git remote", sorted(set(inferred)))
+
     normalised: List[str] = []
     for flag, value in kv.items():
         normalised.extend([flag, value])

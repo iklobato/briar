@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 
-
 from briar.config import apply_config_defaults, find_config_file, load_project_config
 
 
@@ -90,6 +89,29 @@ def test_unrelated_dest_untouched():
     parser.add_argument("--unrelated", default="keep")
     apply_config_defaults(parser, {"company": "acme"})
     assert parser.parse_args([]).unrelated == "keep"
+
+
+def test_append_repo_gets_slug_list_scalar_repo_gets_bare_name():
+    """A `[repo]` section feeds an append --repo (extract canonical) a
+    list of owner/repo slugs, and a scalar --repo (agent) the bare name."""
+    parser = argparse.ArgumentParser()
+    sub = parser.add_subparsers(dest="cmd")
+    extract = sub.add_parser("extract")
+    extract.add_argument("--repo", action="append", default=[])
+    agent = sub.add_parser("agent")
+    agent.add_argument("--repo", required=True)
+    agent.add_argument("--owner", required=True)
+    apply_config_defaults(parser, {"repo": {"owner": "acme-co", "repo": "acme-app"}})
+    assert parser.parse_args(["extract"]).repo == ["acme-co/acme-app"]
+    ns = parser.parse_args(["agent"])
+    assert (ns.owner, ns.repo) == ("acme-co", "acme-app")
+
+
+def test_repos_array_feeds_append_repo():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--repo", action="append", default=[])
+    apply_config_defaults(parser, {"repos": ["a/b", "c/d"]})
+    assert parser.parse_args([]).repo == ["a/b", "c/d"]
 
 
 def test_applies_through_subparsers():
