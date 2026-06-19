@@ -47,6 +47,12 @@ jobs:
           uv sync --extra test
           uv run pytest -n auto -ra --strict-markers -m "not integration"
 
+      # `uv sync` can touch uv.lock; discard any such churn so the later
+      # `git pull --rebase` (in the commit/tag/push step) doesn't abort on
+      # "unstaged changes". The bump below is the only intended edit.
+      - name: Discard gate working-tree churn
+        run: git checkout -- uv.lock || true
+
       - name: Bump patch version in pyproject.toml
         id: bump
         run: |
