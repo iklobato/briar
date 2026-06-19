@@ -106,6 +106,25 @@ def _build_parser(commands: Dict[str, Command]) -> argparse.ArgumentParser:
     return parser
 
 
+def _warn_legacy_flags(raw_argv: List[str], log: logging.Logger) -> None:
+    """One consolidated stderr note when the command line uses a legacy
+    per-extractor / per-source flag that a canonical flag now covers.
+
+    A plain print, NOT a `warnings.warn` — the test suite runs with
+    `filterwarnings=error`, and this is user guidance, not a code smell."""
+    from briar.extract.canonical import legacy_flag_suggestions
+
+    suggestions = legacy_flag_suggestions(raw_argv)
+    if not suggestions:
+        return
+    pairs = ", ".join(f"{old} → {new}" for old, new in sorted(suggestions.items()))
+    print(
+        f"note: these flags are deprecated in favour of shared canonical flags: {pairs}. " "They still work; see `briar extract --advanced-help`.",
+        file=sys.stderr,
+    )
+    log.debug("legacy-flags: %s", pairs)
+
+
 def _install_default_journal(log: logging.Logger) -> None:
     """Install the process-wide default journal. Honours
     BRIAR_JOURNAL=off to disable entirely; otherwise wires the
@@ -228,6 +247,8 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     args = parser.parse_args(normalised)
     log.debug("dispatching command=%s args=%r", args.command, vars(args))
+
+    _warn_legacy_flags(raw_argv, log)
 
     # Wrap dispatch in a telemetry span so duration + outcome land
     # in one place. The span captures uncaught exceptions, scrubs

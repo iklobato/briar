@@ -64,6 +64,39 @@ _EXACT_DEST_TO_CONCEPT: Dict[str, str] = {
 }
 
 
+# Canonical concept → the shared flag that replaces every legacy
+# per-extractor / per-source flag of that concept.
+_CONCEPT_TO_FLAG: Dict[str, str] = {
+    "repo": "--repo",
+    "since_days": "--since-days",
+    "max": "--max",
+    "top_n": "--top-n",
+    "sample": "--sample",
+    "authors_allow": "--authors-allow",
+    "authors_block": "--authors-block",
+    "assignees_allow": "--assignees-allow",
+    "assignees_block": "--assignees-block",
+}
+
+
+def legacy_flag_suggestions(argv: List[str]) -> Dict[str, str]:
+    """Map each legacy per-extractor / per-source flag present in `argv`
+    to the canonical flag that now covers it. A flag counts as legacy
+    when its dest maps to a canonical concept (the canonical flags
+    themselves never do). Empty when the command line uses none."""
+    suggestions: Dict[str, str] = {}
+    for token in argv:
+        if not token.startswith("--"):
+            continue
+        name = token.split("=", 1)[0]
+        dest = name[2:].replace("-", "_")
+        concept = _concept_for_dest(dest)
+        canonical = _CONCEPT_TO_FLAG.get(concept) if concept else None
+        if canonical and name != canonical:
+            suggestions[name] = canonical
+    return suggestions
+
+
 def _concept_for_dest(dest: str) -> Optional[str]:
     """Canonical concept a private dest belongs to, or None if the dest
     is genuinely extractor-specific."""
