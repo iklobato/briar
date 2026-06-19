@@ -42,7 +42,7 @@ from briar.logging import env_verbose
 #   GLOBAL_FLAGS_WITH_VALUE: `--format yaml` / `--format=yaml`
 #   GLOBAL_BOOL_FLAGS:       `--verbose` / `-v` (no value)
 _GLOBAL_FLAGS_WITH_VALUE: Set[str] = {"--format"}
-_GLOBAL_BOOL_FLAGS: Set[str] = {"--verbose", "-v"}
+_GLOBAL_BOOL_FLAGS: Set[str] = {"--verbose", "-v", "--version", "-V"}
 
 
 def _extract_global_flags(argv: List[str]) -> Tuple[Dict[str, str], Set[str], List[str]]:
@@ -98,6 +98,14 @@ def _build_parser(commands: Dict[str, Command]) -> argparse.ArgumentParser:
         "-v",
         action="store_true",
         help="enable DEBUG-level logging (also honours BRIAR_VERBOSE=1 env var)",
+    )
+    # `--version` is short-circuited in `main()` before any I/O; declared
+    # here so `briar --help` lists it.
+    parser.add_argument(
+        "--version",
+        "-V",
+        action="store_true",
+        help="print client version and exit",
     )
     sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
     for name, cmd in commands.items():
@@ -164,6 +172,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     except CliError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+
+    # `--version` is pure metadata: print and exit before ANY logging,
+    # credential bootstrap, journal, or telemetry I/O — same contract as
+    # `-h`. Mirrors `briar version`, but as the conventional top-level flag.
+    if "--version" in flags or "-V" in flags:
+        from briar import __version__
+
+        print(f"briar-cli {__version__}")
+        return 0
 
     # Configure logging before anything else so module imports that
     # log at import-time still inherit the right level.

@@ -16,12 +16,7 @@ from typing import ClassVar, Dict
 from briar.commands.base import Command
 from briar.errors import CliError
 from briar.formatting import render
-from briar.iac.runbook import (
-    RunbookScheduler,
-    extract_runbook,
-    load_runbook_file,
-)
-
+from briar.iac.runbook import RunbookScheduler, extract_runbook, load_runbook_file
 
 log = logging.getLogger(__name__)
 
@@ -69,6 +64,11 @@ class CommandRunbook(Command):
         )
 
     def run(self, args: argparse.Namespace) -> int:
+        # Operational commands — surface INFO progress even though the CLI
+        # is quiet-by-default (see briar.logging.daemon_logging).
+        from briar.logging import daemon_logging
+
+        daemon_logging()
         handler_name = self._ACTIONS.get(args.op)
         if handler_name is None:
             known = ", ".join(sorted(self._ACTIONS.keys()))

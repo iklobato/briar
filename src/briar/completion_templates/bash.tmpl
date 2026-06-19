@@ -1,0 +1,16 @@
+# briar bash completion. Install: eval "$(briar completion bash)"
+_briar() {
+  local cur cmd opts
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  cmd="${COMP_WORDS[1]}"
+  if [ "$COMP_CWORD" -eq 1 ]; then
+    COMPREPLY=( $(compgen -W "@@COMMANDS@@ @@GLOBALS@@" -- "$cur") )
+    return
+  fi
+  opts=""
+  case "$cmd" in
+@@CASES@@
+  esac
+  COMPREPLY=( $(compgen -W "$opts @@GLOBALS@@" -- "$cur") )
+}
+complete -F _briar briar

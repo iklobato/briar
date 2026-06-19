@@ -11,6 +11,7 @@ from typing import Dict, List, Type
 from briar.commands.agent import CommandAgent
 from briar.commands.auth import CommandAuth
 from briar.commands.base import Command, confirm
+from briar.commands.completion import CommandCompletion
 from briar.commands.context import ContextCommand
 from briar.commands.dashboard import CommandDashboard
 from briar.commands.extract import CommandExtract
@@ -40,6 +41,7 @@ class CommandRegistry:
         CommandJournal,
         CommandTelemetry,
         CommandVersion,
+        CommandCompletion,
     ]
 
     @classmethod

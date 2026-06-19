@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 from briar.commands.base import Command
@@ -58,5 +59,5 @@ class CommandScaffold(Command):
                 print(text)
                 return 0
             Path(args.out).write_text(text)
-            print(f"wrote {args.out}")
+            print(f"wrote {args.out}", file=sys.stderr)
             return 0

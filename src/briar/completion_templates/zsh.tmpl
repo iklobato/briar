@@ -1,0 +1,14 @@
+# briar zsh completion. Install: eval "$(briar completion zsh)"
+_briar() {
+  local opts
+  if (( CURRENT == 2 )); then
+    compadd -- @@COMMANDS@@ @@GLOBALS@@
+    return
+  fi
+  opts=""
+  case "${words[2]}" in
+@@CASES@@
+  esac
+  compadd -- ${=opts} @@GLOBALS@@
+}
+compdef _briar briar

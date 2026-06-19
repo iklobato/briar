@@ -1,0 +1,9 @@
+    @@NAME@@)
+      if [ "$COMP_CWORD" -eq 2 ]; then
+        opts="@@SUBNAMES@@"
+      else
+        case "${COMP_WORDS[2]}" in
+@@INNER@@
+        esac
+      fi
+      ;;
