@@ -36,3 +36,19 @@ def test_unique_flags_are_not_flagged():
 def test_unrelated_flags_are_not_flagged():
     argv = ["plan", "build", "--max-cards", "50", "--default-branch", "main"]
     assert legacy_flag_suggestions(argv) == {}
+
+
+def test_tracker_project_flags_are_not_deprecated():
+    """--ticket-project / --ticket-archaeology-project are the documented
+    way to name a tracker project (and the divergent-case override), not
+    deprecated aliases — they must not be nagged about."""
+    argv = [
+        "extract",
+        "--include",
+        "active-tickets",
+        "--ticket-project",
+        "ACME",
+        "--ticket-archaeology-project",
+        "PLAT",
+    ]
+    assert legacy_flag_suggestions(argv) == {}

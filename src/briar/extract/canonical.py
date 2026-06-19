@@ -79,6 +79,14 @@ _CONCEPT_TO_FLAG: Dict[str, str] = {
 }
 
 
+# Tracker-project flags are mapped to the `repo` concept so `--repo` can
+# also feed `active-tickets` / `ticket-archaeology`, but they are NOT
+# deprecated: they remain the documented, semantically-clearer way to name
+# a tracker project (and the override for the divergent repo-vs-project
+# case). Don't nag about them.
+_NOT_DEPRECATED_DESTS = frozenset({"ticket_project", "ticket_archaeology_project"})
+
+
 def legacy_flag_suggestions(argv: List[str]) -> Dict[str, str]:
     """Map each legacy per-extractor / per-source flag present in `argv`
     to the canonical flag that now covers it. A flag counts as legacy
@@ -90,6 +98,8 @@ def legacy_flag_suggestions(argv: List[str]) -> Dict[str, str]:
             continue
         name = token.split("=", 1)[0]
         dest = name[2:].replace("-", "_")
+        if dest in _NOT_DEPRECATED_DESTS:
+            continue
         concept = _concept_for_dest(dest)
         canonical = _CONCEPT_TO_FLAG.get(concept) if concept else None
         if canonical and name != canonical:
