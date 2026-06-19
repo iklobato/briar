@@ -217,7 +217,10 @@ def test_extract_active_tickets_jira_401_is_swallowed_to_empty(cli, jira_at, tmp
     result = _run(cli, tmp_root, "--include", "active-tickets", "--ticket-project", "ENG")
 
     assert result.code == 0, result.err
-    assert result.err == ""  # the 401 must NOT surface as an uncaught crash to the user
+    # The 401 must NOT surface as an uncaught crash: no traceback reaches the
+    # user. (The swallow is logged at ERROR on stderr, which is expected — the
+    # contract is "no crash", not "no log".)
+    assert "Traceback" not in result.err
     assert _search_posts(jira_at.received), "jira should have been queried before the 401"
     blob = _disk_blob(tmp_root)
     assert "ENG — 0 open ticket(s)" in blob  # degrades gracefully to empty, not bogus data

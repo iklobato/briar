@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import sys
 from pathlib import Path
 from typing import ClassVar, Dict
 
@@ -23,7 +24,6 @@ from briar.commands.base import Command
 from briar.errors import CliError
 from briar.journal import JOURNAL_STORE_NAMES, make_journal_store
 from briar.journal._render import render_markdown
-
 
 log = logging.getLogger(__name__)
 
@@ -106,7 +106,7 @@ class CommandJournal(Command):
             print(text, end="" if args.export_format == "markdown" else "\n")
             return 0
         Path(args.out).write_text(text)
-        print(f"wrote {args.out}")
+        print(f"wrote {args.out}", file=sys.stderr)
         return 0
 
 

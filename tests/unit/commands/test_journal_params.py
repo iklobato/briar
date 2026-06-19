@@ -233,7 +233,7 @@ class TestExportFlags:
         assert out.exists()
         parsed = json.loads(out.read_text())
         assert parsed["session_id"] == s.session_id
-        assert f"wrote {out}" in result.out
+        assert f"wrote {out}" in result.err  # status on stderr
 
     def test_out_path_writes_file_markdown(self, cli, journal_seam, tmp_path) -> None:
         s = _session(command="scaffold.run")
@@ -242,4 +242,4 @@ class TestExportFlags:
         result = cli("journal", "export", s.session_id, "--out", str(out))
         assert result.code == 0
         assert "scaffold.run" in out.read_text()
-        assert f"wrote {out}" in result.out
+        assert f"wrote {out}" in result.err  # status on stderr
