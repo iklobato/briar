@@ -10,6 +10,11 @@ from __future__ import annotations
 
 import warnings
 
+# E402 is expected here: the warnings filter below MUST run before any
+# pydantic-importing module loads, so the rest of the imports follow it.
+# ruff: noqa: E402
+
+
 # pydantic's plugin loader scans installed packages for plugins at import
 # time. When logfire is installed but its pinned opentelemetry-sdk symbol
 # drifts (ReadableLogRecord was renamed upstream), the loader emits a
@@ -196,6 +201,17 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     commands = CommandRegistry.build()
     parser = _build_parser(commands)
+
+    # Fold project config (.briar.toml / [tool.briar]) + env into the
+    # parser defaults so a bare command inherits stable values (company,
+    # store, repo, model, …) and explicit flags still override. Skipped
+    # for help/usage so `briar -h` touches no config file.
+    if not metadata_only:
+        from briar.config import apply_config_defaults, load_project_config
+
+        satisfied = apply_config_defaults(parser, load_project_config())
+        if satisfied:
+            log.debug("config: satisfied defaults for %s", sorted(set(satisfied)))
 
     normalised: List[str] = []
     for flag, value in kv.items():
