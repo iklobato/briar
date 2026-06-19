@@ -93,6 +93,6 @@ class SourceTemplate(ABC):
         ns = vars(args)
         return {field: self._filter_value(ns, field) for field in self._USER_FILTER_FIELDS}
 
-    def _filter_value(self, ns: Dict[str, object], field: str) -> List[str]:
+    def _filter_value(self, ns: Dict[str, Any], field: str) -> List[str]:
         specific = list(ns.get(f"{self.kind}_{field}") or [])
         return specific or list(ns.get(field) or [])
