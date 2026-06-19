@@ -69,6 +69,17 @@ briar extract --include pr-archaeology        # company + repo come from config/
 - **Inference.** `--owner`/`--repo` are read from the git `origin` remote when neither the flag nor config supplies them.
 - A per-extractor override always wins over the shared flag when both are given.
 
+Helpers for the config + setup loop:
+
+```bash
+briar init                 # write a starter .briar.toml (repo inferred from git)
+briar config show          # see each setting's resolved value AND its source
+briar doctor               # check config, git, credentials, store (CI-usable exit code)
+eval "$(briar completion bash)"   # tab-completion (also: zsh)
+```
+
+Other niceties: `briar --version`, quiet-by-default logs (logs to stderr, `--verbose` for DEBUG), and a once-a-day "new version available" nudge (opt out with `BRIAR_NO_UPDATE_CHECK=1` / `DO_NOT_TRACK=1`).
+
 ---
 
 ## What you can do
