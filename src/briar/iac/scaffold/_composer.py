@@ -19,7 +19,6 @@ from briar.iac.scaffold.sources import SOURCE_TEMPLATES, SourceTemplate
 from briar.iac.scaffold.triggers import TRIGGER_TEMPLATES, TriggerTemplate
 from briar.journal import record
 
-
 log = logging.getLogger(__name__)
 
 
@@ -314,11 +313,35 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
         default="",
         help=("KnowledgeStore backend to read the splice from " "(default: postgres if BRIAR_DATABASE_URL is set, else file)"),
     )
+    # Shared issue-author/assignee filters. Apply to every selected source
+    # (github / bitbucket / jira); a per-source override (e.g.
+    # --jira-authors-allow, see the source-specific help) wins when given.
+    group = parser.add_argument_group("context filters", "Apply to all --source kinds; per-source overrides win.")
+    for field, blurb in _FILTER_FIELDS:
+        group.add_argument(f"--{field.replace('_', '-')}", action="append", default=[], help=blurb)
+
+
+# Canonical filter fields shared across every source kind, plus the
+# help blurb shown once on the shared flag.
+_FILTER_FIELDS = (
+    ("authors_allow", "only include issues whose author is in this list (repeatable)"),
+    ("authors_block", "exclude issues whose author is in this list (repeatable)"),
+    ("assignees_allow", "only include issues with an assignee in this list (repeatable)"),
+    ("assignees_block", "exclude issues with an assignee in this list (repeatable)"),
+)
+_FILTER_SUFFIXES = tuple(f"_{field}" for field, _ in _FILTER_FIELDS)
 
 
 def attach_source_arguments(parser: argparse.ArgumentParser) -> None:
     for tmpl in SOURCE_TEMPLATES.values():
         tmpl.add_arguments(parser)
+    # The per-source filter flags (--jira-authors-allow, …) are now covered
+    # by the shared --authors-allow/-block / --assignees-allow/-block flags.
+    # Keep them registered (back-compat + per-source override) but hide them
+    # from -h so the scaffold help shows one filter set, not three.
+    for action in parser._actions:
+        if action.dest.endswith(_FILTER_SUFFIXES) and action.help is not argparse.SUPPRESS:
+            action.help = argparse.SUPPRESS
 
 
 def attach_trigger_arguments(parser: argparse.ArgumentParser) -> None:

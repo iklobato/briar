@@ -47,8 +47,12 @@ class CommandExtract(Command):
             choices=sorted(EXTRACTORS.keys()),
             help="Which extractor(s) to run (repeatable; default: all available)",
         )
+        # `--store` is the name every other command uses; `--storage` is
+        # kept as an alias so existing scripts keep working.
         parser.add_argument(
+            "--store",
             "--storage",
+            dest="storage",
             default="file",
             choices=list(KNOWLEDGE_STORE_NAMES),
             help="Where to write the result (default: file)",

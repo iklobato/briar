@@ -18,13 +18,6 @@ class SourceJira(SourceTemplate):
     kind = "jira"
     default_provider_for_oauth = "atlassian"
 
-    _FILTER_FIELDS = (
-        ("authors_allow", "jira_authors_allow"),
-        ("authors_block", "jira_authors_block"),
-        ("assignees_allow", "jira_assignees_allow"),
-        ("assignees_block", "jira_assignees_block"),
-    )
-
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
             "--jira-project",
@@ -78,8 +71,9 @@ class SourceJira(SourceTemplate):
         jql = ns.get("jira_jql")
         if jql:
             config["jql"] = jql
-        for field, attr in self._FILTER_FIELDS:
-            values = list(ns.get(attr) or [])
+        # Per-source --jira-authors-allow wins; otherwise the shared
+        # --authors-allow / --assignees-* flags apply (base._user_filters).
+        for field, values in self._user_filters(args).items():
             if values:
                 config[field] = values
 

@@ -73,10 +73,7 @@ class SourceTemplate(ABC):
         if mode == "pat":
             secret_id = ns.get(self.auth_secret_arg) if self.auth_secret_arg else None
             if not secret_id:
-                raise ConfigError(
-                    f"--source {self.kind} with --auth-mode pat requires "
-                    f"--{self.kind}-secret-id <secret-uuid>"
-                )
+                raise ConfigError(f"--source {self.kind} with --auth-mode pat requires " f"--{self.kind}-secret-id <secret-uuid>")
             return {"credentials_ref": secret_id, "credential_binding": None}
         return {
             "credentials_ref": None,
@@ -86,14 +83,16 @@ class SourceTemplate(ABC):
             },
         }
 
+    _USER_FILTER_FIELDS = ("authors_allow", "authors_block", "assignees_allow", "assignees_block")
+
     def _user_filters(self, args: argparse.Namespace) -> Dict[str, List[str]]:
         """Standard 4-field user-filter dict (authors/assignees × allow/block).
-        The argparse keys follow ``{kind}_authors_allow`` etc. — matches
-        the per-source flag prefix declared in `add_arguments`."""
+        The per-source flag ``{kind}_authors_allow`` wins when set; otherwise
+        the shared ``--authors-allow`` (dest ``authors_allow``) applies, so one
+        filter set can cover every selected source."""
         ns = vars(args)
-        return {
-            "authors_allow": list(ns.get(f"{self.kind}_authors_allow") or []),
-            "authors_block": list(ns.get(f"{self.kind}_authors_block") or []),
-            "assignees_allow": list(ns.get(f"{self.kind}_assignees_allow") or []),
-            "assignees_block": list(ns.get(f"{self.kind}_assignees_block") or []),
-        }
+        return {field: self._filter_value(ns, field) for field in self._USER_FILTER_FIELDS}
+
+    def _filter_value(self, ns: Dict[str, object], field: str) -> List[str]:
+        specific = list(ns.get(f"{self.kind}_{field}") or [])
+        return specific or list(ns.get(field) or [])
