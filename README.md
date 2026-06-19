@@ -185,33 +185,40 @@ Plus `briar context` (local knowledge blobs), `briar dashboard` (read-only HTML 
 ### Repeatable flags — fan out across repos, projects, services
 
 Most list-style flags accept multiple occurrences: repeat the flag, once
-per value (there's no comma form — `--pr-repo a,b` is one repo named
-`a,b`). Mix them to cover a whole fleet in a single command.
+per value (there's no comma form — `--repo a,b` is one repo named `a,b`).
+The canonical `--repo` feeds every extractor selected with `--include`.
 
 ```bash
-# Mine several repos, keep the team's PRs, drop the bots, across two boards.
-# --pr-max applies per repo; author allow/block compose as allow ∩ ¬block.
+# Mine several repos, keep the team's PRs, drop the bots — one --repo,
+# every selected extractor. --max applies per repo; author allow/block
+# compose as allow ∩ ¬block.
 briar extract --company acme \
-    --include pr-archaeology --include active-tickets \
-    --tracker jira \
-    --pr-repo acme-co/web --pr-repo acme-co/api --pr-repo acme-co/mobile \
-    --pr-max 75 \
-    --pr-authors-block "dependabot[bot]" --pr-authors-block "renovate[bot]" \
-    --ticket-project ACME --ticket-project PLAT
+    --include pr-archaeology --include defect-hotspots \
+    --repo acme-co/web --repo acme-co/api --repo acme-co/mobile \
+    --max 75 \
+    --authors-block "dependabot[bot]" --authors-block "renovate[bot]"
 
-# Scaffold a triage flow from two sources, filtered by author + assignee.
-# Each tracker source carries its own repeatable *-authors/assignees-*.
+# Scaffold a triage flow from two sources — one shared author/assignee
+# filter applies to every --source.
 briar scaffold implementation --prefix acme-triage \
     --source github --source jira \
     --owner acme-co --repo acme-app --github-secret-id <uuid> \
-    --github-authors-block "dependabot[bot]" \
-    --github-assignees-allow alice --github-assignees-allow bob \
+    --authors-block "dependabot[bot]" \
+    --assignees-allow alice --assignees-allow bob \
     --jira-project ACME --jira-project PLAT --jira-secret-id <uuid> \
     --auth-mode pat
 ```
 
-The same lists map onto runbook YAML as arrays — e.g. `pr_repo:
-[acme-co/web, acme-co/api]` is two `--pr-repo` flags.
+The same lists map onto runbook YAML as arrays — e.g. `repo:
+[acme-co/web, acme-co/api]` under an extractor's `args:`.
+
+> **Divergent identifiers in one run.** Some extractors key off a tracker
+> *project* (`active-tickets`, `ticket-archaeology`) rather than an
+> `owner/repo` slug. When you run those alongside repo-based extractors in
+> a single invocation and they need *different* values, reach for the
+> per-extractor override flags (`--ticket-project`, `--pr-repo`, … — listed
+> by `briar extract --advanced-help`), or split into two invocations. The
+> runbook YAML models this cleanly: one `args:` block per extractor.
 
 ### Handy patterns
 

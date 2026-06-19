@@ -54,8 +54,16 @@ Writes `knowledge:<COMPANY>` to `./knowledge/knowledge/<COMPANY>.md`.
 briar extract --company <COMPANY> \
     --include pr-archaeology \
     --include reviewer-profile \
-    --pr-repo <OWNER>/<REPO>
+    --repo <OWNER>/<REPO>
 ```
+
+`--repo` is the canonical flag — it feeds the repo/project list of every
+extractor in the `--include` set. The shared tuning knobs `--since-days`,
+`--max`, `--top-n`, `--sample` and the filters `--authors-allow/-block`,
+`--assignees-allow/-block` apply the same way. (`--company` and `--repo`
+can also come from `.briar.toml` / the git remote — see `agents/creds.md`.)
+The old per-extractor flags (`--pr-repo`, `--risk-since-days`, …) still
+work but are hidden; `briar extract --advanced-help` lists them.
 
 The available extractor names:
 `active-tickets`, `active-work`, `aws-infra`, `ci-health`,
@@ -73,21 +81,25 @@ signal (not just activity). All shape a terse `body` for the agent prompt
 plus full structured detail in `data` (surfaced via `--out-json` or the
 inventory companion).
 
-| Extractor | What it surfaces | Key flags (defaults) |
+All take the canonical `--repo`. The third column lists the canonical
+tuning knobs each honours (with its per-extractor default) plus any
+genuinely extractor-specific flag.
+
+| Extractor | What it surfaces | Canonical knobs (default) + specific flags |
 |---|---|---|
-| `defect-hotspots` | files most likely to break — churn × bug-fix density × size risk score | `--risk-repo`, `--risk-since-days` (90), `--risk-max-commits` (200), `--risk-top-n` (10) |
-| `pr-hygiene` | PR-size distribution, large-PR rate, rubber-stamp (zero-comment-approval) rate, time-to-first-review | `--prhygiene-repo`, `--prhygiene-max` (100), `--prhygiene-diffstat-sample` (30), `--prhygiene-large-loc` (400) |
-| `review-nits` | recurring reviewer asks clustered into categories — candidates to codify as lint rules | `--nits-repo`, `--nits-pr-sample` (30), `--nits-top-n` (15) |
-| `revert-signals` | reverts + emergency fixes → fragile files the test/review net missed | `--revert-repo`, `--revert-since-days` (90), `--revert-max-commits` (200) |
-| `commit-message-quality` | conventional-commits adherence + subject-line hygiene | `--msg-repo`, `--msg-since-days` (90), `--msg-max-commits` (200) |
-| `stale-prs` | open PRs idle beyond a threshold (age measured from creation) | `--stale-repo`, `--stale-max` (100), `--stale-days` (14) |
-| `ci-health` | pass rate, flaky workflows, run-duration trend | `--cihealth-repo`, `--cihealth-limit` (100) |
-| `dependency-health` | open dependency vulnerabilities by severity (GitHub Dependabot) | `--deps-repo`, `--deps-max` (200) |
-| `code-scanning` | open static-analysis findings grouped by rule/file (GitHub CodeQL) | `--scan-repo`, `--scan-max` (200), `--scan-top-n` (10) |
-| `repo-governance` | branch protection + presence of CODEOWNERS / pre-commit / linter / editorconfig | `--gov-repo`, `--gov-branch` (default branch) |
-| `test-discipline` | test-to-source file ratio + source files without an obvious test | `--testdisc-repo`, `--testdisc-top-n` (10) |
-| `release-cadence` | shipping frequency — median gap between releases, recency | `--release-repo`, `--release-max` (100) |
-| `todo-density` | TODO/FIXME/HACK marker count + the files carrying the most (single code-search page) | `--todo-repo`, `--todo-max` (200), `--todo-top-n` (10) |
+| `defect-hotspots` | files most likely to break — churn × bug-fix density × size risk score | `--since-days` (90), `--max` (200), `--top-n` (10) |
+| `pr-hygiene` | PR-size distribution, large-PR rate, rubber-stamp (zero-comment-approval) rate, time-to-first-review | `--max` (100), `--sample` (30), `--prhygiene-large-loc` (400) |
+| `review-nits` | recurring reviewer asks clustered into categories — candidates to codify as lint rules | `--sample` (30), `--top-n` (15) |
+| `revert-signals` | reverts + emergency fixes → fragile files the test/review net missed | `--since-days` (90), `--max` (200) |
+| `commit-message-quality` | conventional-commits adherence + subject-line hygiene | `--since-days` (90), `--max` (200) |
+| `stale-prs` | open PRs idle beyond a threshold (age measured from creation) | `--max` (100), `--stale-days` (14) |
+| `ci-health` | pass rate, flaky workflows, run-duration trend | `--max` (100) |
+| `dependency-health` | open dependency vulnerabilities by severity (GitHub Dependabot) | `--max` (200) |
+| `code-scanning` | open static-analysis findings grouped by rule/file (GitHub CodeQL) | `--max` (200), `--top-n` (10) |
+| `repo-governance` | branch protection + presence of CODEOWNERS / pre-commit / linter / editorconfig | `--gov-branch` (default branch) |
+| `test-discipline` | test-to-source file ratio + source files without an obvious test | `--top-n` (10) |
+| `release-cadence` | shipping frequency — median gap between releases, recency | `--max` (100) |
+| `todo-density` | TODO/FIXME/HACK marker count + the files carrying the most (single code-search page) | `--max` (200), `--top-n` (10) |
 
 ### AWS resource inventory (every tagged resource)
 
@@ -123,7 +135,7 @@ table then doubles as a cloud/repo-estate change log. List them with
 ### Write to postgres instead of disk
 
 ```bash
-briar extract --company <COMPANY> --storage postgres
+briar extract --company <COMPANY> --store postgres
 ```
 
 Requires `BRIAR_DATABASE_URL`. The blob name is unchanged
@@ -160,7 +172,7 @@ untouched. Because only the index lives in `CLAUDE.md` (auto-loaded every
 session), the detail stays out of context until a task makes the agent
 `Read` the detail file — knowledge **on demand**, not permanent context
 cost. The detail file is always written locally even with
-`--storage postgres`, since the reference resolves from the project root.
+`--store postgres`, since the reference resolves from the project root.
 
 ## Verifying success
 
@@ -174,8 +186,8 @@ cost. The detail file is always written locally even with
 
 | Symptom | Fix |
 |---|---|
-| `nothing extracted — every enabled extractor returned empty` | Either credentials missing (run `briar secrets doctor`) or filters too tight (`--pr-authors-allow`, `--pr-max=0`). Re-run with `-v` to see which extractor skipped and why |
+| `nothing extracted — every enabled extractor returned empty` | Either credentials missing (run `briar secrets doctor`) or filters too tight (`--authors-allow`, `--max=0`). Re-run with `-v` to see which extractor skipped and why |
 | Extractor `skipped (not available in this env)` | Missing env var for that extractor. `briar secrets doctor` will name it |
 | `403` / `404` from GitHub | Token lacks scope or repo doesn't exist. PATs need `repo` (+ `read:org` for org-level metadata) |
 | Jira call hangs | `JIRA_<COMPANY>_BASE_URL` set to the wrong host. Check `https://<workspace>.atlassian.net` |
-| Slow runs | `--pr-max=20 --hotspots-max-commits=200 --ticket-max=50` cap the heavy extractors |
+| Slow runs | `--max=20` (per repo) caps the heavy extractors; tighten per-extractor via `--advanced-help` flags if needed |

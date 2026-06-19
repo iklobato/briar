@@ -33,6 +33,12 @@ and the system prompt differ.
 
 ## Commands
 
+> `--company`, `--owner`, and `--repo` resolve through **CLI > env >
+> `.briar.toml` > git remote**. With a `[repo]` section in `.briar.toml`
+> (or simply running inside the checkout), drop them and pass only the
+> ticket/PR identity: `briar agent implement --ticket-key <KEY>`. The
+> explicit flags below still win when given.
+
 ### Implement one ticket (engineer flow)
 
 ```bash
