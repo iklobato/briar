@@ -4,13 +4,43 @@ from __future__ import annotations
 
 import argparse
 
-from briar.config import apply_config_defaults, find_config_file, load_project_config
+import briar.config as config_module
+from briar.config import apply_config_defaults, find_config_file, load_project_config, resolve_with_source
 
 
 def _write(tmp_path, name, body):
     path = tmp_path / name
     path.write_text(body)
     return path
+
+
+def _sources(rows):
+    return {r.setting: (r.value, r.source) for r in rows}
+
+
+def test_resolve_with_source_reports_config_and_section(tmp_path, monkeypatch):
+    monkeypatch.delenv("BRIAR_COMPANY", raising=False)
+    monkeypatch.delenv("BRIAR_DEFAULT_STORE", raising=False)
+    monkeypatch.setattr(config_module, "_inferred_owner_repo", lambda start: {})
+    _write(tmp_path, ".briar.toml", 'company = "acme"\n[repo]\nowner = "acme-co"\nrepo = "app"\n')
+    rows = _sources(resolve_with_source(tmp_path))
+    assert rows["company"] == ("acme", "config (.briar.toml)")
+    assert rows["owner"] == ("acme-co", "config (.briar.toml) [repo]")
+    assert rows["tracker"] == ("(unset)", "-")
+
+
+def test_resolve_with_source_env_beats_config(tmp_path, monkeypatch):
+    monkeypatch.setenv("BRIAR_DEFAULT_STORE", "postgres")
+    monkeypatch.setattr(config_module, "_inferred_owner_repo", lambda start: {})
+    _write(tmp_path, ".briar.toml", 'store = "file"\n')
+    assert _sources(resolve_with_source(tmp_path))["store"] == ("postgres", "env (BRIAR_DEFAULT_STORE)")
+
+
+def test_resolve_with_source_infers_owner_repo_when_no_config(tmp_path, monkeypatch):
+    monkeypatch.setattr(config_module, "_inferred_owner_repo", lambda start: {"owner": "git-owner", "repo": "git-repo"})
+    rows = _sources(resolve_with_source(tmp_path))
+    assert rows["owner"] == ("git-owner", "inferred (git origin)")
+    assert rows["repo"] == ("git-repo", "inferred (git origin)")
 
 
 def test_find_and_load_dedicated_briar_toml(tmp_path):

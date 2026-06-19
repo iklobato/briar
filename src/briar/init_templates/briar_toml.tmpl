@@ -1,0 +1,17 @@
+# .briar.toml — briar project config
+# Resolution precedence: CLI flag > env var > this file > built-in default.
+# Docs: https://usebriar.com/docs/configuration
+
+company = "@@COMPANY@@"
+store   = "@@STORE@@"
+
+[repo]
+owner = "@@OWNER@@"
+repo  = "@@REPO@@"
+provider = "github"
+
+# Uncomment to set agent defaults:
+# [agent]
+# model          = "claude-sonnet-4-6"
+# git_user_name  = "your-bot"
+# git_user_email = "bot@example.com"

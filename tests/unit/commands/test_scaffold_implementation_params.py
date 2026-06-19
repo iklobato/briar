@@ -64,8 +64,10 @@ class TestOut:
         result = cli("scaffold", "implementation", "--prefix", "acme", *_GH, "-o", str(out))
         assert result.code == 0, result.err
         assert out.exists()
-        # stdout is the confirmation line, NOT the JSON, when a path is given.
-        assert result.out.strip() == f"wrote {out}"
+        # Confirmation is a status line on stderr; stdout stays clean when
+        # the bundle is written to a path.
+        assert result.err.strip() == f"wrote {out}"
+        assert result.out.strip() == ""
         assert json.loads(out.read_text())["version"] == 1
 
     def test_long_form_out_flag_also_writes(self, cli, tmp_root) -> None:

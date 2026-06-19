@@ -12,10 +12,12 @@ from briar.commands.agent import CommandAgent
 from briar.commands.auth import CommandAuth
 from briar.commands.base import Command, confirm
 from briar.commands.completion import CommandCompletion
+from briar.commands.config import CommandConfig
 from briar.commands.context import ContextCommand
 from briar.commands.dashboard import CommandDashboard
 from briar.commands.extract import CommandExtract
 from briar.commands.iac import CommandScaffold
+from briar.commands.init import CommandInit
 from briar.commands.journal import CommandJournal
 from briar.commands.plan import CommandPlan
 from briar.commands.runbook import CommandRunbook
@@ -42,6 +44,8 @@ class CommandRegistry:
         CommandTelemetry,
         CommandVersion,
         CommandCompletion,
+        CommandInit,
+        CommandConfig,
     ]
 
     @classmethod
