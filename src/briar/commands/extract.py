@@ -4,6 +4,7 @@ result to a local markdown file."""
 from __future__ import annotations
 
 import argparse
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
@@ -18,6 +19,11 @@ from briar.extract.composer import render_json, render_markdown
 from briar.storage import KNOWLEDGE_STORE_NAMES, make_store
 
 _CLAUDE_MD_DETAIL_ROOT = Path(".briar/knowledge")
+
+
+def _status(message: str) -> None:
+    """Human progress/status → stderr, so stdout stays clean for piping."""
+    print(message, file=sys.stderr)
 
 
 def _company_slug(company: str) -> str:
@@ -95,12 +101,12 @@ class CommandExtract(Command):
             # extractor's private dests before availability / extraction.
             apply_canonical(args, ext)
             if not ext.is_available(args):
-                print(f"  skipped {name}  (not available in this env)")
+                _status(f"  skipped {name}  (not available in this env)")
                 continue
-            print(f"  running {name} ...")
+            _status(f"  running {name} ...")
             section = ext.extract(args)
             if section.is_empty:
-                print(f"  {name}: no data")
+                _status(f"  {name}: no data")
                 continue
             sections.append(section)
 
@@ -112,13 +118,13 @@ class CommandExtract(Command):
 
         store = make_store(args.storage, file_root=Path(args.root))
         ref = store.put(blob_name, md, category="knowledge")
-        print(f"\nwrote blob '{ref.name}' " f"({ref.byte_count} bytes, {len(sections)} sections) " f"via store={args.storage}")
+        _status(f"\nwrote blob '{ref.name}' " f"({ref.byte_count} bytes, {len(sections)} sections) " f"via store={args.storage}")
 
         if args.out_json:
             json_path = Path(args.out_json)
             json_path.parent.mkdir(parents=True, exist_ok=True)
             json_path.write_text(render_json(company=args.company, sections=sections))
-            print(f"wrote {json_path}")
+            _status(f"wrote {json_path}")
 
         if args.merge_claude_md:
             self._merge_claude_md(args, sections)
@@ -147,4 +153,4 @@ class CommandExtract(Command):
         existing = claude_md.read_text() if claude_md.exists() else ""
         claude_md.parent.mkdir(parents=True, exist_ok=True)
         claude_md.write_text(ClaudeMdMerger.merge(existing=existing, block=block))
-        print(f"merged knowledge index into {claude_md} (detail: {detail_path})")
+        _status(f"merged knowledge index into {claude_md} (detail: {detail_path})")

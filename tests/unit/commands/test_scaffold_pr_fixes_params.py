@@ -95,7 +95,8 @@ class TestOut:
         result = cli("scaffold", "pr-fixes", "--prefix", "acme", *_GH, "-o", str(out))
         assert result.code == 0, result.err
         assert out.exists()
-        assert result.out.strip() == f"wrote {out}"
+        assert result.err.strip() == f"wrote {out}"  # status on stderr
+        assert result.out.strip() == ""  # stdout stays clean
 
 
 # ─────────────────────────────────────────────────────────────────────────────

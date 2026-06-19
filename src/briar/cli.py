@@ -42,7 +42,7 @@ from briar.logging import env_verbose
 #   GLOBAL_FLAGS_WITH_VALUE: `--format yaml` / `--format=yaml`
 #   GLOBAL_BOOL_FLAGS:       `--verbose` / `-v` (no value)
 _GLOBAL_FLAGS_WITH_VALUE: Set[str] = {"--format"}
-_GLOBAL_BOOL_FLAGS: Set[str] = {"--verbose", "-v"}
+_GLOBAL_BOOL_FLAGS: Set[str] = {"--verbose", "-v", "--version", "-V"}
 
 
 def _extract_global_flags(argv: List[str]) -> Tuple[Dict[str, str], Set[str], List[str]]:
@@ -99,11 +99,34 @@ def _build_parser(commands: Dict[str, Command]) -> argparse.ArgumentParser:
         action="store_true",
         help="enable DEBUG-level logging (also honours BRIAR_VERBOSE=1 env var)",
     )
+    # `--version` is short-circuited in `main()` before any I/O; declared
+    # here so `briar --help` lists it.
+    parser.add_argument(
+        "--version",
+        "-V",
+        action="store_true",
+        help="print client version and exit",
+    )
     sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
     for name, cmd in commands.items():
         sp = sub.add_parser(name, help=cmd.help)
         cmd.add_arguments(sp)
     return parser
+
+
+def _notify_update(log: logging.Logger) -> None:
+    """Best-effort 'newer version available' notice on stderr. Throttled +
+    opt-out + swallow-on-error inside `update_check.maybe_notify`; the
+    extra guard here keeps even an import error from touching the exit."""
+    try:
+        from briar import __version__
+        from briar.update_check import maybe_notify
+
+        notice = maybe_notify(__version__)
+        if notice:
+            print(notice, file=sys.stderr)
+    except Exception:  # noqa: BLE001 — an update nudge must never break the CLI
+        log.debug("update-check: notify failed", exc_info=True)
 
 
 def _warn_legacy_flags(raw_argv: List[str], log: logging.Logger) -> None:
@@ -164,6 +187,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     except CliError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+
+    # `--version` is pure metadata: print and exit before ANY logging,
+    # credential bootstrap, journal, or telemetry I/O — same contract as
+    # `-h`. Mirrors `briar version`, but as the conventional top-level flag.
+    if "--version" in flags or "-V" in flags:
+        from briar import __version__
+
+        print(f"briar-cli {__version__}")
+        return 0
 
     # Configure logging before anything else so module imports that
     # log at import-time still inherit the right level.
@@ -259,6 +291,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     try:
         with telemetry.command_span(args.command, args):
             rc = commands[args.command].run(args)
+        _notify_update(log)
         return rc
     except CliError as exc:
         log.error("command %s failed: %s", args.command, exc)

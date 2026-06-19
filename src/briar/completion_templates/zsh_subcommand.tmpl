@@ -1,0 +1,9 @@
+    @@NAME@@)
+      if (( CURRENT == 3 )); then
+        opts="@@SUBNAMES@@"
+      else
+        case "${words[3]}" in
+@@INNER@@
+        esac
+      fi
+      ;;

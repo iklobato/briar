@@ -36,6 +36,17 @@ jobs:
           git fetch origin main
           git reset --hard origin/main
 
+      # Test gate on the exact code about to ship: a unit-test regression
+      # aborts the run BEFORE the version bump, so a broken build never
+      # reaches PyPI. release.yml previously published with no test run.
+      # (The integration / property tiers run in tests.yml on the PR that
+      # produced this push; black/ruff/mypy are not yet repo-clean, so they
+      # are enforced per-file in review, not as a release gate.)
+      - name: Test gate (unit suite)
+        run: |
+          uv sync --extra test
+          uv run pytest -n auto -ra --strict-markers -m "not integration"
+
       - name: Bump patch version in pyproject.toml
         id: bump
         run: |

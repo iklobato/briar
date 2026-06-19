@@ -96,6 +96,81 @@ def find_config_file(start: Optional[Path] = None) -> Optional[Path]:
     return None
 
 
+# Deduplicated, human-facing view of the settings a project may set,
+# in display order. (label, env var or None, config section or "", key.)
+_DISPLAY_SETTINGS: Tuple[Tuple[str, Optional[str], str, str], ...] = (
+    ("company", "BRIAR_COMPANY", "", "company"),
+    ("store", "BRIAR_DEFAULT_STORE", "", "store"),
+    ("root", None, "", "root"),
+    ("tracker", None, "", "tracker"),
+    ("owner", None, "repo", "owner"),
+    ("repo", None, "repo", "repo"),
+    ("provider", None, "repo", "provider"),
+    ("model", None, "agent", "model"),
+    ("git_user_name", None, "agent", "git_user_name"),
+    ("git_user_email", None, "agent", "git_user_email"),
+)
+
+_UNSET = "(unset)"
+
+
+@dataclass(frozen=True)
+class ResolvedSetting:
+    """One setting's effective value and where it came from, for
+    `briar config show`."""
+
+    setting: str
+    value: str
+    source: str
+
+
+def resolve_with_source(start: Optional[Path] = None) -> List[ResolvedSetting]:
+    """Each project setting's effective value and its source, following the
+    same precedence the CLI uses (env > project config > git inference for
+    owner/repo > unset). Pure read — no parser, no side effects."""
+    config = load_project_config(start)
+    config_path = find_config_file(start)
+    config_label = f"config ({config_path.name})" if config_path else "config"
+    inferred = _inferred_owner_repo(start)
+    rows: List[ResolvedSetting] = []
+    for label, env, section, key in _DISPLAY_SETTINGS:
+        rows.append(_resolve_one(label, env, section, key, config, config_label, inferred))
+    return rows
+
+
+def _inferred_owner_repo(start: Optional[Path]) -> Dict[str, str]:
+    from briar.infer import git_remote_slug
+
+    slug = git_remote_slug(str(start) if start else None)
+    if slug is None:
+        return {}
+    owner, repo = slug
+    return {"owner": owner, "repo": repo}
+
+
+def _resolve_one(
+    label: str,
+    env: Optional[str],
+    section: str,
+    key: str,
+    config: Dict[str, object],
+    config_label: str,
+    inferred: Dict[str, str],
+) -> ResolvedSetting:
+    if env:
+        env_value = os.environ.get(env)
+        if env_value:
+            return ResolvedSetting(label, env_value, f"env ({env})")
+    spec = _ConfigSpec(label, env, section, key)
+    config_value = _config_value(config, spec)
+    if config_value is not None:
+        where = config_label if not section else f"{config_label} [{section}]"
+        return ResolvedSetting(label, str(config_value), where)
+    if label in inferred:
+        return ResolvedSetting(label, inferred[label], "inferred (git origin)")
+    return ResolvedSetting(label, _UNSET, "-")
+
+
 def _has_tool_briar(pyproject: Path) -> bool:
     try:
         with pyproject.open("rb") as handle:

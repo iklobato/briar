@@ -120,6 +120,8 @@ def cli(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> Calla
     # exercise inference/config do so by calling the resolvers directly.
     monkeypatch.setattr("briar.infer.git_remote_slug", lambda cwd=None: None)
     monkeypatch.setattr("briar.config.load_project_config", lambda *a, **k: {})
+    # No network / cache I/O for the update nudge during tests.
+    monkeypatch.setattr("briar.update_check.maybe_notify", lambda *a, **k: None)
 
     def invoke(*argv: str, env: dict[str, str] | None = None) -> SimpleNamespace:
         if env:

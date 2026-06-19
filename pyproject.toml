@@ -59,6 +59,7 @@ test = [
 dev = [
     "black>=25,<26",
     "mypy>=1.13,<2",
+    "ruff>=0.6,<1",  # linter — same tool the quality hook + `make lint` use
 ]
 # Adapter SDKs are opt-in extras so a base install stays minimal. Operators
 # only install what they actually use. Each adapter's `is_available()`

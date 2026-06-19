@@ -77,7 +77,7 @@ class TestScaffoldImplementationReal:
             env=_local_env(tmp_path),
         )
         assert result.code == 0, result.err
-        assert f"wrote {out_file}" in result.out
+        assert f"wrote {out_file}" in result.err  # status on stderr; stdout stays clean
 
         # Read the emitted spec back off disk and assert it is well-formed
         # AND reflects every flag we passed.
@@ -519,7 +519,7 @@ class TestJournalRealStore:
             env=_local_env(tmp_path),
         )
         assert result.code == 0, result.err
-        assert f"wrote {out_file}" in result.out
+        assert f"wrote {out_file}" in result.err  # status on stderr; stdout stays clean
         payload = json.loads(out_file.read_text())
         assert payload["session_id"] == session_id
         assert payload["command"] == "scaffold.implementation"
