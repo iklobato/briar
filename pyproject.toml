@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "briar-cli"
-version = "1.1.47"
+version = "1.1.48"
 description = "Terminal client for the Briar agent-orchestration API."
 readme = "README.md"
 requires-python = ">=3.10"
