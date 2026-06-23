@@ -73,6 +73,12 @@ class CredEnv(str, Enum):
     TELEGRAM_BOT_TOKEN = "TELEGRAM_BOT_TOKEN"
     TELEGRAM_CHAT_ID = "TELEGRAM_{c}_CHAT_ID"
     SLACK_WEBHOOK_URL = "SLACK_{c}_WEBHOOK_URL"
+    # Read-only Slack access (extract/_chats/slack.py) uses the browser
+    # web-session credentials, NOT the webhook above: an `xoxc-` token
+    # plus the shared `d`/`xoxd-` cookie. Per-company because each
+    # workspace has its own token. Same session-auth shape as JIRA_*.
+    SLACK_TOKEN = "SLACK_{c}_TOKEN"
+    SLACK_COOKIE_D = "SLACK_{c}_COOKIE_D"
     # Comma-separated list of sink kinds the scheduler should dispatch
     # extract-failure notifications to (e.g. "telegram,slack"). Empty
     # disables notifications entirely.

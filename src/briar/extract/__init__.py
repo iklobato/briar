@@ -31,6 +31,7 @@ from briar.extract.repo_governance import ExtractRepoGovernance
 from briar.extract.revert_signals import ExtractRevertSignals
 from briar.extract.review_nits import ExtractReviewNits
 from briar.extract.reviewer_profile import ExtractReviewerProfile
+from briar.extract.slack_context import FetchSlackContext
 from briar.extract.stale_prs import ExtractStalePrs
 from briar.extract.test_discipline import ExtractTestDiscipline
 from briar.extract.ticket_archaeology import ExtractTicketArchaeology
@@ -72,7 +73,7 @@ EXTRACTORS: Dict[str, KnowledgeExtractor] = build_registry(
 # fetches them at agent-invocation time when the operator passes
 # --ticket-key / --pr-target-number / --meeting-key / --meeting-query.
 TASK_SCOPED_EXTRACTORS: Dict[str, TaskScopedExtractor] = build_registry(
-    (FetchTicketContext(), FetchPrReviewContext(), FetchMeetingContext()),
+    (FetchTicketContext(), FetchPrReviewContext(), FetchMeetingContext(), FetchSlackContext()),
     kind="task-scoped extractor",
 )
 
