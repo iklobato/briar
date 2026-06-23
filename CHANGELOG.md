@@ -5,6 +5,26 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.48] - 2026-06-22
+
+### Added
+
+- **Slack read source** (`extract/_chats/slack.py`). A fourth source family
+  alongside repos, trackers and meetings: a read-only `ChatProvider` that
+  searches Slack and hydrates threads using the browser web-session
+  credentials (an `xoxc-` token plus the shared `d`/`xoxd-` cookie), the same
+  session-auth shape as the `JIRA_*` family. Read-only is enforced at a single
+  chokepoint: any non-read method is refused before the request leaves the
+  machine, so it can never post, edit or delete. Set per company via
+  `SLACK_<COMPANY>_TOKEN` and `SLACK_<COMPANY>_COOKIE_D`. (This is the read
+  counterpart to the existing webhook-based Slack *write* sinks, which are
+  unchanged.)
+- **`slack-context` task-scoped extractor.** `briar agent implement` and
+  `briar agent prfix` now splice the top Slack threads matching the ticket key
+  or PR identifier into the agent's prompt, the same way `meeting-context`
+  splices transcripts. New flags: `--chat`, `--slack-query`, `--slack-top-k`,
+  `--slack-max-bytes` (all optional; the query defaults to the ticket/PR).
+
 ## [1.1.46] - 2026-06-19
 
 Aggressive CLI parameter simplification: ~60% smaller visible flag surface

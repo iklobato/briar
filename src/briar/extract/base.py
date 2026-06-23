@@ -351,6 +351,27 @@ class TaskScopedMeetingExtractor(TaskScopedExtractor):
         return _resolve_provider_from_args(args, flag="meeting", default="fireflies", make_fn=make_meeting)
 
 
+class TaskScopedChatExtractor(TaskScopedExtractor):
+    """TaskScoped + chat-backed. Same shape as `TaskScopedMeetingExtractor`
+    but for team-chat providers (Slack, …)."""
+
+    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        from briar.extract._chats import chat_kinds
+
+        _register_provider_flag(
+            parser,
+            flag="chat",
+            default="slack",
+            choices=list(chat_kinds()),
+            help_text="Chat provider this extractor uses (default: slack)",
+        )
+
+    def _chat(self, args: argparse.Namespace):
+        from briar.extract._chats import make_chat
+
+        return _resolve_provider_from_args(args, flag="chat", default="slack", make_fn=make_chat)
+
+
 class TaskScopedRepoExtractor(TaskScopedExtractor):
     """TaskScoped + repo-backed."""
 

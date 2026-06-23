@@ -74,6 +74,16 @@ def _add_meeting_arguments(parser: argparse.ArgumentParser, *, query_help: str) 
     parser.add_argument("--meeting-max-bytes", type=int, default=50_000, help="Per-meeting transcript byte cap (default: 50000)")
 
 
+def _add_chat_arguments(parser: argparse.ArgumentParser, *, query_help: str) -> None:
+    """Slack-context wiring (read-only, via web-session creds). All
+    optional — an absent `--slack-query` (and no default) means no chat
+    fetch. Only the query help text differs per op, so it's parameterised."""
+    parser.add_argument("--chat", default="slack", help="Chat provider for thread fetch (default: slack)")
+    parser.add_argument("--slack-query", default="", help=query_help)
+    parser.add_argument("--slack-top-k", type=int, default=3, help="Max Slack threads to fetch (default: 3)")
+    parser.add_argument("--slack-max-bytes", type=int, default=30_000, help="Total Slack thread-text byte cap (default: 30000)")
+
+
 class PrfixOp(AgentOp):
     name = "prfix"
     help = "Address open review comments on a PR (pr-fixer archetype)."
@@ -98,6 +108,11 @@ class PrfixOp(AgentOp):
         _add_meeting_arguments(
             parser,
             query_help="Keyword search across recent meetings. When omitted, defaults to the PR's owner/repo#pr — "
+            "set explicitly to override (e.g. the reviewer's name or a topic).",
+        )
+        _add_chat_arguments(
+            parser,
+            query_help="Keyword search across Slack. When omitted, defaults to the PR's owner/repo#pr — "
             "set explicitly to override (e.g. the reviewer's name or a topic).",
         )
 
@@ -131,6 +146,10 @@ class ImplementOp(AgentOp):
             parser,
             query_help="Keyword search across recent meetings. When omitted, defaults to the ticket key — "
             "set explicitly to override (e.g. a topic or feature name).",
+        )
+        _add_chat_arguments(
+            parser,
+            query_help="Keyword search across Slack. When omitted, defaults to the ticket key — " "set explicitly to override (e.g. a topic or feature name).",
         )
 
     def run(self, agent_cmd: "CommandAgent", args: argparse.Namespace) -> int:
@@ -195,7 +214,7 @@ class CommandAgent(SubcommandCommand):
         # Default meeting query = PR identifier so the prfix flow finds
         # any meeting that mentioned the PR or its feature.
         default_query = f"{args.owner}/{args.repo}#{args.pr}"
-        task_sections += self._fetch_meeting_context_from_args(args, default_query)
+        task_sections += self._fetch_enrichment_context_from_args(args, default_query)
 
         result = AgentRunner(
             AgentRunConfig(
@@ -260,7 +279,7 @@ class CommandAgent(SubcommandCommand):
 
         # Default meeting query = ticket key; Fireflies' keyword search
         # surfaces any meeting that mentioned ACME-123 in title or body.
-        task_sections += self._fetch_meeting_context_from_args(args, args.ticket_key)
+        task_sections += self._fetch_enrichment_context_from_args(args, args.ticket_key)
 
         result = AgentRunner(
             AgentRunConfig(
@@ -357,6 +376,32 @@ class CommandAgent(SubcommandCommand):
             meeting_top_k=getattr(args, "meeting_top_k", 3),
             meeting_max_bytes=getattr(args, "meeting_max_bytes", 50_000),
         )
+
+    def _fetch_slack_context_from_args(
+        self,
+        args: argparse.Namespace,
+        default_query: str,
+    ) -> list:
+        """Read the slack-* knobs off `args` with sensible defaults +
+        dispatch to `_fetch_slack_context`. Symmetric to
+        `_fetch_meeting_context_from_args`."""
+        slack_query = (getattr(args, "slack_query", "") or "").strip() or default_query
+        return self._fetch_slack_context(
+            company=args.company,
+            chat_kind=getattr(args, "chat", "slack"),
+            slack_query=slack_query,
+            slack_top_k=getattr(args, "slack_top_k", 3),
+            slack_max_bytes=getattr(args, "slack_max_bytes", 30_000),
+        )
+
+    def _fetch_enrichment_context_from_args(self, args: argparse.Namespace, default_query: str) -> list:
+        """Fetch every optional task-enrichment source (meeting
+        transcripts + Slack threads) off the same default query. Each is
+        non-fatal and returns [] when its provider is unconfigured, so
+        prfix/implement get all available enrichment in one call."""
+        sections = self._fetch_meeting_context_from_args(args, default_query)
+        sections += self._fetch_slack_context_from_args(args, default_query)
+        return sections
 
     def _finalize_agent_result(
         self,
@@ -705,6 +750,46 @@ class CommandAgent(SubcommandCommand):
         if getattr(section, "is_empty", True):
             return []
         log.info("meeting-context: title=%r body_bytes=%d", section.title, len(section.body or ""))
+        return [section]
+
+    @staticmethod
+    def _fetch_slack_context(
+        *,
+        company: str,
+        chat_kind: str,
+        slack_query: str,
+        slack_top_k: int,
+        slack_max_bytes: int,
+    ):
+        """Run the `slack-context` task-scoped extractor. Returns a list
+        with one ExtractedSection or empty on failure / empty result.
+        Symmetric to `_fetch_meeting_context`.
+
+        Failure here is non-fatal — Slack threads are enrichment, not the
+        primary input. The agent runs fine without them."""
+
+        from briar.extract import TASK_SCOPED_EXTRACTORS
+
+        extractor = TASK_SCOPED_EXTRACTORS.get("slack-context")
+        if extractor is None:
+            return []
+        if not slack_query:
+            return []
+        ns = argparse.Namespace(
+            company=company,
+            chat=chat_kind or "slack",
+            slack_query=slack_query,
+            slack_top_k=slack_top_k,
+            slack_max_bytes=slack_max_bytes,
+        )
+        try:
+            section = extractor.fetch(ns)
+        except Exception:  # noqa: BLE001
+            log.exception("slack-context fetch failed; agent continues without it")
+            return []
+        if getattr(section, "is_empty", True):
+            return []
+        log.info("slack-context: title=%r body_bytes=%d", section.title, len(section.body or ""))
         return [section]
 
     @staticmethod
