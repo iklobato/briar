@@ -29,7 +29,7 @@ from briar._registry import build_registry
 from briar.agent._llm import LLMProvider
 from briar.agent._llms import LLMRegistry, make_llm
 from briar.commands._enums import ExitCode
-from briar.commands.base import Subcommand, SubcommandCommand, confirm
+from briar.commands.base import Subcommand, SubcommandCommand, confirm, normalize_owner_repo
 from briar.errors import CliError
 from briar.extract._meeting import DEFAULT_MEETING_MAX_BYTES, DEFAULT_MEETING_TOP_K
 from briar.extract._providers import PROVIDERS
@@ -56,7 +56,7 @@ from briar.plan import (
     save_plan,
 )
 from briar.plan._enums import PlanCardStatus
-from briar.storage import KNOWLEDGE_STORE_NAMES, KnowledgeStore, make_store
+from briar.storage import KNOWLEDGE_STORE_NAMES, KnowledgeStore, default_store_kind, make_store
 
 log = logging.getLogger(__name__)
 
@@ -71,9 +71,9 @@ class PlanOp(Subcommand):
 def _add_store_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--store",
-        default="file",
+        default=default_store_kind(),
         choices=list(KNOWLEDGE_STORE_NAMES),
-        help="KnowledgeStore backend used to persist the plan (default: file)",
+        help="KnowledgeStore backend used to persist the plan (default: postgres if BRIAR_DATABASE_URL set, else file)",
     )
     parser.add_argument(
         "--root",
@@ -371,8 +371,8 @@ class RunOp(PlanOp):
             help="Cap on selector REPLAN actions per invocation (default: 3).",
         )
         # Per-card implement args.
-        parser.add_argument("--owner", required=True, help="Repository owner (GitHub) or workspace (Bitbucket).")
-        parser.add_argument("--repo", required=True, help="Repository name / slug.")
+        parser.add_argument("--owner", default="", help="Repository owner (GitHub) or workspace (Bitbucket). Inferred from git if omitted.")
+        parser.add_argument("--repo", default="", help="Repository as `owner/repo`, or a bare name with --owner. Inferred from git if omitted.")
         parser.add_argument(
             "--tracker-project",
             default="",
@@ -405,6 +405,7 @@ class RunOp(PlanOp):
 
         if not (args.company or "").strip():
             raise CliError("--company is required for `briar plan run`")
+        normalize_owner_repo(args)
 
         store = plan_cmd._open_store(args)
         journal_store = plan_cmd._open_journal_store(args)

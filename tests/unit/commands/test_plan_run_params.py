@@ -124,15 +124,18 @@ def _required(store_root: Path) -> list[str]:
 
 
 class TestRunRequiredFlags:
-    def test_owner_required_exit_2(self, cli, store_root) -> None:
+    def test_bare_repo_without_owner_exits_1(self, cli, store_root) -> None:
+        # owner/repo are no longer argparse-required; they resolve via the
+        # config chain / git, then the shared target check validates. A bare
+        # --repo with no owner fails with a CliError (exit 1), not argparse.
         result = cli("plan", "run", "demo", "--repo", "widgets", "--company", "acme", "--llm", "anthropic", "--store", "file", "--root", str(store_root))
-        assert result.code == 2
-        assert "--owner" in result.err
+        assert result.code == 1
+        assert "repository target is required" in result.err
 
-    def test_repo_required_exit_2(self, cli, store_root) -> None:
+    def test_missing_repo_exits_1(self, cli, store_root) -> None:
         result = cli("plan", "run", "demo", "--owner", "acme", "--company", "acme", "--llm", "anthropic", "--store", "file", "--root", str(store_root))
-        assert result.code == 2
-        assert "--repo" in result.err
+        assert result.code == 1
+        assert "repository target is required" in result.err
 
     def test_llm_required_exit_2(self, cli, store_root) -> None:
         result = cli("plan", "run", "demo", "--owner", "acme", "--repo", "widgets", "--company", "acme", "--store", "file", "--root", str(store_root))

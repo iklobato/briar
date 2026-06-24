@@ -149,6 +149,23 @@ class PlanRunTests(unittest.TestCase):
         impl.assert_not_called()
         self.assertEqual(llm.call_count, 0)
 
+    def test_repo_slug_splits_into_owner_and_repo(self) -> None:
+        # `--repo owner/repo` (no --owner) is normalised in place.
+        self._save(_seeded_plan([]))
+        llm = _FakeLLM([])
+        args = _run_args("demo", self.tmp, journal_root=self.journal_root, owner="", repo="acme/widgets")
+        rc, _ = self._run(llm, args)
+        self.assertEqual(rc, 0)
+        self.assertEqual((args.owner, args.repo), ("acme", "widgets"))
+
+    def test_missing_repo_target_raises(self) -> None:
+        from briar.errors import CliError
+
+        self._save(_seeded_plan([]))
+        args = _run_args("demo", self.tmp, journal_root=self.journal_root, owner="", repo="")
+        with self.assertRaises(CliError):
+            self._run(_FakeLLM([]), args)
+
     def test_all_cards_succeed_marks_all_done(self) -> None:
         plan = _seeded_plan([PlanCard(key="A", title="a"), PlanCard(key="B", title="b")])
         self._save(plan)

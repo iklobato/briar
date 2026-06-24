@@ -19,8 +19,9 @@ from typing import Any, Dict, Tuple
 from briar._registry import build_registry
 from briar.agent.runner import AgentRunConfig, AgentRunner
 from briar.commands._enums import ExitCode
-from briar.commands.base import Subcommand, SubcommandCommand, add_canonical_with_alias
+from briar.commands.base import Subcommand, SubcommandCommand, add_canonical_with_alias, normalize_owner_repo
 from briar.errors import CliError
+from briar.storage import default_store_kind
 
 log = logging.getLogger(__name__)
 
@@ -46,10 +47,20 @@ def _add_common_agent_arguments(parser: argparse.ArgumentParser) -> None:
     # git), and `_prepare_agent_workdir` raises a clear CliError when it
     # ends up empty. Hard-requiring it here would reject a valid config.
     parser.add_argument("--company", default="", help="Company key — must match a runbook YAML (or set company= in .briar.toml)")
-    parser.add_argument("--owner", required=True, help="Repository owner (GitHub) or workspace (Bitbucket)")
-    parser.add_argument("--repo", required=True, help="Repository name / slug")
+    # `--repo` accepts the full `owner/repo` slug (the form `extract` uses)
+    # OR a bare repo name paired with `--owner`. Neither is argparse-required:
+    # both are inferred from the git `origin` remote in a checkout, and
+    # `_normalize_target` validates + splits an `owner/repo` slug, raising a
+    # clear CliError when the target can't be resolved.
+    parser.add_argument("--owner", default="", help="Repository owner (GitHub) or workspace (Bitbucket). Inferred from git if omitted.")
+    parser.add_argument("--repo", default="", help="Repository as `owner/repo`, or a bare name with --owner. Inferred from git if omitted.")
     parser.add_argument("--provider", default="github", help="Repository provider (default: github). One of: github, bitbucket.")
-    parser.add_argument("--store", default="postgres", choices=["file", "postgres"], help="KnowledgeStore backend")
+    parser.add_argument(
+        "--store",
+        default=default_store_kind(),
+        choices=["file", "postgres"],
+        help="KnowledgeStore backend (default: postgres if BRIAR_DATABASE_URL set, else file)",
+    )
     # `--root` is the name every other command uses for the file-store
     # root; `--knowledge` is the legacy spelling, kept (hidden) as a
     # deprecated alias.
@@ -81,22 +92,35 @@ def _add_common_agent_arguments(parser: argparse.ArgumentParser) -> None:
 def _add_meeting_arguments(parser: argparse.ArgumentParser, *, query_help: str) -> None:
     """Meeting-context wiring (Fireflies + future vendors). All optional —
     absent flags = no meeting fetch. Only `--meeting-query`'s help text
-    differs per op, so it's parameterised."""
-    parser.add_argument("--meeting", default="fireflies", help="Meeting provider for transcript fetch (default: fireflies)")
+    differs per op, so it's parameterised. The provider + sizing knobs
+    (`--meeting`, `--meeting-top-k`, `--meeting-max-bytes`) are hidden
+    from `-h` — sensible defaults, rarely overridden — but still work."""
     parser.add_argument("--meeting-key", default="", help="Specific meeting ID to splice into the agent prompt")
     parser.add_argument("--meeting-query", default="", help=query_help)
-    parser.add_argument("--meeting-top-k", type=int, default=3, help="Max meetings to fetch in search mode (default: 3)")
-    parser.add_argument("--meeting-max-bytes", type=int, default=50_000, help="Per-meeting transcript byte cap (default: 50000)")
+    parser.add_argument("--meeting", default="fireflies", help=argparse.SUPPRESS)
+    parser.add_argument("--meeting-top-k", type=int, default=3, help=argparse.SUPPRESS)
+    parser.add_argument("--meeting-max-bytes", type=int, default=50_000, help=argparse.SUPPRESS)
 
 
 def _add_chat_arguments(parser: argparse.ArgumentParser, *, query_help: str) -> None:
     """Slack-context wiring (read-only, via web-session creds). All
     optional — an absent `--slack-query` (and no default) means no chat
     fetch. Only the query help text differs per op, so it's parameterised."""
-    parser.add_argument("--chat", default="slack", help="Chat provider for thread fetch (default: slack)")
     parser.add_argument("--slack-query", default="", help=query_help)
-    parser.add_argument("--slack-top-k", type=int, default=3, help="Max Slack threads to fetch (default: 3)")
-    parser.add_argument("--slack-max-bytes", type=int, default=30_000, help="Total Slack thread-text byte cap (default: 30000)")
+    parser.add_argument("--chat", default="slack", help=argparse.SUPPRESS)
+    parser.add_argument("--slack-top-k", type=int, default=3, help=argparse.SUPPRESS)
+    parser.add_argument("--slack-max-bytes", type=int, default=30_000, help=argparse.SUPPRESS)
+
+
+def _resolve_ticket_project(*, tracker: str, ticket_key: str, owner: str, repo: str) -> str:
+    """Derive the tracker project when `--ticket-project` is omitted.
+
+    Jira / Linear keys encode the project as the prefix before the last
+    dash (`PROJ-123` → `PROJ`, `ENG-7` → `ENG`); GitHub / Bitbucket
+    Issues use the `owner/repo` slug as the project."""
+    if tracker in {"jira", "linear"} and "-" in ticket_key:
+        return ticket_key.rsplit("-", 1)[0]
+    return f"{owner}/{repo}"
 
 
 class PrfixOp(AgentOp):
@@ -141,7 +165,12 @@ class ImplementOp(AgentOp):
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         _add_common_agent_arguments(parser)
-        parser.add_argument("--ticket-project", required=True, help="Tracker project key (Jira: PROJ; Linear team: ENG; GH/BB Issues: owner/repo)")
+        parser.add_argument(
+            "--ticket-project",
+            default="",
+            help="Tracker project key (Jira: PROJ; Linear team: ENG; GH/BB Issues: owner/repo). "
+            "Derived from the ticket key (Jira/Linear) or owner/repo (GH/BB) when omitted.",
+        )
         parser.add_argument("--ticket-key", required=True, help="Ticket identifier (Jira: PROJ-123; GH/BB: #42; Linear: ENG-7)")
         parser.add_argument(
             "--tracker", default="jira", help="Tracker provider for the ticket (default: jira). One of: jira, github-issues, bitbucket-issues, linear."
@@ -286,7 +315,7 @@ class CommandAgent(SubcommandCommand):
         task_sections = self._fetch_ticket_context(
             company=args.company,
             tracker=args.tracker,
-            ticket_project=args.ticket_project,
+            ticket_project=self._ticket_project(args),
             ticket_key=args.ticket_key,
         )
         if not task_sections:
@@ -341,11 +370,13 @@ class CommandAgent(SubcommandCommand):
         from briar.extract._providers import make_provider
         from briar.storage import make_store
 
-        # `--company` resolves through the config chain (no argparse
-        # `required=True`); validate at the single shared chokepoint both
-        # ops pass through, with a message that points at the fix.
+        # Both `--company` and the repo target resolve through the config
+        # chain (no argparse `required=True`); validate + normalise at the
+        # single shared chokepoint both ops pass through, with messages
+        # that point at the fix.
         if not (args.company or "").strip():
             raise CliError("--company is required for `briar agent` (pass --company, or set company= in .briar.toml)")
+        normalize_owner_repo(args)
 
         log_prefix = f"agent-{op_name}"
         try:
@@ -619,6 +650,16 @@ class CommandAgent(SubcommandCommand):
                 "git identity not configured: pass --git-user-name/--git-user-email " "or set git_identity.name/.email in the runbook's company block."
             )
         return resolved_name, resolved_email
+
+    @staticmethod
+    def _ticket_project(args: argparse.Namespace) -> str:
+        """The explicit `--ticket-project`, or one derived from the ticket
+        key / owner-repo when it was omitted. Owner/repo are already
+        normalised by `_prepare_agent_workdir` at the call site."""
+        explicit = (args.ticket_project or "").strip()
+        if explicit:
+            return explicit
+        return _resolve_ticket_project(tracker=args.tracker, ticket_key=args.ticket_key, owner=args.owner, repo=args.repo)
 
     @staticmethod
     def _fetch_ticket_context(*, company: str, tracker: str, ticket_project: str, ticket_key: str):

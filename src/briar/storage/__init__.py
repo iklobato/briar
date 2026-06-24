@@ -16,13 +16,24 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List, Optional, Type
 
+from briar.env_vars import CredEnv
 from briar.errors import CliError
 from briar.storage.base import KnowledgeRef, KnowledgeStore, StoreBinding
 from briar.storage.file import StoreFile
 from briar.storage.postgres import StorePostgres
 
-
 _DEFAULT_FILE_ROOT = Path("./knowledge")
+
+
+def default_store_kind() -> str:
+    """Built-in default knowledge-store backend: `postgres` when a
+    database URL is configured, else the local `file` store.
+
+    Mirrors the rule the scaffold composer already uses, so a laptop
+    with no `BRIAR_DATABASE_URL` defaults to local files instead of
+    failing on a postgres connection. CLI flags / env / project config
+    still override this (it is only the lowest-precedence default)."""
+    return "postgres" if CredEnv.BRIAR_DATABASE_URL.read() else "file"
 
 
 class KnowledgeStoreRegistry:
@@ -70,4 +81,5 @@ __all__ = [
     "KNOWLEDGE_STORE_NAMES",
     "StoreBinding",
     "make_store",
+    "default_store_kind",
 ]

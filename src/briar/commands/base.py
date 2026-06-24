@@ -13,8 +13,26 @@ from abc import ABC, abstractmethod
 from typing import ClassVar, Dict
 
 from briar.commands._enums import ExitCode
+from briar.errors import CliError
 
 log = logging.getLogger(__name__)
+
+
+def normalize_owner_repo(args: argparse.Namespace) -> None:
+    """Resolve `args.owner` + `args.repo` into a bare owner/repo pair, in place.
+
+    Accepts either the `owner/repo` slug on `--repo` (the form `extract`
+    uses) or a bare repo name paired with `--owner`; the slug wins when
+    both are present. Raises CliError when neither resolves (and git
+    inference found no origin). Shared by `agent` and `plan run`."""
+    repo = (args.repo or "").strip()
+    owner = (args.owner or "").strip()
+    if "/" in repo:
+        owner, _, repo = repo.partition("/")
+    if not owner or not repo:
+        raise CliError("repository target is required: pass --repo owner/repo (or --owner + --repo), or run inside a git checkout")
+    args.owner = owner
+    args.repo = repo
 
 
 class DeprecatedOptionAlias(argparse.Action):

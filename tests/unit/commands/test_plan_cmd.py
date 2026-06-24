@@ -310,7 +310,9 @@ class TestDispatchAndValidation:
         assert "DONE (" not in result.out  # status-table marker absent
         assert "A" in result.out
 
-    def test_run_requires_owner_repo_exit_2(self, cli, store_root) -> None:
-        # `plan run` has required --owner/--repo; absence is a usage error.
-        result = cli("plan", "run", "demo", "--llm", "anthropic", *_store_args(store_root))
-        assert result.code == 2
+    def test_run_requires_owner_repo_exit_1(self, cli, store_root) -> None:
+        # owner/repo resolve via config/git; with neither (and inference
+        # neutralised in tests) the shared target check fails (exit 1).
+        result = cli("plan", "run", "demo", "--company", "acme", "--llm", "anthropic", *_store_args(store_root))
+        assert result.code == 1
+        assert "repository target is required" in result.err

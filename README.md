@@ -148,20 +148,22 @@ briar runbook serve runbooks/
 ### `briar agent` — autonomous LLM flows
 
 ```bash
-# prfix: read a PR's open review comments, push fixes, reply inline
+# prfix: read a PR's open review comments, push fixes, reply inline.
+# --repo takes the owner/repo slug; both are inferred from git in a checkout.
 briar agent prfix \
-    --company acme --owner acme-co --repo acme-app \
+    --company acme --repo acme-co/acme-app \
     --pr 42 --branch fix-typo \
     --runbook runbooks/acme.yaml
 
-# implement: take a ticket end-to-end — clone, branch, code, open a draft PR
+# implement: take a ticket end-to-end — clone, branch, code, open a draft PR.
+# --ticket-project is derived from the ticket key for Jira/Linear (ACME-42 → ACME).
 briar agent implement \
-    --company acme --owner acme-co --repo acme-app \
-    --ticket-project ACME --ticket-key ACME-42 --tracker jira \
+    --company acme --repo acme-co/acme-app \
+    --ticket-key ACME-42 --tracker jira \
     --runbook runbooks/acme.yaml
 
 # Preview the exact prompt + tools without spending a token
-briar agent prfix --company acme --owner acme-co --repo acme-app \
+briar agent prfix --company acme --repo acme-co/acme-app \
     --pr 42 --branch fix-typo --dry-run
 ```
 
@@ -180,7 +182,7 @@ briar plan run acme-q3 \
 
 # Smoke one card with --dry-run before letting the loop go wide
 briar plan run acme-q3 --limit 1 --dry-run --llm anthropic \
-    --company acme --owner acme-co --repo acme-app
+    --company acme --repo acme-co/acme-app
 ```
 
 ### `briar scaffold` — JSON config bundles for downstream tools

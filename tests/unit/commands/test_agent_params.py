@@ -200,8 +200,14 @@ class TestCommonConfigFlags:
         cli(*_impl("--store", store_kind))
         assert seam.rec["make_store"].kind == store_kind
 
-    def test_store_default_is_postgres(self, cli, seam) -> None:
+    def test_store_default_is_file_without_database_url(self, cli, seam) -> None:
+        # Built-in default is derived: no BRIAR_DATABASE_URL → local file
+        # store, so a laptop with no DB doesn't fail on a postgres connect.
         cli(*_impl())
+        assert seam.rec["make_store"].kind == "file"
+
+    def test_store_default_is_postgres_with_database_url(self, cli, seam) -> None:
+        cli(*_impl(), env={"BRIAR_DATABASE_URL": "postgresql://localhost/x"})
         assert seam.rec["make_store"].kind == "postgres"
 
     def test_invalid_store_choice_exits_2(self, cli, seam) -> None:
@@ -360,11 +366,20 @@ class TestImplementSpecificFlags:
         cli(*_impl("--ticket-key", "ENG-77"))
         assert seam.rec["meeting"].default_query == "ENG-77"
 
-    def test_missing_ticket_project_exits_2(self, cli, seam) -> None:
+    def test_ticket_project_derived_from_jira_key(self, cli, seam) -> None:
+        # --ticket-project omitted: Jira/Linear keys encode the project as
+        # the prefix before the last dash (ENG-7 → ENG).
         argv = [a for a in _impl() if a not in ("--ticket-project", "ENG")]
         result = cli(*argv)
-        assert result.code == 2
-        assert "ticket-project" in result.err
+        assert result.code == 0
+        assert seam.rec["ticket_kw"]["ticket_project"] == "ENG"
+
+    def test_ticket_project_derived_from_owner_repo_for_issues(self, cli, seam) -> None:
+        # GH/BB Issues use the owner/repo slug as the project.
+        argv = [a for a in _impl("--tracker", "github-issues", "--ticket-key", "42") if a not in ("--ticket-project", "ENG")]
+        result = cli(*argv)
+        assert result.code == 0
+        assert seam.rec["ticket_kw"]["ticket_project"] == "octo/widgets"
 
     def test_missing_ticket_key_exits_2(self, cli, seam) -> None:
         argv = [a for a in _impl() if a not in ("--ticket-key", "ENG-7")]
@@ -503,19 +518,23 @@ class TestMeetingFlags:
 
 
 class TestRequiredCommonFlags:
-    @pytest.mark.parametrize(
-        "drop, needle",
-        [
-            (("--owner", "octo"), "owner"),
-            (("--repo", "widgets"), "repo"),
-        ],
-        ids=["owner", "repo"],
-    )
-    def test_missing_common_required_exits_2(self, cli, seam, drop, needle) -> None:
-        argv = [a for a in _impl() if a not in drop]
+    def test_missing_repo_target_exits_1_with_guidance(self, cli, seam) -> None:
+        # owner/repo are no longer argparse-required: they resolve from
+        # the config chain / git, then `_normalize_target` validates them.
+        # With nothing to resolve, the command fails with a CliError
+        # (exit 1) that names the fix, not an argparse usage error.
+        argv = [a for a in _impl() if a not in ("--owner", "octo", "--repo", "widgets")]
         result = cli(*argv)
-        assert result.code == 2
-        assert needle in result.err
+        assert result.code == 1
+        assert "repository target is required" in result.err
+
+    @pytest.mark.parametrize("argv_factory", [_impl, _prfix], ids=["implement", "prfix"])
+    def test_repo_slug_splits_into_owner_and_repo(self, cli, seam, argv_factory) -> None:
+        # `--repo owner/repo` (the extract form) works without --owner.
+        argv = [a for a in argv_factory() if a not in ("--owner", "octo", "--repo", "widgets")]
+        result = cli(*argv, "--repo", "acme-co/app")
+        assert result.code == 0
+        assert seam.rec["config"].target == "acme-co/app"
 
     def test_missing_company_exits_1_with_guidance(self, cli, seam) -> None:
         # --company is no longer argparse-required: it resolves through the
