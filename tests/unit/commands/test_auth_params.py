@@ -158,6 +158,21 @@ class TestStoreChoiceFlag:
         assert result.code == 2
         assert "invalid choice" in result.err
 
+    @pytest.mark.parametrize("store_kind", _STORE_CHOICES, ids=_STORE_CHOICES)
+    def test_cred_store_canonical_reaches_factory(self, cli, auth_seam, store_kind) -> None:
+        # `--cred-store` is the canonical name; its value must reach the
+        # credential-store factory exactly like the legacy `--store` did.
+        state = auth_seam()
+        result = cli("auth", "list", "--cred-store", store_kind)
+        assert result.code == 0
+        assert state.store_kinds == [store_kind]
+
+    def test_store_alias_warns_deprecation(self, cli, auth_seam) -> None:
+        auth_seam()
+        result = cli("auth", "list", "--store", "envfile")
+        assert result.code == 0
+        assert "--store is deprecated; use --cred-store" in result.err
+
 
 # ───────────────────────────── --company filter ────────────────────────
 

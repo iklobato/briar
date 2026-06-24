@@ -19,7 +19,7 @@ from typing import Any, Dict, Tuple
 from briar._registry import build_registry
 from briar.agent.runner import AgentRunConfig, AgentRunner
 from briar.commands._enums import ExitCode
-from briar.commands.base import Subcommand, SubcommandCommand
+from briar.commands.base import Subcommand, SubcommandCommand, add_canonical_with_alias
 from briar.errors import CliError
 
 log = logging.getLogger(__name__)
@@ -41,12 +41,27 @@ def _add_common_agent_arguments(parser: argparse.ArgumentParser) -> None:
     git identity, worktree). Op-specific flags (`--pr`/`--branch` vs
     `--ticket-*`) and flags whose help text differs per op (`--dry-run`,
     `--runbook`) stay in the op's own `add_arguments`."""
-    parser.add_argument("--company", required=True, help="Company key — must match a runbook YAML")
+    # `--company` is not `required=True`: like every other command it
+    # resolves through the config chain (.briar.toml / BRIAR_COMPANY /
+    # git), and `_prepare_agent_workdir` raises a clear CliError when it
+    # ends up empty. Hard-requiring it here would reject a valid config.
+    parser.add_argument("--company", default="", help="Company key — must match a runbook YAML (or set company= in .briar.toml)")
     parser.add_argument("--owner", required=True, help="Repository owner (GitHub) or workspace (Bitbucket)")
     parser.add_argument("--repo", required=True, help="Repository name / slug")
     parser.add_argument("--provider", default="github", help="Repository provider (default: github). One of: github, bitbucket.")
     parser.add_argument("--store", default="postgres", choices=["file", "postgres"], help="KnowledgeStore backend")
-    parser.add_argument("--knowledge", default="./knowledge", help="File-store root (ignored for postgres)")
+    # `--root` is the name every other command uses for the file-store
+    # root; `--knowledge` is the legacy spelling, kept (hidden) as a
+    # deprecated alias.
+    add_canonical_with_alias(
+        parser,
+        "--root",
+        "--knowledge",
+        dest="knowledge",
+        metavar="ROOT",
+        default="./knowledge",
+        help="File-store root (ignored for postgres)",
+    )
     parser.add_argument("--model", default="", help="Override Anthropic model (defaults to AgentRunner.DEFAULT_MODEL)")
     parser.add_argument("--max-iter", type=int, default=0, help="Iteration ceiling (defaults to AgentRunner.DEFAULT_MAX_ITERATIONS)")
     parser.add_argument(
@@ -325,6 +340,12 @@ class CommandAgent(SubcommandCommand):
         both methods used to inline ~30 lines of identical setup code."""
         from briar.extract._providers import make_provider
         from briar.storage import make_store
+
+        # `--company` resolves through the config chain (no argparse
+        # `required=True`); validate at the single shared chokepoint both
+        # ops pass through, with a message that points at the fix.
+        if not (args.company or "").strip():
+            raise CliError("--company is required for `briar agent` (pass --company, or set company= in .briar.toml)")
 
         log_prefix = f"agent-{op_name}"
         try:

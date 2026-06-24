@@ -72,6 +72,17 @@ class TestDoctorStoreFlag:
         assert result.code == 2
         assert "invalid choice" in result.err
 
+    @pytest.mark.parametrize("store_kind", _STORE_CHOICES)
+    def test_cred_store_canonical_reaches_factory(self, cli, store_spy, tmp_path, store_kind) -> None:
+        result = cli("secrets", "doctor", "--examples", str(tmp_path), "--cred-store", store_kind)
+        assert result.code == 0
+        assert store_spy["kind"] == store_kind
+
+    def test_store_alias_warns_deprecation(self, cli, store_spy, tmp_path) -> None:
+        result = cli("secrets", "doctor", "--examples", str(tmp_path), "--store", "envfile")
+        assert result.code == 0
+        assert "--store is deprecated; use --cred-store" in result.err
+
 
 # ─── doctor --examples ──────────────────────────────────────────────────
 

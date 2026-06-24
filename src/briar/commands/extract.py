@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
 
-from briar.commands.base import Command
+from briar.commands.base import Command, add_canonical_with_alias
 from briar.errors import CliError
 from briar.extract import EXTRACTORS
 from briar.extract.base import ExtractedSection
@@ -54,8 +54,10 @@ class CommandExtract(Command):
             help="Which extractor(s) to run (repeatable; default: all available)",
         )
         # `--store` is the name every other command uses; `--storage` is
-        # kept as an alias so existing scripts keep working.
-        parser.add_argument(
+        # the legacy spelling, kept (hidden) as a deprecated alias so
+        # existing scripts keep working but `-h` shows only `--store`.
+        add_canonical_with_alias(
+            parser,
             "--store",
             "--storage",
             dest="storage",
@@ -64,7 +66,7 @@ class CommandExtract(Command):
             help="Where to write the result (default: file)",
         )
         parser.add_argument("--blob-name", default="", help="Storage blob name (default: knowledge:<company>)")
-        parser.add_argument("--root", default="./knowledge", help="Local file root (only used when --storage=file)")
+        parser.add_argument("--root", default="./knowledge", help="Local file root (only used when --store=file)")
         parser.add_argument("--out-json", default="", help="Parallel JSON output path (empty = skip)")
         parser.add_argument(
             "--merge-claude-md",

@@ -8,12 +8,58 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 from abc import ABC, abstractmethod
 from typing import ClassVar, Dict
 
 from briar.commands._enums import ExitCode
 
 log = logging.getLogger(__name__)
+
+
+class DeprecatedOptionAlias(argparse.Action):
+    """A hidden option string that aliases a canonical flag.
+
+    Stores the value into the shared dest (so existing read sites keep
+    working unchanged) and prints a one-line deprecation note to stderr
+    when the alias is actually used. A plain print, NOT `warnings.warn`:
+    the suite runs with `filterwarnings=error`, and this is user
+    guidance, not a code smell (same rationale as
+    `briar.cli._warn_legacy_flags`)."""
+
+    def __init__(self, option_strings, dest, canonical, **kwargs):
+        self._canonical = canonical
+        super().__init__(option_strings, dest, **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        print(f"note: {option_string} is deprecated; use {self._canonical} instead.", file=sys.stderr)
+        setattr(namespace, self.dest, values)
+
+
+def add_canonical_with_alias(
+    parser: argparse.ArgumentParser,
+    canonical: str,
+    deprecated: str,
+    *,
+    dest: str,
+    help: str,
+    **kwargs,
+) -> None:
+    """Register `canonical` (shown in `--help`) and `deprecated` (hidden,
+    warns on use) as two flags writing the same `dest`.
+
+    `kwargs` (choices, default, type, …) apply to both so the deprecated
+    spelling behaves identically to the canonical one. Register the
+    canonical first so it owns the namespace default."""
+    parser.add_argument(canonical, dest=dest, help=help, **kwargs)
+    parser.add_argument(
+        deprecated,
+        dest=dest,
+        action=DeprecatedOptionAlias,
+        canonical=canonical,
+        help=argparse.SUPPRESS,
+        **kwargs,
+    )
 
 
 class Command(ABC):

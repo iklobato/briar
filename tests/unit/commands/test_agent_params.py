@@ -217,6 +217,16 @@ class TestCommonConfigFlags:
         cli(*_impl("--knowledge", "/tmp/kb-root"))
         assert str(seam.rec["make_store"].file_root) == "/tmp/kb-root"
 
+    def test_root_is_canonical_alias_for_knowledge(self, cli, seam) -> None:
+        # `--root` is the canonical name (every other command uses it);
+        # it writes the same dest the engine reads as the file-store root.
+        cli(*_impl("--root", "/tmp/root-kb"))
+        assert str(seam.rec["make_store"].file_root) == "/tmp/root-kb"
+
+    def test_knowledge_alias_warns_deprecation(self, cli, seam) -> None:
+        result = cli(*_impl("--knowledge", "/tmp/kb-root"))
+        assert "--knowledge is deprecated; use --root" in result.err
+
     @pytest.mark.parametrize("argv_factory", [_impl, _prfix], ids=["implement", "prfix"])
     def test_model_default_is_empty_string(self, cli, seam, argv_factory) -> None:
         cli(*argv_factory())
@@ -496,14 +506,22 @@ class TestRequiredCommonFlags:
     @pytest.mark.parametrize(
         "drop, needle",
         [
-            (("--company", "acme"), "company"),
             (("--owner", "octo"), "owner"),
             (("--repo", "widgets"), "repo"),
         ],
-        ids=["company", "owner", "repo"],
+        ids=["owner", "repo"],
     )
     def test_missing_common_required_exits_2(self, cli, seam, drop, needle) -> None:
         argv = [a for a in _impl() if a not in drop]
         result = cli(*argv)
         assert result.code == 2
         assert needle in result.err
+
+    def test_missing_company_exits_1_with_guidance(self, cli, seam) -> None:
+        # --company is no longer argparse-required: it resolves through the
+        # config chain. When it ends up empty the command fails with a
+        # CliError (exit 1) that names the fix, not an argparse usage error.
+        argv = [a for a in _impl() if a not in ("--company", "acme")]
+        result = cli(*argv)
+        assert result.code == 1
+        assert "company" in result.err
