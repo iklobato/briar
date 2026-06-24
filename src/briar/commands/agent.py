@@ -12,6 +12,7 @@ import argparse
 import logging
 import os
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, Tuple
@@ -76,10 +77,14 @@ def _add_common_agent_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--model", default="", help="Override Anthropic model (defaults to AgentRunner.DEFAULT_MODEL)")
     parser.add_argument("--max-iter", type=int, default=0, help="Iteration ceiling (defaults to AgentRunner.DEFAULT_MAX_ITERATIONS)")
     parser.add_argument(
-        "--git-user-name", default="", help="git config user.name on the worktree. Required unless company.git_identity.name is set in the runbook."
+        "--git-user-name",
+        default="",
+        help="git config user.name on the worktree. Falls back to the runbook's git_identity.name, then your local git config (outside CI).",
     )
     parser.add_argument(
-        "--git-user-email", default="", help="git config user.email on the worktree. Required unless company.git_identity.email is set in the runbook."
+        "--git-user-email",
+        default="",
+        help="git config user.email on the worktree. Falls back to the runbook's git_identity.email, then your local git config (outside CI).",
     )
     parser.add_argument("--keep-worktree", action="store_true", help="Leave the worktree in /tmp after the run for inspection")
     parser.add_argument(
@@ -591,15 +596,17 @@ class CommandAgent(SubcommandCommand):
         Priority (per-field, independent):
           1. CLI flag — ``--git-user-name`` / ``--git-user-email`` (non-empty)
           2. Runbook YAML — ``companies.<name>.git_identity.{name, email}``
+          3. Local ``git config user.name`` / ``user.email`` — skipped in CI
 
         Per-field resolution means you can set the name via CLI and let
         the email fall through to YAML (or vice versa). YAML lookup
         runs only when ``--runbook`` was passed; failures during YAML
         load are non-fatal — the resolver logs and the field stays empty.
 
-        Raises ``CliError`` when neither source provides a value for one
-        of the fields. There is no hardcoded fallback — committed
-        personal identifiers on a third-party host are a smell."""
+        Raises ``CliError`` when no source provides a value for one of the
+        fields. The ambient git-config fallback is suppressed in CI so a
+        shared host never commits a stray identity (see
+        ``_ambient_git_identity``)."""
         cli_name = (getattr(args, "git_user_name", "") or "").strip()
         cli_email = (getattr(args, "git_user_email", "") or "").strip()
 
@@ -622,11 +629,40 @@ class CommandAgent(SubcommandCommand):
 
         resolved_name = cli_name or yaml_name
         resolved_email = cli_email or yaml_email
+        # Last resort: the machine's own `git config` identity (skipped in
+        # CI). For a developer running against their own repo this is
+        # exactly right; only shelled out when a field is still missing.
+        if not resolved_name or not resolved_email:
+            ambient_name, ambient_email = CommandAgent._ambient_git_identity()
+            resolved_name = resolved_name or ambient_name
+            resolved_email = resolved_email or ambient_email
         if not resolved_name or not resolved_email:
             raise CliError(
-                "git identity not configured: pass --git-user-name/--git-user-email " "or set git_identity.name/.email in the runbook's company block."
+                "git identity not configured: pass --git-user-name/--git-user-email, "
+                "set git_identity.name/.email in the runbook's company block, "
+                "or configure git locally (git config user.name / user.email)."
             )
         return resolved_name, resolved_email
+
+    @staticmethod
+    def _ambient_git_identity() -> Tuple[str, str]:
+        """The machine's own `git config user.name` / `user.email`, or
+        ("", "") when unset or running in CI.
+
+        Suppressed when `$CI` is set so a shared host / pipeline never
+        commits a stray identity — there the explicit flags or the
+        runbook's git_identity must supply it."""
+        if os.environ.get("CI"):
+            return "", ""
+
+        def _cfg(key: str) -> str:
+            try:
+                done = subprocess.run(["git", "config", "--get", key], capture_output=True, text=True, timeout=5)
+            except (OSError, subprocess.SubprocessError):
+                return ""
+            return done.stdout.strip() if done.returncode == 0 else ""
+
+        return _cfg("user.name"), _cfg("user.email")
 
     @staticmethod
     def _ticket_project(args: argparse.Namespace) -> str:

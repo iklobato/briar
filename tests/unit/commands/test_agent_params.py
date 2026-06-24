@@ -284,8 +284,9 @@ class TestGitIdentityAndWorktree:
         assert seam.rec["git_writes"] == [("Briar Bot", "bot@example.test")]
 
     def test_missing_git_identity_errors_when_no_flags(self, cli, seam, mocker) -> None:
-        # No --git-user-* and no runbook → _resolve_git_identity raises CliError.
+        # No --git-user-*, no runbook, no ambient git config → CliError.
         argv = [a for a in _impl() if a != "--dry-run"]
+        mocker.patch.object(agent_mod.CommandAgent, "_ambient_git_identity", return_value=("", ""))
         result = self._real_run(cli, seam, mocker, argv, identity_capture=False)
         assert result.code == ExitCode.GENERAL_ERROR
         assert "git identity not configured" in result.err

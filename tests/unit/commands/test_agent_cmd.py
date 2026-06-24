@@ -289,6 +289,9 @@ class TestFailurePaths:
         # runbook → _resolve_git_identity raises CliError → exit 1, stderr msg.
         argv = [a for a in _IMPL if a != "--dry-run"]
         mocker.patch.object(agent_mod.CommandAgent, "_clone", return_value=True)
+        # No ambient git config either, so the result is deterministic
+        # regardless of the test machine's git config / CI.
+        mocker.patch.object(agent_mod.CommandAgent, "_ambient_git_identity", return_value=("", ""))
         result = cli(*argv)
         assert result.code == ExitCode.GENERAL_ERROR
         assert "git identity not configured" in result.err

@@ -333,8 +333,10 @@ _FILTER_SUFFIXES = tuple(f"_{field}" for field, _ in _FILTER_FIELDS)
 
 
 def attach_source_arguments(parser: argparse.ArgumentParser) -> None:
-    for tmpl in SOURCE_TEMPLATES.values():
-        tmpl.add_arguments(parser)
+    # One labelled group per source so `-h` reads as navigable sections
+    # (github options / jira options / …) instead of ~30 flat flags.
+    for name, tmpl in SOURCE_TEMPLATES.items():
+        tmpl.add_arguments(parser.add_argument_group(f"{name} source options"))
     # The per-source filter flags (--jira-authors-allow, …) are now covered
     # by the shared --authors-allow/-block / --assignees-allow/-block flags.
     # Keep them registered (back-compat + per-source override) but hide them
@@ -345,8 +347,9 @@ def attach_source_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def attach_trigger_arguments(parser: argparse.ArgumentParser) -> None:
+    group = parser.add_argument_group("trigger options")
     for tmpl in TRIGGER_TEMPLATES.values():
-        tmpl.add_arguments(parser)
+        tmpl.add_arguments(group)
 
 
 # Back-compat alias for the composer entry point.
