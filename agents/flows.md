@@ -208,7 +208,6 @@ briar extract --company <COMPANY> \
 briar runbook extract examples/<COMPANY>.yaml
 
 # Inspect the companion and watch it drift over time
-#   (--store is a parent flag — it goes BEFORE the sub-op)
 briar context --store postgres list --prefix inventory:
 briar context --store postgres get  inventory:<COMPANY> | jq '.sections[].data.resources | length'
 ```
@@ -415,7 +414,6 @@ briar context list --prefix inventory:
 briar context delete memory:reviewer-alice
 
 # Everything above works against shared postgres truth instead of disk
-# (--store is a parent flag — it goes BEFORE the sub-op)
 briar context --store postgres list --prefix knowledge:
 ```
 

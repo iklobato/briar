@@ -16,8 +16,20 @@ from briar.errors import CliError
 from briar.formatting import render
 from briar.storage import KNOWLEDGE_STORE_NAMES, KnowledgeRef, make_store
 
-
 Handler = Callable[[argparse.Namespace], int]
+
+
+def _add_store_flags(parser: argparse.ArgumentParser, *, suppress: bool) -> None:
+    """Add `--store` / `--root` to `parser`, writing the shared `store` /
+    `root` dests.
+
+    The parent parser uses real defaults (`suppress=False`); each sub-op
+    uses `suppress=True` so an absent sub-op flag leaves the parent's value
+    intact instead of clobbering it back to a default."""
+    store_default = argparse.SUPPRESS if suppress else "file"
+    root_default = argparse.SUPPRESS if suppress else "./knowledge"
+    parser.add_argument("--store", dest="store", default=store_default, choices=list(KNOWLEDGE_STORE_NAMES), help="Knowledge store backend (default: file)")
+    parser.add_argument("--root", dest="root", default=root_default, help="Local file root (default: ./knowledge)")
 
 
 class ContextCommand(Command):
@@ -25,17 +37,13 @@ class ContextCommand(Command):
     help = "Store and read named local markdown blobs."
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument(
-            "--store",
-            default="file",
-            choices=list(KNOWLEDGE_STORE_NAMES),
-            help="Knowledge store backend (default: file)",
-        )
-        parser.add_argument(
-            "--root",
-            default="./knowledge",
-            help="Local file root",
-        )
+        # `--store`/`--root` are accepted BOTH before the sub-op (the
+        # historic position) and on the sub-op itself, so both
+        # `briar context --store postgres get x` and the more natural
+        # `briar context get x --store postgres` work. The parent carries
+        # the real defaults; the sub-op copies use SUPPRESS so an absent
+        # sub-op flag never clobbers the parent value.
+        _add_store_flags(parser, suppress=False)
 
         sub = parser.add_subparsers(dest="op", required=True)
 
@@ -48,9 +56,11 @@ class ContextCommand(Command):
             default="",
             help="explicit category (default: derived from blob_name prefix)",
         )
+        _add_store_flags(put, suppress=True)
 
         gp = sub.add_parser("get", help="print the markdown body to stdout")
         gp.add_argument("blob_name")
+        _add_store_flags(gp, suppress=True)
 
         lst = sub.add_parser("list", help="list stored blobs")
         lst.add_argument(
@@ -58,12 +68,14 @@ class ContextCommand(Command):
             default="",
             help="filter to names starting with this prefix",
         )
+        _add_store_flags(lst, suppress=True)
 
         de = sub.add_parser("delete", help="remove a blob")
         de.add_argument("blob_name")
         de.add_argument("--yes", action="store_true")
+        _add_store_flags(de, suppress=True)
 
-        sub.add_parser("categories", help="print distinct category prefixes")
+        _add_store_flags(sub.add_parser("categories", help="print distinct category prefixes"), suppress=True)
 
     def run(self, args: argparse.Namespace) -> int:
         handlers: Dict[str, Handler] = {
