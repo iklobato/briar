@@ -119,7 +119,7 @@ For `prfix`:
 2. New commits appear on the PR's head branch.
 3. Review threads have replies prefixed with `[AI]`.
 
-For both: `briar journal list --command-prefix agent.` shows a new
+For both: `briar journal list --command agent.` shows a new
 session with `agent.run.start`, per-iteration tool calls, and
 `agent.run.completed` (or `agent.run.failed`).
 

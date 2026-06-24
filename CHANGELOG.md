@@ -5,6 +5,23 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.50] - 2026-06-24
+
+Documentation fixes: align the command guides with the actual CLI surface.
+No code or behavior changes.
+
+### Fixed
+
+- **`briar dashboard` docs** listed flags the command no longer has
+  (`--knowledge-store`, `--knowledge`, `--secrets-file`, `--du-path`, dropped
+  when the dashboard was slimmed to a monitoring view) and showed the wrong
+  `--host` default (`0.0.0.0`; the real default is `127.0.0.1`, loopback only).
+- **`briar journal list --command-prefix`** in the agent/plan/flows/runbook
+  guides: the flag is `--command` (it already matches on prefix).
+- **`briar secrets doctor`** examples used `--company` and `--only-missing`,
+  which it does not accept; `doctor` reports every company and has only
+  `--examples` / `--cred-store`.
+
 ## [1.1.49] - 2026-06-24
 
 Cross-command flag unification and common-path simplification. Every old

@@ -97,7 +97,7 @@ For one-shot:
 For `serve`:
 1. Process stays up. Check `systemctl status briar-scheduler`.
 2. Stdout shows `scheduler: registered task=<name> next=<iso>`.
-3. After the first scheduled fire, `briar journal list --command-prefix
+3. After the first scheduled fire, `briar journal list --command
    runbook.` shows new sessions.
 
 ## Common failures

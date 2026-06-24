@@ -794,16 +794,12 @@ Subcommand flags:
 ### `briar dashboard`
 | Flag | Default |
 |---|---|
-| `--host <ip>` | `0.0.0.0` |
+| `--host <ip>` | `127.0.0.1` (loopback only) |
 | `--port <n>` | `8080` |
 | `--examples <dir>` | `./examples` |
-| `--knowledge-store {file,postgres}` | postgres if `BRIAR_DATABASE_URL` else file |
-| `--knowledge <dir>` | `./knowledge` |
 | `--log-file <path>` | `/var/log/briar/scheduler.log` |
 | `--disk-path <path>` | `/` |
 | `--repo-path <dir>` | `.` |
-| `--secrets-file <path>` | `/etc/briar/secrets.env` |
-| `--du-path <dir>` | repeatable |
 | `--once` | render once + exit |
 
 ### `briar auth <subcommand>`

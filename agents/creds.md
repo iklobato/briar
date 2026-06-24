@@ -39,17 +39,18 @@ briar secrets doctor --examples examples/
 Output per row: `<company> · <extractor> · <env-var> · OK|MISSING`.
 Exit `0` if every required env-var is present; non-zero otherwise.
 
-### Audit one company
+`doctor` reports every company it finds in the YAMLs; it has no
+per-company or missing-only filter. Grep the output if you need a subset
+(e.g. `briar secrets doctor --examples examples/ | grep MISSING`).
+
+### Check coverage against a specific credential store
 
 ```bash
-briar secrets doctor --examples examples/ --company <COMPANY>
+briar secrets doctor --examples examples/ --cred-store aws-secretsmanager
 ```
 
-### Show only missing rows
-
-```bash
-briar secrets doctor --examples examples/ --only-missing
-```
+`--cred-store` picks the backend whose coverage is reported (default
+`envfile`).
 
 ### Manually run a bootstrap
 
