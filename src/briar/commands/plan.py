@@ -29,9 +29,8 @@ from briar._registry import build_registry
 from briar.agent._llm import LLMProvider
 from briar.agent._llms import LLMRegistry, make_llm
 from briar.commands._enums import ExitCode
-from briar.commands.base import Subcommand, SubcommandCommand, confirm, normalize_owner_repo
+from briar.commands.base import Subcommand, SubcommandCommand, add_chat_arguments, add_meeting_arguments, confirm, normalize_owner_repo
 from briar.errors import CliError
-from briar.extract._meeting import DEFAULT_MEETING_MAX_BYTES, DEFAULT_MEETING_TOP_K
 from briar.extract._providers import PROVIDERS
 from briar.extract._trackers import TRACKERS
 from briar.formatting import render
@@ -386,16 +385,12 @@ class RunOp(PlanOp):
         parser.add_argument("--keep-worktree", action="store_true")
         parser.add_argument("--dry-run", action="store_true", help="Propagate --dry-run to every implement call.")
         parser.add_argument("--runbook", default="", help="Runbook YAML for this company's messages block.")
-        parser.add_argument(
-            "--knowledge",
-            default="./knowledge",
-            help="File-store root for `agent implement` (postgres ignores).",
-        )
-        parser.add_argument("--meeting", default="fireflies")
-        parser.add_argument("--meeting-key", default="")
-        parser.add_argument("--meeting-query", default="")
-        parser.add_argument("--meeting-top-k", type=int, default=DEFAULT_MEETING_TOP_K)
-        parser.add_argument("--meeting-max-bytes", type=int, default=DEFAULT_MEETING_MAX_BYTES)
+        # The per-card `agent implement` reuses the plan's `--root` as its
+        # file-store root (one root, not two), so there is no separate
+        # `--knowledge` flag here. Meeting + Slack enrichment flags are the
+        # same shared set `agent` exposes (sizing knobs hidden from -h).
+        add_meeting_arguments(parser, query_help="Keyword search across recent meetings (defaults to the card key).")
+        add_chat_arguments(parser, query_help="Keyword search across Slack threads (defaults to the card key).")
         _add_llm_arguments(parser, required=True)
         _add_store_arguments(parser)
         _add_journal_arguments(parser)
@@ -545,7 +540,8 @@ class RunOp(PlanOp):
         impl.tracker = args.tracker
         impl.provider = args.provider
         impl.store = args.store
-        impl.knowledge = args.knowledge
+        # One root: the per-card implement reuses the plan's `--root`.
+        impl.knowledge = args.root
         impl.model = args.model
         impl.max_iter = args.max_iter
         impl.git_user_name = args.git_user_name
@@ -558,6 +554,10 @@ class RunOp(PlanOp):
         impl.meeting_query = args.meeting_query
         impl.meeting_top_k = args.meeting_top_k
         impl.meeting_max_bytes = args.meeting_max_bytes
+        impl.chat = args.chat
+        impl.slack_query = args.slack_query
+        impl.slack_top_k = args.slack_top_k
+        impl.slack_max_bytes = args.slack_max_bytes
         impl.format = getattr(args, "format", "table")
         impl.verbose = getattr(args, "verbose", False)
         return impl

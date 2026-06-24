@@ -35,6 +35,29 @@ def normalize_owner_repo(args: argparse.Namespace) -> None:
     args.repo = repo
 
 
+def add_meeting_arguments(parser: argparse.ArgumentParser, *, query_help: str) -> None:
+    """Meeting-context enrichment flags (Fireflies + future vendors). All
+    optional — absent flags = no meeting fetch. Only `--meeting-query`'s
+    help differs per caller, so it's parameterised. The provider + sizing
+    knobs are hidden from `-h` (sensible defaults, rarely overridden) but
+    still work. Shared by `agent` and `plan run`."""
+    parser.add_argument("--meeting-key", default="", help="Specific meeting ID to splice into the agent prompt")
+    parser.add_argument("--meeting-query", default="", help=query_help)
+    parser.add_argument("--meeting", default="fireflies", help=argparse.SUPPRESS)
+    parser.add_argument("--meeting-top-k", type=int, default=3, help=argparse.SUPPRESS)
+    parser.add_argument("--meeting-max-bytes", type=int, default=50_000, help=argparse.SUPPRESS)
+
+
+def add_chat_arguments(parser: argparse.ArgumentParser, *, query_help: str) -> None:
+    """Slack-context enrichment flags (read-only, via web-session creds).
+    An absent `--slack-query` means no chat fetch. Sizing knobs hidden
+    from `-h` but still work. Shared by `agent` and `plan run`."""
+    parser.add_argument("--slack-query", default="", help=query_help)
+    parser.add_argument("--chat", default="slack", help=argparse.SUPPRESS)
+    parser.add_argument("--slack-top-k", type=int, default=3, help=argparse.SUPPRESS)
+    parser.add_argument("--slack-max-bytes", type=int, default=30_000, help=argparse.SUPPRESS)
+
+
 class DeprecatedOptionAlias(argparse.Action):
     """A hidden option string that aliases a canonical flag.
 

@@ -19,7 +19,7 @@ from typing import Any, Dict, Tuple
 from briar._registry import build_registry
 from briar.agent.runner import AgentRunConfig, AgentRunner
 from briar.commands._enums import ExitCode
-from briar.commands.base import Subcommand, SubcommandCommand, add_canonical_with_alias, normalize_owner_repo
+from briar.commands.base import Subcommand, SubcommandCommand, add_canonical_with_alias, add_chat_arguments, add_meeting_arguments, normalize_owner_repo
 from briar.errors import CliError
 from briar.storage import default_store_kind
 
@@ -89,29 +89,6 @@ def _add_common_agent_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _add_meeting_arguments(parser: argparse.ArgumentParser, *, query_help: str) -> None:
-    """Meeting-context wiring (Fireflies + future vendors). All optional —
-    absent flags = no meeting fetch. Only `--meeting-query`'s help text
-    differs per op, so it's parameterised. The provider + sizing knobs
-    (`--meeting`, `--meeting-top-k`, `--meeting-max-bytes`) are hidden
-    from `-h` — sensible defaults, rarely overridden — but still work."""
-    parser.add_argument("--meeting-key", default="", help="Specific meeting ID to splice into the agent prompt")
-    parser.add_argument("--meeting-query", default="", help=query_help)
-    parser.add_argument("--meeting", default="fireflies", help=argparse.SUPPRESS)
-    parser.add_argument("--meeting-top-k", type=int, default=3, help=argparse.SUPPRESS)
-    parser.add_argument("--meeting-max-bytes", type=int, default=50_000, help=argparse.SUPPRESS)
-
-
-def _add_chat_arguments(parser: argparse.ArgumentParser, *, query_help: str) -> None:
-    """Slack-context wiring (read-only, via web-session creds). All
-    optional — an absent `--slack-query` (and no default) means no chat
-    fetch. Only the query help text differs per op, so it's parameterised."""
-    parser.add_argument("--slack-query", default="", help=query_help)
-    parser.add_argument("--chat", default="slack", help=argparse.SUPPRESS)
-    parser.add_argument("--slack-top-k", type=int, default=3, help=argparse.SUPPRESS)
-    parser.add_argument("--slack-max-bytes", type=int, default=30_000, help=argparse.SUPPRESS)
-
-
 def _resolve_ticket_project(*, tracker: str, ticket_key: str, owner: str, repo: str) -> str:
     """Derive the tracker project when `--ticket-project` is omitted.
 
@@ -144,12 +121,12 @@ class PrfixOp(AgentOp):
             "When set, the agent gets a `send_message` tool bound to the configured channels "
             "instead of having to shell out via `gh` / `curl`.",
         )
-        _add_meeting_arguments(
+        add_meeting_arguments(
             parser,
             query_help="Keyword search across recent meetings. When omitted, defaults to the PR's owner/repo#pr — "
             "set explicitly to override (e.g. the reviewer's name or a topic).",
         )
-        _add_chat_arguments(
+        add_chat_arguments(
             parser,
             query_help="Keyword search across Slack. When omitted, defaults to the PR's owner/repo#pr — "
             "set explicitly to override (e.g. the reviewer's name or a topic).",
@@ -186,12 +163,12 @@ class ImplementOp(AgentOp):
             default="",
             help="Optional runbook YAML to read this company's `messages:` block from.",
         )
-        _add_meeting_arguments(
+        add_meeting_arguments(
             parser,
             query_help="Keyword search across recent meetings. When omitted, defaults to the ticket key — "
             "set explicitly to override (e.g. a topic or feature name).",
         )
-        _add_chat_arguments(
+        add_chat_arguments(
             parser,
             query_help="Keyword search across Slack. When omitted, defaults to the ticket key — " "set explicitly to override (e.g. a topic or feature name).",
         )
