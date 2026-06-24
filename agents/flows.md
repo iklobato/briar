@@ -83,7 +83,7 @@ briar agent prfix --company <COMPANY> \
     --runbook examples/<COMPANY>.yaml
 
 # 5. journal — audit the agent's decision trail
-briar journal list --command-prefix agent.
+briar journal list --command agent.
 briar journal show <SESSION_ID>
 ```
 
@@ -173,7 +173,7 @@ briar plan run q3-auth \
 
 # 6. dashboard + journal — monitor progress and audit each card's run
 briar dashboard --examples examples/ --once
-briar journal list --command-prefix plan.
+briar journal list --command plan.
 ```
 
 **Features combined:** `extract` · `plan build/status/next/run` ·
@@ -245,7 +245,7 @@ EnvironmentFile=/etc/briar/secrets.env
 
 **Verify:** `systemctl status briar-scheduler` is active; stdout logs
 `scheduler: registered task=<name> next=<iso>`; after the first fire,
-`briar journal list --command-prefix runbook.` shows new sessions.
+`briar journal list --command runbook.` shows new sessions.
 
 ---
 
@@ -385,7 +385,7 @@ briar dashboard --examples examples/ --once
 briar dashboard --examples examples/ --host 127.0.0.1 --port 8080
 
 # Inspect what any command decided and why
-briar journal list --command-prefix agent.
+briar journal list --command agent.
 briar journal show <SESSION_ID>
 briar journal export <SESSION_ID> --format json | jq '.events[].decision'
 ```
@@ -464,8 +464,8 @@ briar agent prfix --company <COMPANY> --repo <OWNER>/<REPO> \
 
 # 7. dashboard + journal — monitor the estate and audit every decision
 briar dashboard --examples examples/ --once
-briar journal list --command-prefix plan.
-briar journal list --command-prefix agent.
+briar journal list --command plan.
+briar journal list --command agent.
 ```
 
 **Features combined:** `auth` · `secrets` · `runbook` (sweep/serve) ·

@@ -177,7 +177,7 @@ After `next`:
 After `run`:
 - Exit `0` (everything succeeded) or `1` (some cards blocked).
 - `briar plan status <NAME>` shows the new state.
-- `briar journal list --command-prefix plan.run` shows the session
+- `briar journal list --command plan.run` shows the session
   with `plan.next.decision` events, `plan.run.card.completed` /
   `plan.run.card.failed`, optional `plan.replan.requested`.
 

@@ -25,7 +25,7 @@ disk, log tail, credential coverage.
 
 ```bash
 briar dashboard
-# Opens on http://0.0.0.0:8080 (default --host / --port)
+# Opens on http://127.0.0.1:8080 (default --host / --port; loopback only)
 ```
 
 ### Bind to localhost only
@@ -43,12 +43,13 @@ briar dashboard --once > /tmp/briar-status.html
 Renders one page, writes to stdout, exits. Useful for cron / on-call
 deliverables.
 
-### Point at a non-default knowledge store
+### Schedules view
 
 ```bash
-briar dashboard --knowledge-store postgres
-briar dashboard --knowledge-store file --knowledge /var/lib/briar/knowledge
+briar dashboard --examples ./examples
 ```
+
+Points the schedules card at a directory of runbook YAMLs (default `./examples`).
 
 ### Specific debug paths
 
@@ -56,9 +57,7 @@ briar dashboard --knowledge-store file --knowledge /var/lib/briar/knowledge
 |---|---|
 | `--log-file <path>` | Which logfile to tail in the "logs" card |
 | `--repo-path <path>` | Where to read git state from |
-| `--secrets-file <path>` | Which `.env` file's coverage to report |
 | `--disk-path <path>` | Which mount to compute free space for |
-| `--du-path <path>` | Which path to `du` for the "storage" card |
 
 ## Verifying success
 
