@@ -49,10 +49,10 @@ briar
 │   └── categories
 ├── dashboard                     — read-only HTML status page
 ├── auth                          — interactive credential acquisition
-│   ├── login <target> [--store <k>]
+│   ├── login <target> [--cred-store <k>]
 │   ├── logout <target>
 │   ├── refresh <target>
-│   ├── list [--store <k>] [--company <c>]
+│   ├── list [--cred-store <k>] [--company <c>]
 │   └── status <target>
 ├── secrets                       — credential coverage + remote-vault hydrate
 │   ├── doctor                          per-(company,extractor,writer) coverage matrix
@@ -310,7 +310,7 @@ KnowledgeComposer.inventory(company, sections)   # stable JSON: no timestamp, so
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
-│  briar agent prfix --company acme --owner X --repo Y --pr 42      │
+│  briar agent prfix --company acme --repo X/Y --pr 42              │
 │                    --branch B --runbook runbooks/acme.yaml         │
 │                    [--meeting-key K | --meeting-query "..."]      │
 └──────────────────────────────┬─────────────────────────────────────┘
@@ -406,7 +406,7 @@ or pin one transcript with `--meeting-key <id>`.
 
 ┌──────────────────────────────────────────────────────────────────┐
 │ briar plan run <name> --llm anthropic --company acme              │
-│                --owner X --repo Y [--tracker jira]                │
+│                --repo X/Y [--tracker jira]                        │
 │                [--continue-on-failure] [--limit N] [--dry-run]    │
 └────────────────────────────┬─────────────────────────────────────┘
                              │
@@ -483,7 +483,7 @@ Resolution order at runtime (lowest precedence last):
 
 1. `os.environ` at process start — operator-supplied wins
 2. envfile bootstrap
-3. On-demand `CredentialStore` reads for explicit `--store` flows
+3. On-demand `CredentialStore` reads for explicit `--cred-store` flows
 
 ---
 
@@ -585,7 +585,7 @@ One-shot manual extraction. Flags resolve through **CLI > env > `.briar.toml`
 |---|---|---|
 | `--company <name>` | required (or `company` in config), drives blob title + name | — |
 | `--include <extractor>` | repeatable; default = all available | (all) |
-| `--store {file,postgres}` (alias `--storage`) | which backend | `file` |
+| `--store {file,postgres}` (deprecated alias `--storage`, hidden) | which backend | `postgres` if `BRIAR_DATABASE_URL` set, else `file` |
 | `--blob-name <name>` | override the derived name | `knowledge:<company>` |
 | `--root <dir>` | file-store root | `./knowledge` |
 | `--out-json <path>` | write parallel JSON | (skip) |
@@ -674,35 +674,36 @@ No subcommand-specific flags.
 ### `briar agent prfix`
 | Flag | Required | Default |
 |---|---|---|
-| `--company <name>` | ✓ | — |
-| `--owner <name>` | ✓ | — |
-| `--repo <name>` | ✓ | — |
+| `--company <name>` | (config/env can supply) | none |
+| `--repo <owner/repo>` (or bare name with `--owner`) | inferred from git | none |
 | `--pr <N>` | ✓ | — |
 | `--branch <name>` | ✓ | — |
 | `--provider {github,bitbucket}` | | `github` |
 | `--runbook <yaml>` | | — (binds send_message + mcp servers) |
-| `--store {file,postgres}` | | `file` |
-| `--knowledge <dir>` | | `./knowledge` |
+| `--store {file,postgres}` | | `postgres` if `BRIAR_DATABASE_URL` set, else `file` |
+| `--root <dir>` (deprecated alias `--knowledge`) | | `./knowledge` |
 | `--dry-run` | | off |
 | `--model <name>` | | provider default |
 | `--max-iter <N>` | | — |
-| `--git-user-name` / `--git-user-email` | | CLI > YAML > default |
+| `--git-user-name` / `--git-user-email` | | CLI > YAML > local `git config` (outside CI) |
 | `--keep-worktree` | | off |
-| `--meeting {fireflies}` | | `fireflies` |
 | `--meeting-key <id>` | | — |
 | `--meeting-query <text>` | | `<owner>/<repo>#<pr>` |
-| `--meeting-top-k <N>` | | 3 |
-| `--meeting-max-bytes <N>` | | 50000 |
+| `--slack-query <text>` | | `<owner>/<repo>#<pr>` |
+
+Sizing/provider knobs are hidden from `-h` but still accepted:
+`--meeting`, `--meeting-top-k` (3), `--meeting-max-bytes` (50000),
+`--chat`, `--slack-top-k` (3), `--slack-max-bytes` (30000).
 
 ### `briar agent implement`
 Same as `prfix` but uses ticket identity:
 
 | Flag | Required | Default |
 |---|---|---|
-| `--ticket-project <key>` | ✓ | — |
 | `--ticket-key <key>` | ✓ | — |
+| `--ticket-project <key>` | | derived from the key (Jira/Linear) or owner/repo (GH/BB) |
 | `--tracker {jira,github-issues,bitbucket-issues,linear}` | | `jira` |
-| `--meeting-query <text>` (default) | | the ticket key |
+| `--meeting-query` / `--slack-query` (default) | | the ticket key |
 
 (All other prfix flags apply identically.)
 
@@ -740,8 +741,7 @@ Common: `--store`, `--root`, `--company`. `clear` adds `--yes`.
 |---|---|---|
 | `name` (positional) | ✓ | — |
 | `--company <key>` | ✓ | — |
-| `--owner <slug>` | ✓ | — |
-| `--repo <slug>` | ✓ | — |
+| `--repo <owner/repo>` (or bare name with `--owner`) | inferred from git | none |
 | `--llm <provider>` | ✓ | — |
 | `--tracker-project <key>` | | `<owner>/<repo>` |
 | `--tracker <kind>` | | `github-issues` |
@@ -750,7 +750,8 @@ Common: `--store`, `--root`, `--company`. `clear` adds `--yes`.
 | `--continue-on-failure` | | off |
 | `--max-replans <N>` | | 3 |
 | `--dry-run` | | off |
-| `--model` / `--max-iter` / `--git-user-name` / `--git-user-email` / `--keep-worktree` / `--runbook` / `--meeting*` | | passes through to implement |
+| `--store` / `--root` | | the plan store; `--root` is also the per-card implement's knowledge root (no separate `--knowledge`) |
+| `--model` / `--max-iter` / `--git-user-name` / `--git-user-email` / `--keep-worktree` / `--runbook` / `--meeting*` / `--slack*` | | passes through to implement |
 | `--journal-store {file}` / `--journal-root <dir>` | | `file` / `./journal` |
 
 ### `briar scaffold implementation` / `pr-fixes`
@@ -775,12 +776,10 @@ Common: `--store`, `--root`, `--company`. `clear` adds `--yes`.
 | `--schedule "<cron>"` | with `--trigger-kind schedule_cron` |
 
 ### `briar context <subcommand>`
-Parent-parser flags (must come BEFORE subcommand):
-
-| Flag | Purpose |
-|---|---|
-| `--store {file,postgres}` | default `file` |
-| `--root <dir>` | file-store root |
+`--store {file,postgres}` (default `file`) and `--root <dir>` (file-store
+root) are accepted EITHER before the subcommand or after it, so both
+`briar context --store postgres list` and `briar context list --store postgres`
+work.
 
 Subcommand flags:
 
@@ -791,8 +790,6 @@ Subcommand flags:
 | `list` | `--prefix <s>` |
 | `delete <name>` | `--yes` |
 | `categories` | — |
-
-**Gotcha:** `briar context list --store postgres` FAILS; use `briar context --store postgres list`. The `--store` lives on the parent. Compare with `briar plan`, where `--store` is on each subcommand — placement differs.
 
 ### `briar dashboard`
 | Flag | Default |
@@ -812,20 +809,24 @@ Subcommand flags:
 ### `briar auth <subcommand>`
 | Subcommand | Required flags / args |
 |---|---|
-| `login <target>` | `target` (positional, required); `--company <name>` (for EXTERNAL targets); `--store <kind>` (default `$BRIAR_DEFAULT_STORE` or `envfile`) |
-| `logout <target>` | `--company`, `--yes` |
-| `refresh <target>` | `--company` |
-| `list` | `--store <kind>`, `--company <name>` |
-| `status <target>` | `--company`, `--store` (defaults to `$BRIAR_DEFAULT_STORE` or `envfile`) |
+The credential store flag is `--cred-store <kind>` (the deprecated alias
+`--store` still works, hidden, and prints a one-line note); it is named
+distinctly so it never clashes with the knowledge-store `--store`.
+
+| `login <target>` | `target` (positional, required); `--company <name>` (for EXTERNAL targets); `--cred-store <kind>` (default `$BRIAR_DEFAULT_STORE` or `envfile`) |
+| `logout <target>` | `--company`, `--cred-store`, `--yes` |
+| `refresh <target>` | `--company`, `--cred-store` |
+| `list` | `--cred-store <kind>`, `--company <name>` |
+| `status <target>` | `--company`, `--cred-store` (defaults to `$BRIAR_DEFAULT_STORE` or `envfile`) |
 
 Acquirer destination policy:
-- **EXTERNAL** (default) — vendor credentials. `--store` is honoured as-is.
-- **BOOTSTRAP_LOCAL** — bootstrap targets (future `vault`). Forced to `envfile`. Warning printed if a different `--store` was passed.
+- **EXTERNAL** (default): vendor credentials. `--cred-store` is honoured as-is.
+- **BOOTSTRAP_LOCAL**: bootstrap targets (future `vault`). Forced to `envfile`. Warning printed if a different `--cred-store` was passed.
 
 ### `briar secrets <subcommand>`
 | Subcommand | Flags |
 |---|---|
-| `doctor` | `--examples <dir>` (default `./examples`); `--store {envfile,aws-secretsmanager,ssm,vault}` (default `envfile`) |
+| `doctor` | `--examples <dir>` (default `./examples`); `--cred-store {envfile,aws-secretsmanager,ssm,vault}` (deprecated alias `--store`; default `envfile`) |
 | `bootstrap` | `--kind {envfile}` (default = envfile); `--dry-run` |
 
 ### `briar journal <subcommand>`
@@ -882,8 +883,8 @@ are inferred from the git `origin` remote.
 ```toml
 # .briar.toml  (or [tool.briar] in pyproject.toml)
 company = "acme"
-store   = "postgres"          # alias: extract --storage
-root    = "./knowledge"
+store   = "postgres"          # knowledge store; CLI --store wins (--storage is the deprecated spelling)
+root    = "./knowledge"       # knowledge-store file root; fills CLI --root (agent's old --knowledge)
 tracker = "jira"
 
 repos = ["acme-co/web", "acme-co/api"]   # canonical extract --repo list
@@ -922,7 +923,7 @@ Config keys map to dests via env override `BRIAR_COMPANY` (company) and
 
 | Env var | Effect |
 |---|---|
-| `BRIAR_DEFAULT_STORE={envfile,vault,aws-secretsmanager,ssm}` | default `--store` for `auth login` |
+| `BRIAR_DEFAULT_STORE={envfile,vault,aws-secretsmanager,ssm}` | default `--cred-store` for `auth login` |
 | `BRIAR_SECRETS_FILE=/path/to/secrets.env` | overrides resolution: this → `/etc/briar/secrets.env` → `~/.config/briar/secrets.env` |
 | `GITHUB_TOKEN` | workspace-wide GitHub PAT |
 | `BITBUCKET_<COMPANY>_WORKSPACE` / `_USERNAME` / `_APP_PASSWORD` | per-tenant Bitbucket |
@@ -987,11 +988,11 @@ reserved for future LLM/agent runtime failures.
 
 ## 12. Pitfalls & invariants worth knowing
 
-### Flag-placement gotchas
+### Flag-placement notes
 
-- **`briar context --store ... <subcmd>`** — `--store` lives on the
-  `context` parent parser. `briar context list --store postgres` fails
-  with `unrecognized arguments: --store postgres`.
+- **`briar context` `--store` / `--root`** work on either side of the
+  subcommand (`briar context --store postgres list` and
+  `briar context list --store postgres` both parse).
 - **`briar plan <subcmd> --store ...`** — `--store` lives on each
   subparser. Both orderings work.
 - **Global `--format`** works either side of the subcommand.
@@ -1078,7 +1079,9 @@ agent runner) × 6 = 18 slots, under DO managed PG small-tier's
 ### Agent git identity precedence
 
 Per FIELD, not per object: CLI `--git-user-name` > YAML
-`git_identity.name` > hardcoded `iklobato` default. You can set
+`git_identity.name` > the machine's local `git config user.name`
+(skipped under `$CI`). There is no hardcoded default; if none of the
+three supplies a field the run aborts with a clear error. You can set
 `name` in YAML and override only `email` from the CLI.
 
 ### TASK_SCOPED_EXTRACTORS bypass the runbook executor

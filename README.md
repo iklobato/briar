@@ -66,7 +66,9 @@ briar extract --include pr-archaeology        # company + repo come from config/
 ```
 
 - **Canonical extractor flags.** One shared knob per concept — `--repo`, `--since-days`, `--max`, `--top-n`, `--sample`, `--authors-allow/-block`, `--assignees-allow/-block` — applies to every extractor selected with `--include`. The old per-extractor flags (`--pr-repo`, `--risk-since-days`, …) still work but are hidden from `-h`; run `briar extract --advanced-help` to see them.
-- **Inference.** `--owner`/`--repo` are read from the git `origin` remote when neither the flag nor config supplies them.
+- **One `--repo owner/repo` everywhere.** `extract`, `agent`, and `plan run` all take the `owner/repo` slug (or a bare name with `--owner`). Both are read from the git `origin` remote when neither the flag nor config supplies them.
+- **Derived defaults.** `--store` defaults to `postgres` when `BRIAR_DATABASE_URL` is set, else `file` (so a laptop with no DB just works). `agent implement`'s `--ticket-project` is derived from the ticket key for Jira/Linear (`ACME-42` → `ACME`) or from owner/repo for GitHub/Bitbucket Issues.
+- **Consistent flag names.** The knowledge-store root is `--root` everywhere (the old `--knowledge` still works); the credential store is `--cred-store` on `auth`/`secrets` (the old `--store` still works) so it never clashes with the knowledge-store `--store`. Deprecated spellings print a one-line note.
 - A per-extractor override always wins over the shared flag when both are given.
 
 Helpers for the config + setup loop:
@@ -177,7 +179,7 @@ briar plan build https://github.com/orgs/acme/projects/1 \
 # Run the loop: the selector picks the next card, the engineer agent ships it,
 # the knowledge store learns what changed — card by card.
 briar plan run acme-q3 \
-    --company acme --owner acme-co --repo acme-app \
+    --company acme --repo acme-co/acme-app \
     --tracker github-issues --llm anthropic
 
 # Smoke one card with --dry-run before letting the loop go wide
@@ -243,9 +245,10 @@ briar plan status acme-q3 --format json | jq -r '.blocked[].key'
 briar secrets doctor --examples runbooks/
 
 # Cost-safe agent rollout: preview for free, then one paid card, then go wide.
-briar agent implement --company acme --owner acme-co --repo acme-app \
-    --ticket-project ACME --ticket-key ACME-42 --dry-run
-briar plan run acme-q3 --company acme --owner acme-co --repo acme-app \
+# --ticket-project is derived from the key (ACME-42 → ACME); --repo takes the slug.
+briar agent implement --company acme --repo acme-co/acme-app \
+    --ticket-key ACME-42 --dry-run
+briar plan run acme-q3 --company acme --repo acme-co/acme-app \
     --tracker jira --llm anthropic --limit 1 --max-iter 20
 ```
 

@@ -33,29 +33,36 @@ and the system prompt differ.
 
 ## Commands
 
-> `--company`, `--owner`, and `--repo` resolve through **CLI > env >
-> `.briar.toml` > git remote**. With a `[repo]` section in `.briar.toml`
-> (or simply running inside the checkout), drop them and pass only the
-> ticket/PR identity: `briar agent implement --ticket-key <KEY>`. The
-> explicit flags below still win when given.
+> `--company` and the repo target resolve through **CLI > env >
+> `.briar.toml` > git remote**. Pass the repo as a single
+> `--repo owner/repo` slug (or a bare name with `--owner`); inside a
+> checkout with a `[repo]` section in `.briar.toml` you can drop it
+> entirely. `--ticket-project` is derived from the ticket key for
+> Jira/Linear (`KAN-7` → `KAN`) and from owner/repo for GitHub/Bitbucket
+> Issues, so the smallest call is `briar agent implement --ticket-key <KEY>`.
+> The explicit flags below still win when given.
 
 ### Implement one ticket (engineer flow)
 
 ```bash
 briar agent implement \
     --company <COMPANY> \
-    --owner <OWNER> --repo <REPO> \
-    --ticket-project <PROJECT> --ticket-key <KEY> \
+    --repo <OWNER>/<REPO> \
+    --ticket-key <KEY> \
     --tracker <jira|github-issues|bitbucket-issues|linear> \
     --runbook examples/all_features.yaml
 ```
+
+`--ticket-project` is derived from the ticket key (Jira/Linear) or
+owner/repo (GitHub/Bitbucket) when omitted; pass it explicitly only when
+the project differs from what the key implies.
 
 Worked example:
 
 ```bash
 briar agent implement \
-    --company acme --owner acme --repo widgets \
-    --ticket-project KAN --ticket-key KAN-7 \
+    --company acme --repo acme/widgets \
+    --ticket-key KAN-7 \
     --tracker jira \
     --runbook examples/acme.yaml
 ```
@@ -65,7 +72,7 @@ briar agent implement \
 ```bash
 briar agent prfix \
     --company <COMPANY> \
-    --owner <OWNER> --repo <REPO> \
+    --repo <OWNER>/<REPO> \
     --pr <NUMBER> --branch <HEAD_BRANCH> \
     --runbook examples/all_features.yaml
 ```
@@ -126,4 +133,5 @@ session with `agent.run.start`, per-iteration tool calls, and
 | Ticket not found | Wrong `--tracker`, wrong `--ticket-project`, or token can't read that Jira project |
 | Agent loops without writing code | Likely no `send_message` tool wired AND no Bash tool result triggered a stop. Pass `--runbook <yaml>` so it has a real message channel |
 | Need to debug what the agent saw | Add `--dry-run` and read the printed prompt + tool list |
-| Postgres store but `BRIAR_DATABASE_URL` unset | `--store postgres` requires the env var; default to `--store file` if unsure |
+| Postgres store but `BRIAR_DATABASE_URL` unset | `--store postgres` requires the env var. The default is derived (postgres when `BRIAR_DATABASE_URL` is set, else `file`), so just unset the var or pass `--store file` |
+| Git identity error on commit | Pass `--git-user-name`/`--git-user-email`, set `git_identity` in the runbook, or configure git locally (`git config user.name` / `user.email`); ambient git config is used outside CI |
