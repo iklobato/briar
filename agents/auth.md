@@ -48,7 +48,7 @@ directly to `/etc/briar/secrets.env`.
 - A terminal (these flows print to stdout and read stdin / paste / open a browser).
 - `--company <name>` for every vendor target (the resulting env-var
   names are namespaced by it).
-- For `--store aws-secretsmanager` etc.: the relevant
+- For `--cred-store aws-secretsmanager` etc.: the relevant
   backend already initialised with credentials.
 
 ## Commands
@@ -77,11 +77,13 @@ briar auth login aws-sso --company <COMPANY>
 ### Persist into a non-default backend
 
 ```bash
-briar auth login github-pat --company <COMPANY> --store vault
+briar auth login github-pat --company <COMPANY> --cred-store vault
 ```
 
-`--store` options: `envfile` (default), `aws-secretsmanager`, `ssm`,
-`vault`.
+`--cred-store` options: `envfile` (default), `aws-secretsmanager`, `ssm`,
+`vault`. (The old name `--store` still works but is deprecated; it is
+named `--cred-store` so it does not clash with the knowledge-store
+`--store` used by `extract` / `agent` / `plan` / `context`.)
 
 ### Refresh an existing bundle (OAuth/SSO only)
 

@@ -125,10 +125,16 @@ Returns one of:
 
 ```bash
 briar plan run <NAME> \
-    --company <COMPANY> --owner <OWNER> --repo <REPO> \
+    --company <COMPANY> --repo <OWNER>/<REPO> \
     --tracker <jira|github-issues|...> --provider <github|bitbucket> \
     --llm anthropic
 ```
+
+`--repo` takes the `owner/repo` slug (or a bare name with `--owner`);
+both are inferred from the git remote inside a checkout. The per-card
+`agent implement` reuses the plan's `--root` as its knowledge-store root
+(there is no separate `--knowledge` flag), and `--meeting-*` / `--slack-*`
+enrichment flags mirror `briar agent`.
 
 Per iteration: build `PlanContext` → `Selector.pick` → on PICK call
 `run_implement` (same code path as `briar agent implement`) → on

@@ -274,6 +274,12 @@ def apply_config_defaults(
     satisfied: List[str] = []
     for sub in _iter_subparsers(parser):
         for action in sub._actions:
+            # A SUPPRESS default means "absent from the namespace unless the
+            # user passes it" — e.g. a sub-op flag that mirrors a parent flag
+            # of the same dest. Forcing a config default here would make it
+            # always-present and clobber the parent's value, so leave it be.
+            if action.default is argparse.SUPPRESS:
+                continue
             value = _value_for_action(action, resolved)
             if value is None:
                 continue

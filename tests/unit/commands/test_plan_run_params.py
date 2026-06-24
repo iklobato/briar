@@ -124,15 +124,18 @@ def _required(store_root: Path) -> list[str]:
 
 
 class TestRunRequiredFlags:
-    def test_owner_required_exit_2(self, cli, store_root) -> None:
+    def test_bare_repo_without_owner_exits_1(self, cli, store_root) -> None:
+        # owner/repo are no longer argparse-required; they resolve via the
+        # config chain / git, then the shared target check validates. A bare
+        # --repo with no owner fails with a CliError (exit 1), not argparse.
         result = cli("plan", "run", "demo", "--repo", "widgets", "--company", "acme", "--llm", "anthropic", "--store", "file", "--root", str(store_root))
-        assert result.code == 2
-        assert "--owner" in result.err
+        assert result.code == 1
+        assert "repository target is required" in result.err
 
-    def test_repo_required_exit_2(self, cli, store_root) -> None:
+    def test_missing_repo_exits_1(self, cli, store_root) -> None:
         result = cli("plan", "run", "demo", "--owner", "acme", "--company", "acme", "--llm", "anthropic", "--store", "file", "--root", str(store_root))
-        assert result.code == 2
-        assert "--repo" in result.err
+        assert result.code == 1
+        assert "repository target is required" in result.err
 
     def test_llm_required_exit_2(self, cli, store_root) -> None:
         result = cli("plan", "run", "demo", "--owner", "acme", "--repo", "widgets", "--company", "acme", "--store", "file", "--root", str(store_root))
@@ -259,12 +262,15 @@ def _run_ns(**overrides) -> argparse.Namespace:
         "keep_worktree": False,
         "dry_run": False,
         "runbook": "",
-        "knowledge": "./knowledge",
         "meeting": "fireflies",
         "meeting_key": "",
         "meeting_query": "",
         "meeting_top_k": 3,
         "meeting_max_bytes": 50_000,
+        "chat": "slack",
+        "slack_query": "",
+        "slack_top_k": 3,
+        "slack_max_bytes": 30_000,
         "store": "file",
         "root": "./knowledge",
         "journal_store": "file",
@@ -335,10 +341,13 @@ class TestBuildImplementArgsMapping:
     def test_runbook_maps(self) -> None:
         assert self._impl(runbook="rb.yaml").runbook == "rb.yaml"
 
-    def test_knowledge_maps(self) -> None:
-        # --knowledge is the file-store root for `agent implement` (distinct
-        # from --root which is the plan store root).
-        assert self._impl(knowledge="/k/root").knowledge == "/k/root"
+    def test_root_maps_to_implement_knowledge_root(self) -> None:
+        # The per-card implement reuses the plan's --root as its file-store
+        # root (one root, not two) — no separate --knowledge flag.
+        assert self._impl(root="/k/root").knowledge == "/k/root"
+
+    def test_slack_query_maps(self) -> None:
+        assert self._impl(slack_query="oncall thread").slack_query == "oncall thread"
 
     def test_store_maps(self) -> None:
         assert self._impl(store="postgres").store == "postgres"
@@ -451,8 +460,6 @@ class TestRunSeamWiring:
             "--keep-worktree",
             "--runbook",
             "rb.yml",
-            "--knowledge",
-            "/kb",
             "--meeting",
             "otter",
             "--meeting-key",
@@ -485,7 +492,8 @@ class TestRunSeamWiring:
         assert ns.git_user_email == "b@x.io"
         assert ns.keep_worktree is True
         assert ns.runbook == "rb.yml"
-        assert ns.knowledge == "/kb"
+        # implement's file-store root is the plan's --root (one root).
+        assert ns.knowledge == str(store_root)
         assert ns.meeting == "otter"
         assert ns.meeting_key == "MK"
         assert ns.meeting_query == "q"

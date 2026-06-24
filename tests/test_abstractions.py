@@ -1595,16 +1595,31 @@ class GitIdentityResolutionTests(unittest.TestCase):
         self.assertEqual(ce.git_identity.email, "")
 
     def test_resolve_raises_when_nothing_set(self) -> None:
-        """No CLI flag, no runbook → CliError. There is no hardcoded
-        fallback (was previously a hardcoded personal identifier;
-        committed personal identifiers on a third-party host are a
-        smell)."""
+        """No CLI flag, no runbook, no ambient git identity → CliError.
+        Ambient is mocked empty so the result doesn't depend on the test
+        machine's git config (or whether CI is set)."""
         from briar.commands.agent import CommandAgent
         from briar.errors import CliError
 
-        with self.assertRaises(CliError) as ctx:
-            CommandAgent._resolve_git_identity(self._ns())
+        with mock.patch.object(CommandAgent, "_ambient_git_identity", return_value=("", "")):
+            with self.assertRaises(CliError) as ctx:
+                CommandAgent._resolve_git_identity(self._ns())
         self.assertIn("git identity not configured", str(ctx.exception))
+
+    def test_ambient_git_config_used_as_last_resort(self) -> None:
+        """No CLI flag, no runbook → fall back to local `git config`."""
+        from briar.commands.agent import CommandAgent
+
+        with mock.patch.object(CommandAgent, "_ambient_git_identity", return_value=("Local Dev", "dev@local")):
+            name, email = CommandAgent._resolve_git_identity(self._ns())
+        self.assertEqual((name, email), ("Local Dev", "dev@local"))
+
+    def test_ambient_git_identity_suppressed_in_ci(self) -> None:
+        """`$CI` set → ambient identity is not read (returns empty)."""
+        from briar.commands.agent import CommandAgent
+
+        with mock.patch.dict(os.environ, {"CI": "true"}):
+            self.assertEqual(CommandAgent._ambient_git_identity(), ("", ""))
 
     def test_cli_flag_wins_over_default(self) -> None:
         from briar.commands.agent import CommandAgent
@@ -1687,21 +1702,23 @@ class GitIdentityResolutionTests(unittest.TestCase):
             path = f.name
         try:
             ns = self._ns(company="other-company", runbook=path)
-            with self.assertRaises(CliError):
-                CommandAgent._resolve_git_identity(ns)
+            with mock.patch.object(CommandAgent, "_ambient_git_identity", return_value=("", "")):
+                with self.assertRaises(CliError):
+                    CommandAgent._resolve_git_identity(ns)
         finally:
             os.unlink(path)
 
     def test_unreadable_runbook_is_non_fatal_but_still_raises_without_cli(self) -> None:
         """YAML load failure must not crash the resolver — it must log
-        and stay quiet. With no CLI flag to fall back on, the resolver
-        then raises CliError to signal the missing identity."""
+        and stay quiet. With no CLI flag and no ambient identity to fall
+        back on, the resolver then raises CliError."""
         from briar.commands.agent import CommandAgent
         from briar.errors import CliError
 
         ns = self._ns(company="acme", runbook="/nonexistent/runbook.yaml")
-        with self.assertRaises(CliError):
-            CommandAgent._resolve_git_identity(ns)
+        with mock.patch.object(CommandAgent, "_ambient_git_identity", return_value=("", "")):
+            with self.assertRaises(CliError):
+                CommandAgent._resolve_git_identity(ns)
 
 
 class ErrorPolicyTests(unittest.TestCase):
@@ -1961,7 +1978,6 @@ class CredentialAcquirerTests(unittest.TestCase):
         }
         self.assertEqual(set(kinds), expected)
 
-
     def test_fireflies_acquirer_writes_per_company_api_key(self) -> None:
         """The "log into Fireflies" paste flow. Stores the per-company
         FIREFLIES_<COMPANY>_API_KEY the meeting extractors read."""
@@ -1989,7 +2005,17 @@ class CredentialAcquirerTests(unittest.TestCase):
         from briar.auth import AcquirerRegistry
         from briar.auth._acquirer import DestinationPolicy
 
-        for kind in ("github-pat", "github-device", "aws-static", "aws-sso", "jira-token", "jira-session", "linear-api-key", "fireflies", "bitbucket-app-password"):
+        for kind in (
+            "github-pat",
+            "github-device",
+            "aws-static",
+            "aws-sso",
+            "jira-token",
+            "jira-session",
+            "linear-api-key",
+            "fireflies",
+            "bitbucket-app-password",
+        ):
             acquirer = AcquirerRegistry.make(kind)
             self.assertIs(type(acquirer).destination_policy, DestinationPolicy.EXTERNAL, f"{kind} should be EXTERNAL")
 
@@ -2271,7 +2297,6 @@ class Phase1CredentialHardeningTests(unittest.TestCase):
         with mock.patch("boto3.client", return_value=fake_client):
             with self.assertRaises(_AccessDenied):
                 store.read("ABSENT_KEY")
-
 
     # ── envfile write atomicity + permissions ──────────────────────
 

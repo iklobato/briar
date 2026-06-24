@@ -244,6 +244,30 @@ class TestMetaFlags:
         assert result.code == 2
         assert "invalid choice" in result.err
 
+    def test_store_canonical_writes_blob(self, cli, tmp_root, seam) -> None:
+        # `--store` is the canonical name; it must drive the same file
+        # write the legacy `--storage` did.
+        result = cli(
+            "extract",
+            "--company",
+            "acme",
+            "--include",
+            "pr-archaeology",
+            "--pr-repo",
+            "o/r",
+            "--store",
+            "file",
+            "--root",
+            str(tmp_root / "knowledge"),
+        )
+        assert result.code == 0
+        assert (tmp_root / "knowledge" / "knowledge" / "acme.md").exists()
+
+    def test_storage_alias_warns_deprecation(self, cli, tmp_root, seam) -> None:
+        result = _run(cli, tmp_root, "pr-archaeology", "--pr-repo", "o/r")
+        assert result.code == 0
+        assert "--storage is deprecated; use --store" in result.err
+
     def test_include_invalid_choice_exits_2(self, cli, tmp_root, seam) -> None:
         result = cli(
             "extract",

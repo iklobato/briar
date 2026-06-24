@@ -9,14 +9,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
 
-from briar.commands.base import Command
+from briar.commands.base import Command, add_canonical_with_alias
 from briar.errors import CliError
 from briar.extract import EXTRACTORS
 from briar.extract.base import ExtractedSection
 from briar.extract.canonical import AdvancedHelpAction, apply_canonical, hide_canonicalised_flags, register_canonical_flags
 from briar.extract.claude_md import ClaudeMdMerger
 from briar.extract.composer import render_json, render_markdown
-from briar.storage import KNOWLEDGE_STORE_NAMES, make_store
+from briar.storage import KNOWLEDGE_STORE_NAMES, default_store_kind, make_store
 
 _CLAUDE_MD_DETAIL_ROOT = Path(".briar/knowledge")
 
@@ -54,17 +54,19 @@ class CommandExtract(Command):
             help="Which extractor(s) to run (repeatable; default: all available)",
         )
         # `--store` is the name every other command uses; `--storage` is
-        # kept as an alias so existing scripts keep working.
-        parser.add_argument(
+        # the legacy spelling, kept (hidden) as a deprecated alias so
+        # existing scripts keep working but `-h` shows only `--store`.
+        add_canonical_with_alias(
+            parser,
             "--store",
             "--storage",
             dest="storage",
-            default="file",
+            default=default_store_kind(),
             choices=list(KNOWLEDGE_STORE_NAMES),
-            help="Where to write the result (default: file)",
+            help="Where to write the result (default: postgres if BRIAR_DATABASE_URL set, else file)",
         )
         parser.add_argument("--blob-name", default="", help="Storage blob name (default: knowledge:<company>)")
-        parser.add_argument("--root", default="./knowledge", help="Local file root (only used when --storage=file)")
+        parser.add_argument("--root", default="./knowledge", help="Local file root (only used when --store=file)")
         parser.add_argument("--out-json", default="", help="Parallel JSON output path (empty = skip)")
         parser.add_argument(
             "--merge-claude-md",

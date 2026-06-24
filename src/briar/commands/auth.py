@@ -5,9 +5,9 @@ the thing you're logging into is the **positional target**, not a
 named flag. One unified verb for both directions:
 
   briar auth login github-pat --company acme  # acquire vendor credentials
-  briar auth login aws-sso --company acme --store vault
+  briar auth login aws-sso --company acme --cred-store vault
 
-The acquirer's ``destination_policy`` decides whether ``--store``
+The acquirer's ``destination_policy`` decides whether ``--cred-store``
 applies (vendor flows) or is forced to envfile (bootstrap flows that
 populate the credentials needed to talk to a store).
 
@@ -31,10 +31,9 @@ from typing import ClassVar, Dict, List
 from briar.auth import AcquirerRegistry, CredentialExpired, Credentials, TerminalPromptIO
 from briar.auth._acquirer import DestinationPolicy
 from briar.commands._enums import ExitCode
-from briar.commands.base import Command, confirm
+from briar.commands.base import Command, add_canonical_with_alias, confirm
 from briar.credentials import CredentialStoreRegistry, make_credential_store
 from briar.errors import CliError
-
 
 log = logging.getLogger(__name__)
 
@@ -58,11 +57,12 @@ class CommandAuth(Command):
                 "a vendor (github-pat / aws-sso / jira-session) acquires credentials and stores them."
             ),
         )
-        login.add_argument("target", choices=targets,
-                           help="What to log into. See `briar auth login -h` for the registry.")
+        login.add_argument("target", choices=targets, help="What to log into. See `briar auth login -h` for the registry.")
         login.add_argument("--company", default="", help="Per-company namespace (required for vendor targets).")
-        login.add_argument(
-            "--store", default=default_store, choices=store_kinds,
+        _add_cred_store_argument(
+            login,
+            default_store=default_store,
+            store_kinds=store_kinds,
             help=(
                 "Where to persist acquired credentials. Defaults to $BRIAR_DEFAULT_STORE then envfile. "
                 "IGNORED for bootstrap targets — those always persist locally."
@@ -72,7 +72,7 @@ class CommandAuth(Command):
         logout = sub.add_parser("logout", help="Delete the credentials a target's login would have written.")
         logout.add_argument("target", choices=targets)
         logout.add_argument("--company", default="")
-        logout.add_argument("--store", default=default_store, choices=store_kinds)
+        _add_cred_store_argument(logout, default_store=default_store, store_kinds=store_kinds)
         logout.add_argument("--yes", action="store_true", help="Skip confirmation prompt.")
 
         refresh = sub.add_parser(
@@ -84,16 +84,16 @@ class CommandAuth(Command):
         )
         refresh.add_argument("target", choices=targets)
         refresh.add_argument("--company", default="")
-        refresh.add_argument("--store", default=default_store, choices=store_kinds)
+        _add_cred_store_argument(refresh, default_store=default_store, store_kinds=store_kinds)
 
         listing = sub.add_parser("list", help="Show which credential env-vars are populated (names only, no values).")
-        listing.add_argument("--store", default=default_store, choices=store_kinds)
+        _add_cred_store_argument(listing, default_store=default_store, store_kinds=store_kinds)
         listing.add_argument("--company", default="", help="Filter to one company (matches the company token in env-var names).")
 
         status = sub.add_parser("status", help="Show one target × company bundle's coverage (names + set/missing).")
         status.add_argument("target", choices=targets)
         status.add_argument("--company", default="")
-        status.add_argument("--store", default=default_store, choices=store_kinds)
+        _add_cred_store_argument(status, default_store=default_store, store_kinds=store_kinds)
 
     _ACTIONS: ClassVar[Dict[str, str]] = {
         "login": "_login",
@@ -123,12 +123,16 @@ class CommandAuth(Command):
     @staticmethod
     def _login(args: argparse.Namespace) -> int:
         acquirer = AcquirerRegistry.make(args.target)
-        effective_store = _effective_store_kind(acquirer, requested=args.store)
+        effective_store = _effective_store_kind(acquirer, requested=args.cred_store)
         store = make_credential_store(effective_store)
         prompt = TerminalPromptIO()
-        log.info("auth-login: target=%s company=%s store=%s policy=%s",
-                 args.target, args.company or "(none)", effective_store,
-                 type(acquirer).destination_policy.value)
+        log.info(
+            "auth-login: target=%s company=%s store=%s policy=%s",
+            args.target,
+            args.company or "(none)",
+            effective_store,
+            type(acquirer).destination_policy.value,
+        )
         creds = acquirer.acquire(company=args.company, prompt=prompt)
         return _persist_and_report(creds, store=store, store_kind=effective_store)
 
@@ -139,7 +143,7 @@ class CommandAuth(Command):
         acquirer = AcquirerRegistry.make(args.target)
         acquirer_cls = type(acquirer)
         names = acquirer_cls.writes(company=args.company)
-        effective_store = _effective_store_kind(acquirer, requested=args.store)
+        effective_store = _effective_store_kind(acquirer, requested=args.cred_store)
         if not names:
             print(f"auth-logout: nothing to delete for target={args.target} company={args.company or '(none)'}")
             return 0
@@ -163,7 +167,7 @@ class CommandAuth(Command):
     @staticmethod
     def _refresh(args: argparse.Namespace) -> int:
         acquirer = AcquirerRegistry.make(args.target)
-        effective_store = _effective_store_kind(acquirer, requested=args.store)
+        effective_store = _effective_store_kind(acquirer, requested=args.cred_store)
         store = make_credential_store(effective_store)
 
         # Reconstruct an "existing" bundle from the store so the
@@ -182,15 +186,15 @@ class CommandAuth(Command):
 
     @staticmethod
     def _list(args: argparse.Namespace) -> int:
-        store = make_credential_store(args.store)
+        store = make_credential_store(args.cred_store)
         names = store.list()
         if args.company:
             tok = args.company.upper().replace("-", "_")
             names = [n for n in names if f"_{tok}_" in f"_{n}_"]
         if not names:
-            print(f"(no credentials in store={args.store}{' for company=' + args.company if args.company else ''})")
+            print(f"(no credentials in store={args.cred_store}{' for company=' + args.company if args.company else ''})")
             return 0
-        print(f"store={args.store}  {len(names)} entry(ies):")
+        print(f"store={args.cred_store}  {len(names)} entry(ies):")
         for n in names:
             print(f"  {n}")
         return 0
@@ -202,7 +206,7 @@ class CommandAuth(Command):
         acquirer = AcquirerRegistry.make(args.target)
         acquirer_cls = type(acquirer)
         names = acquirer_cls.writes(company=args.company)
-        effective_store = _effective_store_kind(acquirer, requested=args.store)
+        effective_store = _effective_store_kind(acquirer, requested=args.cred_store)
         if not names:
             print(f"auth-status: target={args.target} writes nothing for company={args.company or '(none)'}")
             return 0
@@ -218,10 +222,34 @@ class CommandAuth(Command):
         return 1 if any_missing else 0
 
 
+def _add_cred_store_argument(
+    parser: argparse.ArgumentParser,
+    *,
+    default_store: str,
+    store_kinds: List[str],
+    help: str = "Credential store backend. Defaults to $BRIAR_DEFAULT_STORE then envfile.",
+) -> None:
+    """Register the credential-store flag on a subparser.
+
+    Canonical name is ``--cred-store`` (distinct from the knowledge
+    ``--store`` every other command uses); ``--store`` stays as a hidden
+    deprecated alias so existing scripts keep working. Both write the
+    ``cred_store`` dest."""
+    add_canonical_with_alias(
+        parser,
+        "--cred-store",
+        "--store",
+        dest="cred_store",
+        default=default_store,
+        choices=store_kinds,
+        help=help,
+    )
+
+
 def _resolve_default_store(known_kinds: List[str]) -> str:
-    """Default destination for ``--store``. Priority:
-       1. ``$BRIAR_DEFAULT_STORE`` if it names a registered store
-       2. ``envfile`` (always present, requires no setup)"""
+    """Default destination for ``--cred-store``. Priority:
+    1. ``$BRIAR_DEFAULT_STORE`` if it names a registered store
+    2. ``envfile`` (always present, requires no setup)"""
     import os
 
     env = (os.environ.get("BRIAR_DEFAULT_STORE", "") or "").strip()
@@ -264,7 +292,7 @@ def _persist_and_report(creds: Credentials, *, store, store_kind: str) -> int:
 
     print(f"auth: persisted {len(creds.entries) - len(failures)}/{len(creds.entries)} entries to store={store_kind}")
     for n in creds.names:
-        if n in {f.split(':', 1)[0] for f in failures}:
+        if n in {f.split(":", 1)[0] for f in failures}:
             print(f"  FAIL  {n}")
         else:
             print(f"  ok    {n}")

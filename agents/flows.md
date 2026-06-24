@@ -77,7 +77,7 @@ briar context get knowledge:<COMPANY> | head -40
 #    Fireflies transcript fetched just-in-time into the prompt.
 #    Add --dry-run first to preview the prompt + tools for free.
 briar agent prfix --company <COMPANY> \
-    --owner <OWNER> --repo <REPO> \
+    --repo <OWNER>/<REPO> \
     --pr 128 --branch fix/login-retry \
     --meeting fireflies --meeting-query "login retry" --meeting-top-k 3 \
     --runbook examples/<COMPANY>.yaml
@@ -114,7 +114,7 @@ briar extract --company <COMPANY> \
 # 3. agent — implement one ticket (ticket-context fetched JIT for the key).
 #    --keep-worktree leaves the tree in /tmp to inspect; --dry-run previews.
 briar agent implement --company <COMPANY> \
-    --owner <OWNER> --repo <REPO> \
+    --repo <OWNER>/<REPO> \
     --ticket-project <PROJECT> --ticket-key <PROJECT>-412 \
     --tracker jira \
     --runbook examples/<COMPANY>.yaml
@@ -155,7 +155,7 @@ briar plan next   q3-auth --company <COMPANY> --store postgres   # what the sele
 
 # 3. plan run — smoke ONE card end-to-end
 briar plan run q3-auth \
-    --owner <OWNER> --repo <REPO> \
+    --repo <OWNER>/<REPO> \
     --tracker jira --tracker-project <PROJECT> \
     --llm anthropic --company <COMPANY> --store postgres \
     --limit 1
@@ -166,7 +166,7 @@ briar context --store postgres get knowledge:<COMPANY>.q3-auth | tail -20
 
 # 5. plan run — let the loop go wide; keep going past a failing card
 briar plan run q3-auth \
-    --owner <OWNER> --repo <REPO> \
+    --repo <OWNER>/<REPO> \
     --tracker jira --tracker-project <PROJECT> \
     --llm anthropic --company <COMPANY> --store postgres \
     --continue-on-failure
@@ -208,7 +208,6 @@ briar extract --company <COMPANY> \
 briar runbook extract examples/<COMPANY>.yaml
 
 # Inspect the companion and watch it drift over time
-#   (--store is a parent flag — it goes BEFORE the sub-op)
 briar context --store postgres list --prefix inventory:
 briar context --store postgres get  inventory:<COMPANY> | jq '.sections[].data.resources | length'
 ```
@@ -258,7 +257,7 @@ transcript instead of keyword search.
 ```bash
 # Preview the wiring for free (no LLM call)
 briar agent prfix --company <COMPANY> \
-    --owner <OWNER> --repo <REPO> \
+    --repo <OWNER>/<REPO> \
     --pr 204 --branch feat/rate-limit \
     --meeting fireflies --meeting-key 01HXXXXMEETINGID \
     --meeting-max-bytes 8000 \
@@ -266,7 +265,7 @@ briar agent prfix --company <COMPANY> \
 
 # Re-run for real once the prompt looks right (drop --dry-run)
 briar agent prfix --company <COMPANY> \
-    --owner <OWNER> --repo <REPO> \
+    --repo <OWNER>/<REPO> \
     --pr 204 --branch feat/rate-limit \
     --meeting fireflies --meeting-key 01HXXXXMEETINGID \
     --runbook examples/<COMPANY>.yaml
@@ -284,17 +283,17 @@ Three escalating gates so you never discover a misconfiguration at scale.
 ```bash
 # 1. FREE — render the exact prompt + tool list, skip the LLM entirely
 briar agent implement --company <COMPANY> \
-    --owner <OWNER> --repo <REPO> \
+    --repo <OWNER>/<REPO> \
     --ticket-project <PROJECT> --ticket-key <PROJECT>-77 \
     --tracker jira --dry-run
 
 # 2. ONE paid card through the plan loop
-briar plan run q3-auth --owner <OWNER> --repo <REPO> \
+briar plan run q3-auth --repo <OWNER>/<REPO> \
     --tracker jira --tracker-project <PROJECT> \
     --llm anthropic --company <COMPANY> --limit 1
 
 # 3. GO WIDE
-briar plan run q3-auth --owner <OWNER> --repo <REPO> \
+briar plan run q3-auth --repo <OWNER>/<REPO> \
     --tracker jira --tracker-project <PROJECT> \
     --llm anthropic --company <COMPANY> --continue-on-failure
 ```
@@ -321,7 +320,7 @@ briar extract --company <COMPANY> \
 
 # 3. Implement a Linear ticket against a Bitbucket repo
 briar agent implement --company <COMPANY> \
-    --owner <OWNER> --repo <REPO> --provider bitbucket \
+    --repo <OWNER>/<REPO> --provider bitbucket \
     --ticket-project ENG --ticket-key ENG-7 --tracker linear
 ```
 
@@ -415,7 +414,6 @@ briar context list --prefix inventory:
 briar context delete memory:reviewer-alice
 
 # Everything above works against shared postgres truth instead of disk
-# (--store is a parent flag — it goes BEFORE the sub-op)
 briar context --store postgres list --prefix knowledge:
 ```
 
@@ -453,13 +451,13 @@ briar plan build "https://github.com/orgs/<OWNER>/projects/7" \
     --llm anthropic --store postgres
 
 # 5. plan run — ship the plan card by card (engineer agent per card)
-briar plan run q3-auth --owner <OWNER> --repo <REPO> \
+briar plan run q3-auth --repo <OWNER>/<REPO> \
     --tracker jira --tracker-project <PROJECT> \
     --llm anthropic --company <COMPANY> --store postgres \
     --continue-on-failure
 
 # 6. agent prfix — when a human reviews a shipped PR, address the comments
-briar agent prfix --company <COMPANY> --owner <OWNER> --repo <REPO> \
+briar agent prfix --company <COMPANY> --repo <OWNER>/<REPO> \
     --pr 131 --branch q3-auth/card-3 \
     --meeting fireflies --meeting-query "auth review" \
     --runbook examples/<COMPANY>.yaml

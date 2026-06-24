@@ -19,7 +19,7 @@ import argparse
 from pathlib import Path
 from typing import ClassVar, Dict
 
-from briar.commands.base import Command
+from briar.commands.base import Command, add_canonical_with_alias
 from briar.credentials import CredentialStoreRegistry, make_credential_store
 
 
@@ -37,8 +37,11 @@ class CommandSecrets(Command):
             default=Path("./examples"),
             help="Runbook YAML directory (default: ./examples)",
         )
-        doctor.add_argument(
+        add_canonical_with_alias(
+            doctor,
+            "--cred-store",
             "--store",
+            dest="cred_store",
             default="envfile",
             choices=list(CredentialStoreRegistry.kinds()),
             help="Credential store backend (default: envfile)",
@@ -48,8 +51,7 @@ class CommandSecrets(Command):
 
         bootstrap = sub.add_parser(
             "bootstrap",
-            help="One-off invocation of a credential bootstrap. "
-            "Normally runs automatically at CLI startup; this subcommand is for testing.",
+            help="One-off invocation of a credential bootstrap. " "Normally runs automatically at CLI startup; this subcommand is for testing.",
         )
         bootstrap.add_argument(
             "--kind",
@@ -60,8 +62,7 @@ class CommandSecrets(Command):
         bootstrap.add_argument(
             "--dry-run",
             action="store_true",
-            help="Run the remote fetch but DON'T write to os.environ. Prints the keys that "
-            "would be set, without revealing values.",
+            help="Run the remote fetch but DON'T write to os.environ. Prints the keys that " "would be set, without revealing values.",
         )
 
     _ACTIONS: ClassVar[Dict[str, str]] = {
@@ -115,7 +116,7 @@ class CommandSecrets(Command):
         from briar.iac.runbook.executor import RunbookSchedules
         from briar.messaging import WRITERS
 
-        store = make_credential_store(args.store)
+        store = make_credential_store(args.cred_store)
         examples_dir: Path = args.examples
         if not examples_dir.exists():
             print(f"no examples dir at {examples_dir}")

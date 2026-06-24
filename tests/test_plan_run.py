@@ -61,6 +61,10 @@ def _run_args(name: str, root: Path, *, journal_root: Path, **overrides) -> argp
         "meeting_query": "",
         "meeting_top_k": 3,
         "meeting_max_bytes": 50_000,
+        "chat": "slack",
+        "slack_query": "",
+        "slack_top_k": 3,
+        "slack_max_bytes": 30_000,
         "store": "file",
         "root": str(root),
         "journal_store": "file",
@@ -148,6 +152,23 @@ class PlanRunTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         impl.assert_not_called()
         self.assertEqual(llm.call_count, 0)
+
+    def test_repo_slug_splits_into_owner_and_repo(self) -> None:
+        # `--repo owner/repo` (no --owner) is normalised in place.
+        self._save(_seeded_plan([]))
+        llm = _FakeLLM([])
+        args = _run_args("demo", self.tmp, journal_root=self.journal_root, owner="", repo="acme/widgets")
+        rc, _ = self._run(llm, args)
+        self.assertEqual(rc, 0)
+        self.assertEqual((args.owner, args.repo), ("acme", "widgets"))
+
+    def test_missing_repo_target_raises(self) -> None:
+        from briar.errors import CliError
+
+        self._save(_seeded_plan([]))
+        args = _run_args("demo", self.tmp, journal_root=self.journal_root, owner="", repo="")
+        with self.assertRaises(CliError):
+            self._run(_FakeLLM([]), args)
 
     def test_all_cards_succeed_marks_all_done(self) -> None:
         plan = _seeded_plan([PlanCard(key="A", title="a"), PlanCard(key="B", title="b")])

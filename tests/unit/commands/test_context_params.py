@@ -96,6 +96,27 @@ class TestStoreAndRootFlags:
         assert result.code == 2
         assert "invalid choice" in result.err
 
+    @pytest.mark.parametrize("store_kind", ["file", "postgres"], ids=["file", "postgres"])
+    def test_store_after_subop_reaches_factory(self, cli, ctx_seam, store_kind) -> None:
+        # `--store` works AFTER the sub-op too (the natural position),
+        # not only before it.
+        result = cli("context", "list", "--store", store_kind)
+        assert result.code == 0
+        assert ctx_seam.factory_calls[0][0] == store_kind
+
+    def test_root_after_subop_reaches_factory(self, cli, ctx_seam) -> None:
+        from pathlib import Path
+
+        cli("context", "get", "knowledge:x", "--root", "/tmp/briar-subop-root")
+        assert ctx_seam.factory_calls[0][1] == Path("/tmp/briar-subop-root")
+
+    def test_subop_store_does_not_clobber_parent_position(self, cli, ctx_seam) -> None:
+        # When given before the sub-op, the absent sub-op copy must not
+        # reset it back to the default.
+        result = cli("context", "--store", "postgres", "list")
+        assert result.code == 0
+        assert ctx_seam.factory_calls[0][0] == "postgres"
+
     def test_root_value_reaches_factory(self, cli, ctx_seam) -> None:
         from pathlib import Path
 

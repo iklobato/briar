@@ -5,6 +5,48 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.49] - 2026-06-24
+
+Cross-command flag unification and common-path simplification. Every old
+spelling still works (deprecated aliases print a one-line note), so this is
+backward compatible.
+
+### Added
+
+- **`--repo owner/repo` slug on `agent` and `plan run`**, matching `extract`.
+  `--owner`/`--repo` still work and are no longer required (both infer from
+  the git `origin` remote in a checkout).
+- **Derived `--store` default**: `postgres` when `BRIAR_DATABASE_URL` is set,
+  else `file`, on `agent`, `plan`, and `extract`. A laptop with no database no
+  longer fails on a postgres connection.
+- **Derived `--ticket-project`** for `agent implement`: taken from the ticket
+  key for Jira/Linear (`ACME-42` becomes `ACME`) or from owner/repo for
+  GitHub/Bitbucket Issues, so the smallest call is `--ticket-key <KEY>`.
+- **Ambient git identity**: when neither `--git-user-name`/`--git-user-email`
+  nor the runbook's `git_identity` is set, `agent` falls back to your local
+  `git config user.name`/`user.email` (suppressed under `$CI`).
+- **`context --store`/`--root` accepted after the sub-op** (e.g.
+  `briar context get x --store postgres`), not only before it.
+- **Slack enrichment flags on `plan run`** (`--slack-query`, ...), matching
+  `briar agent`.
+
+### Changed
+
+- **Knowledge-store root is `--root` everywhere.** `agent`'s `--knowledge` is
+  now a hidden deprecated alias of `--root`.
+- **Credential store is `--cred-store`** on `auth` and `secrets` (deprecated
+  alias `--store`), so it no longer clashes with the knowledge-store `--store`.
+  This also stops a project-config `store` value from leaking into the
+  credential flag.
+- **`extract --storage` is hidden and deprecated** in favour of `--store`.
+- **`plan run` has one knowledge root**: the per-card `agent implement` reuses
+  `--root` (the separate `--knowledge` flag was removed).
+- **Agent enrichment sizing knobs hidden from `-h`** (`--meeting-top-k`,
+  `--meeting-max-bytes`, `--slack-top-k`, `--slack-max-bytes`, `--meeting`,
+  `--chat`); they still work.
+- **`scaffold implementation -h`** groups flags by source (github / jira / aws
+  / sentry / bitbucket) and trigger, instead of one flat list.
+
 ## [1.1.48] - 2026-06-22
 
 ### Added
