@@ -143,8 +143,8 @@ Every command takes `--format json` for scripting, and most list flags repeat (`
 pip install briar-cli                # base: GitHub/Bitbucket/AWS, Jira/Linear, Anthropic + Bedrock, file + Postgres
 pip install 'briar-cli[all]'         # everything (OpenAI, Gemini, MCP, GCP, Azure, Vault)
 
-# or pull the all-batteries image (no Python install needed):
-docker pull iklob1/briar             # tags: latest, and each release e.g. 1.1.50
+# or pull the prebuilt image (no Python install needed; base providers + MCP server):
+docker pull iklob1/briar             # tags: latest, and each release e.g. 1.1.56
 ```
 
 Individual extras: `[openai]`, `[gemini]`, `[mcp]`, `[gcp]`, `[azure]`, `[vault]`. **Python 3.10+** (tested through 3.12).
