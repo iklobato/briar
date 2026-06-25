@@ -200,6 +200,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     # Configure logging before anything else so module imports that
     # log at import-time still inherit the right level.
     verbose = "--verbose" in flags or "-v" in flags or env_verbose()
+    # Logs always go to stderr (see briar.logging), so `briar mcp serve` over
+    # stdio keeps stdout clean for the JSON-RPC stream with no special-casing.
     configure_logging(verbose=verbose)
     log = logging.getLogger("briar.cli")
     log.debug("argv=%r verbose=%s", raw_argv, verbose)

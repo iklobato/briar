@@ -109,8 +109,9 @@ def cli(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> Calla
     survives — the CLI normally calls `basicConfig(force=True)` which
     nukes all handlers including caplog's."""
 
-    # No-op configure so caplog's handler stays attached.
-    monkeypatch.setattr("briar.cli.configure_logging", lambda verbose=False: None)
+    # No-op configure so caplog's handler stays attached. Accept the same
+    # kwargs as the real `configure` (verbose + stream) so the stub matches.
+    monkeypatch.setattr("briar.cli.configure_logging", lambda verbose=False, stream=None: None)
 
     # Hermetic resolution: neutralise the two AMBIENT inputs the CLI reads
     # before dispatch — git `origin` inference and project-config discovery.
