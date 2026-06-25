@@ -26,18 +26,34 @@ disk, log tail, credential coverage.
 ```bash
 briar dashboard
 # Opens on http://127.0.0.1:8080 (default --host / --port; loopback only)
+
+# or with Docker (bind 0.0.0.0 so it's reachable from the host):
+docker run --rm -p 8080:8080 -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar \
+    iklob1/briar dashboard --host 0.0.0.0
 ```
 
 ### Bind to localhost only
 
 ```bash
 briar dashboard --host 127.0.0.1 --port 8080
+
+# or with Docker (publish to the host's loopback only; bind all
+# interfaces *inside* the container so -p can reach it):
+docker run --rm -p 127.0.0.1:8080:8080 -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar \
+    iklob1/briar dashboard --host 0.0.0.0 --port 8080
 ```
 
 ### One-off snapshot
 
 ```bash
 briar dashboard --once > /tmp/briar-status.html
+
+# or with Docker (snapshot to stdout, no server, so no published port):
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar dashboard --once > /tmp/briar-status.html
 ```
 
 Renders one page, writes to stdout, exits. Useful for cron / on-call
@@ -47,6 +63,11 @@ deliverables.
 
 ```bash
 briar dashboard --examples ./examples
+
+# or with Docker (bind 0.0.0.0 so it's reachable from the host):
+docker run --rm -p 8080:8080 -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar \
+    iklob1/briar dashboard --host 0.0.0.0 --examples ./examples
 ```
 
 Points the schedules card at a directory of runbook YAMLs (default `./examples`).

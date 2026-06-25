@@ -5,6 +5,21 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.51] - 2026-06-24
+
+Documentation: a leaner README and Docker usage everywhere. No code or
+behavior changes.
+
+### Changed
+
+- **Simplified the README** to the common flow (install, auth, extract, act),
+  moving the deep-dive material to the `agents/` guides and the docs site.
+- **Every command example now shows a Docker form** next to the native
+  `briar ...` line, using the published `iklob1/briar` image. The README
+  documents the canonical `docker run` invocation (repo + credential mounts,
+  LLM key) and its variants for `dashboard` (published port) and
+  `agent` / `plan run` (SSH + git-identity mounts).
+
 ## [1.1.50] - 2026-06-24
 
 Documentation fixes: align the command guides with the actual CLI surface.

@@ -44,6 +44,11 @@ silently — you'll see `skipped <name>  (not available in this env)`.
 
 ```bash
 briar extract --company <COMPANY>
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar extract --company <COMPANY>
 ```
 
 Writes `knowledge:<COMPANY>` to `./knowledge/knowledge/<COMPANY>.md`.
@@ -52,6 +57,14 @@ Writes `knowledge:<COMPANY>` to `./knowledge/knowledge/<COMPANY>.md`.
 
 ```bash
 briar extract --company <COMPANY> \
+    --include pr-archaeology \
+    --include reviewer-profile \
+    --repo <OWNER>/<REPO>
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar extract --company <COMPANY> \
     --include pr-archaeology \
     --include reviewer-profile \
     --repo <OWNER>/<REPO>
@@ -113,6 +126,12 @@ tagged resource across every service** in the region.
 # Just the account-wide inventory:
 briar extract --company <COMPANY> --include aws-infra \
     --aws-extract-service tagging-inventory
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar extract --company <COMPANY> --include aws-infra \
+    --aws-extract-service tagging-inventory
 ```
 
 In the knowledge markdown the inventory section stays terse — a
@@ -136,6 +155,11 @@ table then doubles as a cloud/repo-estate change log. List them with
 
 ```bash
 briar extract --company <COMPANY> --store postgres
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar extract --company <COMPANY> --store postgres
 ```
 
 Requires `BRIAR_DATABASE_URL`. The blob name is unchanged
@@ -145,6 +169,11 @@ Requires `BRIAR_DATABASE_URL`. The blob name is unchanged
 
 ```bash
 briar extract --company <COMPANY> --blob-name knowledge:<COMPANY>.archive-2026q1
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar extract --company <COMPANY> --blob-name knowledge:<COMPANY>.archive-2026q1
 ```
 
 Use this for snapshots you don't want to clobber `knowledge:<COMPANY>`.
@@ -153,6 +182,11 @@ Use this for snapshots you don't want to clobber `knowledge:<COMPANY>`.
 
 ```bash
 briar extract --company <COMPANY> --out-json /tmp/<COMPANY>.json
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar extract --company <COMPANY> --out-json /tmp/<COMPANY>.json
 ```
 
 Markdown still lands in the configured store; JSON is a sidecar.
@@ -161,6 +195,11 @@ Markdown still lands in the configured store; JSON is a sidecar.
 
 ```bash
 briar extract --company <COMPANY> --merge-claude-md
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar extract --company <COMPANY> --merge-claude-md
 ```
 
 Writes the full bundle to `.briar/knowledge/<company>.md` and splices a

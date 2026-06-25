@@ -19,6 +19,17 @@ briar version
 briar version --format json   # machine-readable
 ```
 
+**The same with Docker:**
+
+```bash
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar version
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar version --format json   # machine-readable
+```
+
 ## Verifying success
 Exit code `0`. Output is one line matching `\d+\.\d+\.\d+` (e.g. `1.1.11`).
 

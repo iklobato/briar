@@ -58,6 +58,10 @@ directly to `/etc/briar/secrets.env`.
 ```bash
 briar auth login github-pat --company <COMPANY>
 # Paste the token at the prompt
+
+# or with Docker:
+docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
+    iklob1/briar auth login github-pat --company <COMPANY>
 ```
 
 ### Device-flow OAuth (opens a browser)
@@ -65,6 +69,10 @@ briar auth login github-pat --company <COMPANY>
 ```bash
 briar auth login github-device --company <COMPANY>
 # Visits github.com/login/device with the printed user-code
+
+# or with Docker:
+docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
+    iklob1/briar auth login github-device --company <COMPANY>
 ```
 
 ### AWS SSO
@@ -72,12 +80,20 @@ briar auth login github-device --company <COMPANY>
 ```bash
 briar auth login aws-sso --company <COMPANY>
 # Opens the SSO start URL in your browser
+
+# or with Docker:
+docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
+    iklob1/briar auth login aws-sso --company <COMPANY>
 ```
 
 ### Persist into a non-default backend
 
 ```bash
 briar auth login github-pat --company <COMPANY> --cred-store vault
+
+# or with Docker:
+docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
+    iklob1/briar auth login github-pat --company <COMPANY> --cred-store vault
 ```
 
 `--cred-store` options: `envfile` (default), `aws-secretsmanager`, `ssm`,
@@ -89,6 +105,10 @@ named `--cred-store` so it does not clash with the knowledge-store
 
 ```bash
 briar auth refresh github-device --company <COMPANY>
+
+# or with Docker:
+docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
+    iklob1/briar auth refresh github-device --company <COMPANY>
 ```
 
 Paste-based targets (PAT, app-password, Jira token) can't refresh —
@@ -101,10 +121,25 @@ briar auth list                          # all targets
 briar auth status --company <COMPANY>    # one company
 ```
 
+**The same with Docker:**
+
+```bash
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar auth list                          # all targets
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar auth status --company <COMPANY>    # one company
+```
+
 ### Forget a credential
 
 ```bash
 briar auth logout github-pat --company <COMPANY>
+
+# or with Docker:
+docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
+    iklob1/briar auth logout github-pat --company <COMPANY>
 ```
 
 ## Verifying success

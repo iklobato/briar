@@ -63,6 +63,13 @@ registry entry. The CLI has no per-vendor branching.
 briar plan build <BOARD_URL_OR_SHORT_FORM> \
     --name <SLUG> --company <COMPANY> \
     --llm anthropic --with-knowledge
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar plan build <BOARD_URL_OR_SHORT_FORM> \
+    --name <SLUG> --company <COMPANY> \
+    --llm anthropic --with-knowledge
 ```
 
 Worked examples:
@@ -84,6 +91,33 @@ briar plan build jira:ACME --name acme-impl --company acme \
 briar plan build jira:ENG --name preview --dry-run
 ```
 
+**The same with Docker:**
+
+```bash
+# Jira, heuristic synthesis only
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar plan build jira:KAN --name acme-q3 --company acme
+
+# GitHub Projects v2, LLM synthesis with company knowledge spliced in
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar plan build https://github.com/orgs/acme/projects/12 \
+    --name acme-q3 --company acme \
+    --llm anthropic --with-knowledge
+
+# Persistent postgres-backed plan
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar plan build jira:ACME --name acme-impl --company acme \
+    --store postgres
+
+# Preview without persisting
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar plan build jira:ENG --name preview --dry-run
+```
+
 When `--company` is set, `build` also writes a seed body to
 `knowledge:<company>.<plan>`.
 
@@ -94,11 +128,33 @@ briar plan show <NAME>                # markdown
 briar plan list                       # all stored plans
 ```
 
+**The same with Docker:**
+
+```bash
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar plan show <NAME>                # markdown
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar plan list                       # all stored plans
+```
+
 ### Visualise past / current / pending
 
 ```bash
 briar plan status <NAME>              # table
 briar plan status <NAME> --format json
+```
+
+**The same with Docker:**
+
+```bash
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar plan status <NAME>              # table
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar plan status <NAME> --format json
 ```
 
 The status renderer reads the plan blob AND the journal store, so
@@ -110,6 +166,11 @@ journal artifacts), and each `blocked` card carries its
 
 ```bash
 briar plan next <NAME> --llm anthropic --format json
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar plan next <NAME> --llm anthropic --format json
 ```
 
 Returns one of:
@@ -125,6 +186,16 @@ Returns one of:
 
 ```bash
 briar plan run <NAME> \
+    --company <COMPANY> --repo <OWNER>/<REPO> \
+    --tracker <jira|github-issues|...> --provider <github|bitbucket> \
+    --llm anthropic
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar \
+    -v "$HOME/.ssh":/home/briar/.ssh:ro -v "$HOME/.gitconfig":/home/briar/.gitconfig:ro \
+    -e ANTHROPIC_API_KEY \
+    iklob1/briar plan run <NAME> \
     --company <COMPANY> --repo <OWNER>/<REPO> \
     --tracker <jira|github-issues|...> --provider <github|bitbucket> \
     --llm anthropic
@@ -152,6 +223,11 @@ rc=0 call `KnowledgeWriter.write` → loop. On REPLAN call `replan()`
 
 ```bash
 briar plan advance <NAME> --card <KEY> --status done
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar plan advance <NAME> --card <KEY> --status done
 ```
 
 `--card` is required. Valid statuses: `pending`, `in_progress`,
@@ -163,6 +239,17 @@ the loop.
 ```bash
 briar plan clear <NAME>           # confirms
 briar plan clear <NAME> --yes     # no prompt
+```
+
+**The same with Docker:**
+
+```bash
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar plan clear <NAME>           # confirms
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar plan clear <NAME> --yes     # no prompt
 ```
 
 ## Verifying success
