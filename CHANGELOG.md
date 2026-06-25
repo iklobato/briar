@@ -5,6 +5,18 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.56] - 2026-06-24
+
+### Fixed
+
+- **Docker image can now serve MCP.** The image installed the base wheel with
+  no extras, so `docker run iklob1/briar mcp serve` crashed with
+  `ModuleNotFoundError: No module named 'mcp'`. The Dockerfile now installs the
+  wheel with the `[mcp]` extra (FastMCP), so the documented
+  `docker run iklob1/briar mcp serve` works. README wording updated: the image
+  carries the base providers + the MCP server (not the optional LLM/cloud
+  extras).
+
 ## [1.1.55] - 2026-06-24
 
 briar can now be driven BY agents, not just run them.
