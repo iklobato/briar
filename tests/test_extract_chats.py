@@ -148,6 +148,35 @@ class SlackAdapterTests(unittest.TestCase):
                 hits = provider.search_messages(query="x", max_count=3)
         self.assertEqual(hits, [])
 
+    def test_auth_error_message_names_the_fix(self) -> None:
+        # An expired session token/cookie is the dominant failure mode for
+        # web-session auth; the error must tell the operator to refresh
+        # (mirrors the slack skill's hint), so the swallowed log line is
+        # actionable rather than a bare `invalid_auth`.
+        from briar.extract._chats.slack import SlackChatProvider
+
+        with mock.patch.dict("os.environ", _Creds.env, clear=True):
+            provider = SlackChatProvider(company="acme")
+            with mock.patch("urllib.request.urlopen", return_value=self._mock_urlopen({"ok": False, "error": "invalid_auth"})):
+                with self.assertRaises(RuntimeError) as ctx:
+                    provider._call("search.messages", {"query": "x"})
+        message = str(ctx.exception)
+        self.assertIn("invalid_auth", message)
+        self.assertIn("expired", message)
+        self.assertIn("refresh", message)
+
+    def test_non_auth_error_has_no_refresh_hint(self) -> None:
+        # A non-auth error (e.g. a transient/server error name) must not
+        # get the credentials-refresh hint, which would mislead.
+        from briar.extract._chats.slack import SlackChatProvider
+
+        with mock.patch.dict("os.environ", _Creds.env, clear=True):
+            provider = SlackChatProvider(company="acme")
+            with mock.patch("urllib.request.urlopen", return_value=self._mock_urlopen({"ok": False, "error": "ratelimited"})):
+                with self.assertRaises(RuntimeError) as ctx:
+                    provider._call("search.messages", {"query": "x"})
+        self.assertNotIn("refresh", str(ctx.exception))
+
     def test_read_only_guard_refuses_write_method(self) -> None:
         from briar.extract._chats.slack import NotReadOnly, SlackChatProvider
 

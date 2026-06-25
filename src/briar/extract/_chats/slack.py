@@ -144,8 +144,11 @@ class SlackChatProvider(ChatProvider):
             # Raise so @swallow_errors surfaces the failure rather than
             # silently returning a half-empty payload (same rationale as
             # FirefliesMeetingProvider._gql). `not_authed`/`invalid_auth`
-            # = the session token/cookie expired; the operator refreshes.
-            raise RuntimeError(f"slack api error: {error}")
+            # = the session token/cookie expired; name the fix in the
+            # message (mirrors the slack skill) so the swallowed log line
+            # is actionable, not just `slack api error: invalid_auth`.
+            hint = " (session token/cookie likely expired: sign in again and refresh the SLACK_* creds)" if "auth" in error else ""
+            raise RuntimeError(f"slack api error: {error}{hint}")
         return payload
 
     @staticmethod
