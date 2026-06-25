@@ -5,6 +5,26 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.55] - 2026-06-24
+
+briar can now be driven BY agents, not just run them.
+
+### Added
+
+- **`briar mcp serve`** exposes briar over the Model Context Protocol
+  (FastMCP) so any MCP host (Claude Code, Claude Desktop, Cursor, the new
+  `briar chat`) can call it. `stdio` transport by default; `http` (Streamable
+  HTTP) with bearer auth and a no-public-bind-without-token guard. Reads
+  (`knowledge_list/get/categories`, `runbook_get/validate`, `version`) are
+  ungated; mutations (`knowledge_put/delete`, `extract_run`,
+  `mcp_server_set_enabled`) preview by default and act only with
+  `confirm=true`. The server pins the store/root, so the model never passes a
+  backend.
+- **`briar chat`** an interactive assistant that drives briar's own MCP server
+  with a human-in-the-loop approval gate the model cannot bypass.
+- **`briar.service` seam** a presentation-free, gated core (extract, knowledge,
+  runbook) shared by the CLI, MCP server, and dashboard, plus a runbook writer.
+
 ## [1.1.51] - 2026-06-24
 
 Documentation: a leaner README and Docker usage everywhere. No code or
