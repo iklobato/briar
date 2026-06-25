@@ -3,8 +3,8 @@
 # Built in CI from the wheel produced by `uv build` (see .github/workflows/
 # release.yml), so the image always matches the version published to PyPI.
 #
-#   docker run --rm iklobato/briar version
-#   docker run --rm -p 8080:8080 iklobato/briar dashboard --host 0.0.0.0
+#   docker run --rm iklob1/briar version
+#   docker run --rm -p 8080:8080 iklob1/briar dashboard --host 0.0.0.0
 FROM python:3.11-slim
 
 # Install the wheel CI just built. The glob resolves to the single versioned

@@ -109,6 +109,10 @@ jobs:
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
           skip-existing: true
+          # We authenticate with an API token, which disables Trusted
+          # Publishing and makes the default `attestations: true` a no-op
+          # (it logs a warning each run). Turn it off explicitly.
+          attestations: false
 
       # Docker image, built from the SAME wheel just published (dist/ is the
       # uv-build output at the bumped version) so PyPI and the image never
@@ -128,5 +132,5 @@ jobs:
           context: .
           push: true
           tags: |
-            iklobato/briar:${{ steps.bump.outputs.next }}
-            iklobato/briar:latest
+            iklob1/briar:${{ steps.bump.outputs.next }}
+            iklob1/briar:latest
