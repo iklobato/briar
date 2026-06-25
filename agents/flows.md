@@ -5,9 +5,9 @@ flows deliberately combine **more than one feature** — a typical shape is
 `secrets` (gate) → `extract` (mine) → `agent`/`plan` (act) → `context`
 (inspect) → `journal`/`dashboard` (audit). Each flow lists the exact
 shell calls with example parameters, a **Features combined** line so you
-can see what's working together, and how to verify it. Flow 14 is the
-capstone that strings the whole tool into one chain. Placeholders used
-throughout:
+can see what's working together, and how to verify it. Flow 14 strings
+the whole tool into one chain; Flow 15 does the same across every provider
+and every extractor. Placeholders used throughout:
 
 | Placeholder | Example | Means |
 |---|---|---|
@@ -936,6 +936,140 @@ docker run --rm -v "$PWD":/work -w /work \
 **Features combined:** `auth` · `secrets` · `runbook` (sweep/serve) ·
 `extract` (via runbook) · `context` · `plan build/run` · `agent prfix` ·
 `dashboard` · `journal` — the whole tool in nine commands.
+
+---
+
+## Flow 15 — All providers, all extractors, ship a Jira card, then auto-fix its PR
+
+The maximalist single-company chain: **auth** every provider (GitHub, AWS,
+Fireflies, Slack, and Jira via a session cookie) → **extract** everything
+(every extractor in one pass) into `knowledge:<COMPANY>` → **agent
+implement** one Jira card end to end → **agent prfix** to pull the
+resulting PR and fix its review comments automatically → **journal** to
+read back every decision. Slack has no extractor and no `auth login`
+target: it is a read-only web session the agents pull in just-in-time via
+`--slack-query` (the same way `--meeting-query` pulls Fireflies).
+
+```bash
+# 1. auth — one login per vendor (creds land in ~/.config/briar/secrets.env)
+briar auth login github-pat   --company <COMPANY>    # PAT with repo + read:org
+briar auth login aws-static   --company <COMPANY>    # access key + secret
+briar auth login fireflies    --company <COMPANY>    # Fireflies API key
+briar auth login jira-session --company <COMPANY>    # paste a Jira session cookie + base URL
+# Slack uses a read-only browser web session (company-scoped env, no login
+# target): export the xoxc token + the d cookie.
+export SLACK_<COMPANY>_TOKEN=xoxc-...
+export SLACK_<COMPANY>_COOKIE_D=xoxd-...
+export ANTHROPIC_API_KEY=sk-ant-...                  # LLM key for the agent steps
+
+# 2. secrets — gate: prove every (company, extractor) pair has its creds
+briar secrets doctor --examples examples/
+
+# 3. extract — EVERY extractor in one pass (omit --include to run them all:
+#    the GitHub, AWS, Jira and Fireflies sources into knowledge:<COMPANY>)
+briar extract --company <COMPANY> \
+    --repo <OWNER>/<REPO> --ticket-project <PROJECT>
+
+# 4. context — eyeball what landed before the agents read it
+briar context get knowledge:<COMPANY> | head -40
+
+# 5. agent implement — ship one Jira card end to end (clone, branch, code,
+#    open a draft PR), with Fireflies + Slack pulled in just-in-time.
+#    Add --dry-run first to preview the prompt + tools for free.
+briar agent implement --company <COMPANY> \
+    --repo <OWNER>/<REPO> \
+    --ticket-project <PROJECT> --ticket-key <PROJECT>-412 --tracker jira \
+    --meeting-query "<PROJECT>-412" --slack-query "<PROJECT>-412" \
+    --runbook examples/<COMPANY>.yaml
+
+# 6. agent prfix — a human reviews the PR; pull it and fix the open review
+#    comments automatically (push fixes, reply inline).
+briar agent prfix --company <COMPANY> \
+    --repo <OWNER>/<REPO> \
+    --pr 412 --branch <PROJECT>-412 \
+    --slack-query "<PROJECT>-412" \
+    --runbook examples/<COMPANY>.yaml
+
+# 7. journal — read back what both agents decided and why
+briar journal list --command agent.
+briar journal show <SESSION_ID>
+```
+
+**The same flow with Docker:**
+
+```bash
+# 1. auth — one login per vendor (writes into the mounted ~/.config/briar)
+docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
+    iklob1/briar auth login github-pat --company <COMPANY>
+docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
+    iklob1/briar auth login aws-static --company <COMPANY>
+docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
+    iklob1/briar auth login fireflies --company <COMPANY>
+docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
+    iklob1/briar auth login jira-session --company <COMPANY>
+# Slack web-session creds + LLM key live in your host env; the agent steps
+# below forward them with -e (see step 5/6):
+export SLACK_<COMPANY>_TOKEN=xoxc-...
+export SLACK_<COMPANY>_COOKIE_D=xoxd-...
+export ANTHROPIC_API_KEY=sk-ant-...
+
+# 2. secrets — gate: prove every (company, extractor) pair has its creds
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar secrets doctor --examples examples/
+
+# 3. extract — EVERY extractor in one pass into knowledge:<COMPANY>
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar extract --company <COMPANY> \
+    --repo <OWNER>/<REPO> --ticket-project <PROJECT>
+
+# 4. context — eyeball what landed before the agents read it
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar context get knowledge:<COMPANY> | head -40
+
+# 5. agent implement — ship one Jira card end to end, Fireflies from the
+#    mounted creds, Slack forwarded with -e for --slack-query.
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar \
+    -v "$HOME/.ssh":/home/briar/.ssh:ro -v "$HOME/.gitconfig":/home/briar/.gitconfig:ro \
+    -e ANTHROPIC_API_KEY -e SLACK_<COMPANY>_TOKEN -e SLACK_<COMPANY>_COOKIE_D \
+    iklob1/briar agent implement --company <COMPANY> \
+    --repo <OWNER>/<REPO> \
+    --ticket-project <PROJECT> --ticket-key <PROJECT>-412 --tracker jira \
+    --meeting-query "<PROJECT>-412" --slack-query "<PROJECT>-412" \
+    --runbook examples/<COMPANY>.yaml
+
+# 6. agent prfix — pull the PR and fix its review comments automatically
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar \
+    -v "$HOME/.ssh":/home/briar/.ssh:ro -v "$HOME/.gitconfig":/home/briar/.gitconfig:ro \
+    -e ANTHROPIC_API_KEY -e SLACK_<COMPANY>_TOKEN -e SLACK_<COMPANY>_COOKIE_D \
+    iklob1/briar agent prfix --company <COMPANY> \
+    --repo <OWNER>/<REPO> \
+    --pr 412 --branch <PROJECT>-412 \
+    --slack-query "<PROJECT>-412" \
+    --runbook examples/<COMPANY>.yaml
+
+# 7. journal — read back what both agents decided and why
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar journal list --command agent.
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar journal show <SESSION_ID>
+```
+
+**Features combined:** `auth` (5 targets, incl. `jira-session`) ·
+`secrets` · `extract` (all extractors) · `context` · `agent implement` ·
+`agent prfix` (+ JIT Fireflies + Slack context) · `journal`.
+
+**Verify:** step 2 shows no `missing` rows; step 3 writes a non-empty
+`knowledge:<COMPANY>` with one section per extractor; step 5 exits `0`,
+logs `agent-done`, and opens a draft PR; step 6 pushes new commits with
+inline replies prefixed `[AI] ` on that PR; step 7 lists both `agent.`
+sessions with their ordered `DecisionEvent`s.
 
 ---
 
