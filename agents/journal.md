@@ -36,6 +36,23 @@ briar journal list --command plan.run       # filter by prefix
 briar journal list --command agent.         # all agent sessions
 ```
 
+**The same with Docker:**
+
+```bash
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar journal list                          # newest first
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar journal list --limit 50               # cap
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar journal list --command plan.run       # filter by prefix
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar journal list --command agent.         # all agent sessions
+```
+
 Columns: `session_id`, `command`, `target`, `started_at`,
 `ended_at`, `decision_count`.
 
@@ -43,6 +60,11 @@ Columns: `session_id`, `command`, `target`, `started_at`,
 
 ```bash
 briar journal show <SESSION_ID>
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar journal show <SESSION_ID>
 ```
 
 Prints a markdown document with the session header + every decision
@@ -52,12 +74,22 @@ event (choice, value, rationale, alternatives, artifacts).
 
 ```bash
 briar journal export <SESSION_ID> --out /tmp/<NAME>.md
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar journal export <SESSION_ID> --out /tmp/<NAME>.md
 ```
 
 ### Find the session a specific plan run wrote
 
 ```bash
 briar journal list --command plan.run | grep <PLAN_NAME>
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar journal list --command plan.run | grep <PLAN_NAME>
 ```
 
 The `target` column is `<plan>@<owner>/<repo>` for `plan.run` and

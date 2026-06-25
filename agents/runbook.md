@@ -31,6 +31,11 @@ company you operate.
 
 ```bash
 briar runbook extract <PATH>/<COMPANY>.yaml
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar runbook extract <PATH>/<COMPANY>.yaml
 ```
 
 Equivalent to walking each `extract:` block and calling `briar
@@ -40,6 +45,11 @@ extract` with the YAML's flags filled in.
 
 ```bash
 briar runbook sweep examples/
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar runbook sweep examples/
 ```
 
 Useful before a release: refreshes every company's knowledge in one go.
@@ -48,6 +58,11 @@ Useful before a release: refreshes every company's knowledge in one go.
 
 ```bash
 briar runbook serve examples/
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar runbook serve examples/
 ```
 
 Stays in foreground; logs to stdout. Each scheduled task gets its

@@ -34,6 +34,11 @@ startup.
 
 ```bash
 briar secrets doctor --examples examples/
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar secrets doctor --examples examples/
 ```
 
 Output per row: `<company> · <extractor> · <env-var> · OK|MISSING`.
@@ -47,6 +52,11 @@ per-company or missing-only filter. Grep the output if you need a subset
 
 ```bash
 briar secrets doctor --examples examples/ --cred-store aws-secretsmanager
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar secrets doctor --examples examples/ --cred-store aws-secretsmanager
 ```
 
 `--cred-store` picks the backend whose coverage is reported (default
@@ -56,6 +66,11 @@ briar secrets doctor --examples examples/ --cred-store aws-secretsmanager
 
 ```bash
 briar secrets bootstrap --kind envfile
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar secrets bootstrap --kind envfile
 ```
 
 Useful when debugging why the auto-bootstrap at CLI startup failed —

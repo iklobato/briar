@@ -65,10 +65,26 @@ briar telemetry status
 briar telemetry status --format json
 ```
 
+**The same with Docker:**
+
+```bash
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar telemetry status
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar telemetry status --format json
+```
+
 ### Inspect exactly what would be sent
 
 ```bash
 briar telemetry preview --for-command plan.run
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar telemetry preview --for-command plan.run
 ```
 
 Returns a JSON object. Pipe to `jq` to inspect. Nothing is sent over
@@ -84,10 +100,31 @@ BRIAR_TELEMETRY=off briar plan ...
 DO_NOT_TRACK=1 briar plan ...
 ```
 
+**The same with Docker:**
+
+```bash
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar telemetry off
+# or, for a single invocation:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    -e BRIAR_TELEMETRY iklob1/briar plan ...
+# or, industry-standard:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    -e DO_NOT_TRACK iklob1/briar plan ...
+```
+
 ### Opt into the errors-only tier
 
 ```bash
 briar telemetry errors-only
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar telemetry errors-only
 ```
 
 Sentry receives crash reports + error-policy decisions; nothing else.
@@ -96,6 +133,11 @@ Sentry receives crash reports + error-policy decisions; nothing else.
 
 ```bash
 briar telemetry full
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar telemetry full
 ```
 
 ### Rotate your anonymous identity
@@ -104,6 +146,11 @@ briar telemetry full
 briar telemetry reset
 # next event carries a different install_id; previous events are
 # orphaned from your future activity
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar telemetry reset
 ```
 
 ## Configuration precedence (highest first)

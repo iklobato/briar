@@ -42,6 +42,17 @@ briar scaffold implementation \
     --trigger-kind github_webhook \
     --auth-mode oauth \
     --out <PATH>.json
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar scaffold implementation \
+    --prefix <NAME> \
+    --source github --owner <OWNER> --repo <REPO> \
+    --archetype engineer --shape plan-approve-act \
+    --trigger-kind github_webhook \
+    --auth-mode oauth \
+    --out <PATH>.json
 ```
 
 ### PR-fixes flow (no human gate)
@@ -52,12 +63,34 @@ briar scaffold pr-fixes \
     --source github --owner <OWNER> --repo <REPO> \
     --auth-mode pat --github-secret-id <UUID> \
     --out <PATH>.json
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar scaffold pr-fixes \
+    --prefix <NAME> \
+    --source github --owner <OWNER> --repo <REPO> \
+    --auth-mode pat --github-secret-id <UUID> \
+    --out <PATH>.json
 ```
 
 ### Multi-source bundle (GitHub + Jira + AWS + Sentry)
 
 ```bash
 briar scaffold implementation \
+    --prefix <NAME> \
+    --source github --owner <OWNER> --repo <REPO> \
+    --source jira --jira-project <KEY> \
+    --source aws --aws-role-arn <ARN> --aws-external-id <ID> --aws-region us-east-1 --aws-services ec2,s3 \
+    --source sentry --sentry-org <SLUG> --sentry-project <PROJ> --sentry-secret-id <UUID> \
+    --auth-mode pat \
+    --github-secret-id <UUID> --jira-secret-id <UUID> \
+    --out <PATH>.json
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar scaffold implementation \
     --prefix <NAME> \
     --source github --owner <OWNER> --repo <REPO> \
     --source jira --jira-project <KEY> \
@@ -78,6 +111,14 @@ briar scaffold implementation --prefix <NAME> \
     --source github --source jira \
     --owner <OWNER> --repo <REPO> --jira-project <KEY> \
     --authors-block "dependabot[bot]" --assignees-allow alice
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar scaffold implementation --prefix <NAME> \
+    --source github --source jira \
+    --owner <OWNER> --repo <REPO> --jira-project <KEY> \
+    --authors-block "dependabot[bot]" --assignees-allow alice
 ```
 
 The per-source forms (`--jira-authors-allow`, …) still parse and override
@@ -89,6 +130,11 @@ Omit `--out` — bundle prints to stdout, pipe into `jq` or a deployer.
 
 ```bash
 briar scaffold implementation --prefix demo --source github --owner foo --repo bar | jq '.'
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
+    iklob1/briar scaffold implementation --prefix demo --source github --owner foo --repo bar | jq '.'
 ```
 
 ## Choices that matter

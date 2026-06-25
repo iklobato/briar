@@ -51,6 +51,18 @@ briar agent implement \
     --ticket-key <KEY> \
     --tracker <jira|github-issues|bitbucket-issues|linear> \
     --runbook examples/all_features.yaml
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar \
+    -v "$HOME/.ssh":/home/briar/.ssh:ro -v "$HOME/.gitconfig":/home/briar/.gitconfig:ro \
+    -e ANTHROPIC_API_KEY \
+    iklob1/briar agent implement \
+    --company <COMPANY> \
+    --repo <OWNER>/<REPO> \
+    --ticket-key <KEY> \
+    --tracker <jira|github-issues|bitbucket-issues|linear> \
+    --runbook examples/all_features.yaml
 ```
 
 `--ticket-project` is derived from the ticket key (Jira/Linear) or
@@ -65,6 +77,17 @@ briar agent implement \
     --ticket-key KAN-7 \
     --tracker jira \
     --runbook examples/acme.yaml
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar \
+    -v "$HOME/.ssh":/home/briar/.ssh:ro -v "$HOME/.gitconfig":/home/briar/.gitconfig:ro \
+    -e ANTHROPIC_API_KEY \
+    iklob1/briar agent implement \
+    --company acme --repo acme/widgets \
+    --ticket-key KAN-7 \
+    --tracker jira \
+    --runbook examples/acme.yaml
 ```
 
 ### Fix review comments on a PR (pr-fixer flow)
@@ -75,12 +98,30 @@ briar agent prfix \
     --repo <OWNER>/<REPO> \
     --pr <NUMBER> --branch <HEAD_BRANCH> \
     --runbook examples/all_features.yaml
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar \
+    -v "$HOME/.ssh":/home/briar/.ssh:ro -v "$HOME/.gitconfig":/home/briar/.gitconfig:ro \
+    -e ANTHROPIC_API_KEY \
+    iklob1/briar agent prfix \
+    --company <COMPANY> \
+    --repo <OWNER>/<REPO> \
+    --pr <NUMBER> --branch <HEAD_BRANCH> \
+    --runbook examples/all_features.yaml
 ```
 
 ### Dry-run before spending tokens
 
 ```bash
 briar agent implement ... --dry-run
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar \
+    -v "$HOME/.ssh":/home/briar/.ssh:ro -v "$HOME/.gitconfig":/home/briar/.gitconfig:ro \
+    -e ANTHROPIC_API_KEY \
+    iklob1/briar agent implement ... --dry-run
 ```
 
 Prints the assembled system prompt + user message + tool list, then
@@ -94,6 +135,15 @@ for `prfix`) is wiring correctly before committing real tokens.
 briar agent implement ... \
     --model claude-sonnet-4-6 \
     --max-iter 30
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar \
+    -v "$HOME/.ssh":/home/briar/.ssh:ro -v "$HOME/.gitconfig":/home/briar/.gitconfig:ro \
+    -e ANTHROPIC_API_KEY \
+    iklob1/briar agent implement ... \
+    --model claude-sonnet-4-6 \
+    --max-iter 30
 ```
 
 ### Keep the worktree for inspection
@@ -101,6 +151,13 @@ briar agent implement ... \
 ```bash
 briar agent implement ... --keep-worktree
 # After: cd /tmp/briar-*/<repo> to inspect the agent's actual changes
+
+# or with Docker:
+docker run --rm -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar \
+    -v "$HOME/.ssh":/home/briar/.ssh:ro -v "$HOME/.gitconfig":/home/briar/.gitconfig:ro \
+    -e ANTHROPIC_API_KEY \
+    iklob1/briar agent implement ... --keep-worktree
 ```
 
 Without `--keep-worktree` the temp dir is deleted whether the run
