@@ -22,6 +22,7 @@ no real backend, no SDK imported at module scope.
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -104,13 +105,22 @@ class TestDoctorExamplesFlag:
         assert result.code == 1
         assert f"no examples dir at {missing}" in result.out
 
-    def test_examples_default_is_local_examples_dir(self, cli, tmp_path, monkeypatch) -> None:
-        # With no --examples, the default ./examples is used; run from a cwd
-        # that has no examples dir so the default-path message names it.
+    def test_missing_default_examples_dir_is_not_an_error(self, cli, tmp_path, monkeypatch) -> None:
+        # Regression for #36: after pip install there is no ./examples, so the
+        # default must report "nothing to check" and exit 0, not fail.
         monkeypatch.chdir(tmp_path)
         result = cli("secrets", "doctor")
-        assert result.code == 1
-        assert "no examples dir at examples" in result.out
+        assert result.code == 0
+        assert "no runbooks to check" in result.out
+
+    def test_examples_default_is_local_examples_dir(self, cli, tmp_path, monkeypatch, mocker) -> None:
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "examples").mkdir()
+        (tmp_path / "examples" / "acme.yaml").write_text("placeholder: true\n")
+        load = mocker.patch("briar.iac.runbook.load_runbook_file", return_value=SimpleNamespace(companies={}))
+        result = cli("secrets", "doctor")
+        assert result.code == 0
+        assert load.call_args.args[0] == Path("examples/acme.yaml")
 
 
 # ─── bootstrap --kind ───────────────────────────────────────────────────

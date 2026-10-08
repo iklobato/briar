@@ -24,7 +24,7 @@ startup.
 | Auto-startup bootstrap failed | `bootstrap --kind <kind>` to run it explicitly and read the error |
 
 ## Prerequisites
-- For `doctor`: `--examples <dir>` (which runbook YAMLs to walk; default `./examples`).
+- For `doctor`: `--examples <dir>` (which runbook YAMLs to walk; default `./examples`, and if that dir is absent it reports "no runbooks to check" and exits 0).
 - For `bootstrap`: the bootstrap target's prerequisites (e.g. a
   readable `secrets.env` for `envfile`).
 
