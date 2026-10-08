@@ -87,3 +87,14 @@ class TestWrites:
         # Empty company → nothing to write (avoids the templated-var
         # ValueError that for_company would raise on "").
         assert AwsStaticAcquirer.writes(company="") == []
+
+
+class TestRefresh:
+    def test_paste_based_refresh_hints_a_command_the_cli_accepts(self) -> None:
+        # Uses the base-class refresh(); the hint must name the target
+        # positionally, since `auth login` has no --provider flag.
+        from briar.auth._acquirer import CredentialExpired, Credentials
+
+        existing = Credentials(provider_kind="aws-static", entries={})
+        with pytest.raises(CredentialExpired, match="`briar auth login aws-static --company acme`"):
+            AwsStaticAcquirer().refresh(company="acme", existing=existing)
