@@ -78,6 +78,10 @@ class TrackerProvider(ABC):
     a native concept degrade to empty results, never exceptions."""
 
     kind: ClassVar[str] = ""
+    # True when a project is named by a repo slug (`owner/repo`), so the
+    # canonical `--repo` flag can stand in for it. Jira keys and Linear team
+    # keys are not slugs.
+    project_is_repo_slug: ClassVar[bool] = False
 
     @abstractmethod
     def is_available(self) -> bool:

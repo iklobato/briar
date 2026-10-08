@@ -80,11 +80,11 @@ _CONCEPT_TO_FLAG: Dict[str, str] = {
 
 
 # Tracker-project flags are mapped to the `repo` concept so `--repo` can
-# also feed `active-tickets` / `ticket-archaeology`, but they are NOT
-# deprecated: they remain the documented, semantically-clearer way to name
-# a tracker project (and the override for the divergent repo-vs-project
-# case). Don't nag about them.
-_NOT_DEPRECATED_DESTS = frozenset({"ticket_project", "ticket_archaeology_project"})
+# also feed `active-tickets` / `ticket-archaeology`, but only for trackers
+# whose projects are repo slugs (GitHub / Bitbucket Issues): a Jira key or
+# Linear team is never `owner/repo`. They are NOT deprecated: they remain the
+# documented way to name a tracker project. Don't nag about them.
+_TRACKER_PROJECT_DESTS = frozenset({"ticket_project", "ticket_archaeology_project"})
 
 
 def legacy_flag_suggestions(argv: List[str]) -> Dict[str, str]:
@@ -98,7 +98,7 @@ def legacy_flag_suggestions(argv: List[str]) -> Dict[str, str]:
             continue
         name = token.split("=", 1)[0]
         dest = name[2:].replace("-", "_")
-        if dest in _NOT_DEPRECATED_DESTS:
+        if dest in _TRACKER_PROJECT_DESTS:
             continue
         concept = _concept_for_dest(dest)
         canonical = _CONCEPT_TO_FLAG.get(concept) if concept else None
@@ -180,7 +180,14 @@ def apply_canonical(ns: argparse.Namespace, extractor) -> None:
             continue
         if getattr(ns, flag.dest, flag.default) != flag.default:
             continue  # private flag explicitly set — it wins
+        if flag.dest in _TRACKER_PROJECT_DESTS and not _tracker_takes_repo_slugs(ns, extractor):
+            continue
         setattr(ns, flag.dest, canonical_value)
+
+
+def _tracker_takes_repo_slugs(ns: argparse.Namespace, extractor) -> bool:
+    tracker_cls = extractor.provider_class_for(ns)
+    return tracker_cls is not None and tracker_cls.project_is_repo_slug
 
 
 def register_canonical_flags(parser: argparse.ArgumentParser) -> argparse._ArgumentGroup:

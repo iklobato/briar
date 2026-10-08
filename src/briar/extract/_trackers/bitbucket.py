@@ -19,6 +19,7 @@ log = logging.getLogger(__name__)
 
 class BitbucketIssuesTracker(TrackerProvider):
     kind = "bitbucket-issues"
+    project_is_repo_slug = True
     BASE = "https://api.bitbucket.org/"
 
     def __init__(self, *, company: str = "") -> None:
