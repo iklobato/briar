@@ -17,6 +17,7 @@ import logging
 import time
 from typing import Callable, List, Optional, Protocol, Tuple
 
+from briar.errors import AuthError
 
 log = logging.getLogger(__name__)
 
@@ -60,9 +61,14 @@ class TerminalPromptIO:
     ``webbrowser.open`` / ``time.sleep``."""
 
     def prompt(self, message: str, *, secret: bool = False) -> str:
-        if secret:
-            return _read_secret_no_max_canon(message)
-        return input(message)
+        # Piped input still works (getpass/input read stdin when there is
+        # no TTY); only an input that ends before the answer is fatal.
+        try:
+            if secret:
+                return _read_secret_no_max_canon(message)
+            return input(message)
+        except EOFError as exc:
+            raise AuthError("no input to read: run this in an interactive terminal, or pipe the answer on stdin") from exc
 
     def info(self, message: str) -> None:
         print(message)
