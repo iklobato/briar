@@ -19,6 +19,10 @@ jobs:
       fail-fast: false
       matrix:
         python: ["3.10", "3.11", "3.12"]
+    env:
+      # Without this, uv picks the runner's system Python (3.12) for every
+      # matrix entry and the 3.10/3.11 jobs silently test 3.12.
+      UV_PYTHON: ${{ matrix.python }}
     steps:
       - uses: actions/checkout@v4
       - name: Install uv
