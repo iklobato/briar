@@ -41,9 +41,11 @@ def add_meeting_arguments(parser: argparse.ArgumentParser, *, query_help: str) -
     help differs per caller, so it's parameterised. The provider + sizing
     knobs are hidden from `-h` (sensible defaults, rarely overridden) but
     still work. Shared by `agent` and `plan run`."""
+    from briar.extract._meetings import meeting_kinds
+
     parser.add_argument("--meeting-key", default="", help="Specific meeting ID to splice into the agent prompt")
     parser.add_argument("--meeting-query", default="", help=query_help)
-    parser.add_argument("--meeting", default="fireflies", help=argparse.SUPPRESS)
+    parser.add_argument("--meeting", default="fireflies", choices=meeting_kinds(), help=argparse.SUPPRESS)
     parser.add_argument("--meeting-top-k", type=int, default=3, help=argparse.SUPPRESS)
     parser.add_argument("--meeting-max-bytes", type=int, default=50_000, help=argparse.SUPPRESS)
 

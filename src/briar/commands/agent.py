@@ -22,6 +22,8 @@ from briar.agent.runner import AgentRunConfig, AgentRunner
 from briar.commands._enums import ExitCode
 from briar.commands.base import Subcommand, SubcommandCommand, add_canonical_with_alias, add_chat_arguments, add_meeting_arguments, normalize_owner_repo
 from briar.errors import CliError
+from briar.extract._providers import RepositoryProviderRegistry
+from briar.extract._trackers import TrackerRegistry
 from briar.storage import default_store_kind
 
 log = logging.getLogger(__name__)
@@ -55,7 +57,7 @@ def _add_common_agent_arguments(parser: argparse.ArgumentParser) -> None:
     # clear CliError when the target can't be resolved.
     parser.add_argument("--owner", default="", help="Repository owner (GitHub) or workspace (Bitbucket). Inferred from git if omitted.")
     parser.add_argument("--repo", default="", help="Repository as `owner/repo`, or a bare name with --owner. Inferred from git if omitted.")
-    parser.add_argument("--provider", default="github", help="Repository provider (default: github). One of: github, bitbucket.")
+    parser.add_argument("--provider", default="github", choices=RepositoryProviderRegistry.kinds(), help="Repository provider (default: github).")
     parser.add_argument(
         "--store",
         default=default_store_kind(),
@@ -154,9 +156,7 @@ class ImplementOp(AgentOp):
             "Derived from the ticket key (Jira/Linear) or owner/repo (GH/BB) when omitted.",
         )
         parser.add_argument("--ticket-key", required=True, help="Ticket identifier (Jira: PROJ-123; GH/BB: #42; Linear: ENG-7)")
-        parser.add_argument(
-            "--tracker", default="jira", help="Tracker provider for the ticket (default: jira). One of: jira, github-issues, bitbucket-issues, linear."
-        )
+        parser.add_argument("--tracker", default="jira", choices=TrackerRegistry.kinds(), help="Tracker provider for the ticket (default: jira).")
         parser.add_argument(
             "--dry-run",
             action="store_true",
