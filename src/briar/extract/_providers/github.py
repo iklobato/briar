@@ -467,6 +467,7 @@ class GithubProvider(RepositoryProvider):
             created_at=p.get("created_at") or "",
             merged_at=p.get("merged_at") or "",
             requested_reviewers=[(r.get("login") or "") for r in (p.get("requested_reviewers") or [])],
+            assignees=[(a.get("login") or "") for a in (p.get("assignees") or [])],
             # Cap PR description at the boundary — long PR bodies are common
             # and would otherwise eat the agent's context budget.
             body=(p.get("body") or "")[:5000],

@@ -13,7 +13,7 @@ from typing import Any, Iterable, List
 class UserFilter:
     """Allow/block-list filter applied to GitHub issue + PR payloads.
 
-    Called by the extractors as `UserFilter.apply(items, args, prefix=...)`
+    Called by the extractors as `UserFilter.apply_objs(items, args, prefix=...)`
     after the raw fetch. The `add_arguments` classmethod contributes the
     four `--<prefix>-*` flags to the extractor's argparse parser."""
 
@@ -66,10 +66,10 @@ class UserFilter:
         *,
         prefix: str,
     ) -> List[Any]:
-        """Same allow/block semantics as ``apply`` but for dataclass
-        items (e.g. `_provider.PullRequest`). Reads the author from
-        the ``.author`` attribute; assignees are not modelled on the
-        normalised PR shape so this method filters on authors only.
+        """Allow/block filter over dataclass items (e.g.
+        `_provider.PullRequest`). Reads the author from ``.author`` and the
+        assignees from ``.assignees``; an item with no assignee fails any
+        assignee allow-list.
 
         Provider-agnostic by design — the extractors call this on the
         post-provider-normalisation list of objects, so the same
@@ -78,7 +78,9 @@ class UserFilter:
         ns = vars(args)
         authors_allow = list(ns.get(f"{prefix}_authors_allow") or [])
         authors_block = list(ns.get(f"{prefix}_authors_block") or [])
-        if not (authors_allow or authors_block):
+        assignees_allow = list(ns.get(f"{prefix}_assignees_allow") or [])
+        assignees_block = list(ns.get(f"{prefix}_assignees_block") or [])
+        if not (authors_allow or authors_block or assignees_allow or assignees_block):
             return items
         out: List[Any] = []
         allow_set = set(authors_allow)
@@ -88,6 +90,8 @@ class UserFilter:
             if authors_allow and author not in allow_set:
                 continue
             if authors_block and author in block_set:
+                continue
+            if not cls._matches(getattr(item, "assignees", None) or [], assignees_allow, assignees_block):
                 continue
             out.append(item)
         return out

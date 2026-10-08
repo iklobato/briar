@@ -45,6 +45,8 @@ class PullRequest:
     created_at: str
     merged_at: str = ""
     requested_reviewers: List[str] = field(default_factory=list)
+    # GitHub `assignees[].login`. Bitbucket PRs have no assignee, so empty.
+    assignees: List[str] = field(default_factory=list)
     body: str = ""  # PR description / body, capped at the boundary
     # Diffstat — only populated by the single-PR GET (`get_pull`), NOT by
     # the list endpoint (GitHub/Bitbucket both omit it from list payloads).
