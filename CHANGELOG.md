@@ -5,6 +5,110 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.71] - 2026-10-08
+
+### Changed
+
+- **CHANGELOG** entries for 1.1.60 to 1.1.70, which were released without
+  one. Docs only.
+
+## [1.1.70] - 2026-10-08
+
+### Fixed
+
+- **`briar agent` rejects typos in `--provider`, `--tracker` and
+  `--meeting`.** They had no `choices`, so `--tracker jiraa` parsed, failed
+  only after the clone, and the agent ran with no ticket context. Now argparse
+  exits 2 with "invalid choice", using the provider, tracker and meeting
+  registries (#35, PR #44). `plan run` gets the same `--meeting` check.
+
+## [1.1.69] - 2026-10-08
+
+### Fixed
+
+- **MCP `serverInfo.version` is briar's version.** `briar mcp serve`
+  advertised the `mcp` library version (e.g. 1.27.2) on `initialize`
+  (#37, PR #43).
+
+## [1.1.68] - 2026-10-08
+
+### Fixed
+
+- **`briar secrets doctor` works outside a repo checkout.** With no
+  `--examples` and no `./examples` dir (the wheel ships none) it now prints
+  "no runbooks to check" and exits 0. An explicit `--examples <dir>` that
+  does not exist still exits 1 (#36, PR #42).
+
+## [1.1.67] - 2026-10-08
+
+### Fixed
+
+- **`briar scaffold pr-fixes -h` shows the real defaults** (`pr-fixer`,
+  `one-shot`) instead of hard-coded `engineer` / `plan-approve-act`
+  (#34, PR #41).
+
+## [1.1.66] - 2026-10-08
+
+### Changed
+
+- **Removed 11 unused imports and fixed stale comments** (`AgentRunner`
+  docstring, a stale `noqa`). No behavior change (#38, PR #40).
+
+## [1.1.65] - 2026-10-08
+
+### Fixed
+
+- **`briar scaffold pr-fixes` defaults to an hourly cron trigger.** It
+  inherited the `github_webhook` trigger, which fires on `issues.opened` /
+  `issues.labeled`, so a PR fixer built with defaults never reacted to
+  reviews. `--trigger-kind github_webhook` still works, and the webhook
+  flags now need it on pr-fixes (#33, PR #39).
+
+## [1.1.64] - 2026-10-08
+
+### Changed
+
+- **The knowledge store env var is now `BRIAR_STORE`.** `BRIAR_DEFAULT_STORE`
+  was read both as the `auth --cred-store` default and as the knowledge
+  `--store` default, so `BRIAR_DEFAULT_STORE=vault` broke `extract` and
+  `mcp serve` with "unknown knowledge store 'vault'". `BRIAR_DEFAULT_STORE`
+  is now credentials only. If you used it to pick the knowledge store, set
+  `BRIAR_STORE` (or `store` in `.briar.toml`) instead (PR #32).
+
+## [1.1.63] - 2026-10-08
+
+### Fixed
+
+- **`plan run --model` no longer reaches the coding agent unless
+  `--llm anthropic`.** `--llm openai --model gpt-4o` sent `gpt-4o` to the
+  Anthropic-only agent and every card failed (PR #31).
+
+## [1.1.62] - 2026-10-08
+
+### Fixed
+
+- **`extract --assignees-allow/-block` really filter PRs.** They were parsed
+  and then ignored. `PullRequest` now carries GitHub assignees; Bitbucket PRs
+  have none, so an allow-list drops them (PR #30).
+
+## [1.1.61] - 2026-10-08
+
+### Fixed
+
+- **AWS falls back to the default credential chain.** With no
+  `AWS_<COMPANY>_*` keys and no `~/.aws` profile named after the company,
+  boto3 raised `ProfileNotFound` before trying env vars, SSO or the instance
+  role, and the AWS extractors returned nothing (PR #29).
+
+## [1.1.60] - 2026-10-08
+
+### Fixed
+
+- **`extract --repo owner/repo` is no longer sent to Jira as a project key.**
+  It crashed `active-tickets` with `jira project key must match ...`. `--repo`
+  now feeds the tracker project only for GitHub Issues and Bitbucket Issues
+  (PR #28).
+
 ## [1.1.59] - 2026-10-08
 
 ### Changed
