@@ -106,7 +106,7 @@ class CredentialAcquirer(ABC):
         OAuth / SSO acquirers."""
         raise CredentialExpired(
             f"{self.kind}: cannot refresh non-OAuth credentials — "
-            f"run `briar auth login --provider {self.kind} --company {company}`"
+            f"run `briar auth login {self.kind} --company {company}`"
         )
 
     @classmethod

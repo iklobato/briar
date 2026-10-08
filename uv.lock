@@ -287,7 +287,7 @@ wheels = [
 
 [[package]]
 name = "briar-cli"
-version = "1.1.46"
+version = "1.1.56"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
@@ -305,6 +305,7 @@ dependencies = [
     { name = "schedule" },
     { name = "sentry-sdk" },
     { name = "sqlalchemy" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
 ]
 
 [package.optional-dependencies]
@@ -420,6 +421,7 @@ requires-dist = [
     { name = "sentry-sdk", specifier = ">=2.0,<3" },
     { name = "sqlalchemy", specifier = ">=2.0,<3" },
     { name = "time-machine", marker = "extra == 'test'", specifier = ">=2.14,<3" },
+    { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0,<3" },
 ]
 provides-extras = ["test", "dev", "openai", "gemini", "mcp", "vault", "gcp", "azure", "all"]
 

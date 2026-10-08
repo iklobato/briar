@@ -340,6 +340,13 @@ class TestRefreshAndWrites:
         with pytest.raises(CredentialExpired, match="refresh not implemented"):
             AwsSsoAcquirer().refresh(company="acme", existing=existing)
 
+    def test_refresh_hint_is_a_command_the_cli_accepts(self) -> None:
+        from briar.auth._acquirer import CredentialExpired, Credentials
+
+        existing = Credentials(provider_kind="aws-sso", entries={})
+        with pytest.raises(CredentialExpired, match="`briar auth login aws-sso --company acme`"):
+            AwsSsoAcquirer().refresh(company="acme", existing=existing)
+
     def test_writes_declares_all_four_vars(self) -> None:
         assert AwsSsoAcquirer.writes(company="acme") == [
             CredEnv.AWS_KEY_ID.for_company("acme"),

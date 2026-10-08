@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "briar-cli"
-version = "1.1.56"
+version = "1.1.58"
 description = "Terminal client for the Briar agent-orchestration API."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -39,6 +39,7 @@ dependencies = [
     "atlassian-python-api>=3.41,<4",  # Bitbucket Cloud — backs the BitbucketProvider adapter
     "GitPython>=3.1,<4",   # Pythonic git wrapper — used by `briar agent` for clone + config
     "sentry-sdk>=2.0,<3", # error + performance telemetry; on by default, opt-out via `briar telemetry off`
+    "tomli>=2.0,<3; python_version < '3.11'",  # tomllib backport: `.briar.toml` parsing on 3.10
 ]
 
 [project.optional-dependencies]

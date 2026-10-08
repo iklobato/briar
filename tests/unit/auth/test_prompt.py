@@ -126,6 +126,24 @@ class TestPrompt:
         mocker.patch.object(getpass, "getpass", return_value="hidden-token")
         assert TerminalPromptIO().prompt("Secret: ", secret=True) == "hidden-token"
 
+    def test_closed_stdin_on_plain_prompt_raises_auth_error(self, mocker) -> None:
+        from briar.errors import AuthError
+
+        mocker.patch("builtins.input", side_effect=EOFError)
+        with pytest.raises(AuthError, match="no input to read"):
+            TerminalPromptIO().prompt("Region: ")
+
+    def test_closed_stdin_on_secret_prompt_raises_auth_error(self, mocker) -> None:
+        # The `briar auth login` crash: no TTY, getpass reads an empty stdin.
+        import getpass
+
+        from briar.errors import AuthError
+
+        mocker.patch("builtins.open", side_effect=OSError("no tty"))
+        mocker.patch.object(getpass, "getpass", side_effect=EOFError)
+        with pytest.raises(AuthError, match="interactive terminal"):
+            TerminalPromptIO().prompt("Secret: ", secret=True)
+
     def test_info_prints(self, capsys) -> None:
         TerminalPromptIO().info("hello operator")
         assert "hello operator" in capsys.readouterr().out
