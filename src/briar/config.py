@@ -70,11 +70,12 @@ class _ConfigSpec:
 # The flags a project config / env may satisfy. `storage` is extract's
 # dest for the store backend (aliased --store); `store` covers every
 # other command. `knowledge` is agent's file-root dest, fed by the same
-# `root` config key.
+# `root` config key. The knowledge store env var is BRIAR_STORE, not
+# BRIAR_DEFAULT_STORE: that one is the credential store (`auth --cred-store`).
 _CONFIG_SPECS: Tuple[_ConfigSpec, ...] = (
     _ConfigSpec("company", "BRIAR_COMPANY", "", "company"),
-    _ConfigSpec("store", "BRIAR_DEFAULT_STORE", "", "store"),
-    _ConfigSpec("storage", "BRIAR_DEFAULT_STORE", "", "store"),
+    _ConfigSpec("store", "BRIAR_STORE", "", "store"),
+    _ConfigSpec("storage", "BRIAR_STORE", "", "store"),
     _ConfigSpec("root", None, "", "root"),
     _ConfigSpec("knowledge", None, "", "root"),
     _ConfigSpec("tracker", None, "", "tracker"),
@@ -106,7 +107,7 @@ def find_config_file(start: Optional[Path] = None) -> Optional[Path]:
 # in display order. (label, env var or None, config section or "", key.)
 _DISPLAY_SETTINGS: Tuple[Tuple[str, Optional[str], str, str], ...] = (
     ("company", "BRIAR_COMPANY", "", "company"),
-    ("store", "BRIAR_DEFAULT_STORE", "", "store"),
+    ("store", "BRIAR_STORE", "", "store"),
     ("root", None, "", "root"),
     ("tracker", None, "", "tracker"),
     ("owner", None, "repo", "owner"),

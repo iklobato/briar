@@ -26,7 +26,7 @@ def test_checks_ok_when_environment_is_set_up(monkeypatch, tmp_path):
     monkeypatch.setattr("briar.infer.git_remote_slug", lambda cwd=None: ("acme", "app"))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
     monkeypatch.setenv("GITHUB_TOKEN", "y")
-    monkeypatch.delenv("BRIAR_DEFAULT_STORE", raising=False)
+    monkeypatch.delenv("BRIAR_STORE", raising=False)
     checks = _by_name(run_checks())
     assert checks["project config"].status == OK
     assert checks["git remote"].status == OK
