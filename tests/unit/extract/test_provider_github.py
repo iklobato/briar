@@ -75,6 +75,7 @@ def _pull_row(**over):
         "created_at": "2026-05-01T00:00:00Z",
         "merged_at": None,
         "requested_reviewers": [{"login": "bob"}],
+        "assignees": [{"login": "carol"}],
         "body": "summary",
     }
     row.update(over)
@@ -94,6 +95,7 @@ class ListPullsTests(unittest.TestCase):
         self.assertEqual(out[0].head_ref, "fix/cache")
         self.assertEqual(out[0].base_ref, "main")
         self.assertEqual(out[0].requested_reviewers, ["bob"])
+        self.assertEqual(out[0].assignees, ["carol"])
 
     def test_merged_state_filters_unmerged_and_translates_query(self) -> None:
         captured = {}

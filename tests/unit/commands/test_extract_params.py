@@ -454,15 +454,21 @@ class TestPrArchaeologyFlags:
         assert "alice(1)" in text
         assert "bob" not in text
 
-    def test_pr_assignees_allow_accepted_no_crash(self, cli, tmp_root, seam) -> None:
-        # PR shape has no assignee → the objs filter is author-only, but the
-        # flag must still parse + be accepted (effect: no crash, runs clean).
+    def test_pr_assignees_allow_keeps_only_assigned(self, cli, tmp_root, seam) -> None:
+        seam.repo.pulls = [_pr(1, "alice", assignees=["x"]), _pr(2, "bob", assignees=["y"])]
         result = _run(cli, tmp_root, "pr-archaeology", "--pr-repo", "o/r", "--pr-assignees-allow", "x")
         assert result.code == 0
+        text = _blob_text(tmp_root)
+        assert "alice(1)" in text
+        assert "bob" not in text
 
-    def test_pr_assignees_block_accepted_no_crash(self, cli, tmp_root, seam) -> None:
-        result = _run(cli, tmp_root, "pr-archaeology", "--pr-repo", "o/r", "--pr-assignees-block", "x")
+    def test_canonical_assignees_block_drops_assigned(self, cli, tmp_root, seam) -> None:
+        seam.repo.pulls = [_pr(1, "alice", assignees=["x"]), _pr(2, "bob", assignees=["y"])]
+        result = _run(cli, tmp_root, "pr-archaeology", "--repo", "o/r", "--assignees-block", "x")
         assert result.code == 0
+        text = _blob_text(tmp_root)
+        assert "bob(1)" in text
+        assert "alice" not in text
 
 
 # ─── active-work: --active-repo / active-* filters ────────────────────

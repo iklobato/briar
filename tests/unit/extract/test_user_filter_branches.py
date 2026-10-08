@@ -17,6 +17,7 @@ import unittest
 
 import pytest
 
+from briar.extract._provider import PullRequest
 from briar.extract._user_filter import UserFilter, apply_user_filter_objs
 
 
@@ -98,3 +99,39 @@ class MatchesHelperTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _pr(author: str, assignees: list) -> PullRequest:
+    return PullRequest(
+        number=1,
+        title="t",
+        author=author,
+        is_draft=False,
+        head_ref="h",
+        base_ref="main",
+        review_comment_count=0,
+        created_at="",
+        assignees=assignees,
+    )
+
+
+@pytest.mark.boundary
+class AssigneeFilterTests(unittest.TestCase):
+    """`--assignees-allow/-block` reach `pr_assignees_*` through the
+    canonical flags; they used to be accepted and then ignored."""
+
+    def setUp(self) -> None:
+        self.items = [_pr("a", ["alice"]), _pr("b", ["bob", "carol"]), _pr("c", [])]
+
+    def test_assignees_allow_keeps_only_matching(self) -> None:
+        kept = apply_user_filter_objs(self.items, _ns(pr_assignees_allow=["carol"]), prefix="pr")
+        self.assertEqual([p.author for p in kept], ["b"])
+
+    def test_assignees_block_drops_matching(self) -> None:
+        kept = apply_user_filter_objs(self.items, _ns(pr_assignees_block=["alice"]), prefix="pr")
+        self.assertEqual([p.author for p in kept], ["b", "c"])
+
+    def test_author_and_assignee_filters_combine(self) -> None:
+        ns = _ns(pr_authors_block=["b"], pr_assignees_allow=["alice", "bob"])
+        kept = apply_user_filter_objs(self.items, ns, prefix="pr")
+        self.assertEqual([p.author for p in kept], ["a"])
