@@ -26,6 +26,7 @@ first**, then the one file matching the task you've been handed.
 |---|---|---|
 | `--format {table,json,yaml,csv,quiet}` | `table` (lists), `json` (single record) | Output shape |
 | `--verbose` / `-v` | off | DEBUG logging; also via `BRIAR_VERBOSE=1` |
+| `--version` / `-V` | off | Print `briar-cli <version>` and exit |
 
 When piping into another tool, pass `--format json` and parse with `jq`.
 When you only care about exit code, pass `--format quiet`.
@@ -35,10 +36,9 @@ When you only care about exit code, pass `--format quiet`.
 | Code | Name | Meaning |
 |---|---|---|
 | `0` | `OK` | Success |
-| `1` | `GENERAL_ERROR` | Soft failure (e.g. `plan run` finished with blocked cards, confirm aborted) |
-| `2` | `USAGE_ERROR` | Bad CLI usage; check the args you passed |
-| `3` | `CREDENTIAL_ERROR` | Missing or invalid credentials — run `briar secrets doctor` |
-| `4` | `EXTERNAL_ERROR` | Upstream service (GitHub, Anthropic, Jira) failed |
+| `1` | `GENERAL_ERROR` | Any runtime failure: missing credentials, upstream service error, agent failed, `plan run` stopped on a blocked card, confirm aborted |
+| `2` | `USAGE_ERROR` | Bad CLI usage; check the args you passed. Also returned when a command crashes with an unexpected exception |
+| `130` | (none) | Interrupted with Ctrl-C |
 
 Always check exit code before parsing output.
 
@@ -48,8 +48,8 @@ Two `KnowledgeStore` backends ship today:
 
 | `--store` | Where data lives | When to pick it |
 |---|---|---|
-| `file` (default) | `./knowledge/<prefix>/<name>.md` on local disk | Local dev, single-host operation |
-| `postgres` | `BRIAR_DATABASE_URL` (env) | Multi-host, shared truth, durable |
+| `file` (default when `BRIAR_DATABASE_URL` is unset; always the default for `context`) | `./knowledge/<prefix>/<name>.md` on local disk | Local dev, single-host operation |
+| `postgres` | `BRIAR_DATABASE_URL` (env). Runbook `knowledge:` bindings also honour `config.dsn_env` and `BRIAR_<COMPANY>_DATABASE_URL` first | Multi-host, shared truth, durable |
 
 Blobs are named by category-prefix convention:
 
@@ -58,14 +58,15 @@ Blobs are named by category-prefix convention:
 | `knowledge:<company>` | `briar extract` | Cold rebuild from live world state |
 | `knowledge:<company>.<plan>` | `briar plan build` + `KnowledgeWriter` | Plan-scoped live source of truth. Spliced into every `agent implement` call automatically |
 | `plan:<name>` | `briar plan build` | Stored plan blob |
-| `memory:*`, `lessons:*` | various | Free-form agent state |
+| `memory:*`, `lessons:*` | `briar context put` | Free-form notes; not spliced into agent prompts |
 
-## Journal — every command writes a decision audit trail
+## Journal: decision audit trail for scaffold and plan run
 
-Every command opens a `Session` and records `DecisionEvent`s. Stored
-under `./journal/sessions/` (or postgres) by `JournalStore`, published
-to `./journal/published/` by `JournalSink`. Read with `briar journal
-list` / `show` / `export`.
+`briar scaffold` and `briar plan run` open a `Session` and record
+`DecisionEvent`s (other commands do not write sessions today). Stored
+under `./journal/sessions/` by `JournalStore` (`file` is the only
+backend), published to `./journal/published/` by `JournalSink`. Read
+with `briar journal list` / `show` / `export`.
 
 Sessions are append-only. Don't try to edit them directly; if you
 need to redact, drop the row at the backend level.
@@ -81,14 +82,14 @@ Two patterns:
 2. **Interactive login** for OAuth/SSO flows (GitHub PAT, AWS SSO,
    Jira session): `briar auth login <target>`.
 
-If a command exits 3 (`CREDENTIAL_ERROR`), the first move is `briar
-secrets doctor --examples examples/` to see what's missing.
+If a command fails with a missing-credential error (exit 1), the first
+move is `briar secrets doctor --examples examples/` to see what's missing.
 
 ## The file map
 
 | File | Command family |
 |---|---|
-| [flows.md](flows.md) | **End-to-end usage flows** — 14 multi-feature recipes chaining commands into outcomes (start here for "how do I…") |
+| [flows.md](flows.md) | **End-to-end usage flows**: 15 multi-feature recipes chaining commands into outcomes (start here for "how do I…") |
 | [version.md](version.md) | `briar version` — sanity-check the install |
 | [extract.md](extract.md) | `briar extract` — one-shot knowledge extraction |
 | [runbook.md](runbook.md) | `briar runbook` — scheduled extraction (extract / sweep / serve) |
@@ -101,6 +102,17 @@ secrets doctor --examples examples/` to see what's missing.
 | [creds.md](creds.md) | `briar secrets` — credential coverage (`doctor`, `bootstrap`) |
 | [journal.md](journal.md) | `briar journal` — inspect decision sessions |
 | [telemetry.md](telemetry.md) | `briar telemetry` — error + usage analytics (Sentry); opt-out gradient |
+
+Commands with no guide here yet (run `briar <command> --help`):
+
+| Command | What it does |
+|---|---|
+| `briar mcp serve` | Serve briar's features over the Model Context Protocol (`--transport stdio` default, or `http` on port 8765). Needs the `mcp` extra |
+| `briar chat` | Interactive assistant that drives briar through its own MCP server (`--llm`, default `anthropic`) |
+| `briar init` | Write a starter `.briar.toml` (owner/repo inferred from git) |
+| `briar config show` | Print each setting's resolved value and its source |
+| `briar doctor` | Check the local environment (config, git, credentials, store) |
+| `briar completion {bash,zsh}` | Print a shell-completion script |
 
 ## Rules you must not violate
 

@@ -25,10 +25,11 @@ and the system prompt differ.
 
 | Need | Source |
 |---|---|
-| Anthropic credentials | `ANTHROPIC_API_KEY` or per-company `ANTHROPIC_<COMPANY>_API_KEY` |
-| Repo provider auth | `GITHUB_<COMPANY>_TOKEN` / `BITBUCKET_<COMPANY>_APP_PASSWORD` |
-| Tracker auth (for `implement`) | `JIRA_<COMPANY>_*` / `LINEAR_<COMPANY>_API_KEY` / `GITHUB_<COMPANY>_TOKEN` for `github-issues` |
+| Anthropic credentials | `CLAUDE_CODE_OAUTH_TOKEN` (tried first) or `ANTHROPIC_API_KEY` |
+| Repo provider auth | `GITHUB_TOKEN` / `BITBUCKET_<COMPANY>_USERNAME` + `BITBUCKET_<COMPANY>_APP_PASSWORD` |
+| Tracker auth (for `implement`) | `JIRA_<COMPANY>_*` / `LINEAR_<COMPANY>_TOKEN` / `GITHUB_TOKEN` for `github-issues` |
 | Runbook YAML (optional, recommended) | `--runbook examples/all_features.yaml`. Without it, the agent has no `send_message` tool and must fall back to bash `gh pr comment`/`curl` |
+| Meeting / Slack context (optional) | `FIREFLIES_<COMPANY>_API_KEY` and/or `SLACK_<COMPANY>_TOKEN` + `SLACK_<COMPANY>_COOKIE_D`. When set, matching transcripts / threads are fetched into the prompt (`--meeting-key`, `--meeting-query`, `--slack-query`; the queries default to the PR id or ticket key). Skipped when unset |
 | Knowledge blob (optional) | `briar extract --company <name>` beforehand, plus `briar plan build ... --company <name>` if part of a plan flow |
 
 ## Commands
@@ -76,7 +77,7 @@ briar agent implement \
     --company acme --repo acme/widgets \
     --ticket-key KAN-7 \
     --tracker jira \
-    --runbook examples/acme.yaml
+    --runbook examples/simple-single-repo.yaml
 
 # or with Docker:
 docker run --rm -v "$PWD":/work -w /work \
@@ -87,7 +88,7 @@ docker run --rm -v "$PWD":/work -w /work \
     --company acme --repo acme/widgets \
     --ticket-key KAN-7 \
     --tracker jira \
-    --runbook examples/acme.yaml
+    --runbook examples/simple-single-repo.yaml
 ```
 
 ### Fix review comments on a PR (pr-fixer flow)
@@ -150,7 +151,7 @@ docker run --rm -v "$PWD":/work -w /work \
 
 ```bash
 briar agent implement ... --keep-worktree
-# After: cd /tmp/briar-*/<repo> to inspect the agent's actual changes
+# After: cd into the briar-agent-implement-* temp dir (path is in the -v log)
 
 # or with Docker:
 docker run --rm -v "$PWD":/work -w /work \
@@ -160,14 +161,15 @@ docker run --rm -v "$PWD":/work -w /work \
     iklob1/briar agent implement ... --keep-worktree
 ```
 
-Without `--keep-worktree` the temp dir is deleted whether the run
-succeeded or not.
+Without `--keep-worktree` the temp dir is deleted after a successful
+run. A failed run keeps it so you can inspect what the agent did.
 
 ## Verifying success
 
 For `implement`:
 1. Exit code `0`.
-2. Output includes a `pr_url` field (when a PR was opened).
+2. Output ends with `--- agent final text ---` and, when the agent
+   committed, a `--- commits: ... ---` line.
 3. `gh pr view <pr> --json state,headRefName` shows the PR exists on
    the expected branch.
 
@@ -176,15 +178,15 @@ For `prfix`:
 2. New commits appear on the PR's head branch.
 3. Review threads have replies prefixed with `[AI]`.
 
-For both: `briar journal list --command agent.` shows a new
-session with `agent.run.start`, per-iteration tool calls, and
-`agent.run.completed` (or `agent.run.failed`).
+`briar agent` does not write a journal session on its own. When it
+runs inside `briar plan run`, `briar journal list --command plan.run`
+shows the per-card events.
 
 ## Common failures
 
 | Symptom | Fix |
 |---|---|
-| Exit 3 / `CredentialError` | Run `briar secrets doctor --company <name>` and fix what's missing |
+| Exit 1 with a missing-credential error | Run `briar secrets doctor --examples examples/` and fix what's missing |
 | `Anthropic API 429` | Hit rate limit. The provider's error policy aborts fast on 429 (no silent retries); back off and re-run |
 | Worktree clone fails | Token lacks `repo` scope, or repo is in an org you can't access. Verify with `gh auth status` |
 | Ticket not found | Wrong `--tracker`, wrong `--ticket-project`, or token can't read that Jira project |

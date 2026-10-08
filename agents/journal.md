@@ -1,10 +1,10 @@
 # `briar journal`
 
 ## Purpose
-Inspect the append-only decision journal every briar command writes
-to. Each command opens a `Session` and records `DecisionEvent`s; the
-session lands in `./journal/sessions/` (or postgres). Use `journal`
-to read those sessions back.
+Inspect the append-only decision journal. Today `briar scaffold` and
+`briar plan run` open a `Session` and record `DecisionEvent`s; the
+session lands in `./journal/sessions/<YYYY-MM-DD>/<id>.json` (`file` is
+the only store). Use `journal` to read those sessions back.
 
 ## Subcommands
 
@@ -15,7 +15,7 @@ to read those sessions back.
 | `export` | Write one session to a file |
 
 ## When to use
-- Audit what an agent run actually did (every tool call, every decision).
+- Audit what a `plan run` did (every selector pick, every card result).
 - Recover the rationale for a card pick the LLM selector made.
 - Debug a `plan run` that exited with blocked cards — the failure
   rationale is in the journal.
@@ -33,7 +33,7 @@ to read those sessions back.
 briar journal list                          # newest first
 briar journal list --limit 50               # cap
 briar journal list --command plan.run       # filter by prefix
-briar journal list --command agent.         # all agent sessions
+briar journal list --command scaffold.      # all scaffold sessions
 ```
 
 **The same with Docker:**
@@ -50,11 +50,12 @@ docker run --rm -v "$PWD":/work -w /work \
     iklob1/briar journal list --command plan.run       # filter by prefix
 docker run --rm -v "$PWD":/work -w /work \
     -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar journal list --command agent.         # all agent sessions
+    iklob1/briar journal list --command scaffold.      # all scaffold sessions
 ```
 
-Columns: `session_id`, `command`, `target`, `started_at`,
-`ended_at`, `decision_count`.
+One line per session: `<session_id>  <command> target=<target>
+decisions=<N>  started=<timestamp>`. `--limit` defaults to 50. Prints
+`(no sessions)` when the root is empty.
 
 ### Pretty-print one session
 
@@ -92,8 +93,8 @@ docker run --rm -v "$PWD":/work -w /work \
     iklob1/briar journal list --command plan.run | grep <PLAN_NAME>
 ```
 
-The `target` column is `<plan>@<owner>/<repo>` for `plan.run` and
-`<owner>/<repo>#<pr>` for `agent.prfix`.
+The `target` is `<plan>@<owner>/<repo>` for `plan.run` and the
+`--prefix` value for `scaffold.<template>`.
 
 ## Choice names you'll see
 
@@ -105,17 +106,16 @@ The `target` column is `<plan>@<owner>/<repo>` for `plan.run` and
 | `plan.run.card.completed` | Card succeeded (rc=0) |
 | `plan.run.card.failed` | Card failed (rc≠0) |
 | `plan.replan.requested` | Selector returned REPLAN |
-| `plan.run.stopped` | Loop terminated (`limit_reached`, `first_failure`, `replan_cap`, `blocked`, `all_done`) |
-| `agent.run.start` / `agent.run.completed` / `agent.run.failed` | `briar agent` lifecycle |
-| `scaffold.*` | `briar scaffold` decisions |
-| `runbook.*` | `briar runbook` scheduler entries |
+| `plan.run.stopped` | Loop terminated (`limit_reached`, `selector_error`, `first_failure`, `replan_cap`, `blocked`) |
+| `plan.run.completed` | Selector reported every card done (`all_done`) |
+| `scaffold.*` | `briar scaffold` decisions (`scaffold.template`, `.sources`, `.archetype`, `.shape`, `.trigger`, `.tools.filtered`, `.output`) |
 
 ## Verifying success
 
 `list`:
 1. Exit `0`.
-2. Output has at least one row if you've run any command in this
-   journal root.
+2. Output has at least one row if you've run `scaffold` or `plan run`
+   with this journal root.
 
 `show`:
 1. Exit `0`.
@@ -130,6 +130,6 @@ The `target` column is `<plan>@<owner>/<repo>` for `plan.run` and
 | Symptom | Fix |
 |---|---|
 | `journal list` is empty | Either no sessions yet, or you're pointing at the wrong root. Check `--root` |
-| `--format json` for `journal export` doesn't work | Known CLI bug (xfailed in tests): the global `--format` and subcommand `--format` collide. Workaround: pipe `briar journal show <id> --format json` |
+| Need JSON from `journal export` | Use `--as json` (not `--format json`, which is the global output flag): `briar journal export <id> --as json` |
 | Session shows up but `show` says "not found" | `--root` mismatch between the writer and reader. `briar journal list --root <X>` and `briar journal show --root <X> <id>` must agree |
-| Decision artifacts truncated | The journal stores everything verbatim; rendering may truncate. Use `--format json` for raw |
+| Decision artifacts truncated | The journal stores everything verbatim; rendering may truncate. Use `briar journal export <id> --as json` for raw |

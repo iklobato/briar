@@ -11,7 +11,7 @@ describes a company's extractors + cadences; the runbook walks it.
 |---|---|
 | `extract <yaml>` | Run every `extract:` / `schedules:` task in one YAML, then exit |
 | `sweep <dir>` | Run `extract` for every `*.yaml` in a directory, then exit |
-| `serve <yaml-or-dir>` | Stay alive, register every (company, task), run on cron |
+| `serve <dir>` | Stay alive, register every (company, task) in every `*.yaml` of the directory, run each on its `every:` cadence |
 
 Reach for `serve` when you want briar to be the cron daemon. Use
 `extract` for one-shot manual rebuilds; use `sweep` to refresh every
@@ -20,8 +20,9 @@ company you operate.
 ## Prerequisites
 
 - A runbook YAML. Examples in `examples/` (e.g. `examples/all_features.yaml`).
-- Every credential mentioned in the YAML resolvable via env or the
-  `secrets:` block — confirm with `briar secrets doctor --examples examples/`.
+- Every credential the YAML's extractors and `messages:` writers need,
+  resolvable via env or `secrets.env`. Confirm with
+  `briar secrets doctor --examples examples/`.
 - For `serve`: a process supervisor (systemd, supervisord). The
   process never daemonises itself.
 
@@ -65,8 +66,10 @@ docker run --rm -v "$PWD":/work -w /work \
     iklob1/briar runbook serve examples/
 ```
 
-Stays in foreground; logs to stdout. Each scheduled task gets its
-own `Session` in the journal under `command="runbook.scheduled"`.
+Stays in foreground; logs to stderr at INFO. `serve` takes a
+directory, not a single YAML. Pass `--tick <seconds>` to change how
+often the loop checks for due jobs (default 1). Scheduled runs do not
+write journal sessions.
 
 Typical systemd wrapper (production):
 
@@ -106,20 +109,23 @@ default — omit the block and behaviour is unchanged.
 
 For one-shot:
 1. Exit code `0`.
-2. Every extractor that should have run printed `wrote blob '...'`.
+2. The output table (`company`, `task`, `status`, `output`) shows
+   `wrote <N> bytes via store=...` (or `skipped (unchanged, ...)` when
+   the blob did not change) for each task.
 3. `briar context list` shows the expected `knowledge:*` blobs.
 
 For `serve`:
 1. Process stays up. Check `systemctl status briar-scheduler`.
-2. Stdout shows `scheduler: registered task=<name> next=<iso>`.
-3. After the first scheduled fire, `briar journal list --command
-   runbook.` shows new sessions.
+2. The log shows `registered company=<name> task=<name> every=...`
+   for each job, then `scheduler starting: <N> job(s)`.
+3. After the first scheduled fire, the log shows
+   `fire task=... company=...` and `result task=... status=...`.
 
 ## Common failures
 
 | Symptom | Fix |
 |---|---|
-| `every:` parser error | DSL grammar issue. See `briar.iac.every` parser — common shapes: `every 15m`, `every day at 09:00`, `every wednesday at 17:30 UTC` |
-| `secrets doctor: missing FOO_BAR` | The YAML names a secret the env doesn't have. Either add it to `/etc/briar/secrets.env` or remove the task |
+| `every: cannot parse ...` | DSL grammar issue. See `EveryParser` in `briar/iac/runbook/scheduler.py`. Accepted shapes: `[N] minute(s)/hour(s)/day(s)/week(s)` or a weekday, with optional `at HH:MM` / `at :MM`, e.g. `"day at 03:17"`, `"4 hours"`, `"hour at :15"`, `"wednesday at 17:30"` |
+| `secrets doctor` row `X ... MISSING: FOO_BAR` | The YAML uses an extractor or writer whose env var is not set. Either add it to `/etc/briar/secrets.env` or remove the task |
 | `serve` exits immediately | A registration-time error (bad YAML, bad cron). Check the last log line; re-run `briar runbook extract <yaml>` for the same input to isolate |
 | Task ran but no blob updated | The extractor returned empty (logged). Not an error; look at the YAML filters |

@@ -16,14 +16,14 @@ goes and gets it.
 |---|---|
 | `login <target>` | Acquire credentials for `<target>` |
 | `logout <target>` | Delete credentials this target's login would have written |
-| `refresh <target>` | Renew an OAuth / SSO bundle without re-prompting |
-| `list` | Show what's been acquired |
-| `status` | Per-target availability summary |
+| `refresh <target>` | Renew a bundle without re-prompting (no target supports it yet, see below) |
+| `list` | Show which credential env-var names are set (no values) |
+| `status <target>` | One target's env-var names for a company, set or missing |
 
 ## When to use
 
 - First-time setup on a new host (`briar secrets doctor` returns red).
-- An OAuth token expired and needs refreshing.
+- A token expired and needs replacing (re-run `login`).
 - You're rotating credentials for a single target.
 
 Do NOT use this in headless automation paths — every `login` flow
@@ -34,20 +34,21 @@ directly to `/etc/briar/secrets.env`.
 
 | Target | What it does |
 |---|---|
-| `github-device` | OAuth device flow → writes `GITHUB_<COMPANY>_TOKEN` |
-| `github-pat` | Paste a PAT → writes `GITHUB_<COMPANY>_TOKEN` |
-| `bitbucket-app-password` | Paste an app password → writes `BITBUCKET_<COMPANY>_APP_PASSWORD` (+ username) |
+| `github-device` | OAuth device flow → writes `GITHUB_TOKEN` (not per-company) |
+| `github-pat` | Paste a PAT → writes `GITHUB_TOKEN` (not per-company) |
+| `bitbucket-app-password` | Paste an app password → writes `BITBUCKET_<COMPANY>_APP_PASSWORD` (+ username, workspace) |
 | `aws-static` | Paste static keys → writes `AWS_<COMPANY>_*` |
 | `aws-sso` | SSO browser flow → writes `AWS_<COMPANY>_*` |
 | `jira-token` | Paste API token → writes `JIRA_<COMPANY>_*` |
-| `jira-session` | Paste session cookie (workaround) |
-| `linear-api-key` | Paste API key → writes `LINEAR_<COMPANY>_API_KEY` |
+| `jira-session` | Paste session cookie (workaround) → writes `JIRA_<COMPANY>_*` session vars |
+| `linear-api-key` | Paste API key → writes `LINEAR_<COMPANY>_TOKEN` |
 | `fireflies` | Paste API key → writes `FIREFLIES_<COMPANY>_API_KEY` (used by `meeting-digest` / `meeting-context`) |
 
 ## Prerequisites
 - A terminal (these flows print to stdout and read stdin / paste / open a browser).
-- `--company <name>` for every vendor target (the resulting env-var
-  names are namespaced by it).
+- `--company <name>` for every per-company target (the resulting env-var
+  names are namespaced by it). The GitHub targets write the global
+  `GITHUB_TOKEN` and ignore it.
 - For `--cred-store aws-secretsmanager` etc.: the relevant
   backend already initialised with credentials.
 
@@ -101,7 +102,11 @@ docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
 named `--cred-store` so it does not clash with the knowledge-store
 `--store` used by `extract` / `agent` / `plan` / `context`.)
 
-### Refresh an existing bundle (OAuth/SSO only)
+### Refresh an existing bundle
+
+No target implements refresh today: `aws-sso` and every other target
+raise "cannot refresh" and tell you to re-run `login`. The command
+shape is:
 
 ```bash
 briar auth refresh github-device --company <COMPANY>
@@ -111,14 +116,15 @@ docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
     iklob1/briar auth refresh github-device --company <COMPANY>
 ```
 
-Paste-based targets (PAT, app-password, Jira token) can't refresh —
+Paste-based targets (PAT, app-password, Jira token) can never refresh:
 re-run `login`.
 
 ### See what's been acquired
 
 ```bash
-briar auth list                          # all targets
-briar auth status --company <COMPANY>    # one company
+briar auth list                                   # every set name
+briar auth list --company <COMPANY>               # one company
+briar auth status <TARGET> --company <COMPANY>    # one target
 ```
 
 **The same with Docker:**
@@ -126,10 +132,10 @@ briar auth status --company <COMPANY>    # one company
 ```bash
 docker run --rm -v "$PWD":/work -w /work \
     -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar auth list                          # all targets
+    iklob1/briar auth list                          # every set name
 docker run --rm -v "$PWD":/work -w /work \
     -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar auth status --company <COMPANY>    # one company
+    iklob1/briar auth status <TARGET> --company <COMPANY>    # one target
 ```
 
 ### Forget a credential
@@ -145,8 +151,9 @@ docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
 ## Verifying success
 
 1. Exit `0`.
-2. `briar auth status --company <COMPANY>` shows green for the target.
-3. `briar secrets doctor --company <COMPANY>` shows the new env-var
+2. `briar auth status <TARGET> --company <COMPANY>` shows the target's
+   env-var names as set.
+3. `briar secrets doctor --examples examples/` shows the new env-var
    covered.
 4. Whatever downstream command needed the cred now runs (e.g.
    `briar extract --company <COMPANY> --include pr-archaeology`).
@@ -155,7 +162,7 @@ docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
 
 | Symptom | Fix |
 |---|---|
-| `--company is required` | Pass `--company <name>` for any vendor target |
+| `--company is required` | Pass `--company <name>` for any per-company target |
 | OAuth device flow times out | Re-run; the device code expires after 15 min |
-| `secrets.env` has no perms | The env file requires `0600` owner-readable. Fix with `chmod 600 /etc/briar/secrets.env` |
+| `secrets.env` can't be read | briar writes it with mode `0600` (owner only). Run briar as the file's owner, or fix with `chmod 600 <path>` |
 | Token works in browser, fails in CLI | PAT lacks required scopes. GitHub needs `repo`, `read:org`. Jira tokens are tied to the account that minted them |

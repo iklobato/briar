@@ -16,6 +16,9 @@ Two templates today:
 ## When to use
 - Stand up a new agent flow against a fresh repo / company.
 - You want a JSON contract a deployment can consume.
+
+Each run also records a `scaffold.<template>` session in the decision
+journal (`briar journal list --command scaffold.`).
 - You want a default config you can hand-edit.
 
 If you are running the agent directly on your machine, you don't
@@ -150,8 +153,8 @@ docker run --rm -v "$PWD":/work -w /work \
 
 1. Exit `0`.
 2. The JSON parses: `jq . <PATH>.json`.
-3. Top-level keys include `id`, `triggers`, `sources`, `agent`,
-   `tools`, `messages` — exactly what your downstream consumes.
+3. Top-level keys are `version`, `llm_models`, `sources`, `tools`,
+   `agents`, `workflows`, `triggers`: exactly what your downstream consumes.
 4. Hand to the consumer; it should accept without schema errors.
 
 ## Common failures

@@ -1,8 +1,8 @@
 # `briar extract`
 
 ## Purpose
-Mine the live state of GitHub / Bitbucket / AWS / Jira / Sentry /
-meeting transcripts into a markdown knowledge blob. The blob is
+Mine the live state of GitHub / Bitbucket / cloud (AWS, GCP, Azure) /
+Jira / Linear / meeting transcripts into a markdown knowledge blob. The blob is
 named `knowledge:<company>` by default and becomes the source of
 truth other commands splice into agent prompts.
 
@@ -21,11 +21,11 @@ after each successful card.
 
 | For these extractors | You need |
 |---|---|
-| `active-tickets`, `ticket-archaeology` | `JIRA_<COMPANY>_*` or `GITHUB_<COMPANY>_TOKEN` (per tracker) |
-| `pr-archaeology`, `reviewer-profile`, `code-hotspots`, `codebase-conventions` | `GITHUB_<COMPANY>_TOKEN` |
-| `pr-hygiene`, `defect-hotspots`, `review-nits`, `revert-signals`, `commit-message-quality`, `stale-prs`, `ci-health`, `repo-governance`, `test-discipline`, `release-cadence`, `todo-density` | `GITHUB_<COMPANY>_TOKEN` (the code-quality extractors — see below) |
-| `dependency-health`, `code-scanning` | `GITHUB_<COMPANY>_TOKEN` with the **`security_events`** scope (Dependabot / code-scanning alert read) |
-| `github-deployments` | `GITHUB_<COMPANY>_TOKEN` |
+| `active-tickets`, `ticket-archaeology` | `JIRA_<COMPANY>_*`, `LINEAR_<COMPANY>_TOKEN`, `BITBUCKET_<COMPANY>_*` or `GITHUB_TOKEN` (per `--tracker`) |
+| `pr-archaeology`, `reviewer-profile`, `code-hotspots`, `codebase-conventions` | `GITHUB_TOKEN` (or `BITBUCKET_<COMPANY>_*` with `--provider bitbucket`) |
+| `pr-hygiene`, `defect-hotspots`, `review-nits`, `revert-signals`, `commit-message-quality`, `stale-prs`, `ci-health`, `repo-governance`, `test-discipline`, `release-cadence`, `todo-density` | `GITHUB_TOKEN` (the code-quality extractors, see below) |
+| `dependency-health`, `code-scanning` | `GITHUB_TOKEN` with the **`security_events`** scope (Dependabot / code-scanning alert read) |
+| `github-deployments` | `GITHUB_TOKEN` |
 | `aws-infra` | `AWS_<COMPANY>_*` env or `--aws-extract-profile` (the `tagging-inventory` gatherer also needs the `tag:GetResources` IAM permission) |
 | `meeting-digest` | `FIREFLIES_<COMPANY>_API_KEY` (`briar auth login fireflies --company <name>`) |
 
@@ -74,7 +74,8 @@ docker run --rm -v "$PWD":/work -w /work \
 extractor in the `--include` set. The shared tuning knobs `--since-days`,
 `--max`, `--top-n`, `--sample` and the filters `--authors-allow/-block`,
 `--assignees-allow/-block` apply the same way. (`--company` and `--repo`
-can also come from `.briar.toml` / the git remote — see `agents/creds.md`.)
+can also come from `.briar.toml` / the git remote; `briar config show` prints
+what resolved.)
 The old per-extractor flags (`--pr-repo`, `--risk-since-days`, …) still
 work but are hidden; `briar extract --advanced-help` lists them.
 
@@ -217,9 +218,10 @@ cost. The detail file is always written locally even with
 
 1. Exit code `0`.
 2. `briar context get knowledge:<COMPANY>` returns non-empty markdown.
-3. The byte count printed at the end is sensible (typically >2KB for
-   a real company). An extractor that ran but produced an empty
-   section prints `(no data)`; not an error, just nothing to write.
+3. The byte count printed at the end (`wrote blob '<name>' (<N> bytes, <M> sections)`)
+   is sensible (typically >2KB for a real company). An extractor that ran
+   but produced an empty section prints `<name>: no data`; not an error,
+   just nothing to write.
 
 ## Common failures
 
@@ -228,5 +230,5 @@ cost. The detail file is always written locally even with
 | `nothing extracted — every enabled extractor returned empty` | Either credentials missing (run `briar secrets doctor`) or filters too tight (`--authors-allow`, `--max=0`). Re-run with `-v` to see which extractor skipped and why |
 | Extractor `skipped (not available in this env)` | Missing env var for that extractor. `briar secrets doctor` will name it |
 | `403` / `404` from GitHub | Token lacks scope or repo doesn't exist. PATs need `repo` (+ `read:org` for org-level metadata) |
-| Jira call hangs | `JIRA_<COMPANY>_BASE_URL` set to the wrong host. Check `https://<workspace>.atlassian.net` |
+| Jira call hangs | `JIRA_<COMPANY>_URL` set to the wrong host. Check `https://<workspace>.atlassian.net` |
 | Slow runs | `--max=20` (per repo) caps the heavy extractors; tighten per-extractor via `--advanced-help` flags if needed |

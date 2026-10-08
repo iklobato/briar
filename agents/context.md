@@ -131,10 +131,12 @@ briar context delete <BLOB_NAME>
 # or with Docker:
 docker run --rm -v "$PWD":/work -w /work \
     -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar context delete <BLOB_NAME>
+    iklob1/briar context delete <BLOB_NAME> --yes   # no TTY, so skip the prompt
 ```
 
-No confirmation prompt. Double-check the name first.
+Asks `Delete blob <name> from store <store>? [y/N]` first. Pass `--yes`
+to skip the prompt (needed when stdin is not a terminal: piped input
+counts as "no").
 
 ### See what categories exist
 
@@ -150,14 +152,14 @@ docker run --rm -v "$PWD":/work -w /work \
 ## Verifying success
 
 After `put`: `briar context get <name>` returns the same body.
-After `delete`: `briar context get <name>` returns empty (the
-"missing" convention is empty string, not error).
+After `delete`: `briar context get <name>` fails with
+`error: blob not found: <name>` and exit `1`.
 
 ## Common failures
 
 | Symptom | Fix |
 |---|---|
-| `briar context get` returns empty | Either the blob doesn't exist, or you're pointing at the wrong store. Check `--store` and `--root` |
+| `error: blob not found: <name>` | Either the blob doesn't exist, or you're pointing at the wrong store. Check `--store` and `--root` |
 | `put` clobbered something important | There's no undo. Use `briar journal show` if a prior command wrote it to find the body; otherwise restore from backup |
 | `BRIAR_DATABASE_URL not set` with `--store postgres` | Either export it or use `--store file` |
 | Blob shape looks corrupted (a plan/* blob is a non-JSON markdown body) | You wrote to a managed blob name. Restore by re-running whatever command owns that name (e.g. `briar plan build` for `plan:<name>`) |

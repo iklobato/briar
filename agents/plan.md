@@ -38,7 +38,7 @@ The dependency-graph picker (`topological_sort` / `apply_cascade` /
 
 | For | Need |
 |---|---|
-| `build` | Tracker creds (`JIRA_<COMPANY>_*` or `GITHUB_<COMPANY>_TOKEN`). Optional `--llm` for richer synthesis |
+| `build` | Board creds (`JIRA_<COMPANY>_*` for Jira, `GITHUB_TOKEN` for GitHub Projects v2). Optional `--llm` for richer synthesis |
 | `next` / `run` | **Required**: `--llm <provider>` (no fallback selector). Anthropic / OpenAI / Gemini / Bedrock |
 | `run` | Same as `agent implement` (repo + tracker creds + Anthropic) plus `--company` |
 | `--with-knowledge` at build | `knowledge:<company>` blob from a prior `briar extract` |
@@ -266,7 +266,8 @@ After `run`:
 - `briar plan status <NAME>` shows the new state.
 - `briar journal list --command plan.run` shows the session
   with `plan.next.decision` events, `plan.run.card.completed` /
-  `plan.run.card.failed`, optional `plan.replan.requested`.
+  `plan.run.card.failed`, optional `plan.replan.requested`, and a final
+  `plan.run.completed` or `plan.run.stopped`.
 
 ## Common failures
 
@@ -274,7 +275,7 @@ After `run`:
 |---|---|
 | `--llm is required for briar plan {next,run}` | These ops have no deterministic fallback. Pass `--llm anthropic` (or another provider) |
 | Selector returns `replan` repeatedly | The world has genuinely drifted, OR the prompt is starving on context. Check `knowledge:<company>.<plan>` (`briar context get`) — is it stale or empty? Cap with `--max-replans` |
-| Selector picks an unknown key | The model hallucinated a key. The runner raises and journals `plan.next.invalid`. Re-running often recovers because the second prompt has the failure context |
+| Selector picks an unknown key | The model hallucinated a key. The selector raises, `plan run` journals `plan.run.stopped` with value `selector_error` and exits `1`. Re-run to get a fresh pick |
 | `replan` loop exits with `replan_cap` | Selector kept returning REPLAN. Either pass a higher `--max-replans` or investigate why the model thinks the board is stale |
 | Card marked `blocked` with `implement rc=...` | The agent implement call returned non-zero. Drop into `--keep-worktree` mode on a manual `agent implement` to debug |
 | `plan run` exits 1 with blocked cards | Expected — at least one card couldn't complete. `briar plan status` shows which, `last_attempt_summary` says why |
