@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 from briar.errors import CliError
 

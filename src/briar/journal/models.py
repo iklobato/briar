@@ -20,7 +20,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Tuple
 
 
 def _now_iso() -> str:

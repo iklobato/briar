@@ -16,7 +16,6 @@ identical across vendors:
 from __future__ import annotations
 
 import argparse
-from typing import List
 
 from briar.extract.aws_services import AWS_SERVICE_GATHERERS
 from briar.extract.base import CloudBackedExtractor, ExtractedSection

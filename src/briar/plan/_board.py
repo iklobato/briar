@@ -15,7 +15,6 @@ dep-graph synthesis, and persists the result."""
 
 from __future__ import annotations
 
-import argparse
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import ClassVar, List, Tuple

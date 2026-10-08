@@ -8,7 +8,7 @@ client + per-company `BITBUCKET_<COMPANY>_*` creds as
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from briar.decorators import swallow_errors
 from briar.env_vars import CredEnv

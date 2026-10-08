@@ -21,9 +21,9 @@ to change."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, Tuple
 
 
 _VALID_SEVERITY = {"blocking", "mandatory", "advisory"}

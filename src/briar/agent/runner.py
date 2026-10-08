@@ -87,9 +87,10 @@ class AgentRunner:
     """One-shot agent execution against a single (company, task) target.
 
     Loads the archetype's persona + the spliced knowledge for the company,
-    builds the system prompt, then drives the Anthropic API tool-use loop
-    until the model is done or we hit a guardrail. All tool side effects
-    are confined to the worktree the caller hands us.
+    builds the system prompt, then drives the `LLMProvider` tool-use loop
+    (Anthropic by default, picked by `llm_kind`) until the model is done
+    or we hit a guardrail. All tool side effects are confined to the
+    worktree the caller hands us.
     """
 
     DEFAULT_MAX_ITERATIONS = 30
