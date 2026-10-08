@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from briar import __version__
 from briar.mcpserver._tools import register_tools
 
 
@@ -30,5 +31,7 @@ def build_server(ctx: ServerContext):
     from mcp.server.fastmcp import FastMCP
 
     server: Any = FastMCP("briar")
+    # FastMCP has no version kwarg; without this, initialize reports the mcp package version.
+    server._mcp_server.version = __version__
     register_tools(server, ctx)
     return server
