@@ -27,7 +27,7 @@ from typing import Dict, List, Optional
 
 from briar._registry import build_registry
 from briar.agent._llm import LLMProvider
-from briar.agent._llms import LLMRegistry, make_llm
+from briar.agent._llms import AnthropicLLM, LLMRegistry, make_llm
 from briar.commands._enums import ExitCode
 from briar.commands.base import Subcommand, SubcommandCommand, add_chat_arguments, add_meeting_arguments, confirm, normalize_owner_repo
 from briar.errors import CliError
@@ -542,7 +542,9 @@ class RunOp(PlanOp):
         impl.store = args.store
         # One root: the per-card implement reuses the plan's `--root`.
         impl.knowledge = args.root
-        impl.model = args.model
+        # The per-card agent always runs on Anthropic; a `--model` meant for
+        # another planner LLM (e.g. `gpt-4o`) would make every card fail.
+        impl.model = args.model if args.llm == AnthropicLLM.kind else ""
         impl.max_iter = args.max_iter
         impl.git_user_name = args.git_user_name
         impl.git_user_email = args.git_user_email
