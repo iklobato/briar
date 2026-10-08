@@ -34,8 +34,8 @@ class CommandSecrets(Command):
         doctor.add_argument(
             "--examples",
             type=Path,
-            default=Path("./examples"),
-            help="Runbook YAML directory (default: ./examples)",
+            default=None,
+            help="Runbook YAML directory (default: ./examples, skipped if absent)",
         )
         add_canonical_with_alias(
             doctor,
@@ -117,10 +117,18 @@ class CommandSecrets(Command):
         from briar.messaging import WRITERS
 
         store = make_credential_store(args.cred_store)
-        examples_dir: Path = args.examples
-        if not examples_dir.exists():
-            print(f"no examples dir at {examples_dir}")
-            return 1
+        if args.examples is None:
+            examples_dir = Path("./examples")
+            # The wheel ships no examples/, so outside a checkout the default
+            # dir is absent: nothing to audit is not a failure.
+            if not examples_dir.exists():
+                print(f"no runbooks to check (no {examples_dir} dir; pass --examples <dir>)")
+                return 0
+        else:
+            examples_dir = args.examples
+            if not examples_dir.exists():
+                print(f"no examples dir at {examples_dir}")
+                return 1
 
         any_missing = False
         for yaml_path in sorted(examples_dir.glob("*.yaml")):

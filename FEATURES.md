@@ -843,7 +843,7 @@ Acquirer destination policy:
 ### `briar secrets <subcommand>`
 | Subcommand | Flags |
 |---|---|
-| `doctor` | `--examples <dir>` (default `./examples`); `--cred-store {envfile,aws-secretsmanager,ssm,vault}` (deprecated alias `--store`; default `envfile`) |
+| `doctor` | `--examples <dir>` (default `./examples`; if absent, reports "no runbooks to check" and exits 0); `--cred-store {envfile,aws-secretsmanager,ssm,vault}` (deprecated alias `--store`; default `envfile`) |
 | `bootstrap` | `--kind {envfile}` (default: auto-detect every available bootstrap); `--dry-run` |
 
 ### `briar journal <subcommand>`
