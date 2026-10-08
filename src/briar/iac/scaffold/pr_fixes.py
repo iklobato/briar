@@ -42,8 +42,10 @@ class ScaffoldPrFixes(ScaffoldTemplate):
         add_common_arguments(parser)
         attach_source_arguments(parser)
         attach_trigger_arguments(parser)
-        # The defaults for this scaffold differ from `implementation`.
-        parser.set_defaults(archetype="pr-fixer", shape="one-shot")
+        # The defaults for this scaffold differ from `implementation`. The
+        # webhook trigger maps issue payloads only, so a PR fixer polls on
+        # an hourly cron instead of waking on `issues.*` events.
+        parser.set_defaults(archetype="pr-fixer", shape="one-shot", trigger_kind="schedule_cron")
 
     def build(self, args: argparse.Namespace) -> Dict[str, Any]:
         if not args.source:
