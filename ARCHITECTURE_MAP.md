@@ -12,6 +12,24 @@ Third doc in the architecture series. Where the existing two leave off:
 
 **Goal of the refactor plan.** Simpler and more maintainable. The previous passes already nailed Strategy + Registry across 25+ plug-in families. The remaining smells are different in kind — long methods, primitive obsession at module boundaries, accidental god classes, temporal coupling. Different patterns: Builder, Command, Template Method, Composite, Specification, Value Objects.
 
+> **Status (checked against v1.1.56).** §1–13 are a snapshot from the time of the audit. The code has moved since; where a diagram below disagrees with this note, the note (and the source file) wins.
+>
+> | Module | LOC today | What changed since the snapshot |
+> |---|---|---|
+> | `dashboard/collectors.py` | 640 | 9 collectors, not 24: `SystemCollector`, `GitDeployCollector`, `SchedulerProcessCollector`, `SchedulesCollector`, `CycleOutcomeCollector`, `ScheduleLogCollector`, `GhStatsCollector`, `ConnectivityCollector`, `DashboardProcessCollector`. The catalog, knowledge, companies, calendar, secrets and disk collectors were removed, so the file no longer reads `EXTRACTORS` or `SOURCE_TEMPLATES` (§13). `DashboardPaths` has 4 fields (`examples_dir`, `log_path`, `disk_path`, `repo_path`). `_parse_log_ts` and `_tail_bytes` are module functions. |
+> | `commands/agent.py` | 889 | The `RepoCloner` family is gone: token, clone URL and PR recipe now live on `RepositoryProvider` (`extract/_provider.py`), built with `make_provider`. `_clone` replaces `_clone_default` + `_clone_branch`. Shared setup is `_prepare_agent_workdir`, shared tail is `_finalize_agent_result`. Slack enrichment (`_fetch_slack_context`) and MCP config helpers were added. `CommandAgent` and `CommandPlan` both subclass `SubcommandCommand` (`commands/base.py`), which owns dispatch. |
+> | `commands/plan.py` | 659 | Dispatch is inherited from `SubcommandCommand`. |
+> | `iac/runbook/executor.py` | 456 | `_record_failure` was replaced by `_FailureCtx.record` + `_record_outcome`. `_notify_failure` is a module function. `_open_store` and an opt-in JSON inventory (`_write_inventory`) were added. |
+> | `agent/runner.py` | 574 | `AgentRunner(config: AgentRunConfig, *, llm=None, llm_kind="anthropic")`. `_dispatch_tool` looks the tool up in `self._tools` (a dict), not an if-chain. MCP setup (`_setup_mcp` + router) was added. |
+> | `agent/tools.py` | 341 | `ReadFileTool`, `WriteFileTool` and `EditFileTool` share one `_validate` on the `_RootScopedTool` base. |
+> | `extract/base.py` | 447 | Adds `TaskScopedChatExtractor`. The shared flag logic lives in module helpers (`_register_provider_flag`, `_resolve_provider_from_args`, ...). `requires_repository_provider` was removed. |
+> | `iac/scaffold/_composer.py` | 356 | `ScaffoldResolver` / `ScaffoldArgs` are now module functions: `target_for`, `add_common_arguments`, `attach_source_arguments`, `attach_trigger_arguments`. |
+> | `plan/_synthesize.py`, `agent/_llms/anthropic_llm.py`, `extract/meeting_context.py`, `extract/meeting_digest.py` | 253, 210, 175, 128 | Shapes match §9–12. |
+>
+> Modules added after the snapshot and not mapped here: `mcpserver/` (briar's own MCP server), `service/` (shared operations with a dry-run/confirm gate), `commands/mcp.py` (`briar mcp serve`), `commands/chat.py` (`briar chat`), `extract/_chat.py` + `extract/_chats/` (Slack, read-only), `extract/slack_context.py`, `iac/runbook/writer.py` (runbook YAML writer).
+>
+> §14–21 are the refactor plan and its revisions, kept as written. What actually shipped is listed in the §14 and §21 status notes.
+
 ---
 
 ## 0. Reading guide
@@ -1074,7 +1092,14 @@ The hub is `extract.base` — six other modules consume `EXTRACTORS` / `TASK_SCO
 
 ## 14. Refactor plan
 
-> **Status (post-execution).** Tiers 0–7 shipped. **Tier 8
+> **Status (checked against v1.1.56).** T0.1 to T0.4 shipped. T0.5 is partial: the
+> `briar agent` ops still register `--provider`, `--tracker` and `--meeting` with no
+> `choices=` (an unknown `--provider` fails later in `make_provider`). T1.1, T1.3
+> `AgentFlow`, T5 `ProviderBacking`, T6 `ScaffoldBundleBuilder` and T7 `CatalogCollector`
+> do not exist. What landed instead: T1.2 as `_prepare_agent_workdir` (a method, not a
+> context manager), T2 as `SubcommandCommand`, T3.1 as `AgentRunConfig`, T3.2 as a `Dict`
+> lookup in `_dispatch_tool` (no `Tool` Protocol), T4 as the `_RootScopedTool` base. The
+> catalog collectors T7 targeted were deleted. **Tier 8
 > (`MeetingExtractedData` TypedDict, §14.9) was dropped** — the meeting
 > subsystem ended up not needing a typed-dict boundary; the data field
 > stays `Dict[str, Any]`. Treat §14.9 / T8 / A8 references throughout
@@ -1637,7 +1662,7 @@ Each tier must pass these before the next one starts:
 1. **`pytest -x`** all green. Every refactor here is behaviour-preserving — a single failing test means a regression, not a missing update.
 2. **`ruff check`** + **`black`** clean on the touched files.
 3. **`mypy`** clean (or strictly no new errors) on the touched files. T1.1, T3.1, T5, T8 specifically tighten types — if the type checker now flags something the old code allowed, that's the refactor doing its job and the diff should include the corresponding fix.
-4. **One CLI smoke per tier:** for T1, run `briar agent prfix --dry-run --pr 1 --company acme`; for T3, `briar agent implement --dry-run --ticket-key X-1`; for T6, `briar scaffold implementation --source github --print`. Dry-run paths exercise the full pipeline minus the LLM call.
+4. **One CLI smoke per tier:** for T1, run `briar agent prfix --dry-run --pr 1 --branch main --company acme`; for T3, `briar agent implement --dry-run --ticket-key X-1`; for T6, `briar scaffold implementation --prefix demo --source github --owner acme --repo app` (it prints the bundle to stdout; there is no `--print` flag). Dry-run paths exercise the full pipeline minus the LLM call.
 
 The post-audit codebase already has the property that adding a new plug-in is "one file plus one tuple entry." This refactor preserves that property and extends it to: **simplifying the dispatcher layer is "one base plus one config object."**
 
@@ -2439,7 +2464,14 @@ Commit the meeting subsystem first. Then six steps in ~2 days: T0.1–T0.4 corre
 > companion plan in [`REFACTORING.md`](REFACTORING.md) also lists
 > Steps 0b (`CONSUMES_EXTRACTORS` auto-attach), Step 1 (`fetch_or_skip`),
 > and Step 3 (`Tool` Protocol + `Dict[str, Tool]`) as "not shipped" as
-> well. See the REFACTORING.md status banner for the full audit.
+> well. See the REFACTORING.md status banner for the full audit. Update
+> (v1.1.56): Step 3 is now partial. `_dispatch_tool` is a lookup in a
+> `Dict[str, Any]`, but there is no `Tool` Protocol and the broad
+> `except Exception` is still there.
+>
+> `ExitCode` shipped with 3 members (`OK`, `GENERAL_ERROR`, `USAGE_ERROR`),
+> not the 7 in §21.2 E2: the pre-LLM codes 3 to 6 were folded into
+> `GENERAL_ERROR`.
 
 The plan so far is silent on enums. A scan of the codebase finds **scattered magic strings and integer literals dispatched on equality** across multiple files — exactly the smell `enum` was built to solve. Four enums earn their keep; nothing else does.
 
@@ -2606,24 +2638,24 @@ One `_enums.py` file per domain — co-located with the code that defines and co
 
 | File | Holds | Imported by |
 |---|---|---|
-| `src/briar/agent/_enums.py` | `StopReason` | `agent/runner.py`, all 4 LLM providers under `agent/_llms/` |
-| `src/briar/commands/_enums.py` | `ExitCode` | `commands/agent.py`, `commands/plan.py`, future commands |
-| `src/briar/plan/_enums.py` | `PlanCardStatus` | `plan/_models.py`, `commands/plan.py` ops that filter / advance by status |
+| `src/briar/agent/_enums.py` | `StopReason` | `agent/runner.py`, the OpenAI / Gemini / Bedrock adapters under `agent/_llms/` (the Anthropic adapter passes the SDK string through), `commands/chat.py` |
+| `src/briar/commands/_enums.py` | `ExitCode` | `commands/agent.py`, `commands/plan.py`, `commands/auth.py`, `commands/doctor.py`, `commands/telemetry.py`, `commands/base.py` |
+| `src/briar/plan/_enums.py` | `PlanCardStatus`, `SelectorActionKind` | `plan/_models.py`, `plan/_status.py`, `plan/_selector.py`, `commands/plan.py` |
 | ~~`src/briar/extract/_enums.py`~~ | ~~`MeetingExtractMode`~~ | **Not adopted — see §21 status banner.** |
 
-Three small files (< 30 LOC each), 11 enum members. The fourth row (`extract/_enums.py`) is preserved struck-through for diff traceability against §21.2 E3.
+Three small files (23 to 41 LOC each). Today they hold 12 members across 3 of the planned enums, plus a `SelectorActionKind` enum in `plan/_enums.py` that this plan did not list. The fourth row (`extract/_enums.py`) is preserved struck-through for diff traceability against §21.2 E3.
 
 ### 21.5 Updated execution order
 
 ```
 −1. Land meeting subsystem                                                — pre-step  [DONE]
  0a. Tier-0 correctness (T0.1–T0.4)                                       — half day  [DONE]
- 0b. §20.2 CONSUMES_EXTRACTORS + auto-attach (absorbs T0.5)               — half day  [NOT SHIPPED — flag duplication still in CommandAgent.add_arguments]
+ 0b. §20.2 CONSUMES_EXTRACTORS + auto-attach (absorbs T0.5)               : half day  [NOT SHIPPED: no CONSUMES_EXTRACTORS; agent ops register the meeting flags through the shared add_meeting_arguments helper in commands/base.py]
  0c. §21 enums — 3 new _enums.py files + migrate call sites               — half day  [DONE for 3 of 4]
      (StopReason, ExitCode, PlanCardStatus; MeetingExtractMode dropped — see §21 banner)
  1.  Drop _fetch_*_context staticmethods + §20.1 fetch_or_skip            — half day  [NOT SHIPPED — staticmethods still on CommandAgent]
  2.  AgentRunConfig dataclass (uses StopReason in AgentRunResult)         — half day  [DONE]
- 3.  Tool Protocol + Dict[str, Tool] + drop E2 + use StopReason internally — half day  [NOT SHIPPED — _dispatch_tool still an if-chain with broad except]
+ 3.  Tool Protocol + Dict[str, Tool] + drop E2 + use StopReason internally : half day  [PARTIAL: _dispatch_tool is a dict lookup now, but no Tool Protocol and the broad except stays]
  4.  (folded into 3)
  5.  MeetingExtractedData TypedDict (uses MeetingExtractMode)             — 30 min    [DROPPED — see §21 banner]
 ```
