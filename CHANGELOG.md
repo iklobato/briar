@@ -5,6 +5,42 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.59] - 2026-10-08
+
+### Changed
+
+- **Docs synced with the code.** README, FEATURES, ARCHITECTURE*, DEPLOY_EC2,
+  CONTRIBUTING and `agents/*.md` were checked against v1.1.56: command examples
+  that no longer parsed (`auth status` without a target, `plan next` without
+  `--llm`, `dashboard --knowledge`), stale versions, missing commands (`mcp`,
+  `chat`, `init`, `config`, `doctor`, `completion`) and wrong env var names.
+  Docs only, no code change.
+
+## [1.1.58] - 2026-10-08
+
+### Fixed
+
+- **`briar auth login` with no input no longer crashes.** With no terminal and
+  an empty stdin (CI, scripts, agents) it printed a `termios.error` /
+  `EOFError` traceback and exited 2. It now prints "no input to read: run this
+  in an interactive terminal, or pipe the answer on stdin" and exits 1. Piping
+  the token on stdin still works.
+- **Refresh hint names a real command.** When a credential can't be refreshed,
+  the message said `briar auth login --provider <kind> ...`; `--provider` does
+  not exist. It now says `briar auth login <kind> --company <company>`.
+
+## [1.1.57] - 2026-10-08
+
+### Fixed
+
+- **Python 3.10 works again.** `config.py` imported `tomllib` (3.11+), so every
+  command that loads the config failed on 3.10 with `No module named
+  'tomllib'`, although `requires-python` is `>=3.10`. It now falls back to the
+  `tomli` backport, a new dependency only on Python < 3.11.
+- **CI really tests 3.10 and 3.11.** The `pytest (py3.10)` and `py3.11` jobs
+  ran on the runner's system Python 3.12; the job now sets `UV_PYTHON` from the
+  matrix.
+
 ## [1.1.56] - 2026-06-24
 
 ### Fixed
