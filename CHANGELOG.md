@@ -5,6 +5,42 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.59] - 2026-10-08
+
+### Changed
+
+- **Docs synced with the code.** README, FEATURES, ARCHITECTURE*, DEPLOY_EC2,
+  CONTRIBUTING and `agents/*.md` were checked against v1.1.56: command examples
+  that no longer parsed (`auth status` without a target, `plan next` without
+  `--llm`, `dashboard --knowledge`), stale versions, missing commands (`mcp`,
+  `chat`, `init`, `config`, `doctor`, `completion`) and wrong env var names.
+  Docs only, no code change.
+
+## [1.1.58] - 2026-10-08
+
+### Fixed
+
+- **`briar auth login` with no input no longer crashes.** With no terminal and
+  an empty stdin (CI, scripts, agents) it printed a `termios.error` /
+  `EOFError` traceback and exited 2. It now prints "no input to read: run this
+  in an interactive terminal, or pipe the answer on stdin" and exits 1. Piping
+  the token on stdin still works.
+- **Refresh hint names a real command.** When a credential can't be refreshed,
+  the message said `briar auth login --provider <kind> ...`; `--provider` does
+  not exist. It now says `briar auth login <kind> --company <company>`.
+
+## [1.1.57] - 2026-10-08
+
+### Fixed
+
+- **Python 3.10 works again.** `config.py` imported `tomllib` (3.11+), so every
+  command that loads the config failed on 3.10 with `No module named
+  'tomllib'`, although `requires-python` is `>=3.10`. It now falls back to the
+  `tomli` backport, a new dependency only on Python < 3.11.
+- **CI really tests 3.10 and 3.11.** The `pytest (py3.10)` and `py3.11` jobs
+  ran on the runner's system Python 3.12; the job now sets `UV_PYTHON` from the
+  matrix.
+
 ## [1.1.56] - 2026-06-24
 
 ### Fixed
@@ -35,7 +71,32 @@ briar can now be driven BY agents, not just run them.
 - **`briar chat`** an interactive assistant that drives briar's own MCP server
   with a human-in-the-loop approval gate the model cannot bypass.
 - **`briar.service` seam** a presentation-free, gated core (extract, knowledge,
-  runbook) shared by the CLI, MCP server, and dashboard, plus a runbook writer.
+  runbook), plus a runbook writer. Only the MCP server calls it today; the CLI
+  commands and the dashboard do not.
+
+## [1.1.54] - 2026-06-24
+
+### Added
+
+- **Flow 15 in `agents/flows.md`**: one end-to-end example that uses every
+  provider and extractor, ships a Jira card with `agent implement`, then
+  auto-fixes the PR with `agent prfix`. Docs only.
+
+## [1.1.53] - 2026-06-24
+
+### Fixed
+
+- **Slack auth errors name the fix.** On an auth error the read-only Slack
+  provider's message now tells you to refresh the `SLACK_*` creds instead of
+  a bare `invalid_auth`.
+
+## [1.1.52] - 2026-06-24
+
+### Fixed
+
+- **Release image push.** The release workflow pushed to `iklobato/briar`;
+  it now pushes to `iklob1/briar`, the image the docs use. The PyPI publish
+  step sets `attestations: false` to stop a warning on every run.
 
 ## [1.1.51] - 2026-06-24
 
@@ -130,6 +191,31 @@ backward compatible.
   or PR identifier into the agent's prompt, the same way `meeting-context`
   splices transcripts. New flags: `--chat`, `--slack-query`, `--slack-top-k`,
   `--slack-max-bytes` (all optional; the query defaults to the ticket/PR).
+
+## [1.1.47] - 2026-06-19
+
+### Added
+
+- **`briar --version` / `-V`**, **`briar completion bash|zsh`**, **`briar init`**
+  (starter `.briar.toml`), **`briar config show`** (each setting's value and
+  source) and **`briar doctor`** (offline environment check).
+- **Update notice** on stderr when a newer `briar-cli` is on PyPI (once a day;
+  opt out with `BRIAR_NO_UPDATE_CHECK`, `DO_NOT_TRACK` or `BRIAR_TELEMETRY=off`).
+- `CONTRIBUTING.md`, plus `fmt` / `lint` / `typecheck` / `pytest` / `check`
+  Makefile targets. The release workflow now runs the unit suite before the
+  version bump.
+
+### Changed
+
+- **Logs are quiet by default (WARNING) and go to stderr.** `--verbose` /
+  `BRIAR_VERBOSE` gives DEBUG, `BRIAR_LOG_LEVEL` overrides, and `runbook serve`
+  / `runbook extract` still log at INFO. Progress and "wrote <path>" messages
+  moved to stderr so stdout stays clean for `--format json`.
+
+### Fixed
+
+- **Release run failed on a stale `uv.lock`.** The lock is regenerated and the
+  workflow discards lock churn before pushing.
 
 ## [1.1.46] - 2026-06-19
 

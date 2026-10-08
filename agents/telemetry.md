@@ -20,18 +20,17 @@ reads / writes the local state file at `$XDG_CONFIG_HOME/briar/`.
 
 | Tag | What | Why |
 |---|---|---|
-| `command` | Subcommand name (e.g. `plan.run`, `agent.implement`) | Find which flows error / are popular |
+| `command` | Top-level command name (e.g. `plan`, `agent`) | Find which flows error / are popular |
 | `outcome` | `ok` / `error` / `interrupt` / `preview` | Coarse success signal |
 | `duration_ms` | Wall-clock milliseconds | Catch regressions |
 | `install_id` | SHA-256 prefix of a local random UUID (16 hex chars) | De-dup installs without identifying anyone |
 | `briar_version` / `python_version` / `os_name` / `os_release` | Build/runtime fingerprint | Reproduce bugs |
 | `flags_present` | Comma-joined **flag names only** (e.g. `llm,company,owner`) | Discover which flags people use |
-| Provider mix | `provider_kind` / `tracker_kind` / `store_kind` / `llm_provider` / `llm_model` (when set) | Inform default choices |
 | Error fields | `error_type` / scrubbed `error_message` (only on error events) | Triage real bugs |
 
 ## What NEVER gets sent
 
-This list is enforced by `briar.telemetry._scrubber.Scrubber` and verified by 45 unit tests:
+This list is enforced by `briar.telemetry._scrubber.Scrubber` and covered by the tests in `tests/unit/telemetry/test_scrubber.py`:
 
 - Flag VALUES (ticket keys, repo names, board URLs, file paths, project keys)
 - LLM prompts or completions
@@ -49,7 +48,7 @@ This list is enforced by `briar.telemetry._scrubber.Scrubber` and verified by 45
 
 | Op | What it does |
 |---|---|
-| `status` | Print current tier, source (env / config-file / do-not-track / default), hashed install_id, paths |
+| `status` | Print current tier, source (env / config-file / do-not-track / default), hashed install_id, `dsn_configured`, paths |
 | `preview --for-command <name>` | Print the exact JSON event that would be sent for one run. **No network call** |
 | `off` | Disable telemetry. Persists to the state file |
 | `errors-only` | Sentry crash reports only; no usage analytics |
@@ -187,4 +186,4 @@ After `preview`:
 | Banner re-prints every time | `$XDG_CONFIG_HOME/briar/telemetry.json` isn't being written — likely read-only home. Either fix permissions or set `BRIAR_TELEMETRY` in your shell to suppress the banner |
 | `status` shows `tier=full` but no events in Sentry | Either the DSN isn't configured (`dsn_configured: false` in `status`) — check the hardcoded value or set `BRIAR_SENTRY_DSN` — or the network can't reach Sentry from your host |
 | Worried something sensitive was sent | Run `briar telemetry preview --for-command <command>` — if the printed JSON doesn't have what you're worried about, neither did the real send. The scrubber runs unconditionally for both paths |
-| Need to wipe local telemetry state | `rm -rf $XDG_CONFIG_HOME/briar/` — next run re-shows the banner |
+| Need to wipe local telemetry state | `rm $XDG_CONFIG_HOME/briar/telemetry.json $XDG_CONFIG_HOME/briar/install_id` (not the whole dir: it also holds `secrets.env`). Next run re-shows the banner |

@@ -78,10 +78,9 @@ docker run --rm -v "$PWD":/work -w /work \
 
 ## Flow 2 — Extract AWS + Fireflies + PRs, then fix a PR
 
-The headline flow, touching five features end to end: **secrets** (gate)
+The headline flow, touching four features end to end: **secrets** (gate)
 → **extract** (mine infra + meetings + PRs) → **context** (inspect the
-blob) → **agent** (fix the PR with the meeting spliced in) → **journal**
-(audit what it decided).
+blob) → **agent** (fix the PR with the meeting spliced in).
 
 ```bash
 # 1. secrets — gate on credential coverage before spending anything
@@ -107,10 +106,6 @@ briar agent prfix --company <COMPANY> \
     --pr 128 --branch fix/login-retry \
     --meeting fireflies --meeting-query "login retry" --meeting-top-k 3 \
     --runbook examples/<COMPANY>.yaml
-
-# 5. journal — audit the agent's decision trail
-briar journal list --command agent.
-briar journal show <SESSION_ID>
 ```
 
 **The same flow with Docker:**
@@ -149,29 +144,21 @@ docker run --rm -v "$PWD":/work -w /work \
     --pr 128 --branch fix/login-retry \
     --meeting fireflies --meeting-query "login retry" --meeting-top-k 3 \
     --runbook examples/<COMPANY>.yaml
-
-# 5. journal — audit the agent's decision trail
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar journal list --command agent.
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar journal show <SESSION_ID>
 ```
 
 **Features combined:** `secrets` · `extract` (3 extractors) · `context` ·
-`agent prfix` (+ JIT meeting context) · `journal`.
+`agent prfix` (+ JIT meeting context).
 
-**Verify:** step 4 prints `agent-done`; the PR shows new commits + inline
-replies prefixed `[AI] `; step 5 lists the session with its ordered
-`DecisionEvent`s.
+**Verify:** step 4 exits `0` and logs `agent-done` (visible with `-v`);
+the PR shows new commits + inline replies prefixed `[AI] `. `briar agent`
+writes no journal session, so the run's log is the audit trail.
 
 ---
 
 ## Flow 3 — Implement a Jira ticket end-to-end
 
 Clone, branch, code, test, open a draft PR — one ticket, autonomously —
-combining **extract** → **agent implement** → **journal**, with a
+combining **extract** → **agent implement**, with a
 **secrets** pre-check.
 
 ```bash
@@ -190,9 +177,6 @@ briar agent implement --company <COMPANY> \
     --ticket-project <PROJECT> --ticket-key <PROJECT>-412 \
     --tracker jira \
     --runbook examples/<COMPANY>.yaml
-
-# 4. journal — read back exactly what the agent did and why
-briar journal show <SESSION_ID>
 ```
 
 **The same flow with Docker:**
@@ -221,19 +205,14 @@ docker run --rm -v "$PWD":/work -w /work \
     --ticket-project <PROJECT> --ticket-key <PROJECT>-412 \
     --tracker jira \
     --runbook examples/<COMPANY>.yaml
-
-# 4. journal — read back exactly what the agent did and why
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar journal show <SESSION_ID>
 ```
 
 **Features combined:** `secrets` · `extract` · `agent implement` (+ JIT
-ticket context) · `journal`. For *many* tickets at once, graduate to the
-plan loop in Flow 4.
+ticket context). For *many* tickets at once, graduate to the plan loop in
+Flow 4 (which also records a journal session).
 
-**Verify:** exit `0`, `agent-done` logged, a new draft PR on a fresh
-branch, and a journal session recording the decisions.
+**Verify:** exit `0`, `agent-done` logged (visible with `-v`), and a new
+draft PR on a fresh branch.
 
 ---
 
@@ -256,7 +235,7 @@ briar plan build "https://github.com/orgs/<OWNER>/projects/7" \
 
 # 2. plan — inspect what got synthesised before spending money
 briar plan status q3-auth --company <COMPANY> --store postgres
-briar plan next   q3-auth --company <COMPANY> --store postgres   # what the selector would pick
+briar plan next   q3-auth --company <COMPANY> --store postgres --llm anthropic   # what the selector would pick
 
 # 3. plan run — smoke ONE card end-to-end
 briar plan run q3-auth \
@@ -303,7 +282,7 @@ docker run --rm -v "$PWD":/work -w /work \
     iklob1/briar plan status q3-auth --company <COMPANY> --store postgres
 docker run --rm -v "$PWD":/work -w /work \
     -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar plan next   q3-auth --company <COMPANY> --store postgres   # what the selector would pick
+    iklob1/briar plan next   q3-auth --company <COMPANY> --store postgres --llm anthropic   # what the selector would pick
 
 # 3. plan run — smoke ONE card end-to-end
 docker run --rm -v "$PWD":/work -w /work \
@@ -347,7 +326,8 @@ docker run --rm -v "$PWD":/work -w /work \
 
 **Verify:** `plan status` shows cards moving `pending → done`; the
 `knowledge:<COMPANY>.q3-auth` blob grows after each card; each completed
-card has a PR and a journal session. Exit `1` means the run finished with
+card has a PR and a `plan.run.card.completed` event in the `plan.run`
+journal session. Exit `1` means the run finished with
 blocked cards — read `plan status` to see which.
 
 ---
@@ -459,9 +439,9 @@ User=briar
 EnvironmentFile=/etc/briar/secrets.env
 ```
 
-**Verify:** `systemctl status briar-scheduler` is active; stdout logs
-`scheduler: registered task=<name> next=<iso>`; after the first fire,
-`briar journal list --command runbook.` shows new sessions.
+**Verify:** `systemctl status briar-scheduler` is active; the log (stderr)
+shows `registered company=<name> task=<name> every=...` per job; after the
+first fire it shows `fire task=...` and `result task=... status=...`.
 
 ---
 
@@ -717,10 +697,10 @@ briar dashboard --examples examples/ --once
 # Or serve the read-only HTML status page on loopback
 briar dashboard --examples examples/ --host 127.0.0.1 --port 8080
 
-# Inspect what any command decided and why
-briar journal list --command agent.
+# Inspect what scaffold / plan run decided and why
+briar journal list --command plan.run
 briar journal show <SESSION_ID>
-briar journal export <SESSION_ID> --format json | jq '.events[].decision'
+briar journal export <SESSION_ID> --as json | jq '.decisions[].choice'
 ```
 
 **The same flow with Docker:**
@@ -736,20 +716,20 @@ docker run --rm -p 8080:8080 -v "$PWD":/work -w /work \
     -v "$HOME/.config/briar":/home/briar/.config/briar \
     iklob1/briar dashboard --host 0.0.0.0 --examples examples/ --port 8080
 
-# Inspect what any command decided and why
+# Inspect what scaffold / plan run decided and why
 docker run --rm -v "$PWD":/work -w /work \
     -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar journal list --command agent.
+    iklob1/briar journal list --command plan.run
 docker run --rm -v "$PWD":/work -w /work \
     -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
     iklob1/briar journal show <SESSION_ID>
 docker run --rm -v "$PWD":/work -w /work \
     -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar journal export <SESSION_ID> --format json | jq '.events[].decision'
+    iklob1/briar journal export <SESSION_ID> --as json | jq '.decisions[].choice'
 ```
 
-**Verify:** the dashboard renders companies/schedules/knowledge sizes;
-`journal show` prints the ordered `DecisionEvent`s for the run.
+**Verify:** the dashboard renders schedules, recent cycles and GitHub
+quota; `journal show` prints the ordered `DecisionEvent`s for the run.
 
 ---
 
@@ -758,7 +738,7 @@ docker run --rm -v "$PWD":/work -w /work \
 The store is content-agnostic — read/write any blob by name.
 
 ```bash
-# Seed a free-form memory blob the agents can splice
+# Seed a free-form memory blob (agents only splice knowledge:<COMPANY>* blobs, not memory:*)
 briar context put memory:reviewer-alice \
     --content "Alice always asks for a regression test + a changelog entry."
 
@@ -778,7 +758,7 @@ briar context --store postgres list --prefix knowledge:
 **The same flow with Docker:**
 
 ```bash
-# Seed a free-form memory blob the agents can splice
+# Seed a free-form memory blob (agents only splice knowledge:<COMPANY>* blobs, not memory:*)
 docker run --rm -v "$PWD":/work -w /work \
     -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
     iklob1/briar context put memory:reviewer-alice \
@@ -801,7 +781,7 @@ docker run --rm -v "$PWD":/work -w /work \
     iklob1/briar context list --prefix inventory:
 docker run --rm -v "$PWD":/work -w /work \
     -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar context delete memory:reviewer-alice
+    iklob1/briar context delete memory:reviewer-alice --yes   # no TTY, so skip the prompt
 
 # Everything above works against shared postgres truth instead of disk
 docker run --rm -v "$PWD":/work -w /work \
@@ -857,7 +837,6 @@ briar agent prfix --company <COMPANY> --repo <OWNER>/<REPO> \
 # 7. dashboard + journal — monitor the estate and audit every decision
 briar dashboard --examples examples/ --once
 briar journal list --command plan.
-briar journal list --command agent.
 ```
 
 **The same flow with Docker:**
@@ -928,9 +907,6 @@ docker run --rm -v "$PWD":/work -w /work \
 docker run --rm -v "$PWD":/work -w /work \
     -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
     iklob1/briar journal list --command plan.
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar journal list --command agent.
 ```
 
 **Features combined:** `auth` · `secrets` · `runbook` (sweep/serve) ·
@@ -945,8 +921,8 @@ The maximalist single-company chain: **auth** every provider (GitHub, AWS,
 Fireflies, Slack, and Jira via a session cookie) → **extract** everything
 (every extractor in one pass) into `knowledge:<COMPANY>` → **agent
 implement** one Jira card end to end → **agent prfix** to pull the
-resulting PR and fix its review comments automatically → **journal** to
-read back every decision. Slack has no extractor and no `auth login`
+resulting PR and fix its review comments automatically.
+Slack has no `--include` extractor and no `auth login`
 target: it is a read-only web session the agents pull in just-in-time via
 `--slack-query` (the same way `--meeting-query` pulls Fireflies).
 
@@ -989,10 +965,6 @@ briar agent prfix --company <COMPANY> \
     --pr 412 --branch <PROJECT>-412 \
     --slack-query "<PROJECT>-412" \
     --runbook examples/<COMPANY>.yaml
-
-# 7. journal — read back what both agents decided and why
-briar journal list --command agent.
-briar journal show <SESSION_ID>
 ```
 
 **The same flow with Docker:**
@@ -1051,25 +1023,16 @@ docker run --rm -v "$PWD":/work -w /work \
     --pr 412 --branch <PROJECT>-412 \
     --slack-query "<PROJECT>-412" \
     --runbook examples/<COMPANY>.yaml
-
-# 7. journal — read back what both agents decided and why
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar journal list --command agent.
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar journal show <SESSION_ID>
 ```
 
-**Features combined:** `auth` (5 targets, incl. `jira-session`) ·
+**Features combined:** `auth` (4 targets, incl. `jira-session`) ·
 `secrets` · `extract` (all extractors) · `context` · `agent implement` ·
-`agent prfix` (+ JIT Fireflies + Slack context) · `journal`.
+`agent prfix` (+ JIT Fireflies + Slack context).
 
 **Verify:** step 2 shows no `missing` rows; step 3 writes a non-empty
 `knowledge:<COMPANY>` with one section per extractor; step 5 exits `0`,
-logs `agent-done`, and opens a draft PR; step 6 pushes new commits with
-inline replies prefixed `[AI] ` on that PR; step 7 lists both `agent.`
-sessions with their ordered `DecisionEvent`s.
+logs `agent-done` (visible with `-v`), and opens a draft PR; step 6 pushes
+new commits with inline replies prefixed `[AI] ` on that PR.
 
 ---
 

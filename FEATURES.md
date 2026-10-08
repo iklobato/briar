@@ -5,8 +5,8 @@
 > reference. When something here disagrees with the code, the **code
 > wins** — re-verify with the snippet in §13 and update this file.
 >
-> **Last verified against:** `briar-cli 1.1.21` (registry & flag snapshot
-> taken from a clean `pip install -e .[all]`).
+> **Last verified against:** `briar-cli 1.1.56` (registry & flag snapshot
+> taken from the source tree at that version).
 >
 > **Boundaries.** Names listed in §3 are **runtime-validated** — every
 > `name:` in a runbook YAML, every `--<flag> <value>` choice, every
@@ -54,13 +54,21 @@ briar
 │   ├── refresh <target>
 │   ├── list [--cred-store <k>] [--company <c>]
 │   └── status <target>
-├── secrets                       — credential coverage + remote-vault hydrate
+├── secrets                       credential coverage + bootstrap hydrate
 │   ├── doctor                          per-(company,extractor,writer) coverage matrix
-│   └── bootstrap                       fetch from remote vault → os.environ
+│   └── bootstrap                       run a credential bootstrap (envfile today) into os.environ
 ├── journal                       — decision-journal inspection
 │   ├── list
 │   ├── show <session-id>
 │   └── export <session-id>
+├── mcp                               serve briar over the Model Context Protocol
+│   └── serve                          stdio (default) or http transport
+├── chat                              interactive assistant that drives briar via its own MCP server
+├── init                              write a starter .briar.toml (repo inferred from git)
+├── config
+│   └── show                           resolved value + source for each setting
+├── doctor                            check config, git, credentials, store
+├── completion {bash,zsh}             print a shell-completion script
 └── telemetry                     — Sentry telemetry control
     ├── status
     ├── preview
@@ -79,14 +87,15 @@ src/briar/
 ├── cli.py                            — top-level argparse entrypoint
 ├── _registry.py                      — generic Strategy+Registry builder
 ├── env_vars.py                       — CredEnv enum: per-company env var keys
-├── errors.py                         — CliError, ConfigError, CredentialExpired
-├── decorators.py                     — @swallow_errors, retry helpers
+├── errors.py                         CliError, AuthError, ConfigError, ApiError (CredentialExpired is in auth/_acquirer.py)
+├── decorators.py                     @swallow_errors (HTTP retry lives in _http_retry.py)
 ├── log_context.py                    — contextvars logger filter
 ├── commands/                         — one file per `briar <verb>` subcommand
 │   ├── _enums.py                         ExitCode (see §11)
-│   ├── extract.py, runbook.py, agent.py, plan.py, scaffold.py,
+│   ├── extract.py, runbook.py, agent.py, plan.py, iac.py (scaffold),
 │   ├── context.py, dashboard.py, auth.py, secrets.py, journal.py,
-│   └── telemetry.py, version.py
+│   ├── telemetry.py, version.py, mcp.py, chat.py,
+│   └── init.py, config.py, doctor.py, completion.py
 ├── extract/                          — knowledge extractors + provider abstractions
 │   ├── __init__.py                       EXTRACTORS + TASK_SCOPED_EXTRACTORS registries
 │   ├── base.py                           KnowledgeExtractor + 4 *BackedExtractor bases
@@ -95,6 +104,7 @@ src/briar/
 │   ├── _tracker.py  / _trackers/         TrackerProvider ABC + 4 impls
 │   ├── _cloud.py    / _clouds/           CloudProvider ABC + 3 impls
 │   ├── _meeting.py  / _meetings/         MeetingProvider ABC + fireflies impl
+│   ├── _chat.py     / _chats/            ChatProvider ABC + slack impl (read-only)
 │   ├── aws_services/                     AWS_SERVICE_GATHERERS (ecs/rds/lambda/sqs/logs/tagging-inventory)
 │   ├── language_detectors/               codebase-conventions sub-strategies
 │   ├── pr_archaeology.py, active_work.py, github_deployments.py,
@@ -105,8 +115,8 @@ src/briar/
 │   ├── commit_message_quality.py, stale_prs.py, ci_health.py, repo_governance.py,
 │   ├── dependency_health.py, code_scanning.py, test_discipline.py,
 │   ├── release_cadence.py, todo_density.py   — +13 code-quality extractors (23 total)
-│   └── ticket_context.py, pr_review_context.py, meeting_context.py
-│                                         — the 3 JIT (task-scoped) extractors
+│   └── ticket_context.py, pr_review_context.py, meeting_context.py, slack_context.py
+│                                         the 4 JIT (task-scoped) extractors
 ├── storage/                          — KnowledgeStore backends
 │   ├── __init__.py                       KnowledgeStoreRegistry (make_store)
 │   ├── base.py                           ABC + put_if_changed + StoreBinding
@@ -125,12 +135,11 @@ src/briar/
 │                                       (9 acquirers — see §3)
 ├── plan/                             — board → cards → selector → run loop
 │   ├── _boards/                          BOARD_READERS (jira, github-project)
-│   ├── _synthesiser.py, _selector.py, _writer.py
-│   └── _models.py, _ctx.py
+│   ├── _synthesize.py, _selector.py, _writeback.py, _replan.py
+│   └── _models.py, _store.py, _status.py
 ├── agent/                            — agent runner (LLM tool-use loop)
 │   ├── _llms/                            LLMS (anthropic, bedrock, gemini, openai)
-│   ├── tools.py, runner.py
-│   └── _repo_cloner.py
+│   └── tools.py, runner.py
 ├── iac/
 │   ├── runbook/                          RunbookFile schema + executor + scheduler
 │   │   ├── models.py                       Pydantic schema (RunbookFile, CompanyEntry, …)
@@ -141,7 +150,11 @@ src/briar/
 │       ├── shapes/                          WORKFLOW_SHAPES
 │       ├── triggers/                        TRIGGER_TEMPLATES
 │       └── sources/                         SOURCE_TEMPLATES
-├── journal/                          — decision journal (Strategy + Registry × 2)
+├── mcp/                              MCP client: runbook `mcp:` servers + default think/time servers
+├── mcpserver/                        `briar mcp serve` server + its tools
+├── service/                          service layer the MCP server tools call
+├── config.py, infer.py               .briar.toml loading + git-remote owner/repo inference
+├── journal/                          decision journal (Strategy + Registry × 2)
 │   ├── _journal.py                        Journal façade, session() context manager
 │   ├── store/                              JournalStore ABC + FileJournalStore
 │   └── sinks/                              JournalSink ABC + FileSink
@@ -151,8 +164,7 @@ src/briar/
 runbooks/                             — real per-company YAMLs (gitignored)
 examples/                             — public sample YAMLs
 agents/                               — per-command operator docs (agents/runbook.md, etc.)
-tools/mutation_test.py                — 7-mutant smoke test
-bin/                                  — helper scripts
+tools/mutation_test.py                hand-picked mutation smoke test (22 mutants)
 scripts/                              — none today
 ```
 
@@ -167,16 +179,17 @@ edit anywhere else.
 | Registry | Symbol | Names |
 |---|---|---|
 | Scheduled extractors | `briar.extract.EXTRACTORS` | `active-tickets`, `active-work`, `aws-infra`, `ci-health`, `code-hotspots`, `code-scanning`, `codebase-conventions`, `commit-message-quality`, `defect-hotspots`, `dependency-health`, `github-deployments`, `meeting-digest`, `pr-archaeology`, `pr-hygiene`, `release-cadence`, `repo-governance`, `revert-signals`, `review-nits`, `reviewer-profile`, `stale-prs`, `test-discipline`, `ticket-archaeology`, `todo-density` (23) |
-| JIT extractors | `briar.extract.TASK_SCOPED_EXTRACTORS` | `meeting-context`, `pr-review-context`, `ticket-context` |
+| JIT extractors | `briar.extract.TASK_SCOPED_EXTRACTORS` | `meeting-context`, `pr-review-context`, `slack-context`, `ticket-context` |
 | Knowledge stores | `briar.storage.KnowledgeStoreRegistry.STORES` | `file`, `postgres` |
 | Message writers (runbook `messages.kind:`) | `briar.messaging.WRITERS` | `bitbucket-pr-comment`, `github-pr-comment`, `jira-comment`, `jira-transition`, `slack-channel`, `telegram-chat` |
 | Auth acquirers (`auth login <target>`) | `briar.auth._acquirers.ACQUIRERS` | `aws-sso`, `aws-static`, `bitbucket-app-password`, `fireflies`, `github-device`, `github-pat`, `jira-session`, `jira-token`, `linear-api-key` |
-| Credential stores (`auth --store`) | `briar.credentials.STORES` | `aws-secretsmanager`, `envfile`, `ssm`, `vault` |
+| Credential stores (`auth --cred-store`) | `briar.credentials.STORES` | `aws-secretsmanager`, `envfile`, `ssm`, `vault` |
 | Notify sinks (`$BRIAR_NOTIFY_SINKS`) | `briar.notify.SINKS` | `email`, `pagerduty`, `slack`, `telegram` |
 | Board readers (`plan build <board>`) | `briar.plan._boards.BOARD_READERS` | `github-project`, `jira` |
 | Journal sinks | `briar.journal.sinks.JOURNAL_SINKS` | `file` |
 | LLM providers (`--llm`) | `briar.agent._llms.LLMS` | `anthropic`, `bedrock`, `gemini`, `openai` |
 | Meeting providers (`--meeting`) | `briar.extract._meetings.MEETINGS` | `fireflies` |
+| Chat providers (hidden `agent --chat`) | `briar.extract._chats.CHATS` | `slack` |
 | Repo providers (`--provider`) | `briar.extract._providers.PROVIDERS` | `bitbucket`, `github` |
 | Tracker providers (`--tracker`) | `briar.extract._trackers.TRACKERS` | `bitbucket-issues`, `github-issues`, `jira`, `linear` |
 | Cloud providers (`--cloud`) | `briar.extract._clouds.CLOUDS` | `aws`, `azure`, `gcp` |
@@ -233,12 +246,12 @@ edit anywhere else.
    BitbucketProvider      StorePostgres          per $BRIAR_NOTIFY_SINKS)
    JiraTracker            ↓                     Slack/Telegram/Email/PagerDuty
    GithubIssuesTracker    ./knowledge/...
-   BbIssuesTracker        OR
+   BitbucketIssuesTracker OR
    LinearTracker          briar_knowledge       Three failure points all
-   AwsCloudProvider       briar_knowledge_history  route through _record_failure
+   AwsCloudProvider       briar_knowledge_history  route through failure.record
    AzureCloudProvider                            (one shape, no drift)
    GcpCloudProvider
-   FirefliesMeeting
+   FirefliesMeetingProvider
 ```
 
 ### Extractor → provider routing
@@ -321,7 +334,7 @@ KnowledgeComposer.inventory(company, sections)   # stable JSON: no timestamp, so
        GITHUB_TOKEN      messages.kind      .get("knowledge:acme")
        JIRA_*            git_identity       (previously written by
        AWS_*                                 runbook extract)
-       CLAUDE_API_KEY
+       ANTHROPIC_API_KEY
                                │
                                ▼
                   ┌────────────────────────────┐
@@ -388,8 +401,8 @@ or pin one transcript with `--meeting-key <id>`.
   secrets.env         BoardReader              KnowledgeStore
                       .matches(URL)            (splices existing
                       .fetch_cards()           knowledge:acme blobs
-                      ├── JiraBoard            into each card's
-                      └── GhProjectV2Board     synthesis context
+                      ├── JiraBoardReader      into each card's
+                      └── GithubProjectBoardReader  synthesis context
                                                 when --with-knowledge)
                              │
                              ▼
@@ -440,7 +453,7 @@ at `plan build` time degrades to heuristics when `--llm` is empty.
 PROCESS START
       │
       ▼
-auto_bootstrap()  (briar/cli.py first thing after argparse)
+auto_bootstrap()  (briar/cli.py, before the parser is built; skipped for -h/--help)
       │
       ▼
 BOOTSTRAPS in registry order:
@@ -458,7 +471,7 @@ On-demand reads (CredentialStore + CredEnv.<KEY>.for_company(company))
       │
       ├── EnvFileStore       — read from secrets.env
       ├── VaultStore         — HashiCorp Vault KV v2
-      ├── AwsSecretsMgr      — /briar/<NAME> prefix
+      ├── AwsSecretsManagerStore: briar/<NAME> prefix
       └── SsmParameterStore  — /briar/ prefix, SecureString
 
 
@@ -471,8 +484,8 @@ INTERACTIVE ACQUISITION  (briar auth login <target>)
         acquirer.acquire(company, prompt) → Credentials
                   │
                   ▼
-        _effective_store(target, --store)
-        ├── EXTERNAL policy → use --store as-is (default = envfile)
+        _effective_store_kind(acquirer, --cred-store)
+        ├── EXTERNAL policy → use --cred-store as-is (default = $BRIAR_DEFAULT_STORE, then envfile)
         └── BOOTSTRAP_LOCAL → forced to envfile (chicken-and-egg)
                   │
                   ▼
@@ -492,7 +505,7 @@ Resolution order at runtime (lowest precedence last):
 ### File backend (`storage/file.py`)
 
 ```
-./knowledge/                          ← BRIAR_KB_FILE_ROOT (default)
+./knowledge/                          ← default file root (`--root`)
 ├── knowledge/                        ← "knowledge:" category
 │   ├── acme.md                       ← blob name "knowledge:acme"
 │   ├── acme.archaeology.md           ← blob name "knowledge:acme.archaeology"
@@ -687,6 +700,7 @@ No subcommand-specific flags.
 | `--max-iter <N>` | | — |
 | `--git-user-name` / `--git-user-email` | | CLI > YAML > local `git config` (outside CI) |
 | `--keep-worktree` | | off |
+| `--no-default-mcp` | | off (also `BRIAR_NO_DEFAULT_MCP`; skips the built-in think/time MCP servers) |
 | `--meeting-key <id>` | | — |
 | `--meeting-query <text>` | | `<owner>/<repo>#<pr>` |
 | `--slack-query <text>` | | `<owner>/<repo>#<pr>` |
@@ -719,16 +733,20 @@ Same as `prfix` but uses ticket identity:
 | `--with-knowledge` | | off |
 | `--print` | | off |
 | `--dry-run` | | off (implies `--print`) |
-| `--store {file,postgres}` | | `file` |
+| `--store {file,postgres}` | | `postgres` if `BRIAR_DATABASE_URL` set, else `file` |
 | `--company <name>` | | — |
 
 ### `briar plan show <name>` / `list` / `status <name>` / `clear <name>`
-Common: `--store`, `--root`, `--company`. `clear` adds `--yes`.
+Common: `--store`, `--root`, `--company`. `clear` adds `--yes`; `status` adds
+`--journal-store` / `--journal-root`.
 
 ### `briar plan next <name>`
 | Flag | Required | Default |
 |---|---|---|
 | `--llm <provider>` | ✓ | — |
+| `--model <name>` | | provider default |
+| `--store` / `--root` / `--company` | | as `plan show` |
+| `--journal-store {file}` / `--journal-root <dir>` | | `file` / `./journal` |
 
 ### `briar plan advance <name>`
 | Flag | Required | Default |
@@ -773,7 +791,10 @@ Common: `--store`, `--root`, `--company`. `clear` adds `--yes`.
 | `--github-secret-id` / `--bitbucket-secret-id` / `--jira-secret-id` / `--sentry-secret-id` | with `--auth-mode pat` (Sentry: always) |
 | `--authors-allow` / `--authors-block` / `--assignees-allow` / `--assignees-block` | shared issue filters — apply to every `--source` (repeatable). Per-source `--jira-authors-allow` etc. still parse (hidden) and override |
 | `--model` / `--llm-provider-key` | LLM defaults baked into the bundle |
-| `--schedule "<cron>"` | with `--trigger-kind schedule_cron` |
+| `--schedule "<cron>"` | with `--trigger-kind schedule_cron` (default `0 * * * *`) |
+| `--webhook-events` / `--webhook-labels` | GitHub webhook trigger (defaults `issues.opened, issues.labeled` / `briar`) |
+| `--bitbucket-webhook-events` / `--bitbucket-webhook-labels` | Bitbucket webhook trigger (defaults `issue:created, issue:updated` / `briar`) |
+| `--knowledge-store <kind>` | backend to read the `--company` splice from (`postgres` if `BRIAR_DATABASE_URL` set, else `file`) |
 
 ### `briar context <subcommand>`
 `--store {file,postgres}` (default `file`) and `--root <dir>` (file-store
@@ -823,16 +844,44 @@ Acquirer destination policy:
 | Subcommand | Flags |
 |---|---|
 | `doctor` | `--examples <dir>` (default `./examples`); `--cred-store {envfile,aws-secretsmanager,ssm,vault}` (deprecated alias `--store`; default `envfile`) |
-| `bootstrap` | `--kind {envfile}` (default = envfile); `--dry-run` |
+| `bootstrap` | `--kind {envfile}` (default: auto-detect every available bootstrap); `--dry-run` |
 
 ### `briar journal <subcommand>`
 | Subcommand | Flags |
 |---|---|
 | `list` | `--command <prefix>`, `--limit <N>` |
 | `show <id>` | — |
-| `export <id>` | `--format {markdown,json}`, `--out <path>` |
+| `export <id>` | `--as {markdown,json}` (default `markdown`), `--out <path>` (`-` = stdout) |
 
 Common: `--store {file}`, `--root <dir>`. Defaults match `BRIAR_JOURNAL_STORE` / `BRIAR_JOURNAL_ROOT`.
+
+### `briar mcp serve`
+| Flag | Default |
+|---|---|
+| `--transport {stdio,http}` | `stdio` |
+| `--host <ip>` | `127.0.0.1` (http only) |
+| `--port <n>` | `8765` (http only) |
+| `--token-env <NAME>` | env var holding the bearer token; required to bind a non-loopback host (http only) |
+| `--store {file,postgres}` / `--root <dir>` | `file` / `./knowledge` |
+| `--runbook <yaml>` | (none: config tools disabled) |
+
+Tools: `version`, `knowledge_list`, `knowledge_get`, `knowledge_categories`,
+`knowledge_put`, `knowledge_delete`, `runbook_get`, `runbook_validate`,
+`mcp_server_set_enabled`, `extract_run` (`mcpserver/_tools.py`). Tools that
+change things only preview unless called with `confirm=true`. Needs the `[mcp]` extra.
+
+### `briar chat`
+`--llm {anthropic,openai,gemini,bedrock}` (default `anthropic`), `--model`,
+`--store` / `--root`, `--runbook`. Spawns `briar mcp serve --transport stdio`
+and asks you at the terminal before any tool that changes things runs.
+
+### `briar init` / `config show` / `doctor` / `completion`
+| Command | Flags |
+|---|---|
+| `init` | `--company`, `--store {file,postgres}`, `--owner` / `--repo` (default: from git origin), `--path` (default `./.briar.toml`), `--force` |
+| `config show` | none; prints each setting's value and where it came from |
+| `doctor` | none; checks python, project config, git remote, LLM key, `GITHUB_TOKEN`, store |
+| `completion {bash,zsh}` | shell is positional; `eval "$(briar completion bash)"` |
 
 ### `briar telemetry <subcommand>`
 | Subcommand | Effect |
@@ -842,7 +891,7 @@ Common: `--store {file}`, `--root <dir>`. Defaults match `BRIAR_JOURNAL_STORE` /
 | `off` | disable telemetry |
 | `errors-only` | crash reports only |
 | `full` | errors + usage |
-| `reset` | clear locally cached config |
+| `reset` | regenerate the anonymous install_id |
 
 ---
 
@@ -853,11 +902,12 @@ Common: `--store {file}`, `--root <dir>`. Defaults match `BRIAR_JOURNAL_STORE` /
 | Flag | Default | Purpose |
 |---|---|---|
 | `--format {table,json,yaml,csv,quiet}` | `table` | output format |
-| `--verbose` / `-v` | INFO | DEBUG-level logging |
+| `--verbose` / `-v` | off (log level WARNING) | DEBUG-level logging |
+| `--version` / `-V` | off | print `briar-cli <version>` and exit |
 
 Global flags can be positioned before OR after the subcommand
-(argparse tolerates both). `briar journal export --format` has a
-known collision with the global (`xfail(strict=True)` in tests).
+(`cli.py` pulls them out of argv before parsing). `briar journal export`
+uses `--as` for its own format, so it does not clash with the global `--format`.
 
 ### Project config — `.briar.toml` / `[tool.briar]`
 
@@ -904,6 +954,9 @@ Config keys map to dests via env override `BRIAR_COMPANY` (company) and
 |---|---|
 | `BRIAR_VERBOSE=1` | same as `--verbose` |
 | `BRIAR_LIB_DEBUG=1` | also surface third-party loggers (httpx, boto3) |
+| `BRIAR_LOG_LEVEL={DEBUG,INFO,WARNING,ERROR}` | log level when `--verbose` is not set (default `WARNING`) |
+| `BRIAR_NO_UPDATE_CHECK=1` | skip the "newer version available" notice |
+| `BRIAR_NO_DEFAULT_MCP=1` | same as `agent --no-default-mcp` |
 | `BRIAR_TELEMETRY=off` / `DO_NOT_TRACK=1` | disable telemetry |
 
 ### Env vars — knowledge store DSN
@@ -912,14 +965,14 @@ Config keys map to dests via env override `BRIAR_COMPANY` (company) and
 |---|---|
 | `BRIAR_DATABASE_URL` | switch default knowledge store to `postgres`; final-fallback DSN |
 | `BRIAR_<COMPANY>_DATABASE_URL` | per-company DSN (convention; auto-detected) |
-| `BRIAR_KB_DATABASE_URL` (or any name in YAML `knowledge.config.dsn_env`) | explicit DSN |
+| any env var named in YAML `knowledge.config.dsn_env` (e.g. `PROD_KB_PG`) | explicit DSN |
 | `BRIAR_PG_POOL_SIZE` / `BRIAR_PG_POOL_OVERFLOW` | pool tuning |
 
 ### Env vars — credentials & secrets
 
 | Env var | Effect |
 |---|---|
-| `BRIAR_DEFAULT_STORE={envfile,vault,aws-secretsmanager,ssm}` | default `--cred-store` for `auth login` |
+| `BRIAR_DEFAULT_STORE={envfile,vault,aws-secretsmanager,ssm}` | default `--cred-store` for `auth` subcommands (the same var is also read as the knowledge `--store` default, see project config) |
 | `BRIAR_SECRETS_FILE=/path/to/secrets.env` | overrides resolution: this → `/etc/briar/secrets.env` → `~/.config/briar/secrets.env` |
 | `GITHUB_TOKEN` | workspace-wide GitHub PAT |
 | `BITBUCKET_<COMPANY>_WORKSPACE` / `_USERNAME` / `_APP_PASSWORD` | per-tenant Bitbucket |
@@ -929,6 +982,9 @@ Config keys map to dests via env override `BRIAR_COMPANY` (company) and
 | `LINEAR_<COMPANY>_TOKEN` | Linear PAT |
 | `AWS_<COMPANY>_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` / `_REGION` / `_SESSION_TOKEN` | per-tenant AWS |
 | `FIREFLIES_<COMPANY>_API_KEY` | Fireflies API key |
+| `SLACK_<COMPANY>_TOKEN` / `_COOKIE_D` | read-only Slack (browser `xoxc-` token + `d` cookie) for `slack-context` |
+| `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` | Anthropic LLM (OAuth token tried first) |
+| `OPENAI_API_KEY` / `GEMINI_API_KEY` | OpenAI / Gemini LLM (Bedrock uses the `AWS_<COMPANY>_*` creds) |
 
 ### Env vars — alerting
 
@@ -958,10 +1014,9 @@ Hyphens in company keys uppercased + replaced with `_`:
 | `widget-co` | `BITBUCKET_WIDGET_CO_APP_PASSWORD` |
 | `bitspark` | `AWS_BITSPARK_ACCESS_KEY_ID` |
 
-Quirk (asserted by `tests/unit/test_env_vars.py`): empty-company
-`CredEnv.AWS_KEY_ID.for_company("")` produces `AWS__ACCESS_KEY_ID`
-(double underscore). Reject-or-correct would require flipping the
-documented assertion.
+Asserted by `tests/unit/test_env_vars.py`: an empty company on a templated
+var (`CredEnv.AWS_KEY_ID.for_company("")`) raises `ValueError` instead of
+producing the old `AWS__ACCESS_KEY_ID` (double underscore) name.
 
 ---
 
@@ -972,13 +1027,9 @@ documented assertion.
 | 0 | `OK` | success |
 | 1 | `GENERAL_ERROR` | soft failure not covered by specific codes (also: `plan run` finished with blocked cards; `plan clear` aborted at confirm) |
 | 2 | `USAGE_ERROR` | argparse / unknown subcommand |
-| 3 | `STORE_OPEN_FAILED` | `KnowledgeStore` couldn't open (DSN bad, perms, etc.) |
-| 4 | `CLONE_FAILED` | agent's `git clone` failed |
-| 5 | `GIT_CONFIG_FAILED` | clone OK but `user.name`/`user.email` set failed |
-| 6 | `AGENT_ERROR` | agent run itself failed (LLM raised, iter ceiling, tool errored) |
 
-Codes 1–6 are stable. 7–9 reserved for future pre-LLM categories; 10+
-reserved for future LLM/agent runtime failures.
+Only these three codes exist. Outside the enum, `cli.py` returns 130 on
+Ctrl-C and 2 when a command crashes with an uncaught exception.
 
 ---
 
@@ -989,8 +1040,9 @@ reserved for future LLM/agent runtime failures.
 - **`briar context` `--store` / `--root`** work on either side of the
   subcommand (`briar context --store postgres list` and
   `briar context list --store postgres` both parse).
-- **`briar plan <subcmd> --store ...`** — `--store` lives on each
-  subparser. Both orderings work.
+- **`briar plan <subcmd> --store ...`**: `--store` lives on each
+  subparser only, so it must come after the subcommand
+  (`briar plan --store postgres list` is rejected).
 - **Global `--format`** works either side of the subcommand.
 
 ### Idempotency invariants
@@ -1009,7 +1061,7 @@ reserved for future LLM/agent runtime failures.
 
 | Changed... | Restart needed? | Effect |
 |---|---|---|
-| `runbooks/*.yaml` | no (next fire) | scheduler re-reads on every iteration |
+| `runbooks/*.yaml` | no for edits to an existing task (next fire); yes for new tasks or `every:` changes | each job re-reads its YAML when it fires; jobs are registered once at start |
 | `/etc/briar/secrets.env` | yes | env held in process memory |
 | `src/briar/` (editable install) | yes | imported modules cached |
 | Postgres `briar_knowledge` table | no | scheduler reads fresh on each fire |
@@ -1024,7 +1076,7 @@ clean up with `briar context delete knowledge:acme.<old>`.
 
 ### Empty-section semantics
 
-`ExtractedSection(title="")` is `EMPTY_SECTION` (`base.py:37`). The
+`ExtractedSection(title="")` is an empty section (`empty_section()` in `base.py`). The
 executor (`_collect_sections`) drops them before they reach the
 composer. The composer never has to filter — `is_empty` is the contract.
 
@@ -1040,7 +1092,7 @@ likely missing credentials` is the log signature.
 
 `_run_schedule` has three try/except sites (`_collect_sections`,
 `make_store`, `put_if_changed`). All three route through
-`_record_failure` (`executor.py:233-249`) so the
+`_FailureCtx.record` (`executor.py`) so the
 log-exception + notify + row-shape stay identical and don't drift
 across edits.
 
@@ -1048,7 +1100,7 @@ across edits.
 
 A broken Telegram bot does not crash the extractor. Sinks raise
 INTO the `_notify_failure` try/except and the loop continues
-(`executor.py:281-282`).
+(`executor.py`).
 
 ### Bootstrap precedence is *registry order*
 
@@ -1082,7 +1134,7 @@ three supplies a field the run aborts with a clear error. You can set
 
 ### TASK_SCOPED_EXTRACTORS bypass the runbook executor
 
-`meeting-context`, `pr-review-context`, `ticket-context` are NOT walked
+`meeting-context`, `pr-review-context`, `slack-context`, `ticket-context` are NOT walked
 by the scheduler. They have a `fetch(args)` verb (not `extract`), are
 fetched JIT by the agent runner from the `TASK_SCOPED_EXTRACTORS`
 registry, and their output is spliced into ONE agent's system prompt —
@@ -1104,12 +1156,13 @@ specs = [
     ("STORES (knowledge)",                            "briar.storage:KnowledgeStoreRegistry.STORES"),
     ("WRITERS (runbook messages.kind)",               "briar.messaging:WRITERS"),
     ("ACQUIRERS (auth login)",                        "briar.auth._acquirers:ACQUIRERS"),
-    ("CRED_STORES (auth --store)",                    "briar.credentials:STORES"),
+    ("CRED_STORES (auth --cred-store)",               "briar.credentials:STORES"),
     ("NOTIFY_SINKS (BRIAR_NOTIFY_SINKS)",             "briar.notify:SINKS"),
     ("BOARD_READERS (plan build)",                    "briar.plan._boards:BOARD_READERS"),
     ("JOURNAL_SINKS",                                 "briar.journal.sinks:JOURNAL_SINKS"),
     ("LLMS (--llm)",                                  "briar.agent._llms:LLMS"),
     ("MEETINGS (--meeting)",                          "briar.extract._meetings:MEETINGS"),
+    ("CHATS (agent --chat)",                          "briar.extract._chats:CHATS"),
     ("PROVIDERS (--provider)",                        "briar.extract._providers:PROVIDERS"),
     ("TRACKERS (--tracker)",                          "briar.extract._trackers:TRACKERS"),
     ("CLOUDS (--cloud)",                              "briar.extract._clouds:CLOUDS"),

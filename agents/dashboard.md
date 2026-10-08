@@ -2,9 +2,9 @@
 
 ## Purpose
 Serve a read-only HTML status page summarising the local briar
-deployment. Aggregates the collectors under `dashboard/collectors/`
-into one page: scheduler state, recent extractions, git state,
-disk, log tail, credential coverage.
+deployment. Aggregates the collectors in `dashboard/collectors.py`
+into one page: scheduler state, recent cycles, GitHub API quota,
+connectivity probes, git state, disk/memory/load, log tail.
 
 ## When to use
 - A host has briar installed and you want a quick "is it healthy"
@@ -15,9 +15,9 @@ disk, log tail, credential coverage.
   static page and exit.
 
 ## Prerequisites
-- The same env vars `briar` already reads at startup (the dashboard
-  shows the credential-coverage section by reading them).
-- Nothing else — runs in-process, no external dependencies.
+- Nothing else: runs in-process. The page is built from local files
+  (scheduler log, runbook YAMLs, git checkout) plus TCP probes to
+  `api.github.com`, `github.com` and `sts.amazonaws.com`.
 
 ## Commands
 
@@ -76,17 +76,16 @@ Points the schedules card at a directory of runbook YAMLs (default `./examples`)
 
 | Flag | What it overrides |
 |---|---|
-| `--log-file <path>` | Which logfile to tail in the "logs" card |
-| `--repo-path <path>` | Where to read git state from |
-| `--disk-path <path>` | Which mount to compute free space for |
+| `--log-file <path>` | Which logfile to tail in the "recent activity" card (default `/var/log/briar/scheduler.log`) |
+| `--repo-path <path>` | Where to read git state from (default `.`) |
+| `--disk-path <path>` | Which mount to compute free space for (default `/`) |
 
 ## Verifying success
 
 Interactive:
 1. `http://<host>:<port>` returns HTTP 200 with HTML.
-2. The "version" card matches `briar version`.
-3. The "credential coverage" card lists the same lines `briar
-   secrets doctor` would print.
+2. The "schedulers" card lists the companies and tasks from your
+   `--examples` YAMLs.
 
 One-off:
 1. Exit `0`.
@@ -98,5 +97,5 @@ One-off:
 |---|---|
 | `address already in use` on `:8080` | Another `briar dashboard` is running, or that port is taken. Pass `--port <N>` |
 | One card shows "collector failed" | The collector raised, isolated correctly. Click the card / run `-v` to see which one. Often a missing optional dep |
-| Logs card empty | `--log-file` points nowhere. Pass an absolute path |
+| "recent activity" card empty | `--log-file` points nowhere. Pass an absolute path |
 | Want to expose publicly | Don't bind `0.0.0.0` without a reverse proxy in front; the page has no auth |

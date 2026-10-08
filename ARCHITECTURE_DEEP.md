@@ -128,12 +128,13 @@ sequenceDiagram
     P->>P: @swallow_errors wraps → returns [] on failure
     P-->>E: List[PullRequest] (normalised dataclasses)
     E-->>Ex: ExtractedSection
+    Note over Ex,E: one extractor raising is logged and skipped, not notified
   end
 
   alt all sections empty
     Ex-->>CLI: ExtractRow(status="empty (no sections)")
-  else any section raised
-    Ex->>N: notify_failure(company, task, reason, detail)
+  else collect, store open, or write raised
+    Ex->>N: _FailureCtx.record → _notify_failure(company, task, reason, detail)
     Ex-->>CLI: ExtractRow(status="failed (...)")
   else sections collected
     Ex->>C: markdown(company, sections)
@@ -159,7 +160,7 @@ sequenceDiagram
   participant CLI as briar agent
   participant Op as PrfixOp (AGENT_OPS["prfix"])
   participant CA as CommandAgent
-  participant Cloner as GithubRepoCloner (REPO_CLONERS["github"])
+  participant Cloner as RepositoryProvider (make_provider("github"))
   participant TS as FetchPrReviewContext (JIT)
   participant P as RepositoryProvider (Github)
   participant R as AgentRunner
@@ -170,8 +171,8 @@ sequenceDiagram
   Op->>CA: ._run_prfix(args)
   CA->>Cloner: clone_url(owner, repo) + authed_clone_url(token)
   Cloner-->>CA: HTTPS URL w/ x-access-token embedded
-  CA->>CA: subprocess git clone --branch <head>
-  CA->>CA: subprocess git config user.{name,email}
+  CA->>CA: _clone: GitPython Repo.clone_from --branch <head>
+  CA->>CA: _set_git_identity: GitPython config_writer user.{name,email}
 
   Note over CA,TS: JIT context fetch (was the "missing layer" before)
   CA->>TS: fetch(args)  via TASK_SCOPED_EXTRACTORS
@@ -180,10 +181,11 @@ sequenceDiagram
   TS->>P: list_ci_failures(repo, 42)
   P-->>TS: normalised dataclasses
   TS-->>CA: ExtractedSection (rich PR context)
+  CA->>CA: + meeting-context and slack-context sections (non-fatal enrichment)
 
   CA->>R: AgentRunner(AgentRunConfig(archetype_name=pr-fixer, task_context_sections=[section], dry_run=False, …))
-  R->>R: build_system_prompt (persona + knowledge prologue + task sections)
-  R->>R: build_initial_user_message
+  R->>R: _build_system_prompt (persona + knowledge prologue + task sections)
+  R->>R: _build_initial_user_message
   loop until StopReason.END_TURN or max_iter
     R->>LLM: complete(system, messages, tools, max_tokens)
     LLM-->>R: LLMResponse (text + tool_calls + stop_reason)
@@ -194,8 +196,8 @@ sequenceDiagram
       R->>LLM: format_tool_result for each call
     end
   end
-  CA->>CA: cleanup_worktree (unless --keep)
-  CA-->>CLI: ExitCode (OK / AGENT_ERROR)
+  CA->>CA: _cleanup_worktree (unless --keep-worktree, or the run errored)
+  CA-->>CLI: ExitCode (OK / GENERAL_ERROR)
 ```
 
 > **Note (post-§17 refactor):** `AgentRunner` now takes one `AgentRunConfig` value object instead of 13 keyword-only kwargs. LLM stop reasons go through the `StopReason` enum (`agent/_enums.py`) — each provider adapter translates its vendor-specific stop into the canonical set. CLI exit codes go through `ExitCode` (`commands/_enums.py`). See [`ARCHITECTURE.md`](ARCHITECTURE.md) "Post-§17 additions" and [`ARCHITECTURE_MAP.md`](ARCHITECTURE_MAP.md) §17–§21.
@@ -227,11 +229,11 @@ sequenceDiagram
   Note over MS: search OR by-id; bytes-capped
   MS->>M: search_meetings(query=ACME-42) → top-K
   MS->>M: get_meeting(id) per match → MeetingDetail (full transcript)
-  M-->>MS: MeetingDetails (summary + action items + transcript)
+  M-->>MS: MeetingDetail (summary + action items + transcript)
   MS-->>CA: ExtractedSection (one section, K matches inline)
 
   CA->>R: AgentRunner(AgentRunConfig(archetype_name=engineer, task_context_sections=[ticket, meeting], dry_run=True, …))
-  R->>R: build_system_prompt + build_initial_user_message + tool_specs
+  R->>R: _build_system_prompt + _build_initial_user_message + _tool_specs
   R->>R: _dry_run_report() prints to stdout, returns AgentRunResult(stop_reason=StopReason.DRY_RUN)
   Note over R: LLM IS NOT INVOKED — no tokens spent
   R-->>CA: AgentRunResult
@@ -240,8 +242,9 @@ sequenceDiagram
 
 Meeting-context is **non-fatal enrichment** — when
 `FIREFLIES_{c}_API_KEY` is unset or the search returns no matches,
-`FetchMeetingContext` returns `EMPTY_SECTION` and the agent runs with
-only the ticket-context. Same defensive contract as
+`FetchMeetingContext` returns `empty_section()` and the agent runs with
+only the ticket-context. Slack-context (`FetchSlackContext`) follows the
+same rule. Same defensive contract as
 `pr-review-context` in §2.2.
 
 ### 2.4 `briar plan build <board> --llm anthropic` then `briar plan run --llm anthropic`
@@ -344,7 +347,7 @@ sequenceDiagram
   autonumber
   participant CLI as briar scaffold
   participant Sc as ScaffoldImplementation
-  participant Re as ScaffoldResolver
+  participant Re as target_for (module function)
   participant Co as ScaffoldComposer
   participant ST as SourceTemplate (Bitbucket)
   participant Tr as TriggerTemplate
@@ -454,7 +457,7 @@ flowchart LR
 | 10 | — | Not a violation; no action |
 | 11 | ⏸ DEFER | Serialization boundary, see below |
 | 12 | ⏸ KEEP | Three sites with meaningfully different needs, see below |
-| 13 | ✅ FIXED | `82d13c8` — `_record_failure` helper |
+| 13 | ✅ FIXED | `82d13c8`: `_record_failure` helper (since replaced by `_FailureCtx.record`) |
 
 **#8 rationale (CollectorRegistry).** I started the refactor and
 backed out. The current `from_paths` is hand-instantiation, but
@@ -477,7 +480,10 @@ scratch data that doesn't cross any boundary; per-call-site
 migration would be invasive without commensurate value. Defer until
 a consumer-stability discussion settles which boundaries are public.
 
-**#12 rationale (subprocess wrappers).** Three call sites
+**#12 rationale (subprocess wrappers).** Status today: `_clone_default`
+is gone. `CommandAgent._clone` now clones with GitPython
+(`Repo.clone_from`), so only `collectors._run` and `BashTool.run` call
+`subprocess.run` directly. Original rationale, at audit time: three call sites
 (`collectors._run`, `BashTool.run`, `_clone_default`) each have
 meaningfully different needs:
 
@@ -501,8 +507,8 @@ deliberately deferred with rationale. The codebase no longer has any
 string-dispatch if-chain, any duplicated `Literal[...]` registry, or
 any hand-maintained `(extractor × provider) → creds` table. The
 build_registry helper means a future duplicate-name collision in any
-of the 13 plugin registries fails loudly at import time instead of
-silently dropping an adapter.
+registry built with it (25 call sites today) fails loudly at import
+time instead of silently dropping an adapter.
 
 ---
 
@@ -513,7 +519,7 @@ full picture. Quick map at the file-by-file level:
 
 ```
 tests/
-├── test_*.py                       — original unittest suite (~355 tests)
+├── test_*.py                       - original unittest suite (~499 tests)
 ├── conftest.py                     — env_sandbox autouse, cli invoker,
 │                                     fake_subprocess, store/caplog fixtures
 ├── unit/
@@ -532,16 +538,16 @@ tests/
 │   ├── plan/                       — models (PlanCard / SelectorDecision / PlanContext)
 │   ├── iac/test_every_parser.py    — `every:` DSL parser
 │   ├── journal/test_facade.py      — store-vs-sink fault isolation
-│   └── dashboard/                  — collector failure isolation
+│   ├── dashboard/                  - collector failure isolation
+│   └── agent/ auth/ extract/ mcp/ mcpserver/ service/ telemetry/
 └── integration/
-    └── test_registry_contract.py   — one parametrized contract over all
-                                      10 plug-in registries (~98 cases)
+    └── test_registry_contract.py   - one parametrized contract over
+                                      10 plug-in registries (~110 cases)
 tools/
-└── mutation_test.py                — 7 mutations against leaf modules,
-                                      100% killed
+└── mutation_test.py                - 22 mutations against leaf modules
 .github/workflows/
-└── tests.yml                       — 3 lanes: unit (py3.10/11/12) +
-                                      property + mutation
+└── tests.yml                       - 4 lanes: unit (py3.10/11/12) +
+                                      integration + property + mutation
 ```
 
 ### Pytest config delta vs default
@@ -555,6 +561,10 @@ cross-test env leaks would manifest as flakes only under specific seed
 values.
 
 ### One real bug surfaced and pinned
+
+Status: fixed. `briar journal export` now takes `--as {markdown,json}`
+instead of `--format`, and the `xfail` test below no longer exists. The
+rest of this section is the original record.
 
 `xfail(strict=True)` on `tests/unit/commands/test_journal.py::TestJournalExport::test_export_json_parseable_blocked_by_global_format_collision`.
 

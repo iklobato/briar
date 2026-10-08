@@ -10,13 +10,16 @@ install is functional and on the version you expect.
 - Before opening a bug report — every report should name the version.
 
 ## Prerequisites
-None. The command makes no network calls and reads no credentials.
+None. `briar --version` (or `-V`) prints the same line and exits before
+any startup work. `briar version` runs the normal startup path
+(credential bootstrap, telemetry event, update check), so use
+`--version` when you need zero network calls.
 
 ## Commands
 
 ```bash
 briar version
-briar version --format json   # machine-readable
+briar --version              # same output, no startup work
 ```
 
 **The same with Docker:**
@@ -27,11 +30,12 @@ docker run --rm -v "$PWD":/work -w /work \
     iklob1/briar version
 docker run --rm -v "$PWD":/work -w /work \
     -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar version --format json   # machine-readable
+    iklob1/briar --version              # same output, no startup work
 ```
 
 ## Verifying success
-Exit code `0`. Output is one line matching `\d+\.\d+\.\d+` (e.g. `1.1.11`).
+Exit code `0`. Output is one line, `briar-cli <version>` (e.g. `briar-cli 1.1.56`).
+`--format` has no effect on it.
 
 ## Common failures
 
