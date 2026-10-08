@@ -20,7 +20,7 @@ def _sources(rows):
 
 def test_resolve_with_source_reports_config_and_section(tmp_path, monkeypatch):
     monkeypatch.delenv("BRIAR_COMPANY", raising=False)
-    monkeypatch.delenv("BRIAR_DEFAULT_STORE", raising=False)
+    monkeypatch.delenv("BRIAR_STORE", raising=False)
     monkeypatch.setattr(config_module, "_inferred_owner_repo", lambda start: {})
     _write(tmp_path, ".briar.toml", 'company = "acme"\n[repo]\nowner = "acme-co"\nrepo = "app"\n')
     rows = _sources(resolve_with_source(tmp_path))
@@ -30,10 +30,10 @@ def test_resolve_with_source_reports_config_and_section(tmp_path, monkeypatch):
 
 
 def test_resolve_with_source_env_beats_config(tmp_path, monkeypatch):
-    monkeypatch.setenv("BRIAR_DEFAULT_STORE", "postgres")
+    monkeypatch.setenv("BRIAR_STORE", "postgres")
     monkeypatch.setattr(config_module, "_inferred_owner_repo", lambda start: {})
     _write(tmp_path, ".briar.toml", 'store = "file"\n')
-    assert _sources(resolve_with_source(tmp_path))["store"] == ("postgres", "env (BRIAR_DEFAULT_STORE)")
+    assert _sources(resolve_with_source(tmp_path))["store"] == ("postgres", "env (BRIAR_STORE)")
 
 
 def test_resolve_with_source_infers_owner_repo_when_no_config(tmp_path, monkeypatch):
@@ -97,11 +97,21 @@ def test_cli_flag_overrides_config():
 
 
 def test_env_overrides_config(monkeypatch):
-    monkeypatch.setenv("BRIAR_DEFAULT_STORE", "postgres")
+    monkeypatch.setenv("BRIAR_STORE", "postgres")
     parser = _parser_with_required_company()
     apply_config_defaults(parser, {"company": "acme", "store": "file"})
     args = parser.parse_args([])
     assert args.store == "postgres"  # env beats config
+
+
+def test_credential_store_env_does_not_set_knowledge_store(monkeypatch):
+    # BRIAR_DEFAULT_STORE is the `auth --cred-store` default. Read as the
+    # knowledge store it made extract fail with "unknown knowledge store 'vault'".
+    monkeypatch.delenv("BRIAR_STORE", raising=False)
+    monkeypatch.setenv("BRIAR_DEFAULT_STORE", "vault")
+    parser = _parser_with_required_company()
+    apply_config_defaults(parser, {"company": "acme", "store": "file"})
+    assert parser.parse_args([]).store == "file"
 
 
 def test_repo_section_feeds_owner_repo_provider():

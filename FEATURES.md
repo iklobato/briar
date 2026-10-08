@@ -946,7 +946,7 @@ git_user_email = "bot@acme.com"
 ```
 
 Config keys map to dests via env override `BRIAR_COMPANY` (company) and
-`BRIAR_DEFAULT_STORE` (store).
+`BRIAR_STORE` (store).
 
 ### Env vars — operational
 
@@ -972,7 +972,8 @@ Config keys map to dests via env override `BRIAR_COMPANY` (company) and
 
 | Env var | Effect |
 |---|---|
-| `BRIAR_DEFAULT_STORE={envfile,vault,aws-secretsmanager,ssm}` | default `--cred-store` for `auth` subcommands (the same var is also read as the knowledge `--store` default, see project config) |
+| `BRIAR_DEFAULT_STORE={envfile,vault,aws-secretsmanager,ssm}` | default `--cred-store` for `auth` subcommands. The knowledge `--store` default is `BRIAR_STORE` |
+| `BRIAR_STORE={file,postgres}` | default knowledge `--store` (same as `store` in `.briar.toml`) |
 | `BRIAR_SECRETS_FILE=/path/to/secrets.env` | overrides resolution: this → `/etc/briar/secrets.env` → `~/.config/briar/secrets.env` |
 | `GITHUB_TOKEN` | workspace-wide GitHub PAT |
 | `BITBUCKET_<COMPANY>_WORKSPACE` / `_USERNAME` / `_APP_PASSWORD` | per-tenant Bitbucket |
