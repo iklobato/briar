@@ -33,7 +33,7 @@ flowchart LR
     CmdAgent[CommandAgent]:::cls
     CmdPlan[CommandPlan]:::cls
     CmdScaffold[CommandScaffold]:::cls
-    CmdContext[CommandContext]:::cls
+    CmdContext[ContextCommand]:::cls
     CmdDashboard[CommandDashboard]:::cls
     CmdSecrets[CommandSecrets]:::cls
     CmdVersion[CommandVersion]:::cls
@@ -150,7 +150,7 @@ flowchart LR
     SF[StoreFile]:::cls
     SP[StorePostgres]:::cls
     KS --> SF & SP
-    KSREG[/STORES dict/]:::reg
+    KSREG[/KnowledgeStoreRegistry.STORES/]:::reg
     SB[/StoreBinding<br/>resolved YAML config/]:::reg
     SB -.from_binding.-> SF & SP
   end
@@ -176,9 +176,11 @@ flowchart LR
     AdvOp[AdvanceOp]:::cls
     ListOp[ListOp]:::cls
     ClrOp[ClearOp]:::cls
-    PlanOp --> BuildOp & ShowOp & NextOp & AdvOp & ListOp & ClrOp
+    StatOp[StatusOp]:::cls
+    RunOp[RunOp]:::cls
+    PlanOp --> BuildOp & ShowOp & StatOp & NextOp & AdvOp & ListOp & ClrOp & RunOp
     POPREG[/PLAN_OPS dict/]:::reg
-    BuildOp & ShowOp & NextOp & AdvOp & ListOp & ClrOp -.-> POPREG
+    BuildOp & ShowOp & StatOp & NextOp & AdvOp & ListOp & ClrOp & RunOp -.-> POPREG
   end
 
   subgraph jira_auth["extract/_trackers/_jira_auth.py — JiraAuthStrategy"]
@@ -199,7 +201,7 @@ flowchart LR
     TT -.4 concretes.- TT
     WS -.3 concretes.- WS
     AA -.5 concretes.- AA
-    Rul -.7 markdown files.- Rul
+    Rul -.8 markdown files.- Rul
   end
 
   subgraph runbook["iac/runbook/"]
@@ -335,8 +337,8 @@ the same Strategy + Registry shape as every other plugin family.
 | `StoreBinding` (frozen dataclass) + `KnowledgeStore.from_binding` | `StoreFile`, `StorePostgres` | Per-company DSN resolution. Closed an OCP violation in `KnowledgeStoreRegistry.build()` (the old `if store_cls is StorePostgres: dsn = ENV ...` if-chain). See commit `c8e58d1`. |
 | `JiraAuthStrategy` | `JiraTokenAuth`, `JiraSessionAuth` | Splits Jira's authentication concern out of `JiraTracker`. Lets one tracker support API-token AND browser-session-cookie auth without a 3-branch if-by-mode inside the tracker. See commit `d896d56`. |
 | `GitIdentity` (Pydantic model) | n/a — pure config | Per-company commit author for `briar agent` flows. Read from YAML `companies.<name>.git_identity.{name,email}`. CLI flags still win per-field. See commit `ba91dde`. |
-| `ErrorPolicy` + `ErrorDecision` (two ABCs) + `RetryingExecutor` | `ExceptionTypePolicy`, `HttpStatusPolicy` (leaf policies); `RetryAfter`, `Abort`, `Escalate` (decision types) | Pluggable error-response strategy for any external-API call. Anthropic 429 → `RetryAfter(3600s)`, 401 → `Abort`. Two ABCs eliminate if-by-type cascades in both directions (which error matched + what action to take). Adding "X provider rate limit → wait Y" = one tuple entry, not a code branch. Wired into `AnthropicLLM.complete`; same pattern available for GitHub/Bitbucket/Jira call sites. See commit `d001026`. |
-| `CredentialAcquirer` (ABC) + `DestinationPolicy` enum + 9 concrete acquirers + new `briar auth` command | `GithubPatAcquirer`, `GithubDeviceAcquirer`, `BitbucketAppPasswordAcquirer`, `AwsStaticAcquirer`, `AwsSsoAcquirer`, `JiraTokenAcquirer`, `JiraSessionAcquirer`, `LinearApiKeyAcquirer`, `FirefliesApiKeyAcquirer` | Interactive *write* side of credential management. Symmetric to `CredentialStore` (read side) and `CredentialBootstrap` (bulk-hydrate side). `DestinationPolicy` (EXTERNAL vs BOOTSTRAP_LOCAL) tells the CLI whether `--store` applies (vendor flows) or is forced to envfile (store-bootstrap flows). Closes the "how does the operator log in?" gap. See commits `984641d` + `fae64ae`. |
+| `ErrorPolicy` + `ErrorDecision` (two ABCs) + `RetryingExecutor` | `ExceptionTypePolicy`, `HttpStatusPolicy` (leaf policies); `RetryAfter`, `Abort`, `Escalate` (decision types) | Pluggable error-response strategy for any external-API call. Anthropic 429 → `Abort` (it was `RetryAfter(3600s)`; that could hang a run for hours), 401 → `Abort`. Two ABCs eliminate if-by-type cascades in both directions (which error matched + what action to take). Adding "X provider rate limit → wait Y" = one tuple entry, not a code branch. Wired into `AnthropicLLM.complete`; same pattern available for GitHub/Bitbucket/Jira call sites. See commit `d001026`. |
+| `CredentialAcquirer` (ABC) + `DestinationPolicy` enum + 9 concrete acquirers + new `briar auth` command | `GithubPatAcquirer`, `GithubDeviceAcquirer`, `BitbucketAppPasswordAcquirer`, `AwsStaticAcquirer`, `AwsSsoAcquirer`, `JiraTokenAcquirer`, `JiraSessionAcquirer`, `LinearApiKeyAcquirer`, `FirefliesApiKeyAcquirer` | Interactive *write* side of credential management. Symmetric to `CredentialStore` (read side) and `CredentialBootstrap` (bulk-hydrate side). `DestinationPolicy` (EXTERNAL vs BOOTSTRAP_LOCAL) tells the CLI whether `--cred-store` applies (vendor flows) or is forced to envfile (store-bootstrap flows). Closes the "how does the operator log in?" gap. See commits `984641d` + `fae64ae`. |
 | `PromptIO` (Protocol) | `TerminalPromptIO` (real: `input` + `termios`-based MAX_CANON-safe secret reader, `getpass` only as Windows / no-TTY fallback, `webbrowser`), `MockPromptIO` (tests) | Testable interactive I/O surface. Every acquirer's prompt/info/open_url/poll funnels through here — no direct stdin/stdout calls. Lets `MockPromptIO` drive every login flow in unit tests with scripted answers. The custom secret reader replaces `getpass.getpass` because canonical-mode `/dev/tty` reads cap a single line at `MAX_CANON` (≈1024 bytes on Darwin), which silently dropped Enter after long pastes like Atlassian's 1.1KB `tenant.session.token`. See commits `984641d`, `0db4440`. |
 | `EnvFileStore` path-resolution chain | `_secrets_path()` | Three-step resolution: `$BRIAR_SECRETS_FILE` → `/etc/briar/secrets.env` (if exists) → `$XDG_CONFIG_HOME/briar/secrets.env`. Plus auto-create-parent-dir + raise-on-real-failure (replaces silent-fallback-to-os.environ that masked file-write failures). Same backend, two deploy shapes (droplet + laptop). See commit `89089b3`. |
 | `MeetingProvider` + `MeetingBackedExtractor` + `TaskScopedMeetingExtractor` | `FirefliesMeetingProvider`; `ExtractMeetingDigest` (scheduled, last-N-days summaries + action items); `FetchMeetingContext` (JIT — fetch one meeting by id OR keyword-search top-K relevant transcripts) | Third source family alongside `RepositoryProvider` and `TrackerProvider`. Meetings are transcript-centric, time-windowed, identifier-less — different verbs from PRs / tickets, so a separate ABC keeps each contract honest (LSP). `engineer` and `pr-fixer` archetypes both consume `meeting-context` + `meeting-digest`, so decisions captured in standups land in `implement` / `prfix` flows automatically. Adding Otter / Granola / Read.ai = one module + one tuple entry. |
@@ -361,7 +363,7 @@ treatment.
 | Symbol | Kind | Replaces / why |
 |---|---|---|
 | `StopReason` (`agent/_enums.py`) | `class X(str, Enum)` | Canonical reasons an LLM turn ended (`END_TURN`, `TOOL_USE`, `DRY_RUN`, `MAX_ITERATIONS`, `UNEXPECTED`). 10+ magic-string sites across `runner.py` + 4 LLM-provider adapters that each translated their vendor's stop reason into the canonical set. Wire-compatible: `StopReason.END_TURN == "end_turn"` is `True`. |
-| `ExitCode` (`commands/_enums.py`) | `IntEnum` | CLI process exit codes (`OK`, `GENERAL_ERROR`, `USAGE_ERROR`, `STORE_OPEN_FAILED`, `CLONE_FAILED`, `GIT_CONFIG_FAILED`, `AGENT_ERROR`). Was 15+ bare integer literals in `commands/agent.py` + `commands/plan.py` whose meaning was inferred from inline comments. `return ExitCode.CLONE_FAILED` is identical to `return 4` at the OS level. |
+| `ExitCode` (`commands/_enums.py`) | `IntEnum` | CLI process exit codes. Today it has three members: `OK` (0), `GENERAL_ERROR` (1), `USAGE_ERROR` (2). Was 15+ bare integer literals in `commands/agent.py` + `commands/plan.py` whose meaning was inferred from inline comments. `return ExitCode.USAGE_ERROR` is identical to `return 2` at the OS level. |
 | `PlanCardStatus` (`plan/_enums.py`) | `class X(str, Enum)` | Lifecycle states (`PENDING`, `IN_PROGRESS`, `DONE`, `BLOCKED`) for `PlanCard`. Was a `status: str` field annotated only by a comment at `plan/_models.py:39`. `PlanCardStatus("In_Progress")` now raises `ValueError` loud at the wire boundary instead of silently bucketing to a status that never matches. |
 | `AgentRunConfig` (`agent/runner.py`) | Frozen `@dataclass` value object | Replaces 13 keyword-only constructor parameters on `AgentRunner.__init__`. New shape: `AgentRunner(AgentRunConfig(...), *, llm=None, llm_kind="anthropic")`. Internal reads migrated from `self._company` → `self._cfg.company`. |
 
@@ -387,12 +389,13 @@ be added without changing existing classes:
 
 | Family | Registry location | Concretes today | Adding one |
 |---|---|---|---|
-| `Command` | `commands/__init__.py:CommandRegistry.COMMANDS` | extract, runbook, scaffold, context, dashboard, agent, **plan**, auth, secrets, version | one class + list entry |
+| `Command` | `commands/__init__.py:CommandRegistry.COMMANDS` | extract, runbook, scaffold, context, dashboard, agent, auth, **plan**, secrets, journal, mcp, chat, telemetry, version, completion, init, config, doctor (18) | one class + list entry |
 | `KnowledgeExtractor` | `extract/__init__.py:EXTRACTORS` | pr-archaeology, active-work, github-deployments, codebase-conventions, reviewer-profile, code-hotspots, active-tickets, ticket-archaeology, aws-infra, meeting-digest, **+13 code-quality**: defect-hotspots, pr-hygiene, review-nits, revert-signals, commit-message-quality, stale-prs, ci-health, dependency-health, code-scanning, repo-governance, test-discipline, release-cadence, todo-density (23 total) | one module + registry tuple |
-| `TaskScopedExtractor` | `extract/__init__.py:TASK_SCOPED_EXTRACTORS` | ticket-context, pr-review-context, **meeting-context** | one module + registry tuple |
+| `TaskScopedExtractor` | `extract/__init__.py:TASK_SCOPED_EXTRACTORS` | ticket-context, pr-review-context, **meeting-context**, slack-context | one module + registry tuple |
 | `RepositoryProvider` | `extract/_providers/` | github, bitbucket | one adapter |
 | `TrackerProvider` | `extract/_trackers/` | jira, github-issues, bitbucket-issues, linear | one adapter |
 | `MeetingProvider` | `extract/_meetings/` | **fireflies** | one adapter |
+| `ChatProvider` | `extract/_chats/:CHATS` | slack (read-only) | one adapter |
 | `JiraAuthStrategy` | `extract/_trackers/_jira_auth.py` | token, session | one strategy class |
 | `CloudProvider` | `extract/_clouds/` | aws, gcp, azure | one adapter |
 | `AwsServiceGatherer` | `extract/aws_services/` | ecs, rds, lambda, sqs, logs, **tagging-inventory** | one module + registry entry (powers `aws-infra`) |
@@ -402,18 +405,22 @@ be added without changing existing classes:
 | `KnowledgeStore` | `storage/` | file, postgres | one backend |
 | `CredentialStore` | `credentials/` | envfile, aws-secretsmanager, ssm, vault | one backend |
 | `CredentialBootstrap` | `credentials/_bootstraps/` | envfile | one bootstrap |
-| **`CredentialAcquirer`** | `auth/_acquirers/` | 10 (see "Later additions" table above) | one acquirer |
+| **`CredentialAcquirer`** | `auth/_acquirers/` | 9 (see "Later additions" table above) | one acquirer |
 | `ErrorPolicy` | per-provider `default_error_policies()` | anthropic: 6 policies covering 429/connect/503/529/401/403 | one tuple entry per (error class, decision) |
 | `AgentArchetype` | `iac/scaffold/archetypes/` | engineer, pr-fixer, pr-ci-fixer, pr-conflict-resolver, triager | one archetype |
-| `WorkflowShape` | `iac/scaffold/workflows/` | plan-approve-act, one-shot, triage | one shape |
+| `WorkflowShape` | `iac/scaffold/shapes/` | plan-approve-act, one-shot, triage | one shape |
 | `SourceTemplate` | `iac/scaffold/sources/` | github, bitbucket, jira, aws, sentry | one template |
 | `TriggerTemplate` | `iac/scaffold/triggers/` | github_webhook, bitbucket_webhook, schedule_cron, manual | one template |
-| `Rule` | `iac/scaffold/rules/` | 7 markdown rule snippets | one .md file |
+| `Rule` | `iac/scaffold/rules/` | 8 markdown rule snippets | one .md file |
 | **`BoardReader`** | `plan/_boards/` | jira, github-project | one module + registry tuple |
 | **`CardSynthesiser`** | `plan/_synthesize.py` | heuristic, llm, composite | one class (e.g. for a new provider's structured-output mode) |
-| **`PlanOp`** | `commands/plan.py:PLAN_OPS` | build, show, next, advance, list, clear | one subclass + registry tuple |
+| **`PlanOp`** | `commands/plan.py:PLAN_OPS` | build, show, status, next, advance, list, clear, run | one subclass + registry tuple |
 | **`AgentOp`** | `commands/agent.py:AGENT_OPS` | prfix, implement | one subclass + registry tuple |
-| **`RepoCloner`** | `commands/agent.py:REPO_CLONERS` | github, bitbucket | one subclass + registry tuple |
+| `JournalStore` | `journal/store/__init__.py:JournalStoreRegistry.STORES` | file | one backend |
+| `JournalSink` | `journal/sinks/:JOURNAL_SINKS` | file | one sink |
+| `TelemetrySink` | `telemetry/_sinks/:TELEMETRY_SINKS` | sentry, file, noop | one sink |
+
+`RepoCloner` / `REPO_CLONERS` no longer exist. Cloning and the PR-creation recipe now live on `RepositoryProvider` (`clone_url`, `authed_clone_url`, `pr_creation_recipe`), so a new vendor is one provider adapter.
 
 ---
 
@@ -423,17 +430,17 @@ Two concentric test suites against the same source tree. Both run
 under `pytest` cleanly; the older one also works under stdlib
 `unittest discover`.
 
-- **Existing unittest suite** (~355 tests in `tests/test_*.py` at
+- **Existing unittest suite** (~499 tests in `tests/test_*.py` at
   repo root) — subsystem-focused: extract registry, scaffold composer,
   journal lifecycle, scheduler DSL, dashboard collectors. Predates the
   pytest infrastructure; collected by both runners.
-- **New pytest suite** (~469 tests under `tests/unit/` and
-  `tests/integration/`) — leaf-module property tests, CLI dispatch
+- **New pytest suite** (~2271 tests under `tests/unit/` and ~221
+  under `tests/integration/`): leaf-module property tests, CLI dispatch
   via the `cli` fixture, every external-IO adapter against mocked
-  `urllib.request.urlopen` / `smtplib.SMTP`, parametrized
-  registry-shape contract across all 10 plugin registries.
+  HTTP (`pytest-httpx`) / `smtplib.SMTP`, parametrized
+  registry-shape contract across 10 plugin registries.
 
-Total: **824 tests pass + 1 documented `xfail` in ~10 seconds.**
+Total: **2991 tests collected** (`pytest --collect-only`, v1.1.56). No `xfail` markers remain.
 
 ### Pytest config (`pyproject.toml [tool.pytest.ini_options]`)
 
@@ -447,12 +454,13 @@ Total: **824 tests pass + 1 documented `xfail` in ~10 seconds.**
 
 | Fixture | Scope | What it does |
 |---|---|---|
-| `env_sandbox` | function, **autouse** | Scrubs every credential-shaped env var prefix before each test. Kills the order-coupling bugs `pytest-randomly` would surface. |
-| `cli` | function | Invokes `briar.cli.main([...argv])` and returns `(code, out, err)`. Patches `configure_logging` to no-op so `caplog` survives. |
+| `env_sandbox` | function, **autouse** | Scrubs every credential-shaped env var prefix before each test and points `BRIAR_SECRETS_FILE` at an empty per-test path. Kills the order-coupling bugs `pytest-randomly` would surface. |
+| `cli` | function | Invokes `briar.cli.main([...argv])` and returns a namespace with `code`, `out`, `err`. Patches `configure_logging` to no-op so `caplog` survives, and stubs git-remote inference, `.briar.toml` loading and the update check so tests stay hermetic. |
 | `fake_subprocess` | function | Replaces `subprocess.run`; records argv lists, asserts `shell=False`. |
 | `file_store` / `pg_store` / `store` | function (`store` parametrized) | `KnowledgeStore` instances against tmp dirs / `BRIAR_TEST_PG_DSN`. |
 | `tmp_root` | function | `tmp_path` with the dir shape commands expect (`knowledge/`, `journal/`, `examples/`, `worktree/`, `runbooks/`). |
 | `caplog_briar` | function | `caplog` scoped to the `briar.*` logger tree at DEBUG. |
+| `fake_anthropic_messages` | function | Patches `anthropic.Anthropic().messages.create` and returns the mock. |
 
 ### Property tests (`hypothesis`)
 
@@ -469,9 +477,11 @@ by restricting text strategies to printable ASCII.
 
 ### Mutation testing (`tools/mutation_test.py`)
 
-Standalone script — applies 7 representative mutations to the leaf
+Standalone script: applies 22 representative mutations to the leaf
 modules (operator flips, type narrowings, broad-except changes), runs
-the focused suite, reports killed vs. survived.
+the focused suite, reports killed vs. survived. The output below is
+from the first version of the script, which had 7 mutations; the list
+now also covers `_http_retry` and the telemetry scrubber.
 
 ```
 [KILLED  ] error_policy:wait>0 → wait>=0 (would call sleep(0))
@@ -492,16 +502,17 @@ the same job with fewer moving parts.
 
 | Lane | Triggers | What runs |
 |---|---|---|
-| `unit` | every push + PR | `pytest -n auto` on py3.10 / 3.11 / 3.12 |
+| `unit` | every push + PR | `pytest -n auto -m "not integration"` on py3.10 / 3.11 / 3.12 |
+| `integration` | every push + PR | `pytest -m integration` (serial: real HTTP servers + subprocess) |
 | `property` | every push + PR | `pytest -m property` (longer hypothesis budget) |
 | `mutation` | `main` + manual dispatch only | `tools/mutation_test.py` — not PR-gating |
 
 ### Registry-shape contract
 
 `tests/integration/test_registry_contract.py` runs one contract
-parametrized over all 10 plug-in registries (`EXTRACTORS`, `STORES`,
-`ACQUIRERS`, `WRITERS`, `SINKS`, `BOARD_READERS`, `FORMATTERS`,
-`JOURNAL_SINKS`, `ARCHETYPES`, `BOOTSTRAPS`). Asserts:
+parametrized over 10 plug-in registries (`EXTRACTORS`,
+`TASK_SCOPED_EXTRACTORS`, `STORES`, `ACQUIRERS`, `WRITERS`, `SINKS`,
+`BOARD_READERS`, `FORMATTERS`, `JOURNAL_SINKS`, `ARCHETYPES`). Asserts:
 
 - No duplicate names within a registry.
 - Every name nonempty.
@@ -509,16 +520,16 @@ parametrized over all 10 plug-in registries (`EXTRACTORS`, `STORES`,
 - Factory `make(kind)` returns an instance whose ClassVar matches.
 
 This contract replaced 6 hand-rolled per-registry test classes —
-one harness, ~98 generated test cases.
+one harness, ~110 generated test cases.
 
 ### Documented behaviours (intentional `xfail` and asserted current state)
 
-The suite uses `xfail(strict=True)` and "documented behavior" tests to
-pin behaviours that *will* change but haven't yet — so a future fix
+The suite uses "documented behavior" tests (and, when needed,
+`xfail(strict=True)`) to pin behaviours that *will* change but haven't yet, so a future fix
 must also update the assertion, preventing silent drift.
 
 | Site | What's documented |
 |---|---|
-| `tests/unit/commands/test_journal.py` | Global `--format` collides with `briar journal export --format`; argparse always overwrites the global with the subparser default. Pinned `xfail strict=True`. |
+| `tests/unit/commands/test_journal.py` | Resolved: `briar journal export` now takes `--as {markdown,json}`, so the global `--format` no longer collides with it. The old `xfail` is gone. |
 | `tests/unit/test_decorators.py::test_mutable_default_shared_documented_behavior` | `swallow_errors(default=[])` returns the same list object every call (aliasing). A move to `default.copy()` requires flipping this assertion. |
-| `tests/unit/test_env_vars.py::test_empty_company_yields_double_underscore_documented` | `CredEnv.AWS_KEY_ID.for_company("")` produces `AWS__ACCESS_KEY_ID` (double underscore). |
+| `tests/unit/test_env_vars.py::test_empty_company_on_templated_var_raises` | Resolved: `CredEnv.AWS_KEY_ID.for_company("")` now raises `ValueError` instead of producing `AWS__ACCESS_KEY_ID`. |
