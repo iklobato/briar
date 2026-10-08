@@ -465,8 +465,8 @@ class TestMeetingFlags:
 
     @pytest.mark.parametrize("argv_factory", [_impl, _prfix], ids=["implement", "prfix"])
     def test_meeting_override(self, cli, seam, argv_factory) -> None:
-        cli(*argv_factory("--meeting", "zoom"))
-        assert seam.rec["meeting"].meeting == "zoom"
+        cli(*argv_factory("--meeting", "fireflies"))
+        assert seam.rec["meeting"].meeting == "fireflies"
 
     @pytest.mark.parametrize("argv_factory", [_impl, _prfix], ids=["implement", "prfix"])
     def test_meeting_key_reaches_fetch(self, cli, seam, argv_factory) -> None:
@@ -513,6 +513,30 @@ class TestMeetingFlags:
     def test_meeting_max_bytes_non_int_exits_2(self, cli, seam) -> None:
         result = cli(*_impl("--meeting-max-bytes", "big"))
         assert result.code == 2
+
+
+# ─── registry-backed choices: a typo fails in argparse, before any clone ──
+
+
+class TestInvalidChoiceFlags:
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            [a for a in _impl("--tracker", "jiraa") if a != "--dry-run"],
+            [a for a in _impl("--provider", "githb") if a != "--dry-run"],
+            [a for a in _impl("--meeting", "zoom") if a != "--dry-run"],
+            [a for a in _prfix("--meeting", "zoom") if a != "--dry-run"],
+        ],
+        ids=["tracker", "provider", "meeting-implement", "meeting-prfix"],
+    )
+    def test_invalid_choice_exits_2_before_setup(self, cli, seam, argv) -> None:
+        result = cli(*argv)
+        assert result.code == 2
+        assert "invalid choice" in result.err
+        # Store/provider setup precedes the clone; neither may have run.
+        assert seam.rec["make_store"] is None
+        assert seam.rec["make_provider"] is None
+        assert seam.rec["ran"] == 0
 
 
 # ─── required-flag omission (common) ────────────────────────────────────

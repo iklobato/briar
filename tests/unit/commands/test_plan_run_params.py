@@ -465,7 +465,7 @@ class TestRunSeamWiring:
             "--runbook",
             "rb.yml",
             "--meeting",
-            "otter",
+            "fireflies",
             "--meeting-key",
             "MK",
             "--meeting-query",
@@ -498,7 +498,7 @@ class TestRunSeamWiring:
         assert ns.runbook == "rb.yml"
         # implement's file-store root is the plan's --root (one root).
         assert ns.knowledge == str(store_root)
-        assert ns.meeting == "otter"
+        assert ns.meeting == "fireflies"
         assert ns.meeting_key == "MK"
         assert ns.meeting_query == "q"
         assert ns.meeting_top_k == 4
