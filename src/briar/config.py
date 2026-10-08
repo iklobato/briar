@@ -38,10 +38,16 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import tomllib
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+
+# ponytail: version shim; drop the tomli branch when requires-python reaches 3.11.
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
 
 log = logging.getLogger(__name__)
 
