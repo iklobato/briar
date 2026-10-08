@@ -55,6 +55,7 @@ class AwsCloudProvider(CloudProvider):
         # `profile` is the explicit local-profile name; falls back to
         # per-company env vars (AWS_<COMPANY>_*) — same logic the
         # legacy _BotoSessionBuilder used.
+        self._explicit_profile = profile
         self._profile = profile or company
         self._session: Any = None
 
@@ -73,13 +74,26 @@ class AwsCloudProvider(CloudProvider):
                 region_name=self._region,
             )
         else:
-            session = boto3.Session(profile_name=self._profile or None, region_name=self._region)
+            session = boto3.Session(profile_name=self._local_profile(boto3), region_name=self._region)
         # Wrap session.client so every gatherer (ECS/RDS/Lambda/SQS/Logs
         # and the inline sts call) inherits bounded timeouts + standard
         # retries without each having to opt in. Caller can override by
         # passing config= explicitly.
         self._session = _apply_default_config(session)
         return self._session
+
+    def _local_profile(self, boto3) -> Optional[str]:
+        """The ~/.aws profile to use, or None for boto3's default chain
+        (env vars, SSO, EC2/ECS instance role).
+
+        The company name doubles as a profile name only when ~/.aws really
+        has one; asking boto3 for a missing profile raises ProfileNotFound
+        before the default chain is ever tried."""
+        if self._explicit_profile:
+            return self._explicit_profile
+        if self._company and self._company in boto3.Session().available_profiles:
+            return self._company
+        return None
 
     def is_available(self) -> bool:
         try:
