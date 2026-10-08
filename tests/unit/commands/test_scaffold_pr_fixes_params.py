@@ -63,6 +63,13 @@ class TestPrFixesDefaults:
         assert "human_checkpoint" not in kinds
         assert bundle["workflows"][0]["graph"]["entry"] == "run"
 
+    def test_help_shows_pr_fixes_defaults(self, cli) -> None:
+        help_text = " ".join(cli("scaffold", "pr-fixes", "-h").out.split())
+        assert "(default: pr-fixer)" in help_text
+        assert "(default: one-shot)" in help_text
+        assert "(default: engineer)" not in help_text
+        assert "(default: plan-approve-act)" not in help_text
+
     def test_pr_fixer_keeps_commit_and_open_pr_on_github(self, cli) -> None:
         # pr-fixer tool_filter = (commit, comment_on_issue, open_pr) — substring
         # match. github.commit_files / github.open_pr / github.comment_on_issue

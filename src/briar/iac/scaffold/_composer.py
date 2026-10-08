@@ -265,13 +265,13 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
         "--archetype",
         default="engineer",
         choices=sorted(ARCHETYPES.keys()),
-        help="Agent role + tool filter (default: engineer)",
+        help="Agent role + tool filter (default: %(default)s)",
     )
     parser.add_argument(
         "--shape",
         default="plan-approve-act",
         choices=sorted(WORKFLOW_SHAPES.keys()),
-        help="Workflow graph shape (default: plan-approve-act)",
+        help="Workflow graph shape (default: %(default)s)",
     )
     parser.add_argument(
         "--trigger-kind",

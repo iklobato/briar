@@ -260,6 +260,11 @@ class TestShapeChoices:
         result = cli("scaffold", "implementation", "--prefix", "acme", *_GH, "--shape", "spiral", "-o", "-")
         assert result.code == 2
 
+    def test_help_shows_implementation_defaults(self, cli) -> None:
+        help_text = " ".join(cli("scaffold", "implementation", "-h").out.split())
+        assert "(default: engineer)" in help_text
+        assert "(default: plan-approve-act)" in help_text
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # --trigger-kind + per-trigger flags (--schedule, webhook events/labels)
