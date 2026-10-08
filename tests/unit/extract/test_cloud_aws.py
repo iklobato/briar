@@ -121,6 +121,33 @@ def test_explicit_creds_build_a_keyed_session(monkeypatch: Any) -> None:
     assert identity.account_id == "999"
 
 
+def _session_profile(*, company: str, profile: str = "", local_profiles: list[str]) -> Any:
+    """`profile_name` the provider passes to boto3.Session when there are no
+    AWS_<COMPANY>_* keys and ~/.aws holds `local_profiles`."""
+    with mock.patch("boto3.Session") as session_cls:
+        session_cls.return_value.available_profiles = local_profiles
+        AwsCloudProvider(company=company, region="eu-west-1", profile=profile)._make_session()
+    return session_cls.call_args.kwargs["profile_name"]
+
+
+def test_company_without_local_profile_uses_default_chain(monkeypatch: Any) -> None:
+    """No AWS_ACME_* keys and no `acme` profile: fall back to boto3's default
+    chain (instance role, SSO, env) instead of failing with ProfileNotFound."""
+    for var in ("AWS_ACME_ACCESS_KEY_ID", "AWS_ACME_SECRET_ACCESS_KEY", "AWS_ACME_SESSION_TOKEN"):
+        monkeypatch.delenv(var, raising=False)
+    assert _session_profile(company="acme", local_profiles=["default"]) is None
+
+
+def test_company_with_matching_local_profile_uses_it(monkeypatch: Any) -> None:
+    monkeypatch.delenv("AWS_ACME_ACCESS_KEY_ID", raising=False)
+    assert _session_profile(company="acme", local_profiles=["acme"]) == "acme"
+
+
+def test_explicit_profile_wins(monkeypatch: Any) -> None:
+    monkeypatch.delenv("AWS_PROD_ACCESS_KEY_ID", raising=False)
+    assert _session_profile(company="acme", profile="prod", local_profiles=[]) == "prod"
+
+
 # ─── list_compute (ECS + Lambda) ─────────────────────────────────────
 
 
