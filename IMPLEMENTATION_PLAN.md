@@ -10,6 +10,15 @@ and [`examples/multi_company.env.example`](examples/multi_company.env.example) �
 they show the same three example companies (`acme`, `bitspark`,
 `datacore`) that this document references.
 
+> **Status (checked against v1.1.56).** The steps in §1 to §11 match
+> the code, except the gaps they already call out (§4.5 Path C
+> AssumeRole and §4.6 per-company GCP key files are not built). Not
+> covered here but shipped: the read-only Slack source
+> (`SLACK_{c}_TOKEN` + `SLACK_{c}_COOKIE_D`, used by `slack-context`
+> and `--slack-query`), `briar mcp serve` and `briar chat`. The GitLab
+> provider and Trello board reader in §12 are worked examples only;
+> neither exists in the code.
+
 ---
 
 ## Table of contents
@@ -88,7 +97,7 @@ cd briar
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -e .                       # base install (or: pip install briar-cli)
-briar version                          # should print briar-cli 1.1.11 (or newer)
+briar version                          # should print briar-cli 1.1.56 (or newer)
 ```
 
 Optional extras — install only what you'll actually use. Each adapter
@@ -98,6 +107,7 @@ in the error message:
 ```bash
 pip install -e '.[openai]'    # OpenAI LLM
 pip install -e '.[gemini]'    # Google Gemini LLM
+pip install -e '.[mcp]'       # MCP tools for `briar agent`, `briar mcp serve`, `briar chat`
 pip install -e '.[vault]'     # HashiCorp Vault credential store
 pip install -e '.[gcp]'       # GCP cloud provider (~80 MB)
 pip install -e '.[azure]'     # Azure cloud provider (~40 MB)
@@ -143,8 +153,9 @@ to grant.
 > | §4.4 Linear API key | `briar auth login linear-api-key --company X` | |
 > | §4.5 AWS static keys | `briar auth login aws-static --company X` | |
 > |               (AWS SSO) | `briar auth login aws-sso --company X` | OIDC device flow → STS vend, records expiry |
+> | §4.14 Fireflies API key | `briar auth login fireflies --company X` | |
 >
-> Pick `--store vault` (or `--store aws-secretsmanager`, etc.) on any of these
+> Pick `--cred-store vault` (or `--cred-store aws-secretsmanager`, etc.) on any of these
 > to persist into a password manager instead of the local file. See
 > the `briar auth` section of README.md for the full surface.
 
@@ -530,8 +541,10 @@ incident manually so it doesn't sit open.
 
 ### 4.12 LLM auth
 
-Only needed if you'll run `briar agent`. Pick one provider per agent
-run via `--llm-kind`.
+Only needed if you'll run `briar agent`, `briar plan` or `briar chat`.
+`briar agent` always uses Anthropic (there is no flag to switch).
+`briar plan` and `briar chat` pick a provider with `--llm`
+(`anthropic`, `openai`, `gemini`, `bedrock`).
 
 **Anthropic (default):**
 
@@ -565,8 +578,8 @@ aws secretsmanager create-secret \
 # repeat for each credential
 ```
 
-`briar secrets doctor --store aws-secretsmanager` then reads from
-`/briar/<NAME>` paths.
+`briar secrets doctor --cred-store aws-secretsmanager` then reads from
+`briar/<NAME>` secrets.
 
 **SSM Parameter Store** (cheaper than Secrets Manager for high-volume reads):
 
@@ -778,8 +791,8 @@ To audit against a remote credential store (e.g. after migrating
 off `secrets.env`):
 
 ```bash
-briar secrets doctor --store aws-secretsmanager --examples examples/
-briar secrets doctor --store vault --examples examples/
+briar secrets doctor --cred-store aws-secretsmanager --examples examples/
+briar secrets doctor --cred-store vault --examples examples/
 ```
 
 ---
@@ -877,8 +890,9 @@ See [`DEPLOY_EC2.md`](DEPLOY_EC2.md) for the full systemd recipe.
 Short version:
 
 ```bash
-sudo cp <repo>/services/briar-scheduler.service /etc/systemd/system/
-sudo cp <repo>/services/briar-dashboard.service /etc/systemd/system/
+# write both unit files from DEPLOY_EC2.md §7 (the repo ships no unit files)
+sudoedit /etc/systemd/system/briar-scheduler.service
+sudoedit /etc/systemd/system/briar-dashboard.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now briar-scheduler briar-dashboard
 sudo systemctl status briar-scheduler briar-dashboard --no-pager
@@ -918,9 +932,9 @@ Run once, check the configured sinks for the alert, then revert.
 |---|---|---|
 | `extractor-skip: is_available() returned False` | Missing env vars for that provider | Run `briar secrets doctor`; fix every `X` |
 | `extractor-failed: ... raised` followed by 401 | Token expired or scope-too-narrow | Rotate; re-check scope list in [§4](#4-per-provider-credential-acquisition) |
-| `ERROR: invalid runbook ... Input should be 'pr-archaeology', ...` | YAML used an extractor name not in the Pydantic `Literal`; or a typo | Check spelling; if you added a new extractor, update `iac/runbook/models.py` |
+| `ERROR: invalid runbook ... unknown extractor '<name>'; known: ...` | YAML used an extractor name not in the `EXTRACTORS` registry; or a typo | Check spelling; if you added a new extractor, register it in `extract/__init__.py` |
 | Dashboard shows empty knowledge blobs | Extractors all skipped — usually missing creds | Re-run doctor; check `journalctl -u briar-scheduler -n 100` |
-| `pg-store connect transient failure ... reserved for SUPERUSER` | DO managed Postgres hit slot limit | Briar retries 3× automatically; if persistent, upgrade tier or move to file backend |
+| `remaining connection slots are reserved for ... SUPERUSER` | DO managed Postgres hit slot limit | Briar uses one pooled SQLAlchemy engine per DSN (no retry loop); if it persists, upgrade tier or move to file backend |
 | Telegram alert never arrives | Bot isn't an admin in the channel; or chat ID is wrong sign | Re-add bot as admin; verify chat ID via `getUpdates` |
 | Slack alert returns non-`ok` body | Webhook URL revoked; or workspace removed the integration | Recreate webhook in Slack app settings |
 | `RuntimeError: openai package not installed` | Tried to use OpenAI LLM without the extra | `pip install briar-cli[openai]` |
@@ -994,7 +1008,7 @@ from the provider class itself.
 
 Tracker / Cloud / Meeting / LLM / NotificationSink / CredentialStore
 additions follow the exact same shape — see
-[`README.md § The provider ABCs`](README.md) for the full inventory.
+[`FEATURES.md` § 3 Plugin registries](FEATURES.md#3-plugin-registries-the-runtime-validated-names) for the full inventory.
 The `Meeting` family is the most recent example (Fireflies adapter
 landed under `extract/_meetings/`); adding Otter or Granola = one
 module + one tuple entry.

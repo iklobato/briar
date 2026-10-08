@@ -8,13 +8,13 @@ Action runbook consolidating [`ARCHITECTURE_MAP.md`](ARCHITECTURE_MAP.md) §17 +
 > - Step −1 — meeting subsystem
 > - Step 0a — T0.1–T0.4 correctness fixes (UTF-8 `errors="replace"`, `@abstractmethod MeetingProvider.get_meeting`, narrowed `except CliError`)
 > - Step 0c.1, 0c.2, 0c.4 — `StopReason`, `ExitCode`, `PlanCardStatus` enums
-> - Step 2 — `AgentRunConfig` dataclass on `AgentRunner`
+> - Step 2: `AgentRunConfig` dataclass on `AgentRunner`. Its tests live in `tests/unit/agent/test_runner_loop.py`, not the `tests/test_agent_runner.py` named in §2.5.
 >
 > **Dropped / not shipped:**
 > - Step 0b — `CONSUMES_EXTRACTORS` ClassVar + auto-attach. `CommandAgent.add_arguments` still does per-op flag registration. Re-evaluate before re-proposing.
 > - Step 0c.3 — `MeetingExtractMode` enum at `src/briar/extract/_enums.py`. File created experimentally then deleted; meeting extractors don't dispatch on `data["mode"]` at runtime.
 > - Step 1 — `TaskScopedExtractor.fetch_or_skip` polymorphic method. The three `_fetch_ticket_context` / `_fetch_pr_context` / `_fetch_meeting_context` staticmethods still live on `CommandAgent` in `commands/agent.py`. `empty_section()` factory exists but no `EMPTY_SECTION` sentinel.
-> - Step 3 — `Tool` Protocol + `Dict[str, Tool]` registry. `AgentRunner._dispatch_tool` is still an `if name == self._<tool>.name` chain with the wrapping `except Exception` clause.
+> - Step 3: `Tool` Protocol + `Dict[str, Tool]` registry. No `Tool` Protocol exists. A later refactor (`f8f2443`) turned `AgentRunner._dispatch_tool` into a lookup in a plain `self._tools: Dict[str, Any]`, but the wrapping `except Exception` clause is still there.
 > - Step 5 — `MeetingExtractedData` TypedDict at `src/briar/extract/_types.py`. File created experimentally then deleted; `ExtractedSection.data` stays `Dict[str, Any]`.
 >
 > Treat the dropped steps as historical reasoning, not as todo items. The
@@ -23,7 +23,7 @@ Action runbook consolidating [`ARCHITECTURE_MAP.md`](ARCHITECTURE_MAP.md) §17 +
 
 **Original plan in one paragraph.** Commit the meeting subsystem first (it's complete and waiting in the working tree). Then ~2.5 days of austere refactoring: 4 correctness fixes (T0.1–T0.4 — T0.5 is absorbed by Step 0b); `AgentOp.CONSUMES_EXTRACTORS` ClassVar + auto-attach in `CommandAgent.add_arguments` (eliminates ~25 LOC of duplicate flag registration); four StrEnum/IntEnum declarations (`StopReason`, `ExitCode`, `MeetingExtractMode`, `PlanCardStatus`) centralizing 3 magic strings × 10+ sites + 6 magic integers × 15+ sites; drop the three `_fetch_*_context` staticmethods and replace with a polymorphic `TaskScopedExtractor.fetch_or_skip` method on the base class; `AgentRunConfig` parameter object replacing 13 kwargs on `AgentRunner.__init__`; `Tool` Protocol + `Dict[str, Tool]` registry replacing the if-chain in `_dispatch_tool` and dropping the redundant `except Exception` clause; `MeetingExtractedData` TypedDict at the meeting boundary.
 
-**What actually shipped.** Steps −1, 0a, 0c.1/0c.2/0c.4 (three enums), and 2 (`AgentRunConfig`). Steps 0b, 0c.3, 1, 3, and 5 did not — see the status banner above. The shipped slice gives `StopReason` + `ExitCode` + `PlanCardStatus` + `AgentRunConfig` + the meeting-subsystem correctness fixes, but the `CommandAgent` flag-registration duplication, the `_fetch_*_context` staticmethods, and the `_dispatch_tool` if-chain still exist in `main`.
+**What actually shipped.** Steps −1, 0a, 0c.1/0c.2/0c.4 (three enums), and 2 (`AgentRunConfig`). Steps 0b, 0c.3, 1, 3, and 5 did not (see the status banner above). The shipped slice gives `StopReason` + `ExitCode` + `PlanCardStatus` + `AgentRunConfig` + the meeting-subsystem correctness fixes, but the `CommandAgent` flag-registration duplication, the `_fetch_*_context` staticmethods, and the broad `except Exception` in `_dispatch_tool` still exist in `main` (the if-chain itself was replaced by a dict lookup in `f8f2443`, outside this plan).
 
 ---
 
@@ -855,16 +855,16 @@ After all branches merge to `main`. Items marked **[skipped]** correspond to dro
 - [x] `ruff check src tests` clean
 - [x] `black --check src tests` clean
 - [ ] `mypy src` no worse than `/tmp/mypy-baseline.txt`
-- [skipped] `grep -c "except Exception" src/briar/agent/runner.py` returns **2** (was 3) — Step 3 not shipped; still 3
-- [skipped] `grep -n "if name ==" src/briar/agent/runner.py` returns nothing — Step 3 not shipped; still present in `_dispatch_tool`
+- [skipped] `grep -c "except Exception" src/briar/agent/runner.py` returns **2** (was 3). Step 3 not shipped; returns 4 as of v1.1.56
+- [x] `grep -n "if name ==" src/briar/agent/runner.py` returns nothing. Met by `f8f2443` (dict lookup), not by Step 3
 - [skipped] `grep -n "_fetch_ticket_context\|_fetch_pr_context\|_fetch_meeting_context" src/briar` returns nothing — Step 1 not shipped; staticmethods still live on `commands/agent.py`
 - [x] `grep -n "class AgentRunConfig" src/briar/agent/runner.py` returns 1 match
 - [skipped] `grep -n "class Tool" src/briar/agent/tools.py` returns 1 match (Protocol) — Step 3 not shipped
 - [x] `grep -rn "class StopReason\|class ExitCode\|class PlanCardStatus" src/briar` returns 3 matches (one per package's `_enums.py`; `MeetingExtractMode` was dropped — see top-of-file banner)
 - [x] `grep -n "class MeetingExtractedData" src/briar/extract` returns nothing (TypedDict dropped — see Step 5 banner)
 - [skipped] `grep -n "CONSUMES_EXTRACTORS" src/briar/commands/agent.py` returns ≥ 3 (base + 2 ops) — Step 0b not shipped
-- [x] `briar agent prfix --meeting bogus` exits 2 with "invalid choice"
-- [x] `briar agent implement --provider bogus` exits 2 with "invalid choice"
+- [ ] `briar agent prfix --meeting bogus` exits 2 with "invalid choice". Not true in v1.1.56: `--meeting` is a hidden flag with no `choices=`, so `bogus` parses
+- [ ] `briar agent implement --provider bogus` exits 2 with "invalid choice". Not true in v1.1.56: `--provider` has no `choices=`, so `bogus` parses
 - [ ] LOC delta on the touched files matches the per-step estimates within ±20%
 
 **Net per [`ARCHITECTURE_MAP.md`](ARCHITECTURE_MAP.md) §21:**
