@@ -25,17 +25,6 @@ import argparse
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
-# Canonical concepts that accept a list (repeatable flag, default []).
-CANONICAL_LIST: Tuple[str, ...] = (
-    "repo",
-    "authors_allow",
-    "authors_block",
-    "assignees_allow",
-    "assignees_block",
-)
-# Canonical concepts that accept a single int (default None = "unset").
-CANONICAL_SCALAR: Tuple[str, ...] = ("since_days", "max", "top_n", "sample")
-
 # Suffix → canonical concept. Ordered longest/most-specific first so
 # `*_max_commits` resolves to `max` before the shorter `*_max` rule, and
 # `*_authors_allow` resolves before any hypothetical `*_allow`. First hit

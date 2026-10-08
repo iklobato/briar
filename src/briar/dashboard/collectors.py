@@ -571,9 +571,6 @@ class CollectorRegistry:
             DashboardProcessCollector(self_=dash),
         ]
 
-    # Back-compat alias for existing callers.
-    for_paths = from_paths
-
     @classmethod
     def collect_all(cls, collectors: List[Collector]) -> Dict[str, Any]:
         return {c.name: c.collect() for c in collectors}
