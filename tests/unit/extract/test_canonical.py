@@ -102,6 +102,8 @@ def test_every_repo_backed_extractor_accepts_canonical_repo():
     for name, ext in EXTRACTORS.items():
         ns = _seed_namespace(ext)
         ns.repo = ["owner/name"]
+        if hasattr(ns, "tracker"):
+            ns.tracker = "github-issues"  # a tracker whose projects are repo slugs
         before = {k: list(v) if isinstance(v, list) else v for k, v in vars(ns).items()}
         apply_canonical(ns, ext)
         changed = {k for k, v in vars(ns).items() if before[k] != v}
@@ -110,3 +112,28 @@ def test_every_repo_backed_extractor_accepts_canonical_repo():
         repo_dests = {k for k in vars(ns) if _concept_for_dest(k) == "repo"}
         if repo_dests:
             assert changed & repo_dests, f"{name}: --repo did not reach {repo_dests}"
+
+
+@pytest.mark.parametrize("name", ["active-tickets", "ticket-archaeology"])
+def test_canonical_repo_is_not_a_jira_project_key(name):
+    """`--repo owner/repo` must not land in a Jira project dest: Jira
+    rejects it (`must match ^[A-Z][A-Z0-9_]*$`) and the extractor crashes."""
+    ext = EXTRACTORS[name]
+    ns = _seed_namespace(ext)
+    ns.repo = ["acme/web"]
+    ns.tracker = "jira"
+    apply_canonical(ns, ext)
+    project_dests = [k for k in ("ticket_project", "ticket_archaeology_project") if hasattr(ns, k)]
+    assert project_dests
+    for dest in project_dests:
+        assert getattr(ns, dest) == []
+
+
+@pytest.mark.parametrize("tracker", ["github-issues", "bitbucket-issues"])
+def test_canonical_repo_feeds_repo_slug_tracker_project(tracker):
+    ext = EXTRACTORS["active-tickets"]
+    ns = _seed_namespace(ext)
+    ns.repo = ["acme/web"]
+    ns.tracker = tracker
+    apply_canonical(ns, ext)
+    assert ns.ticket_project == ["acme/web"]

@@ -42,6 +42,7 @@ def _kind_priority_from_labels(labels: List[str]) -> tuple:
 
 class GithubIssuesTracker(TrackerProvider):
     kind = "github-issues"
+    project_is_repo_slug = True
 
     def __init__(self, *, company: str = "") -> None:
         # GITHUB_TOKEN is workspace-wide; company is ignored.
