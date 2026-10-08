@@ -170,7 +170,7 @@ class AwsSsoAcquirer(CredentialAcquirer):
         We don't cache it ourselves yet — punt to a full re-acquire."""
         raise CredentialExpired(
             f"aws-sso: refresh not implemented yet — run "
-            f"`briar auth login --provider aws-sso --company {company}` to re-acquire"
+            f"`briar auth login aws-sso --company {company}` to re-acquire"
         )
 
     @classmethod
