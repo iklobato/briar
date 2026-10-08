@@ -131,6 +131,8 @@ Setup helpers: `briar init` (write a starter `.briar.toml`), `briar config show`
 - **`briar plan build` / `run`** — turn a Jira / GitHub Projects board into an ordered plan and run it card by card.
 - **`briar dashboard`** — read-only HTML status page:
   `docker run --rm -p 8080:8080 -v "$PWD":/work -w /work iklob1/briar dashboard --host 0.0.0.0`
+- **`briar mcp serve` / `chat`**: serve briar's knowledge, runbook config and extractors as MCP tools (stdio or http), or drive them from an interactive terminal chat. Needs the `[mcp]` extra (included in the Docker image).
+  Docker (stdio needs `-i`): `docker run --rm -i -v "$PWD":/work -w /work iklob1/briar mcp serve`
 - **`briar scaffold` · `context` · `secrets doctor` · `journal`** — config bundles, local knowledge blobs, credential coverage, decision audit.
 
 Every command takes `--format json` for scripting, and most list flags repeat (`--include a --include b`).

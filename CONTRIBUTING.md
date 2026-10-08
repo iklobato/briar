@@ -26,7 +26,8 @@ the repo is **not yet clean repo-wide** under ruff/mypy (there's pre-existing
 debt being paid down), so keep *your* changed files clean (the commit hook
 checks them) rather than expecting a green whole-repo lint today. Once the debt
 is cleared, `lint` + `typecheck` fold into `check` and the release gate.
-`make smoke` help-parses every subcommand.
+`make smoke` help-parses the top-level commands it lists in the Makefile
+(`mcp` and `chat` are not in that list yet).
 
 Add or update tests for behavior you change. For a bug fix, add a regression
 test that fails before the fix and passes after.
