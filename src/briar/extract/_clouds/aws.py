@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from functools import lru_cache
-from typing import Any, List, Optional  # noqa: F401  (Optional used below)
+from typing import Any, List, Optional
 
 from briar.decorators import swallow_errors
 from briar.env_vars import CredEnv

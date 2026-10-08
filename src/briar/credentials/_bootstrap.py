@@ -28,7 +28,7 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import ClassVar, Dict, List
+from typing import ClassVar, List
 
 
 log = logging.getLogger(__name__)

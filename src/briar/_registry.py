@@ -14,7 +14,7 @@ on a dup. Every registry in the codebase should use it."""
 
 from __future__ import annotations
 
-from typing import Any, Iterable, TypeVar
+from typing import Iterable, TypeVar
 
 
 T = TypeVar("T")
