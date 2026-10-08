@@ -317,6 +317,10 @@ class TestBuildImplementArgsMapping:
     def test_model_maps(self) -> None:
         assert self._impl(model="claude-z").model == "claude-z"
 
+    def test_non_anthropic_planner_model_not_sent_to_agent(self) -> None:
+        # The coding agent is Anthropic-only; `gpt-4o` would fail every card.
+        assert self._impl(llm="openai", model="gpt-4o").model == ""
+
     def test_max_iter_maps(self) -> None:
         assert self._impl(max_iter=9).max_iter == 9
 
