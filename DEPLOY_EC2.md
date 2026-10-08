@@ -13,7 +13,7 @@ Two long-lived processes from this repo (`github.com/iklobato/briar`):
 | Process | Command | Purpose |
 |---|---|---|
 | `briar-scheduler.service` | `briar runbook serve examples/` | Registers every `(company, task)` job from the YAMLs in `examples/` and runs them on their declared cadence. |
-| `briar-dashboard.service` | `briar dashboard --host 0.0.0.0 --port 8080 --examples examples --knowledge knowledge --repo-path .` | Read-only HTML status page. |
+| `briar-dashboard.service` | `briar dashboard --host 0.0.0.0 --port 8080 --examples examples --repo-path .` | Read-only HTML status page. |
 
 Both run as user `briar`. Both read `/etc/briar/secrets.env` for credentials. Both write to `/var/log/briar/`.
 
@@ -32,7 +32,7 @@ Stop and ask the operator if any of these are missing — do NOT guess values.
 5. **A GitHub deploy key OR Personal Access Token** with `read` access to `iklobato/briar` — the repo is private. The deploy-key path is preferred (no token rotation).
 6. **Application credentials** to put in `secrets.env`:
    - `GITHUB_TOKEN` — PAT with `repo` scope (used by every GitHub extractor).
-   - `CLAUDE_CODE_OAUTH_TOKEN` — only if you plan to run `briar agent` from the box. Not needed if the box only runs the scheduler + dashboard.
+   - `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`): only if you plan to run `briar agent` from the box. Not needed if the box only runs the scheduler + dashboard.
    - `BRIAR_DATABASE_URL` — only if you want the postgres-backed knowledge store instead of file-backed.
    - Per-company AWS credentials (`AWS_<COMPANY>_ACCESS_KEY_ID` / `SECRET_ACCESS_KEY` / `SESSION_TOKEN` / `REGION`) — only required if any runbook YAML uses the `aws-infra` extractor AND you are NOT using the cross-account IAM-role path (see §4).
    - Per-company Fireflies API key (`FIREFLIES_<COMPANY>_API_KEY`) — only required if the runbook includes a `meeting-digest` schedule OR `briar agent` is invoked with `--meeting-key` / `--meeting-query`. Optional; absent key = meeting extractors return empty and the rest of the pipeline runs unchanged.
@@ -184,7 +184,8 @@ The EC2 lives in the same AWS account it'll mine.
          "rds:Describe*", "rds:List*",
          "lambda:List*", "lambda:Get*",
          "sqs:ListQueues", "sqs:GetQueueAttributes",
-         "logs:Describe*", "logs:Get*", "logs:Filter*"
+         "logs:Describe*", "logs:Get*", "logs:Filter*",
+         "tag:GetResources"
        ],
        "Resource": "*"
      }]
@@ -193,14 +194,14 @@ The EC2 lives in the same AWS account it'll mine.
 
 3. Create instance profile `briar-instance-profile`, add the role to it.
 4. Associate with the instance (already in the launch command above, or after the fact via `aws ec2 associate-iam-instance-profile --instance-id <id> --iam-instance-profile Name=briar-instance-profile`).
-5. In `secrets.env` (§5), leave the per-company AWS variables UNSET. `boto3` falls through to the instance role.
+5. In `secrets.env` (§5), leave the per-company AWS variables UNSET. Caveat: with no `AWS_<COMPANY>_*` keys, `extract/_clouds/aws.py` builds `boto3.Session(profile_name=<company>)`, so boto3 looks for an AWS profile named after the company and fails if there is none. It does not fall straight through to the instance role. Test with `briar runbook extract` (§6) before relying on this path.
 
 ### Path B — cross-account companies
 
 Each company is a different AWS account. Two sub-options:
 
 - **Static keys** (mirrors the current DO droplet exactly): drop `AWS_<COMPANY>_ACCESS_KEY_ID` / `SECRET_ACCESS_KEY` / `SESSION_TOKEN` / `REGION` into `secrets.env`. No instance profile needed for the extractor's purposes (still create the role for any other AWS calls).
-- **AssumeRole** (cleaner long-term): each target account has a read-only role that trusts `briar-instance-role`. Set `AWS_<COMPANY>_ROLE_ARN` in `secrets.env`. Requires application code support — verify by grepping `src/briar/extract/aws_infra.py` for `assume_role` before assuming it works; if it doesn't, fall back to static keys.
+- **AssumeRole**: not supported by the code today. Nothing reads `AWS_<COMPANY>_ROLE_ARN`, and there is no `assume_role` call under `src/briar/extract/`. Use static keys.
 
 If unsure, use static keys. They're known-good with this codebase.
 
@@ -331,7 +332,7 @@ Group=briar
 WorkingDirectory=/opt/briar-scheduler
 EnvironmentFile=/etc/briar/secrets.env
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/opt/briar-scheduler/.venv/bin/briar dashboard --host 0.0.0.0 --port 8080 --examples examples --knowledge knowledge --repo-path .
+ExecStart=/opt/briar-scheduler/.venv/bin/briar dashboard --host 0.0.0.0 --port 8080 --examples examples --repo-path .
 Restart=always
 RestartSec=10
 StandardOutput=append:/var/log/briar/dashboard.log
@@ -357,9 +358,9 @@ Both should report `active (running)`. If either reports `failed`, see §10 (tro
 
 1. **Credential coverage:** `sudo -u briar bash -c 'set -a; . /etc/briar/secrets.env; set +a; .venv/bin/briar secrets doctor --examples examples/'` — walks every `(company, extractor, provider)` and `(company, messages, writer)` tuple in the runbooks and reports `ok` / `X MISSING:` per row without ever printing values. Fix every `X` before relying on the scheduler.
 2. **Dashboard reachable:** browser → `http://<elastic-ip>:8080/`. You should see the read-only status page.
-3. **Scheduler logging:** `sudo journalctl -u briar-scheduler -n 50 --no-pager` and `sudo tail -n 50 /var/log/briar/scheduler.log`. Either path shows the same lines — confirm the scheduler logged "registered N jobs" for each runbook.
-4. **A job actually fires:** wait until the soonest `every:` cadence elapses (often 1 hour). Re-tail the scheduler log; you should see the extractor name and a row count.
-5. **Knowledge blob written:** `ls /opt/briar-scheduler/knowledge/` shows one markdown file per company.
+3. **Scheduler logging:** `sudo tail -n 50 /var/log/briar/scheduler.log`. Confirm one `registered company=... task=... every=...` line per job and a `scheduler starting: N job(s)` line. (`runbook serve` logs at INFO even though other commands default to WARNING.) The unit sends stdout/stderr to the file, so `journalctl -u briar-scheduler` only shows systemd start/stop lines.
+4. **A job actually fires:** wait until the soonest `every:` cadence elapses (often 1 hour; jobs are staggered inside their interval). Re-tail the scheduler log; you should see `fire task=...` and `result task=... status=...` lines.
+5. **Knowledge blob written:** for runbooks with `store: file`, `ls /opt/briar-scheduler/knowledge/knowledge/` shows one markdown file per company (blob `knowledge:<company>` is stored as `<root>/knowledge/<company>.md`). Runbooks with `store: postgres` write to the database instead.
 
 ---
 
@@ -402,7 +403,7 @@ ssh briar-ec2 'sudo -u briar git -C /opt/briar-scheduler log --oneline -5'
 ssh briar-ec2 'sudo -u briar git -C /opt/briar-scheduler reset --hard <sha> && sudo systemctl restart briar-scheduler briar-dashboard'
 ```
 
-**Refreshing AWS STS creds (Path B static keys only):** mirror the README's one-liner with the EC2 elastic IP as the destination.
+**Refreshing AWS STS creds (Path B static keys only):** update the `AWS_<COMPANY>_*` lines in `/etc/briar/secrets.env`, then `sudo systemctl restart briar-scheduler` (env is read at process start).
 
 ---
 
@@ -437,8 +438,8 @@ Before reporting the deploy done, verify ALL of these:
 - [ ] `systemctl status briar-scheduler` → `active (running)`
 - [ ] `systemctl status briar-dashboard` → `active (running)`
 - [ ] `curl -sI http://<elastic-ip>:8080/` → `200 OK`
-- [ ] `sudo journalctl -u briar-scheduler --since '5 min ago'` shows the scheduler registered jobs (no Python tracebacks)
-- [ ] One full extraction cycle has completed and written a file under `/opt/briar-scheduler/knowledge/`
+- [ ] `sudo tail -n 100 /var/log/briar/scheduler.log` shows the scheduler registered jobs (no Python tracebacks)
+- [ ] One full extraction cycle has completed and written its blob (a file under `/opt/briar-scheduler/knowledge/` for `store: file`)
 - [ ] `sudo systemctl is-enabled briar-scheduler briar-dashboard` → both `enabled` (will start on reboot)
 - [ ] `/etc/briar/secrets.env` mode is `600`, owner `root:briar`
 - [ ] `/etc/logrotate.d/briar` is in place and `logrotate -d` reports no errors

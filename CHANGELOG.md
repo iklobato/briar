@@ -35,7 +35,32 @@ briar can now be driven BY agents, not just run them.
 - **`briar chat`** an interactive assistant that drives briar's own MCP server
   with a human-in-the-loop approval gate the model cannot bypass.
 - **`briar.service` seam** a presentation-free, gated core (extract, knowledge,
-  runbook) shared by the CLI, MCP server, and dashboard, plus a runbook writer.
+  runbook), plus a runbook writer. Only the MCP server calls it today; the CLI
+  commands and the dashboard do not.
+
+## [1.1.54] - 2026-06-24
+
+### Added
+
+- **Flow 15 in `agents/flows.md`**: one end-to-end example that uses every
+  provider and extractor, ships a Jira card with `agent implement`, then
+  auto-fixes the PR with `agent prfix`. Docs only.
+
+## [1.1.53] - 2026-06-24
+
+### Fixed
+
+- **Slack auth errors name the fix.** On an auth error the read-only Slack
+  provider's message now tells you to refresh the `SLACK_*` creds instead of
+  a bare `invalid_auth`.
+
+## [1.1.52] - 2026-06-24
+
+### Fixed
+
+- **Release image push.** The release workflow pushed to `iklobato/briar`;
+  it now pushes to `iklob1/briar`, the image the docs use. The PyPI publish
+  step sets `attestations: false` to stop a warning on every run.
 
 ## [1.1.51] - 2026-06-24
 
@@ -130,6 +155,31 @@ backward compatible.
   or PR identifier into the agent's prompt, the same way `meeting-context`
   splices transcripts. New flags: `--chat`, `--slack-query`, `--slack-top-k`,
   `--slack-max-bytes` (all optional; the query defaults to the ticket/PR).
+
+## [1.1.47] - 2026-06-19
+
+### Added
+
+- **`briar --version` / `-V`**, **`briar completion bash|zsh`**, **`briar init`**
+  (starter `.briar.toml`), **`briar config show`** (each setting's value and
+  source) and **`briar doctor`** (offline environment check).
+- **Update notice** on stderr when a newer `briar-cli` is on PyPI (once a day;
+  opt out with `BRIAR_NO_UPDATE_CHECK`, `DO_NOT_TRACK` or `BRIAR_TELEMETRY=off`).
+- `CONTRIBUTING.md`, plus `fmt` / `lint` / `typecheck` / `pytest` / `check`
+  Makefile targets. The release workflow now runs the unit suite before the
+  version bump.
+
+### Changed
+
+- **Logs are quiet by default (WARNING) and go to stderr.** `--verbose` /
+  `BRIAR_VERBOSE` gives DEBUG, `BRIAR_LOG_LEVEL` overrides, and `runbook serve`
+  / `runbook extract` still log at INFO. Progress and "wrote <path>" messages
+  moved to stderr so stdout stays clean for `--format json`.
+
+### Fixed
+
+- **Release run failed on a stale `uv.lock`.** The lock is regenerated and the
+  workflow discards lock churn before pushing.
 
 ## [1.1.46] - 2026-06-19
 
