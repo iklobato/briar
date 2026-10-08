@@ -217,9 +217,19 @@ class TestArchetypeAndShape:
 
 
 class TestTriggers:
-    def test_github_webhook_default(self, cli) -> None:
+    def test_default_trigger_is_hourly_cron(self, cli) -> None:
+        # The webhook default fired on `issues.*` events, never on PR reviews.
         trig = _run(cli, *_GH)["triggers"][0]
+        assert trig["kind"] == "schedule"
+        assert trig["schedule_cron"] == "0 * * * *"
+
+    def test_github_webhook_opt_in(self, cli) -> None:
+        trig = _run(cli, *_GH, "--trigger-kind", "github_webhook")["triggers"][0]
         assert trig["kind"] == "github_webhook"
+
+    def test_help_shows_cron_default(self, cli) -> None:
+        result = cli("scaffold", "pr-fixes", "-h")
+        assert "(default: schedule_cron)" in " ".join(result.out.split())
 
     def test_bitbucket_webhook(self, cli) -> None:
         bundle = _run(
@@ -254,16 +264,17 @@ class TestTriggers:
         assert default["triggers"][0]["schedule_cron"] == "0 * * * *"
 
     def test_webhook_events_override_and_default(self, cli) -> None:
-        assert _run(cli, *_GH)["triggers"][0]["filter_rules"]["events"] == ["issues.opened", "issues.labeled"]
-        override = _run(cli, *_GH, "--webhook-events", "issues.reopened")
+        webhook = ("--trigger-kind", "github_webhook")
+        assert _run(cli, *_GH, *webhook)["triggers"][0]["filter_rules"]["events"] == ["issues.opened", "issues.labeled"]
+        override = _run(cli, *_GH, *webhook, "--webhook-events", "issues.reopened")
         assert override["triggers"][0]["filter_rules"]["events"] == ["issues.reopened"]
 
     def test_webhook_events_repeatable(self, cli) -> None:
-        bundle = _run(cli, *_GH, "--webhook-events", "a", "--webhook-events", "b")
+        bundle = _run(cli, *_GH, "--trigger-kind", "github_webhook", "--webhook-events", "a", "--webhook-events", "b")
         assert bundle["triggers"][0]["filter_rules"]["events"] == ["a", "b"]
 
     def test_webhook_labels_override(self, cli) -> None:
-        assert "urgent" in _run(cli, *_GH, "--webhook-labels", "urgent")["triggers"][0]["filter_rules"]["labels_any"]
+        assert "urgent" in _run(cli, *_GH, "--trigger-kind", "github_webhook", "--webhook-labels", "urgent")["triggers"][0]["filter_rules"]["labels_any"]
 
     def test_bitbucket_webhook_events_and_labels(self, cli) -> None:
         base = ["--source", "bitbucket", "--bitbucket-workspace", "acme", "--bitbucket-repo", "widgets", "--trigger-kind", "bitbucket_webhook"]

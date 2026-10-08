@@ -277,7 +277,7 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
         "--trigger-kind",
         default="github_webhook",
         choices=sorted(TRIGGER_TEMPLATES.keys()),
-        help="What kind of trigger creates tasks for this workflow",
+        help="What kind of trigger creates tasks for this workflow (default: %(default)s)",
     )
     parser.add_argument(
         "--llm-provider-key",
