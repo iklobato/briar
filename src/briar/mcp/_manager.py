@@ -261,3 +261,12 @@ class McpClientManager:
             import mcp  # noqa: F401
         except ImportError as exc:
             raise McpError("MCP support requires the `mcp` package. Install it with: " "pip install 'briar-cli[mcp]'") from exc
+
+
+def sdk_installed() -> bool:
+    """Whether the optional `mcp` SDK (the `[mcp]` extra) can be imported."""
+    try:
+        import mcp  # noqa: F401
+    except ImportError:
+        return False
+    return True

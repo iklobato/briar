@@ -545,9 +545,17 @@ class CommandAgent(SubcommandCommand):
         (think/time), and `always_on` is the handles of the defaults that
         survived (the runbook can override one by reusing its handle).
         Built-in defaults are skipped entirely when the operator opts out
-        via `--no-default-mcp` or `BRIAR_NO_DEFAULT_MCP`."""
+        via `--no-default-mcp` or `BRIAR_NO_DEFAULT_MCP`, and when the `mcp`
+        SDK is not installed: they are optional helpers and must not abort a
+        plain `pip install briar-cli` run. Runbook-declared servers are kept
+        either way, so asking for one without the SDK still fails loudly."""
         runbook_servers = CommandAgent._load_runbook_mcp(args)
         if CommandAgent._default_mcp_disabled(args):
+            return runbook_servers, ()
+        from briar.mcp import sdk_installed
+
+        if not sdk_installed():
+            log.warning("mcp: the `mcp` package is not installed, so the built-in think/time servers are skipped; " "install 'briar-cli[mcp]' to enable them")
             return runbook_servers, ()
         from briar.mcp.defaults import DEFAULT_MCP_SERVERS
 

@@ -9,10 +9,11 @@ They are ALWAYS-ON: connected unconditionally and excluded from the Lever-4
 router — routing between two trivial local tools would just waste an LLM
 call, so the router only ever prunes the heavier, runbook-declared servers.
 
-Dependency note: ``think`` needs ``npx`` (Node), ``time`` needs ``uvx``
-(uv). On a host without those the server simply fails to connect (logged,
-the run continues); deployments that lack them should opt out to avoid the
-per-run warning.
+Dependency note: both need the ``mcp`` SDK (the ``[mcp]`` extra); without
+it they are skipped with one warning and the run continues. ``think`` also
+needs ``npx`` (Node), ``time`` needs ``uvx`` (uv). On a host without those
+the server simply fails to connect (logged, the run continues); deployments
+that lack them should opt out to avoid the per-run warning.
 """
 
 from __future__ import annotations
