@@ -7,6 +7,9 @@
 #   docker run --rm -p 8080:8080 iklob1/briar dashboard --host 0.0.0.0
 FROM python:3.11-slim
 
+# Ownership proof for the official MCP registry; must match `name` in its server.json.
+LABEL io.modelcontextprotocol.server.name="io.github.iklobato/briar"
+
 # Install the wheel CI just built, WITH the `mcp` extra so `briar mcp serve`
 # (FastMCP) works in the image — without it the server crashes on
 # `ModuleNotFoundError: No module named 'mcp'`. The glob resolves to the

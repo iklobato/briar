@@ -5,12 +5,12 @@ build-backend = "hatchling.build"
 [project]
 name = "briar-cli"
 version = "1.1.72"
-description = "Terminal client for the Briar agent-orchestration API."
+description = "Local CLI that mines GitHub, Jira, Linear and cloud state into agent context, then runs coding agents that open draft PRs."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [{ name = "Briar" }]
-keywords = ["briar", "cli", "agents", "workflow"]
+keywords = ["cli", "ai-agents", "coding-agent", "mcp", "mcp-server", "claude", "anthropic", "context-engineering", "jira", "linear", "github", "code-review", "developer-tools"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
