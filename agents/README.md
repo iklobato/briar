@@ -1,131 +1,132 @@
-# Briar — agent operator's manual
+# briar command manuals
 
-This directory is the AI-agent-facing reference for running every
-`briar` feature. Each file under `agents/` describes one command
-family with the exact shape an autonomous agent needs: when to run
-it, what must be in place first, the verbatim shell call, how to
-confirm success, and what to do on failure.
+This folder has one manual per `briar` command. People read them, and so
+do AI agents that run briar. If you are an agent, read this page first,
+then the one file for your task.
 
-If you are an agent picking up work in this repo, **read this index
-first**, then the one file matching the task you've been handed.
+The output of `briar <command> -h` is the final word on flags. These
+pages explain what the flags do, when to use them, and what can go wrong.
+They match briar-cli 1.1.72.
 
-## Conventions used in every file
+## How each manual is laid out
 
-| Section | What it answers |
+| Section | What it tells you |
 |---|---|
-| **Purpose** | What the command actually does, in 1–2 sentences |
-| **When to use** | Trigger conditions you can match against your task |
-| **Prerequisites** | Env vars, prior commands, credentials, files that must exist |
-| **Commands** | Exact shell invocations with `<PLACEHOLDERS>` you fill in |
-| **Verifying success** | What to inspect after running |
-| **Common failures** | Specific error → specific fix. Do NOT swallow these |
+| What it does | The command in a few sentences. |
+| Use it when | Real situations where you reach for it. |
+| Before you start | Credentials, files and tools it needs. |
+| Examples | Commands you can run, each with what you get. |
+| All parameters | Every flag: meaning, default, allowed values, example. |
+| Good to know | Limits, traps and fixes for common errors. |
 
-## Global flags every command honours
+## The files
+
+| File | Commands |
+|---|---|
+| [flows.md](flows.md) | Recipes that chain several commands into one result. Start here for "how do I...". |
+| [setup.md](setup.md) | `briar init`, `briar config show`, `briar doctor`, `briar completion`: set up a project and check it. |
+| [version.md](version.md) | `briar version`: print the installed version. |
+| [extract.md](extract.md) | `briar extract`: read your tools into a knowledge blob (23 extractors). |
+| [runbook.md](runbook.md) | `briar runbook extract`, `sweep`, `serve`: run extractors from YAML, once or on a schedule. |
+| [agent.md](agent.md) | `briar agent implement`, `briar agent prfix`: an AI agent that opens a draft PR for a ticket, or fixes review comments on a PR. |
+| [plan.md](plan.md) | `briar plan build`, `show`, `status`, `next`, `advance`, `run`, `list`, `clear`: turn a board into a plan and run it card by card. |
+| [scaffold.md](scaffold.md) | `briar scaffold implementation`, `briar scaffold pr-fixes`: write a JSON config bundle for an agent workflow. |
+| [context.md](context.md) | `briar context put`, `get`, `list`, `delete`, `categories`: read and write knowledge blobs. |
+| [dashboard.md](dashboard.md) | `briar dashboard`: a read-only status page. |
+| [auth.md](auth.md) | `briar auth login`, `logout`, `refresh`, `list`, `status`: save and manage credentials. |
+| [creds.md](creds.md) | `briar secrets doctor`, `briar secrets bootstrap`: find missing credentials. |
+| [journal.md](journal.md) | `briar journal list`, `show`, `export`: read the decisions that `plan run` and `scaffold` recorded. |
+| [mcp.md](mcp.md) | `briar mcp serve`, `briar chat`: serve briar as MCP tools, or use them from a chat in your terminal. |
+| [telemetry.md](telemetry.md) | `briar telemetry status`, `preview`, `off`, `errors-only`, `full`, `reset`: control what usage data is sent. |
+
+## Flags that work on every command
+
+You can put these anywhere on the command line.
 
 | Flag | Default | What it does |
 |---|---|---|
-| `--format {table,json,yaml,csv,quiet}` | `table` (lists), `json` (single record) | Output shape |
-| `--verbose` / `-v` | off | DEBUG logging; also via `BRIAR_VERBOSE=1` |
-| `--version` / `-V` | off | Print `briar-cli <version>` and exit |
+| `--format table\|json\|yaml\|csv\|quiet` | `table` for lists, `json` for one record. | Output shape. Use `json` when another program reads the output. Use `quiet` when only the exit code matters. |
+| `--verbose`, `-v` | Off. | Debug logs on stderr. `BRIAR_VERBOSE=1` does the same. Without it, briar logs only warnings and errors. |
+| `--version`, `-V` | Off. | Print `briar-cli <version>` and exit. |
 
-When piping into another tool, pass `--format json` and parse with `jq`.
-When you only care about exit code, pass `--format quiet`.
+## Exit codes
 
-## Exit codes (canonical, from `briar.commands._enums.ExitCode`)
+| Code | Meaning |
+|---|---|
+| `0` | It worked. |
+| `1` | It ran and failed. Examples: missing credentials, a service error, an agent run that failed, `plan run` stopped on a blocked card, or you said no to a prompt. |
+| `2` | Bad flags. Also used when a command crashes with an unexpected error. |
+| `130` | You pressed Ctrl-C. |
 
-| Code | Name | Meaning |
+Check the exit code before you read the output.
+
+## Where settings come from
+
+briar looks up each setting in this order and takes the first one it finds:
+
+1. The flag you typed.
+2. An environment variable (`BRIAR_COMPANY`, `BRIAR_STORE`).
+3. The project file `.briar.toml`, or `[tool.briar]` in `pyproject.toml`.
+   briar looks in the current folder, then each parent folder.
+4. The git `origin` remote, for the repo owner and name only.
+5. The built-in default.
+
+`briar config show` prints each setting and where it came from. See
+[setup.md](setup.md).
+
+## Knowledge stores and blob names
+
+briar saves knowledge as named markdown blobs in a store.
+
+| `--store` | Where blobs live | Default for |
 |---|---|---|
-| `0` | `OK` | Success |
-| `1` | `GENERAL_ERROR` | Any runtime failure: missing credentials, upstream service error, agent failed, `plan run` stopped on a blocked card, confirm aborted |
-| `2` | `USAGE_ERROR` | Bad CLI usage; check the args you passed. Also returned when a command crashes with an unexpected exception |
-| `130` | (none) | Interrupted with Ctrl-C |
+| `file` | `./knowledge/<prefix>/<rest>.md`, so `knowledge:acme` is `./knowledge/knowledge/acme.md`. Change the folder with `--root`. | Every command when `BRIAR_DATABASE_URL` is not set. `context`, `mcp serve` and `chat` even when it is set. |
+| `postgres` | The database in `BRIAR_DATABASE_URL`. A runbook can pick another one per company. | `extract`, `agent` and `plan` when `BRIAR_DATABASE_URL` is set. |
 
-Always check exit code before parsing output.
+`BRIAR_STORE=postgres`, or `store = "postgres"` in `.briar.toml`, makes
+every command use Postgres.
 
-## Storage backends — `--store` is a shared concept
-
-Two `KnowledgeStore` backends ship today:
-
-| `--store` | Where data lives | When to pick it |
+| Blob name | Written by | Read by |
 |---|---|---|
-| `file` (default when `BRIAR_DATABASE_URL` is unset; always the default for `context`) | `./knowledge/<prefix>/<name>.md` on local disk | Local dev, single-host operation |
-| `postgres` | `BRIAR_DATABASE_URL` (env). Runbook `knowledge:` bindings also honour `config.dsn_env` and `BRIAR_<COMPANY>_DATABASE_URL` first | Multi-host, shared truth, durable |
-
-Blobs are named by category-prefix convention:
-
-| Prefix | Owner | Notes |
-|---|---|---|
-| `knowledge:<company>` | `briar extract` | Cold rebuild from live world state |
-| `knowledge:<company>.<plan>` | `briar plan build` + `KnowledgeWriter` | Plan-scoped live source of truth. Spliced into every `agent implement` call automatically |
-| `plan:<name>` | `briar plan build` | Stored plan blob |
-| `memory:*`, `lessons:*` | `briar context put` | Free-form notes; not spliced into agent prompts |
-
-## Journal: decision audit trail for scaffold and plan run
-
-`briar scaffold` and `briar plan run` open a `Session` and record
-`DecisionEvent`s (other commands do not write sessions today). Stored
-under `./journal/sessions/` by `JournalStore` (`file` is the only
-backend), published to `./journal/published/` by `JournalSink`. Read
-with `briar journal list` / `show` / `export`.
-
-Sessions are append-only. Don't try to edit them directly; if you
-need to redact, drop the row at the backend level.
+| `knowledge:acme` | `briar extract`, `briar runbook` | The agent (only the sections it uses), the plan selector, `plan build --with-knowledge`. |
+| `knowledge:acme.q3` | `briar plan build`, then `plan run` after each card | The plan selector. |
+| `inventory:acme` | `briar runbook`, when its `knowledge:` block has `config: {inventory: "true"}` | You (JSON with every resource). |
+| `plan:q3` | `briar plan build`, `advance`, `run` | Every `briar plan` subcommand. |
+| Any other name, like `memory:reviewer-alice` | `briar context put` | You. The agent never reads it. |
 
 ## Credentials
 
-Two patterns:
+briar reads credentials from environment variables. At startup it also
+loads one secrets file, the first that exists:
 
-1. **Env vars** loaded from `/etc/briar/secrets.env` (production) or
-   `$XDG_CONFIG_HOME/briar/secrets.env` (dev) at CLI startup. See
-   `briar secrets doctor` to see which (company, extractor) pairs
-   are covered.
-2. **Interactive login** for OAuth/SSO flows (GitHub PAT, AWS SSO,
-   Jira session): `briar auth login <target>`.
+1. The path in `BRIAR_SECRETS_FILE`.
+2. `/etc/briar/secrets.env` (for servers).
+3. `$XDG_CONFIG_HOME/briar/secrets.env`, or `~/.config/briar/secrets.env`.
 
-If a command fails with a missing-credential error (exit 1), the first
-move is `briar secrets doctor --examples examples/` to see what's missing.
+A variable already set in your shell wins over the file.
+`briar auth login` writes to this file. Most variables carry the company
+name in upper case, like `JIRA_ACME_TOKEN` for company `acme`.
+`GITHUB_TOKEN` and the LLM keys have no company part.
 
-## The file map
+When a command fails for lack of credentials, run `briar secrets doctor`.
+It lists what each runbook still needs. See [creds.md](creds.md) and
+[auth.md](auth.md).
 
-| File | Command family |
-|---|---|
-| [flows.md](flows.md) | **End-to-end usage flows**: 15 multi-feature recipes chaining commands into outcomes (start here for "how do I…") |
-| [version.md](version.md) | `briar version` — sanity-check the install |
-| [extract.md](extract.md) | `briar extract` — one-shot knowledge extraction |
-| [runbook.md](runbook.md) | `briar runbook` — scheduled extraction (extract / sweep / serve) |
-| [agent.md](agent.md) | `briar agent` — autonomous LLM flows (prfix / implement) |
-| [plan.md](plan.md) | `briar plan` — LLM-driven implementation plans (build / show / status / next / advance / run / list / clear) |
-| [scaffold.md](scaffold.md) | `briar scaffold` — emit JSON config bundles |
-| [context.md](context.md) | `briar context` — read/write markdown blobs |
-| [dashboard.md](dashboard.md) | `briar dashboard` — read-only HTML status page |
-| [auth.md](auth.md) | `briar auth` — interactive credential acquisition |
-| [creds.md](creds.md) | `briar secrets` — credential coverage (`doctor`, `bootstrap`) |
-| [journal.md](journal.md) | `briar journal` — inspect decision sessions |
-| [telemetry.md](telemetry.md) | `briar telemetry` — error + usage analytics (Sentry); opt-out gradient |
+## The journal
 
-Commands with no guide here yet (run `briar <command> --help`):
+`briar plan run` and `briar scaffold` record each decision they make in
+a journal session under `./journal/`. Other commands do not write one.
+Read them with `briar journal list`, `show` and `export`. Sessions are
+append-only. Set `BRIAR_JOURNAL=off` to turn the journal off. See
+[journal.md](journal.md).
 
-| Command | What it does |
-|---|---|
-| `briar mcp serve` | Serve briar's features over the Model Context Protocol (`--transport stdio` default, or `http` on port 8765). Needs the `mcp` extra |
-| `briar chat` | Interactive assistant that drives briar through its own MCP server (`--llm`, default `anthropic`) |
-| `briar init` | Write a starter `.briar.toml` (owner/repo inferred from git) |
-| `briar config show` | Print each setting's resolved value and its source |
-| `briar doctor` | Check the local environment (config, git, credentials, store) |
-| `briar completion {bash,zsh}` | Print a shell-completion script |
+## Rules for AI agents that run briar
 
-## Rules you must not violate
-
-These mirror the global constraints in the surrounding repo:
-
-1. **Never commit to `main`, `master`, or `dev`.** Branch first.
-2. **Never `--force-push` to a shared branch.**
-3. **Prefix any PR/issue/ticket comment you post on the user's behalf with `[AI] `.**
-4. **Never skip pre-commit hooks** (`--no-verify`) unless the user explicitly authorised it.
-5. **Verify, don't claim.** Don't say a command worked until you've run it and read its output.
-6. **Smallest change that solves the problem.** No drive-by refactors.
-7. **No invented context.** Don't reference flags, env vars, or commands you haven't confirmed exist — re-read these docs or run `--help`.
-
-When in doubt, run the command with `--help` first. The `--help`
-output is the canonical contract; this directory is an opinionated
-operator's guide on top of it.
+1. Read `briar <command> -h` before you use a flag you have not seen.
+   Do not guess flag names.
+2. Run `briar agent ... --dry-run` before a real agent run. It is free.
+3. Use `--format json` when you parse output, and check the exit code first.
+4. Do not say a command worked until you have run it and read its output.
+5. Never push to `main`, `master` or `dev`, and never force-push a shared branch.
+6. Start any comment you post for a person with `[AI] `.
+7. Do not skip git hooks (`--no-verify`) unless the person asked for it.

@@ -1,45 +1,62 @@
 # `briar version`
 
-## Purpose
-Print the client version string. The fastest signal that the
-install is functional and on the version you expect.
+## What it does
 
-## When to use
-- Smoke-test that the `briar` CLI is reachable on a host.
-- Confirm a deploy actually shipped the version it claims.
-- Before opening a bug report — every report should name the version.
+Prints the installed briar version as one line, such as
+`briar-cli 1.1.72`.
 
-## Prerequisites
-None. `briar --version` (or `-V`) prints the same line and exits before
-any startup work. `briar version` runs the normal startup path
-(credential bootstrap, telemetry event, update check), so use
-`--version` when you need zero network calls.
+## Use it when
 
-## Commands
+- You want to check that `briar` is installed and on your `PATH`.
+- You want to confirm a deploy shipped the version you expect.
+- You file a bug report. Always include the version.
+
+## Examples
 
 ```bash
+# Print the version.
 briar version
-briar --version              # same output, no startup work
 ```
 
-**The same with Docker:**
+You get `briar-cli 1.1.72`.
 
 ```bash
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar version
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar --version              # same output, no startup work
+# The same line, with no startup work at all.
+briar --version
 ```
 
-## Verifying success
-Exit code `0`. Output is one line, `briar-cli <version>` (e.g. `briar-cli 1.1.56`).
-`--format` has no effect on it.
+You get `briar-cli 1.1.72`. `-V` is a short form of `--version`.
 
-## Common failures
+```bash
+# Check the version inside the Docker image.
+docker run --rm iklob1/briar version
+```
 
-| Symptom | Fix |
-|---|---|
-| `command not found: briar` | `pip install -e .` from the repo root, or use `.venv/bin/python -m briar version` |
-| Wrong version printed | The on-PATH `briar` is from a different install. Resolve with `which briar` and reinstall in the active venv |
+You get the version of the briar in the image.
+
+## All parameters
+
+`briar version` has no flags of its own. `--format` does not change its
+output.
+
+## `version` or `--version`?
+
+Both print the same line. The difference is what happens around it:
+
+| | `briar version` | `briar --version` |
+|---|---|---|
+| Loads `secrets.env` | yes | no |
+| Sends a telemetry event (if on) | yes | no |
+| Checks PyPI for a newer version (at most once a day) | yes | no |
+| Reads `.briar.toml` | yes | no |
+
+Use `briar --version` when you need a check with no network calls and
+no side effects, for example in a health probe.
+
+## Good to know
+
+- `command not found: briar` means briar is not installed in the active
+  Python, or its folder is not on your `PATH`. Install it with
+  `pip install briar-cli`, or run `python -m briar version`.
+- A wrong version usually means another install comes first on your
+  `PATH`. Run `which briar` to see which one runs.

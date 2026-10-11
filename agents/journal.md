@@ -1,135 +1,222 @@
 # `briar journal`
 
-## Purpose
-Inspect the append-only decision journal. Today `briar scaffold` and
-`briar plan run` open a `Session` and record `DecisionEvent`s; the
-session lands in `./journal/sessions/<YYYY-MM-DD>/<id>.json` (`file` is
-the only store). Use `journal` to read those sessions back.
+`briar journal` reads the **decision journal**: a record of the choices
+briar made during a run, and why. Each run is one **session**. A session
+holds a list of **decisions**, each with a name (such as
+`plan.run.card.completed`), a value, a reason, and sometimes the other
+options briar looked at.
 
-## Subcommands
+Only two commands write sessions:
 
-| Op | Purpose |
+- `briar plan run` (command name `plan.run`)
+- `briar scaffold implementation` and `briar scaffold pr-fixes`
+  (command names `scaffold.implementation` and `scaffold.pr-fixes`)
+
+No other command writes a session. A plain `briar agent implement` or
+`briar agent prfix` run does not, and nor do runbook tasks.
+
+It has three subcommands:
+
+| Subcommand | What it does |
 |---|---|
-| `list` | Enumerate stored sessions (newest first) |
-| `show` | Pretty-print one session as markdown |
-| `export` | Write one session to a file |
+| `list` | Lists sessions, newest first. |
+| `show <session_id>` | Prints one session as markdown. |
+| `export <session_id>` | Writes one session to a file, as markdown or JSON. |
 
-## When to use
-- Audit what a `plan run` did (every selector pick, every card result).
-- Recover the rationale for a card pick the LLM selector made.
-- Debug a `plan run` that exited with blocked cards — the failure
-  rationale is in the journal.
-- Hand a stakeholder a markdown summary of a session.
+## Where sessions are saved
 
-## Prerequisites
-- For `--store file` (default): `./journal/` (or `--root <path>`) exists.
-- For postgres backend: not shipping yet for journal store; only `file`.
+When `plan run` or `scaffold` runs, briar saves the session as JSON in
+`./journal/sessions/<YYYY-MM-DD>/<session_id>.json`, under the folder you
+ran it from. It also writes a markdown copy to
+`./journal/published/<session_id>.md`. A session ID is 12 letters and
+digits, such as `3f9c2a7b1d04`.
 
-## Commands
+These env vars change how sessions are written:
 
-### List recent sessions
+| Env var | What it does | Default |
+|---|---|---|
+| `BRIAR_JOURNAL` | Set to `off`, `0` or `no` to stop writing sessions. | on |
+| `BRIAR_JOURNAL_ROOT` | The folder where new sessions are saved. | `./journal` |
+| `BRIAR_JOURNAL_STORE` | The store for new sessions. Only `file` exists. | `file` |
+| `BRIAR_JOURNAL_SINKS` | Extra outputs, comma separated. Only `file` (the markdown copy) exists. | `file` |
 
-```bash
-briar journal list                          # newest first
-briar journal list --limit 50               # cap
-briar journal list --command plan.run       # filter by prefix
-briar journal list --command scaffold.      # all scaffold sessions
-```
+The `journal` commands read from `--root`. If you saved sessions with
+`BRIAR_JOURNAL_ROOT`, pass the same folder in `--root`.
 
-**The same with Docker:**
+## `briar journal list`
 
-```bash
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar journal list                          # newest first
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar journal list --limit 50               # cap
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar journal list --command plan.run       # filter by prefix
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar journal list --command scaffold.      # all scaffold sessions
-```
+### What it does
 
-One line per session: `<session_id>  <command> target=<target>
-decisions=<N>  started=<timestamp>`. `--limit` defaults to 50. Prints
-`(no sessions)` when the root is empty.
+Prints one line per session, newest first:
+`<session_id>  <command> target=<target>  decisions=<N>  started=<time>`.
+The target is `<plan>@<owner>/<repo>` for `plan.run`, and the
+`--prefix` value for `scaffold`. With no sessions, it prints `(no sessions)`.
 
-### Pretty-print one session
+### Use it when
+
+- You want to find the session of a `plan run` that just ended.
+- You want to see how many scaffold bundles were made, and when.
+
+### Examples
 
 ```bash
-briar journal show <SESSION_ID>
-
-# or with Docker:
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar journal show <SESSION_ID>
+# The 50 newest sessions.
+briar journal list
 ```
 
-Prints a markdown document with the session header + every decision
-event (choice, value, rationale, alternatives, artifacts).
-
-### Export to a file
+You get up to 50 lines, newest first.
 
 ```bash
-briar journal export <SESSION_ID> --out /tmp/<NAME>.md
-
-# or with Docker:
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar journal export <SESSION_ID> --out /tmp/<NAME>.md
+# Only plan run sessions, at most 10.
+briar journal list --command plan.run --limit 10
 ```
 
-### Find the session a specific plan run wrote
+You get the 10 newest `plan.run` sessions.
 
 ```bash
-briar journal list --command plan.run | grep <PLAN_NAME>
-
-# or with Docker:
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar journal list --command plan.run | grep <PLAN_NAME>
+# Only scaffold sessions (the dot matches both templates).
+briar journal list --command scaffold.
 ```
 
-The `target` is `<plan>@<owner>/<repo>` for `plan.run` and the
-`--prefix` value for `scaffold.<template>`.
+You get every `scaffold.implementation` and `scaffold.pr-fixes` session.
 
-## Choice names you'll see
+```bash
+# Find the runs of plan q3.
+briar journal list --command plan.run | grep "target=q3@"
+```
 
-| Choice | Written by |
+You get the `plan.run` sessions whose target starts with `q3@`, such as `q3@acme-co/acme-app`.
+
+### All parameters
+
+| Parameter | What it means | Default | Example |
+|---|---|---|---|
+| `--command` | Only show sessions whose command name starts with this text. | Empty (all sessions). | `--command plan.run` |
+| `--limit` | The most sessions to show. | `50` | `--limit 10` |
+| `--store` | The journal store. Only `file` exists. | `file` | `--store file` |
+| `--root` | The journal folder to read. | `./journal` | `--root ./journal` |
+
+## `briar journal show`
+
+### What it does
+
+Prints one session as markdown: a title with the command and target,
+the session ID, start and end time, then one block per decision with
+its value, reason, other options and time.
+
+### Use it when
+
+- A `plan run` stopped and you want to know why.
+- You want to see which card the plan picked and its reason.
+
+### Examples
+
+```bash
+# Read one session.
+briar journal show 3f9c2a7b1d04
+```
+
+You get the session as markdown in your terminal.
+
+```bash
+# Read a session saved in another folder.
+briar journal show 3f9c2a7b1d04 --root /srv/briar/journal
+```
+
+You get the same view, read from `/srv/briar/journal`.
+
+```bash
+# Show the newest plan run, without copying its ID by hand.
+ID=$(briar journal list --command plan.run --limit 1 | cut -d' ' -f1)
+briar journal show "$ID"
+```
+
+You get the newest `plan.run` session. If there is none, `list` prints `(no sessions)` and `show` fails.
+
+### All parameters
+
+| Parameter | What it means | Default | Example |
+|---|---|---|---|
+| `session_id` (positional) | The session to print. Required. | none | `3f9c2a7b1d04` |
+| `--store` | The journal store. Only `file` exists. | `file` | `--store file` |
+| `--root` | The journal folder to read. | `./journal` | `--root /srv/briar/journal` |
+
+## `briar journal export`
+
+### What it does
+
+Writes one session to a file, or to stdout. Markdown is the same text as
+`show`, where long values are cut at 80 characters and nested values
+show as `{…}`. JSON is the full raw session, with nothing cut short.
+
+### Use it when
+
+- You want to paste a run summary into a PR or a ticket.
+- A script needs the raw data of a session.
+
+### Examples
+
+```bash
+# Save a session as markdown.
+briar journal export 3f9c2a7b1d04 --out q3-run.md
+```
+
+You get the file `q3-run.md` and the line `wrote q3-run.md` on stderr.
+
+```bash
+# Print the raw JSON and read one field with jq.
+briar journal export 3f9c2a7b1d04 --as json | jq '.decisions | length'
+```
+
+You get the number of decisions in the session.
+
+```bash
+# Save the raw JSON to a file.
+briar journal export 3f9c2a7b1d04 --as json --out q3-run.json
+```
+
+You get `q3-run.json` with the whole session.
+
+### All parameters
+
+| Parameter | What it means | Default | Example |
+|---|---|---|---|
+| `session_id` (positional) | The session to export. Required. | none | `3f9c2a7b1d04` |
+| `--as` | The format: `markdown` or `json`. | `markdown` | `--as json` |
+| `--out` | The file to write. `-` means stdout. | `-` (stdout) | `--out q3-run.md` |
+| `--store` | The journal store. Only `file` exists. | `file` | `--store file` |
+| `--root` | The journal folder to read. | `./journal` | `--root ./journal` |
+
+## Decision names you will see
+
+| Decision | Written when |
 |---|---|
-| `plan.run.start` | `briar plan run` loop entry |
-| `plan.next.decision` | Every selector call (action + rationale) |
-| `plan.run.card.start` | A card pick begins |
-| `plan.run.card.completed` | Card succeeded (rc=0) |
-| `plan.run.card.failed` | Card failed (rc≠0) |
-| `plan.replan.requested` | Selector returned REPLAN |
-| `plan.run.stopped` | Loop terminated (`limit_reached`, `selector_error`, `first_failure`, `replan_cap`, `blocked`) |
-| `plan.run.completed` | Selector reported every card done (`all_done`) |
-| `scaffold.*` | `briar scaffold` decisions (`scaffold.template`, `.sources`, `.archetype`, `.shape`, `.trigger`, `.tools.filtered`, `.output`) |
+| `plan.run.start` | `plan run` starts. |
+| `plan.next.decision` | The plan picks its next step (with its reason). |
+| `plan.run.card.start` | Work on a card begins. |
+| `plan.run.card.completed` | A card's agent run ended with code 0. |
+| `plan.run.card.failed` | A card's agent run ended with another code. |
+| `plan.replan.requested` | The plan asked to be rebuilt. |
+| `plan.run.stopped` | The loop stopped. The value says why: `limit_reached`, `selector_error`, `blocked`, `replan_cap` or `first_failure`. |
+| `plan.run.completed` | Every card is done (value `all_done`). |
+| `scaffold.template` | The template you picked. |
+| `scaffold.sources` | The `--source` values. |
+| `scaffold.archetype` | The agent role. |
+| `scaffold.shape` | The workflow shape. |
+| `scaffold.trigger` | The trigger kind. |
+| `scaffold.tools.filtered` | How many tools the role kept and dropped. |
+| `scaffold.output` | How many agents, tools and sources the bundle has. |
 
-## Verifying success
+## Good to know
 
-`list`:
-1. Exit `0`.
-2. Output has at least one row if you've run `scaffold` or `plan run`
-   with this journal root.
-
-`show`:
-1. Exit `0`.
-2. Output includes the session header and at least one decision.
-
-`export`:
-1. Exit `0`.
-2. The file exists and is non-empty.
-
-## Common failures
-
-| Symptom | Fix |
-|---|---|
-| `journal list` is empty | Either no sessions yet, or you're pointing at the wrong root. Check `--root` |
-| Need JSON from `journal export` | Use `--as json` (not `--format json`, which is the global output flag): `briar journal export <id> --as json` |
-| Session shows up but `show` says "not found" | `--root` mismatch between the writer and reader. `briar journal list --root <X>` and `briar journal show --root <X> <id>` must agree |
-| Decision artifacts truncated | The journal stores everything verbatim; rendering may truncate. Use `briar journal export <id> --as json` for raw |
+- `session '<id>' not found` (exit code 1) usually means `--root` points
+  at the wrong folder. Sessions live under the folder where `plan run`
+  or `scaffold` ran.
+- `.briar.toml` can change these defaults by mistake. Its `root` key sets
+  `--root` for `journal` too, and its `store` key sets `--store`. With
+  `root = "./knowledge"`, `journal list` looks in the wrong folder. With
+  `store = "postgres"`, it fails with `unknown journal store 'postgres'`.
+  Pass `--root ./journal --store file` to fix both.
+- Use `--as json`, not `--format json`. `--format` is the global output
+  flag, and `export` does not use it.
+- Sessions are only added, never changed. Do not edit the JSON files by hand.

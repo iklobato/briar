@@ -1,189 +1,271 @@
 # `briar telemetry`
 
-## Purpose
-Inspect and configure the CLI's opt-out error + usage analytics that
-flow to Sentry. The package is `briar.telemetry`; this command is the
-only operator-facing knob.
+briar sends anonymous usage data and error reports to Sentry (an error
+tracking service), to help fix bugs. `briar telemetry` shows what is
+sent and lets you turn it down or off.
 
-## When to use
-- First run on a new host — confirm the banner appeared and `status`
-  reflects the choice.
-- Auditing what's actually being sent (`preview`).
-- Disabling telemetry for a CI container or restricted environment.
-- Rotating the anonymous identity (`reset`).
+There are three **tiers** (levels):
 
-## Prerequisites
-None. The command never touches the network on its own — it only
-reads / writes the local state file at `$XDG_CONFIG_HOME/briar/`.
-
-## What gets sent (every event)
-
-| Tag | What | Why |
-|---|---|---|
-| `command` | Top-level command name (e.g. `plan`, `agent`) | Find which flows error / are popular |
-| `outcome` | `ok` / `error` / `interrupt` / `preview` | Coarse success signal |
-| `duration_ms` | Wall-clock milliseconds | Catch regressions |
-| `install_id` | SHA-256 prefix of a local random UUID (16 hex chars) | De-dup installs without identifying anyone |
-| `briar_version` / `python_version` / `os_name` / `os_release` | Build/runtime fingerprint | Reproduce bugs |
-| `flags_present` | Comma-joined **flag names only** (e.g. `llm,company,owner`) | Discover which flags people use |
-| Error fields | `error_type` / scrubbed `error_message` (only on error events) | Triage real bugs |
-
-## What NEVER gets sent
-
-This list is enforced by `briar.telemetry._scrubber.Scrubber` and covered by the tests in `tests/unit/telemetry/test_scrubber.py`:
-
-- Flag VALUES (ticket keys, repo names, board URLs, file paths, project keys)
-- LLM prompts or completions
-- File contents (Read / Write / Edit tool I/O)
-- Diffs or commit bodies
-- Env-var values
-- Username, hostname, IP, home directory path
-- Anything matching common credential regexes (AWS keys, GitHub PATs, Anthropic keys, OpenAI keys, Slack tokens, JWTs, PEM)
-- Absolute filesystem paths (replaced with `<path>` inline)
-- Any string longer than 1 KB (truncated with marker)
-- Local-variable frames in tracebacks (`include_local_variables=False`)
-- HTTP request/url breadcrumbs the Sentry SDK might pick up
-
-## Sub-ops
-
-| Op | What it does |
+| Tier | What is sent |
 |---|---|
-| `status` | Print current tier, source (env / config-file / do-not-track / default), hashed install_id, `dsn_configured`, paths |
-| `preview --for-command <name>` | Print the exact JSON event that would be sent for one run. **No network call** |
-| `off` | Disable telemetry. Persists to the state file |
-| `errors-only` | Sentry crash reports only; no usage analytics |
-| `full` | Errors + usage analytics (the default) |
-| `reset` | Regenerate the install_id — rotates the anonymous identity |
+| `full` (default) | One usage event per command run, and error reports. |
+| `errors-only` | Error reports only. |
+| `off` | Nothing. |
 
-## Commands
+It has six subcommands:
 
-### See the current state
+| Subcommand | What it does |
+|---|---|
+| `status` | Shows the current tier and where that choice came from. |
+| `preview` | Prints the exact event briar would send. Sends nothing. |
+| `off` | Turns telemetry off and saves that choice. |
+| `errors-only` | Sends error reports only, and saves that choice. |
+| `full` | Sends usage events and error reports, and saves that choice. |
+| `reset` | Makes a new anonymous install ID. |
+
+## What is sent
+
+Each event carries only these fields:
+
+| Field | What it holds |
+|---|---|
+| `command` | The top-level command name, such as `plan` or `extract`. |
+| `outcome` | `ok`, `error` or `interrupt` (you pressed Ctrl-C). |
+| `duration_ms` | How long the command took, in milliseconds. |
+| `exit_code` | The exit code, only when the command ended through an early exit. |
+| `install_id` | The first 16 hex characters of a SHA-256 hash of a random ID made on your machine. The raw ID never leaves your machine. |
+| `briar_version`, `python_version`, `os_name`, `os_release` | The briar version, Python version, OS name and OS release. |
+| `flags_present` | The **names** of the options that had a value in this run, such as `company,format,store`. Never the values. Defaults count too. |
+| `error_type`, `error_message` | Error events only: the error class (such as `CliError`) and the error text after cleaning (see below). |
+
+Sentry also gets the release (`briar-cli@1.1.72`) and the environment
+(`production`, or the value of `$BRIAR_ENV`).
+
+An error event is sent when a command stops with an error. Most
+`error: ...` messages are this kind. In the `errors-only` tier these are
+the only events sent.
+
+## What is never sent
+
+- Option values: ticket keys, repo names, board URLs, file paths, project keys.
+- Prompts to the AI model, or its answers.
+- File contents, diffs, commit messages.
+- Env var values.
+- Your user name, host name, IP address or home folder.
+- Breadcrumbs, request data, local variables in stack traces, and the
+  list of installed Python packages.
+
+Before anything is sent, briar cleans every field:
+
+- Fields not in the list above are dropped.
+- A value that looks like a secret becomes `<redacted-secret>`. That
+  covers AWS access keys, GitHub tokens, Anthropic and OpenAI keys,
+  Slack tokens, private keys and JWT-like strings.
+- Absolute file paths inside a value become `<path>`.
+- Values longer than 1024 characters are cut and end with `...<truncated>`.
+
+## How briar picks the tier
+
+briar checks these in order. The first one that is set wins.
+
+1. `DO_NOT_TRACK=1` in the environment: telemetry is `off`.
+2. `BRIAR_TELEMETRY=off`, `errors-only` or `full` in the environment.
+3. The saved choice in `$XDG_CONFIG_HOME/briar/telemetry.json` (usually
+   `~/.config/briar/telemetry.json`). The `off`, `errors-only` and
+   `full` subcommands write this file.
+4. The default: `full`.
+
+The first time briar runs, it prints a short notice about telemetry to
+stderr, then saves that it did. The notice does not show when you set
+`DO_NOT_TRACK` or `BRIAR_TELEMETRY`.
+
+## `briar telemetry status`
+
+### What it does
+
+Prints the current settings as JSON.
+
+### Use it when
+
+- You want to know if telemetry is on, and why.
+- You set an env var and want to confirm briar sees it.
+
+### Examples
 
 ```bash
+# Show the current tier and its source.
 briar telemetry status
-briar telemetry status --format json
 ```
 
-**The same with Docker:**
+You get JSON with these fields: `tier`, `source` (`do-not-track`, `env`,
+`config-file` or `default`), `enabled`, `install_id_hashed`,
+`dsn_configured`, `default_dsn_set`, `state_path`, `install_id_path` and
+`config_dir`.
 
 ```bash
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar telemetry status
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar telemetry status --format json
+# The same as YAML.
+briar telemetry status --format yaml
 ```
 
-### Inspect exactly what would be sent
+You get the same fields as YAML.
+
+### All parameters
+
+`status` has no flags of its own. The global `--format` flag works (see [setup.md](setup.md)).
+
+## `briar telemetry preview`
+
+### What it does
+
+Builds the event a command run would send right now, and prints it as
+JSON. It sends nothing.
+
+### Use it when
+
+- You want to check what briar sends before you decide on a tier.
+- You worry that something private would leave your machine.
+
+### Examples
 
 ```bash
-briar telemetry preview --for-command plan.run
-
-# or with Docker:
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar telemetry preview --for-command plan.run
+# Show the event for a made-up command name.
+briar telemetry preview
 ```
 
-Returns a JSON object. Pipe to `jq` to inspect. Nothing is sent over
-the network.
-
-### Disable everything
+You get JSON with `kind`, `command` (here `(preview)`), `outcome`
+(`preview`), `duration_ms` (`0`), empty `error_type` and `error_message`,
+and the `tags` field list.
 
 ```bash
+# Show the event as if the command were "plan".
+briar telemetry preview --for-command plan
+```
+
+You get the same JSON with `command` set to `plan`.
+
+### All parameters
+
+| Parameter | What it means | Default | Example |
+|---|---|---|---|
+| `--for-command` | The command name to put in the sample event. It is only a label. | `(preview)` | `--for-command extract` |
+
+### Good to know
+
+- The sample has no `flags_present` field, because no real command ran.
+  A real event lists the option names of that run.
+- `preview` always prints JSON. `--format` does not change it.
+
+## `briar telemetry off`, `errors-only` and `full`
+
+### What they do
+
+Each one saves a tier in `telemetry.json`. They print the new tier and
+the file path as JSON.
+
+### Use it when
+
+- You do not want briar to send anything: `off`.
+- You only want to help with crashes: `errors-only`.
+- You want to go back to the default: `full`.
+
+### Examples
+
+```bash
+# Turn telemetry off for good on this machine.
 briar telemetry off
-# or, for a single invocation:
-BRIAR_TELEMETRY=off briar plan ...
-# or, industry-standard:
-DO_NOT_TRACK=1 briar plan ...
 ```
 
-**The same with Docker:**
+You get `{"tier": "off", "state_path": "..."}`.
 
 ```bash
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar telemetry off
-# or, for a single invocation:
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    -e BRIAR_TELEMETRY iklob1/briar plan ...
-# or, industry-standard:
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    -e DO_NOT_TRACK iklob1/briar plan ...
-```
-
-### Opt into the errors-only tier
-
-```bash
+# Send error reports only.
 briar telemetry errors-only
-
-# or with Docker:
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar telemetry errors-only
 ```
 
-Sentry receives crash reports + error-policy decisions; nothing else.
-
-### Re-enable the default (errors + usage)
+You get `{"tier": "errors-only", ...}`.
 
 ```bash
+# Back to the default.
 briar telemetry full
-
-# or with Docker:
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar telemetry full
 ```
 
-### Rotate your anonymous identity
+You get `{"tier": "full", ...}`.
+
+To turn it off for one run only, set an env var instead:
 
 ```bash
-briar telemetry reset
-# next event carries a different install_id; previous events are
-# orphaned from your future activity
-
-# or with Docker:
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar telemetry reset
+DO_NOT_TRACK=1 briar context list
+BRIAR_TELEMETRY=off briar context list
 ```
 
-## Configuration precedence (highest first)
+You get a normal run with nothing sent.
 
-1. `DO_NOT_TRACK=1` — always wins, source `do-not-track`.
-2. `BRIAR_TELEMETRY={off,errors-only,full}` — env override, source `env`.
-3. State file at `$XDG_CONFIG_HOME/briar/telemetry.json` — set by the `briar telemetry off/errors-only/full` subcommands.
-4. Default: `full` — source `default`.
+### All parameters
+
+These three subcommands have no flags of their own.
+
+### Good to know
+
+- The tier is read when the command starts. So `briar telemetry off`
+  itself is still counted under the old tier: one last usage event if
+  that tier was `full`. To send nothing at all, run
+  `DO_NOT_TRACK=1 briar telemetry off`.
+- An env var beats the saved file. If `BRIAR_TELEMETRY=full` is set,
+  `briar telemetry off` saves `off`, but `status` still shows `full`
+  with source `env`.
+
+## `briar telemetry reset`
+
+### What it does
+
+Deletes your install ID and makes a new random one. Events sent after
+this can no longer be linked to events sent before. It prints
+`rotated`, the new hashed ID and the file path.
+
+### Use it when
+
+- You want a fresh anonymous ID, for example on a cloned machine image.
+
+### Examples
+
+```bash
+# Make a new anonymous ID.
+briar telemetry reset
+```
+
+You get JSON with `"rotated": true` and the new `install_id_hashed`.
+
+```bash
+# Confirm the new ID.
+briar telemetry status
+```
+
+You get the same `install_id_hashed` value that `reset` printed.
+
+### All parameters
+
+`reset` has no flags of its own.
 
 ## Where the data goes
 
-Sentry. The DSN is hardcoded into the briar package (this is normal
-for OSS CLIs — Sentry DSNs are public-by-design). Override with
-`BRIAR_SENTRY_DSN` if your org runs a self-hosted Sentry / relay.
+Events go to briar's Sentry project. Its address (the DSN) is built into
+briar. Set `BRIAR_SENTRY_DSN` to send events to your own Sentry server
+instead. An empty `BRIAR_SENTRY_DSN` falls back to the built-in one, so
+use a tier or `DO_NOT_TRACK=1` to stop sending.
 
-If the hardcoded DSN is empty AND `BRIAR_SENTRY_DSN` is unset, telemetry
-silently no-ops — no errors, no network traffic, `status` still reflects
-your tier choice.
+## Good to know
 
-## Verifying success
-
-After `off` / `errors-only` / `full`:
-1. `briar telemetry status --format json` reports the expected tier with `source: config-file`.
-2. State file at `$XDG_CONFIG_HOME/briar/telemetry.json` contains the new tier.
-
-After `preview`:
-1. The printed JSON has only the allow-listed tags (see "What gets sent" above).
-2. No tags appear with secret-shaped values.
-
-## Common failures
-
-| Symptom | Fix |
-|---|---|
-| Banner re-prints every time | `$XDG_CONFIG_HOME/briar/telemetry.json` isn't being written — likely read-only home. Either fix permissions or set `BRIAR_TELEMETRY` in your shell to suppress the banner |
-| `status` shows `tier=full` but no events in Sentry | Either the DSN isn't configured (`dsn_configured: false` in `status`) — check the hardcoded value or set `BRIAR_SENTRY_DSN` — or the network can't reach Sentry from your host |
-| Worried something sensitive was sent | Run `briar telemetry preview --for-command <command>` — if the printed JSON doesn't have what you're worried about, neither did the real send. The scrubber runs unconditionally for both paths |
-| Need to wipe local telemetry state | `rm $XDG_CONFIG_HOME/briar/telemetry.json $XDG_CONFIG_HOME/briar/install_id` (not the whole dir: it also holds `secrets.env`). Next run re-shows the banner |
+- The telemetry files live in `$XDG_CONFIG_HOME/briar/` (usually
+  `~/.config/briar/`): `telemetry.json` holds the tier, `install_id`
+  holds the raw ID. Both have mode `0600`.
+- To start over, delete those two files. The notice shows again on the
+  next run. Do not delete the whole folder: it can also hold your
+  `secrets.env`.
+- If the notice shows on every run, briar cannot write `telemetry.json`
+  (for example, a read-only home folder). Set `BRIAR_TELEMETRY` in your
+  shell instead.
+- If `status` says `dsn_configured: true` but nothing reaches Sentry,
+  your network may block it.
+- `DO_NOT_TRACK=1` and `BRIAR_TELEMETRY=off` also turn off the daily
+  "new version available" check. `BRIAR_NO_UPDATE_CHECK=1` turns off only
+  that check.
