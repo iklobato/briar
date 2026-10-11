@@ -8,10 +8,12 @@ tests pin that merge and the opt-out paths.
 
 from __future__ import annotations
 
+import sys
 from types import SimpleNamespace
 
-
+import pytest
 from briar.commands.agent import CommandAgent
+from briar.mcp import McpClientManager, McpError
 from briar.mcp.defaults import DEFAULT_MCP_SERVERS
 
 
@@ -49,11 +51,7 @@ def test_env_opt_out_drops_defaults(monkeypatch) -> None:
     assert always_on == ()
 
 
-def test_runbook_servers_merge_over_defaults(tmp_path, monkeypatch) -> None:
-    # A runbook adds `aws` (new) and overrides `think` (reuses the handle).
-    runbook = tmp_path / "rb.yaml"
-    runbook.write_text(
-        """
+_RUNBOOK_WITH_AWS_AND_THINK = """
 companies:
   acme:
     mcp:
@@ -67,9 +65,40 @@ companies:
         command: my-think
         args: []
         purpose: "custom thinker"
-""",
-        encoding="utf-8",
-    )
+"""
+
+
+@pytest.fixture
+def mcp_sdk_missing(monkeypatch):
+    """A plain `pip install briar-cli` (no `[mcp]` extra): `import mcp` fails."""
+    monkeypatch.setitem(sys.modules, "mcp", None)
+
+
+def test_missing_sdk_skips_builtin_defaults(mcp_sdk_missing) -> None:
+    # Regression: the defaults used to stay in, and McpClientManager then
+    # aborted every agent run (even --dry-run) with "requires the `mcp` package".
+    servers, always_on = CommandAgent._load_mcp_block(_args())
+    assert servers == {}
+    assert always_on == ()
+
+
+def test_missing_sdk_keeps_runbook_servers_so_they_still_fail_loudly(mcp_sdk_missing, tmp_path) -> None:
+    runbook = tmp_path / "rb.yaml"
+    runbook.write_text(_RUNBOOK_WITH_AWS_AND_THINK, encoding="utf-8")
+    servers, always_on = CommandAgent._load_mcp_block(_args(runbook=str(runbook)))
+
+    # Only what the operator asked for: the runbook's two servers, no default `time`.
+    assert set(servers) == {"aws", "think"}
+    assert servers["think"].command == "my-think"
+    assert always_on == ()
+    with pytest.raises(McpError, match=r"briar-cli\[mcp\]"):
+        McpClientManager(servers).start()
+
+
+def test_runbook_servers_merge_over_defaults(tmp_path, monkeypatch) -> None:
+    # A runbook adds `aws` (new) and overrides `think` (reuses the handle).
+    runbook = tmp_path / "rb.yaml"
+    runbook.write_text(_RUNBOOK_WITH_AWS_AND_THINK, encoding="utf-8")
     servers, always_on = CommandAgent._load_mcp_block(_args(runbook=str(runbook)))
 
     assert set(servers) == {"think", "time", "aws"}

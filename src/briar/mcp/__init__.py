@@ -8,7 +8,7 @@ See `briar.iac.runbook.models.McpServerBinding` for the config schema.
 from __future__ import annotations
 
 from briar.mcp._errors import McpError
-from briar.mcp._manager import McpClientManager
+from briar.mcp._manager import McpClientManager, sdk_installed
 from briar.mcp._tool import McpTool
 
-__all__ = ["McpClientManager", "McpError", "McpTool"]
+__all__ = ["McpClientManager", "McpError", "McpTool", "sdk_installed"]
