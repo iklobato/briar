@@ -17,6 +17,20 @@ LABEL io.modelcontextprotocol.server.name="io.github.iklobato/briar"
 COPY dist/ /tmp/dist/
 RUN whl="$(ls /tmp/dist/*.whl)" && pip install --no-cache-dir "${whl}[mcp]" && rm -rf /tmp/dist
 
+# `briar agent` and `plan run` clone, commit and push with git and open or
+# read PRs with gh; without them every agent run fails inside the image.
+# After cloning, briar strips the token from `origin`, so pushes to GitHub
+# authenticate through gh, which reads GITHUB_TOKEN from the environment.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git gh \
+    && rm -rf /var/lib/apt/lists/* \
+    && git config --system credential.https://github.com.helper '!gh auth git-credential'
+
+# The built-in think/time MCP servers need npx and uvx, which the image does
+# not ship; skip them instead of warning on every run. `-e
+# BRIAR_NO_DEFAULT_MCP=0` turns them back on for a derived image that adds them.
+ENV BRIAR_NO_DEFAULT_MCP=1
+
 # Drop privileges — the CLI never needs root.
 RUN useradd --create-home --uid 1000 briar
 USER briar
