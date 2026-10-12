@@ -29,7 +29,7 @@ briar
 │   ├── sweep   <dir>                  every *.yaml in dir, one pass
 │   └── serve   <dir>                  long-running scheduler (cron replacement)
 ├── agent                         — autonomous LLM flows
-│   ├── prfix                          address open review comments + CI failures on a PR
+│   ├── prfix                          address open review comments on a PR (sees failing CI logs as context only)
 │   └── implement                      implement one tracker ticket end-to-end
 ├── plan                          — LLM-driven implementation plans
 │   ├── build <board>                  fetch board, synthesize cards, persist plan
@@ -771,7 +771,7 @@ Common: `--store`, `--root`, `--company`. `clear` adds `--yes`; `status` adds
 | `--limit <N>` | | 0 (unlimited) |
 | `--continue-on-failure` | | off |
 | `--max-replans <N>` | | 3 |
-| `--dry-run` | | off |
+| `--dry-run` | | off (each card's implement gets `--dry-run`; the saved plan, the knowledge writeback and the `plan.run` history stay unchanged; session journaled as `plan.dry-run`) |
 | `--store` / `--root` | | the plan store; `--root` is also the per-card implement's knowledge root (no separate `--knowledge`) |
 | `--model` | | model for the selector and knowledge writer; reaches the per-card agent only with `--llm anthropic` (the agent always runs on Anthropic) |
 | `--max-iter` / `--git-user-name` / `--git-user-email` / `--keep-worktree` / `--runbook` / `--meeting*` / `--slack*` | | passes through to implement |

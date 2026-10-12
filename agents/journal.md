@@ -8,7 +8,8 @@ options briar looked at.
 
 Only two commands write sessions:
 
-- `briar plan run` (command name `plan.run`)
+- `briar plan run` (command name `plan.run`; `plan.dry-run` with
+  `--dry-run`, since 1.1.81)
 - `briar scaffold implementation` and `briar scaffold pr-fixes`
   (command names `scaffold.implementation` and `scaffold.pr-fixes`)
 
