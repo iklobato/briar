@@ -5,8 +5,10 @@
 > reference. When something here disagrees with the code, the **code
 > wins** — re-verify with the snippet in §13 and update this file.
 >
-> **Last verified against:** `briar-cli 1.1.56` (registry & flag snapshot
-> taken from the source tree at that version).
+> **Last verified against:** `briar-cli 1.1.79` for §3, §9, §10 and §11
+> (registry snapshot, `-h` of every command, code); §1, §2, §4 to §8 and
+> §12 were not rechecked (still the 1.1.56 snapshot, except the new Docker
+> note in §12).
 >
 > **Boundaries.** Names listed in §3 are **runtime-validated** — every
 > `name:` in a runbook YAML, every `--<flag> <value>` choice, every
@@ -621,13 +623,13 @@ are given):
 
 | Flag | Concept | Default |
 |---|---|---|
-| `--repo <slug>` | repo/project list (repeatable); also the tracker `project` for `active-tickets` / `ticket-archaeology` | — |
+| `--repo <slug>` | repo/project list (repeatable); also the tracker `project` for `active-tickets` / `ticket-archaeology`, but only with `--tracker github-issues` or `bitbucket-issues` (a Jira key or Linear team is never `owner/repo`) | (none) |
 | `--since-days <N>` | history lookback window | per-extractor (below) |
 | `--max <N>` | max items / commits / alerts per repo | per-extractor (below) |
 | `--top-n <N>` | results surfaced per repo | per-extractor (below) |
 | `--sample <N>` | recent PRs sampled per repo | per-extractor (below) |
 | `--authors-allow` / `--authors-block` | author allow/block (repeatable; allow ∩ ¬block) | — |
-| `--assignees-allow` / `--assignees-block` | assignee allow/block (repeatable) | — |
+| `--assignees-allow` / `--assignees-block` | assignee allow/block (repeatable); an item with no assignee (every Bitbucket PR) fails an allow-list | (none) |
 
 **Per-extractor defaults** (the value a canonical flag overrides when unset):
 
@@ -660,7 +662,7 @@ are given):
 | `--prhygiene-large-loc <N>` | `pr-hygiene` "large PR" LOC cutoff | 400 |
 | `--aws-extract-region <region>` | `aws-infra` | `us-east-1` |
 | `--aws-extract-service <svc>` | `aws-infra` (repeatable; ecs/lambda/logs/rds/sqs/tagging-inventory) | (all) |
-| `--aws-extract-profile <name>` | `aws-infra` | — |
+| `--aws-extract-profile <name>` | `aws-infra` | (none): `AWS_<COMPANY>_*` keys, else a `~/.aws` profile named after the company, else the default boto3 chain |
 | `--meeting-attendee-allow <email>` | `meeting-digest` (repeatable) | — |
 
 **Legacy per-extractor flags** (`--pr-repo`, `--risk-since-days`,
@@ -697,10 +699,10 @@ No subcommand-specific flags.
 | `--root <dir>` (deprecated alias `--knowledge`) | | `./knowledge` |
 | `--dry-run` | | off |
 | `--model <name>` | | provider default |
-| `--max-iter <N>` | | — |
+| `--max-iter <N>` | | 0, which means `AgentRunner.DEFAULT_MAX_ITERATIONS` (30) |
 | `--git-user-name` / `--git-user-email` | | CLI > YAML > local `git config` (outside CI) |
 | `--keep-worktree` | | off |
-| `--no-default-mcp` | | off (also `BRIAR_NO_DEFAULT_MCP`; skips the built-in think/time MCP servers) |
+| `--no-default-mcp` | | off (also `BRIAR_NO_DEFAULT_MCP`; skips the built-in think/time MCP servers). Without the `mcp` package they are skipped anyway, with one warning; runbook `mcp:` servers still fail (`error:` line, exit 1) |
 | `--meeting-key <id>` | | — |
 | `--meeting-query <text>` | | `<owner>/<repo>#<pr>` |
 | `--slack-query <text>` | | `<owner>/<repo>#<pr>` |
@@ -734,6 +736,7 @@ Same as `prfix` but uses ticket identity:
 | `--print` | | off |
 | `--dry-run` | | off (implies `--print`) |
 | `--store {file,postgres}` | | `postgres` if `BRIAR_DATABASE_URL` set, else `file` |
+| `--root <dir>` | | `./knowledge` |
 | `--company <name>` | | — |
 
 ### `briar plan show <name>` / `list` / `status <name>` / `clear <name>`
@@ -753,6 +756,7 @@ Common: `--store`, `--root`, `--company`. `clear` adds `--yes`; `status` adds
 |---|---|---|
 | `--card <key>` | ✓ | — |
 | `--status {pending,in_progress,done,blocked}` | | `done` |
+| `--store` / `--root` / `--company` | | as `plan show` |
 
 ### `briar plan run <name>`
 | Flag | Required | Default |
@@ -769,20 +773,22 @@ Common: `--store`, `--root`, `--company`. `clear` adds `--yes`; `status` adds
 | `--max-replans <N>` | | 3 |
 | `--dry-run` | | off |
 | `--store` / `--root` | | the plan store; `--root` is also the per-card implement's knowledge root (no separate `--knowledge`) |
-| `--model` / `--max-iter` / `--git-user-name` / `--git-user-email` / `--keep-worktree` / `--runbook` / `--meeting*` / `--slack*` | | passes through to implement |
+| `--model` | | model for the selector and knowledge writer; reaches the per-card agent only with `--llm anthropic` (the agent always runs on Anthropic) |
+| `--max-iter` / `--git-user-name` / `--git-user-email` / `--keep-worktree` / `--runbook` / `--meeting*` / `--slack*` | | passes through to implement |
+| (no `--no-default-mcp`) | | set `BRIAR_NO_DEFAULT_MCP=1` to skip the think/time servers for every card |
 | `--journal-store {file}` / `--journal-root <dir>` | | `file` / `./journal` |
 
 ### `briar scaffold implementation` / `pr-fixes`
 | Flag | Default / Notes |
 |---|---|
 | `--prefix <name>` | required |
-| `--source {github,bitbucket,jira,aws,sentry}` | repeatable |
+| `--source {github,bitbucket,jira,aws,sentry}` | repeatable (default `github`) |
 | `--archetype <name>` | `engineer` (default) / `pr-fixer` (pr-fixes default) / `pr-ci-fixer` / `pr-conflict-resolver` / `triager` |
 | `--shape <name>` | `plan-approve-act` (implementation default) / `one-shot` (pr-fixes default) / `triage` |
-| `--trigger-kind <name>` | `github_webhook` / `bitbucket_webhook` / `schedule_cron` / `manual` |
+| `--trigger-kind <name>` | `github_webhook` (implementation default) / `schedule_cron` (pr-fixes default, hourly) / `bitbucket_webhook` / `manual` |
 | `--auth-mode {oauth,pat}` | default `oauth`. Sentry always requires PAT. |
 | `--company <name>` | splice the company's knowledge into the agent prompt |
-| `--out <path>` | default stdout |
+| `--out <path>` / `-o` | default stdout |
 | `--owner` / `--repo` | when `--source github` |
 | `--bitbucket-workspace` / `--bitbucket-repo` | when `--source bitbucket` |
 | `--jira-project` / `--jira-jql` | when `--source jira` |
@@ -790,7 +796,7 @@ Common: `--store`, `--root`, `--company`. `clear` adds `--yes`; `status` adds
 | `--sentry-org` / `--sentry-project` / `--sentry-environment` / `--sentry-level` / `--sentry-query` | when `--source sentry` |
 | `--github-secret-id` / `--bitbucket-secret-id` / `--jira-secret-id` / `--sentry-secret-id` | with `--auth-mode pat` (Sentry: always) |
 | `--authors-allow` / `--authors-block` / `--assignees-allow` / `--assignees-block` | shared issue filters — apply to every `--source` (repeatable). Per-source `--jira-authors-allow` etc. still parse (hidden) and override |
-| `--model` / `--llm-provider-key` | LLM defaults baked into the bundle |
+| `--model` / `--llm-provider-key` | LLM defaults baked into the bundle (`claude-sonnet-4-6` / `anthropic`) |
 | `--schedule "<cron>"` | with `--trigger-kind schedule_cron` (default `0 * * * *`) |
 | `--webhook-events` / `--webhook-labels` | GitHub webhook trigger (defaults `issues.opened, issues.labeled` / `briar`) |
 | `--bitbucket-webhook-events` / `--bitbucket-webhook-labels` | Bitbucket webhook trigger (defaults `issue:created, issue:updated` / `briar`) |
@@ -824,12 +830,12 @@ Subcommand flags:
 | `--once` | render once + exit |
 
 ### `briar auth <subcommand>`
-| Subcommand | Required flags / args |
-|---|---|
 The credential store flag is `--cred-store <kind>` (the deprecated alias
 `--store` still works, hidden, and prints a one-line note); it is named
 distinctly so it never clashes with the knowledge-store `--store`.
 
+| Subcommand | Required flags / args |
+|---|---|
 | `login <target>` | `target` (positional, required); `--company <name>` (for EXTERNAL targets); `--cred-store <kind>` (default `$BRIAR_DEFAULT_STORE` or `envfile`) |
 | `logout <target>` | `--company`, `--cred-store`, `--yes` |
 | `refresh <target>` | `--company`, `--cred-store` |
@@ -849,11 +855,15 @@ Acquirer destination policy:
 ### `briar journal <subcommand>`
 | Subcommand | Flags |
 |---|---|
-| `list` | `--command <prefix>`, `--limit <N>` |
+| `list` | `--command <prefix>`, `--limit <N>` (default 50) |
 | `show <id>` | — |
 | `export <id>` | `--as {markdown,json}` (default `markdown`), `--out <path>` (`-` = stdout) |
 
-Common: `--store {file}`, `--root <dir>`. Defaults match `BRIAR_JOURNAL_STORE` / `BRIAR_JOURNAL_ROOT`.
+Common: `--store {file}`, `--root <dir>`, defaults `file` / `./journal`. The
+flags do not read `BRIAR_JOURNAL_STORE` / `BRIAR_JOURNAL_ROOT`. They do take
+`store` / `root` from `.briar.toml` (and `BRIAR_STORE`), so a project with
+`store = "postgres"` gets `error: unknown journal store 'postgres'` unless you
+pass `--store file`.
 
 ### `briar mcp serve`
 | Flag | Default |
@@ -887,7 +897,7 @@ and asks you at the terminal before any tool that changes things runs.
 | Subcommand | Effect |
 |---|---|
 | `status` | print current mode |
-| `preview` | dry-run the next planned event |
+| `preview [--for-command <name>]` | dry-run the next planned event (`--for-command` default `(preview)`) |
 | `off` | disable telemetry |
 | `errors-only` | crash reports only |
 | `full` | errors + usage |
@@ -901,7 +911,7 @@ and asks you at the terminal before any tool that changes things runs.
 
 | Flag | Default | Purpose |
 |---|---|---|
-| `--format {table,json,yaml,csv,quiet}` | `table` | output format |
+| `--format {table,json,yaml,csv,quiet}` | `table` | output format (`table` prints a single record as JSON) |
 | `--verbose` / `-v` | off (log level WARNING) | DEBUG-level logging |
 | `--version` / `-V` | off | print `briar-cli <version>` and exit |
 
@@ -938,6 +948,7 @@ repos = ["acme-co/web", "acme-co/api"]   # canonical extract --repo list
 [repo]                         # bare owner + name for agent / plan
 owner = "acme-co"
 repo  = "acme-app"
+provider = "github"            # fills --provider
 
 [agent]
 model          = "claude-sonnet-4-6"
@@ -956,7 +967,7 @@ Config keys map to dests via env override `BRIAR_COMPANY` (company) and
 | `BRIAR_LIB_DEBUG=1` | also surface third-party loggers (httpx, boto3) |
 | `BRIAR_LOG_LEVEL={DEBUG,INFO,WARNING,ERROR}` | log level when `--verbose` is not set (default `WARNING`) |
 | `BRIAR_NO_UPDATE_CHECK=1` | skip the "newer version available" notice |
-| `BRIAR_NO_DEFAULT_MCP=1` | same as `agent --no-default-mcp` |
+| `BRIAR_NO_DEFAULT_MCP=1` | same as `agent --no-default-mcp` (also takes `true`/`yes`/`on`); the only switch for `plan run`. The Docker image sets it to `1`; `-e BRIAR_NO_DEFAULT_MCP=0` turns the servers back on |
 | `BRIAR_TELEMETRY=off` / `DO_NOT_TRACK=1` | disable telemetry |
 
 ### Env vars — knowledge store DSN
@@ -981,7 +992,9 @@ Config keys map to dests via env override `BRIAR_COMPANY` (company) and
 | `JIRA_<COMPANY>_SESSION_TOKEN` / `_TENANT_SESSION_TOKEN` / `_XSRF_TOKEN` / `_USER_AGENT` | session-auth Jira |
 | `JIRA_<COMPANY>_AUTH_KIND={token,session}` | force a Jira auth strategy |
 | `LINEAR_<COMPANY>_TOKEN` | Linear PAT |
-| `AWS_<COMPANY>_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` / `_REGION` / `_SESSION_TOKEN` | per-tenant AWS |
+| `AWS_<COMPANY>_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` / `_REGION` / `_SESSION_TOKEN` | per-tenant AWS; without them, a `~/.aws` profile named after the company, else the default boto3 chain (env, SSO, instance role) |
+| `VAULT_ADDR` / `VAULT_TOKEN` | needed by the `vault` credential store |
+| `BRIAR_GITHUB_CLIENT_ID` | OAuth App client id for `auth login github-device` |
 | `FIREFLIES_<COMPANY>_API_KEY` | Fireflies API key |
 | `SLACK_<COMPANY>_TOKEN` / `_COOKIE_D` | read-only Slack (browser `xoxc-` token + `d` cookie) for `slack-context` |
 | `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` | Anthropic LLM (OAuth token tried first) |
@@ -995,6 +1008,8 @@ Config keys map to dests via env override `BRIAR_COMPANY` (company) and
 | `SLACK_<COMPANY>_WEBHOOK_URL` | per-tenant Slack |
 | `TELEGRAM_BOT_TOKEN` | global Telegram bot |
 | `TELEGRAM_<COMPANY>_CHAT_ID` | per-tenant target chat |
+| `SMTP_HOST` / `SMTP_PORT` (587) / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_STARTTLS` (`true`) / `EMAIL_FROM` / `EMAIL_<COMPANY>_TO` | `email` sink |
+| `PAGERDUTY_<COMPANY>_ROUTING_KEY` | `pagerduty` sink |
 
 ### Env vars — journal
 
@@ -1030,7 +1045,12 @@ producing the old `AWS__ACCESS_KEY_ID` (double underscore) name.
 | 2 | `USAGE_ERROR` | argparse / unknown subcommand |
 
 Only these three codes exist. Outside the enum, `cli.py` returns 130 on
-Ctrl-C and 2 when a command crashes with an uncaught exception.
+Ctrl-C and 2 when a command crashes with an uncaught exception. A
+`CliError` prints `error: <message>` (no traceback) and returns 1. Since
+1.1.77 `McpError` is a `CliError`, so MCP setup failures (no `mcp` package
+for a runbook `mcp:` server, MCP manager not ready within its connect
+timeout; one server that fails to connect is only logged and skipped) exit 1 that way in
+`briar agent`; inside `plan run` the same failure marks the card blocked.
 
 ---
 
@@ -1132,6 +1152,17 @@ Per FIELD, not per object: CLI `--git-user-name` > YAML
 (skipped under `$CI`). There is no hardcoded default; if none of the
 three supplies a field the run aborts with a clear error. You can set
 `name` in YAML and override only `email` from the CLI.
+
+### Docker image (`iklob1/briar`)
+
+From the repo `Dockerfile`: installs the wheel with the `[mcp]` extra, plus
+`git` and `gh` from Debian. `gh auth git-credential` is the git credential
+helper for `https://github.com` (it reads `GITHUB_TOKEN`). Git trusts every
+folder (`safe.directory '*'`), so a repo mounted from a host user that is not
+uid 1000 works. `/usr/local/bin/gh` and `/opt/homebrew/bin/gh` link to the
+image's `gh`, so a mounted `~/.gitconfig` written by `gh auth setup-git` on a
+Mac still pushes. `BRIAR_NO_DEFAULT_MCP=1` is set (no `npx`/`uvx` in the
+image). Runs as user `briar` (uid 1000), entrypoint `briar`.
 
 ### TASK_SCOPED_EXTRACTORS bypass the runbook executor
 
