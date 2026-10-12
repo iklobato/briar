@@ -7,6 +7,17 @@ cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
 ## [1.1.80] - 2026-10-12
 
+### Fixed
+
+- **Tests no longer depend on the machine's telemetry state.** The test
+  `cli` fixture left telemetry on, so on a fresh runner the first
+  in-process `briar` call printed the first-run banner, and whichever
+  exact-stderr test ran first failed at random (it blocked the first try
+  of this release). Tests also wrote `~/.config/briar/telemetry.json` into
+  the real home and ran at the default `full` tier with the real Sentry
+  DSN. The fixture now points `XDG_CONFIG_HOME` at a temp dir with
+  telemetry off. Tests only; the CLI is unchanged.
+
 ### Changed
 
 - **CHANGELOG** entries for 1.1.72 to 1.1.79, which were released without
