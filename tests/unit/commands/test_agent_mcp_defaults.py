@@ -13,6 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 from briar.commands.agent import CommandAgent
+from briar.errors import CliError
 from briar.mcp import McpClientManager, McpError
 from briar.mcp.defaults import DEFAULT_MCP_SERVERS
 
@@ -93,6 +94,13 @@ def test_missing_sdk_keeps_runbook_servers_so_they_still_fail_loudly(mcp_sdk_mis
     assert always_on == ()
     with pytest.raises(McpError, match=r"briar-cli\[mcp\]"):
         McpClientManager(servers).start()
+
+
+def test_missing_sdk_error_is_a_one_line_cli_error(mcp_sdk_missing) -> None:
+    # The CLI entry point prints a CliError as one `error:` line and exits 1;
+    # any other exception is logged with a traceback and exits 2.
+    with pytest.raises(CliError, match=r"pip install 'briar-cli\[mcp\]'"):
+        McpClientManager({"time": DEFAULT_MCP_SERVERS["time"]}).start()
 
 
 def test_runbook_servers_merge_over_defaults(tmp_path, monkeypatch) -> None:
