@@ -5,6 +5,20 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.82] - 2026-10-12
+
+### Fixed
+
+- **`extract --include x` keeps the rest of the knowledge blob.** Each run
+  replaced the whole blob, so refreshing one extractor wiped every other
+  section the agents read. Now only the sections of the extractors that
+  ran are replaced: one that ran and found nothing loses its old section,
+  one that is not set up (or not included) keeps it. The section parser
+  the agents use (`KnowledgeSplicer`) moved to
+  `KnowledgeComposer.split_sections`, so both sides split the blob the
+  same way. To start from an empty blob, delete it first with
+  `briar context delete`.
+
 ## [1.1.81] - 2026-10-12
 
 ### Fixed
