@@ -102,7 +102,11 @@ def fake_subprocess(mocker: Any) -> SimpleNamespace:
 
 
 @pytest.fixture
-def cli(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> Callable[..., SimpleNamespace]:
+def cli(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Callable[..., SimpleNamespace]:
     """Invoke `briar.cli.main([...argv])` and return exit code + captured I/O.
 
     Patches `configure_logging` to a no-op so pytest's caplog handler
@@ -123,6 +127,15 @@ def cli(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> Calla
     monkeypatch.setattr("briar.config.load_project_config", lambda *a, **k: {})
     # No network / cache I/O for the update nudge during tests.
     monkeypatch.setattr("briar.update_check.maybe_notify", lambda *a, **k: None)
+    # Telemetry state lives under XDG_CONFIG_HOME. Point it at a dir whose
+    # saved state is "off, banner already shown": otherwise a fresh runner
+    # prints the first-run banner on its first main() (breaking whichever
+    # exact-stderr test runs first), writes to the real home, and sends to
+    # the real Sentry DSN. Telemetry tests repoint it with their own fixture.
+    xdg = tmp_path_factory.mktemp("xdg")
+    (xdg / "briar").mkdir()
+    (xdg / "briar" / "telemetry.json").write_text('{"tier": "off", "banner_shown": true}')
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
 
     def invoke(*argv: str, env: dict[str, str] | None = None) -> SimpleNamespace:
         if env:
