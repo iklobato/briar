@@ -14,6 +14,13 @@ cut automatically on merge to `main` (patch bump + PyPI + Docker).
   never connects) used to end in a traceback and exit 2. `McpError` is now
   a `CliError`, so briar prints `error: MCP support requires the mcp
   package...` and exits 1, like every other user-facing failure.
+- **Docker: a mounted repo works whoever owns it.** On Linux the folder you
+  mount at `/work` belongs to your host user, rarely uid 1000, and git in
+  the image refused it ("dubious ownership"). The image now trusts every
+  folder (`safe.directory '*'`): it has one user and you pick what to mount.
+- **Docker: a Mac `~/.gitconfig` no longer breaks the push.** `gh auth
+  setup-git` writes `/usr/local/bin/gh` or `/opt/homebrew/bin/gh` into the
+  file; the image now links both paths to its own `gh`.
 
 ## [1.1.71] - 2026-10-08
 

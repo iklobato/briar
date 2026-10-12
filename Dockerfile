@@ -21,10 +21,25 @@ RUN whl="$(ls /tmp/dist/*.whl)" && pip install --no-cache-dir "${whl}[mcp]" && r
 # read PRs with gh; without them every agent run fails inside the image.
 # After cloning, briar strips the token from `origin`, so pushes to GitHub
 # authenticate through gh, which reads GITHUB_TOKEN from the environment.
+#
+# safe.directory '*': the repo you mount at /work belongs to your host user,
+# which on Linux is rarely the image's uid 1000, and git then refuses it
+# ("dubious ownership"), so briar cannot read owner/repo from `origin`. That
+# check guards shared multi-user machines; here the only user is briar and
+# the folder is one you mounted on purpose.
+#
+# gh at the Homebrew paths: `gh auth setup-git` on a Mac writes the absolute
+# path of gh into ~/.gitconfig. Mounted into the container, that line replaces
+# the helper above and points at a path the image lacks, so the push fails
+# with "gh: not found". The links make that helper line work here too.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git gh \
     && rm -rf /var/lib/apt/lists/* \
-    && git config --system credential.https://github.com.helper '!gh auth git-credential'
+    && git config --system credential.https://github.com.helper '!gh auth git-credential' \
+    && git config --system --add safe.directory '*' \
+    && mkdir -p /opt/homebrew/bin \
+    && ln -s /usr/bin/gh /usr/local/bin/gh \
+    && ln -s /usr/bin/gh /opt/homebrew/bin/gh
 
 # The built-in think/time MCP servers need npx and uvx, which the image does
 # not ship; skip them instead of warning on every run. `-e

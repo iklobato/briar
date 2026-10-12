@@ -103,6 +103,7 @@ docker run --rm -p 127.0.0.1:8080:8080 -v "$PWD":/work -w /work \
 
 You get the page at `http://127.0.0.1:8080`, with the schedules from the `runbooks/` folder in your current folder.
 Since 1.1.75 the image has `git`, so the Deploy card can show the last
-commit of the mounted folder. On Linux, git refuses a folder owned by
-another uid than 1000, and the card then has empty fields (see
-[setup.md](setup.md)). Before 1.1.75 that card stayed empty in Docker.
+commit of the mounted folder. In 1.1.75 to 1.1.78, on Linux, git
+refused a folder owned by another uid than 1000, and the card had empty
+fields (see [setup.md](setup.md)); 1.1.79 fixes that. Before 1.1.75
+that card stayed empty in Docker.
