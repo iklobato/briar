@@ -14,6 +14,11 @@ to the AI agent's prompt, so the agent knows how your team works.
 
 Each source is handled by an extractor (a small plugin that reads one
 kind of data). There are 23 of them. You pick them with `--include`.
+Since 1.1.82 a run updates only the sections of the extractors it ran
+and keeps the rest of the blob, so you can refresh one source at a time.
+Before 1.1.82 each run replaced the whole blob. To start over, delete
+the blob first: `briar context delete knowledge:acme` (add
+`--store postgres` when it lives there).
 
 ## Use it when
 
@@ -236,7 +241,7 @@ briar extract --company acme --include meeting-digest --since-days 14 --meeting-
 | Parameter | What it means | Default | Example |
 |---|---|---|---|
 | `--company` | Company name. It names the blob and picks per-company credentials like `JIRA_ACME_TOKEN`. Required, unless `BRIAR_COMPANY` or `company` in `.briar.toml` sets it. | None. | `--company acme` |
-| `--include` | Run only this extractor. Repeat it to run several. | All 23. Ones that are not set up are skipped. | `--include stale-prs` |
+| `--include` | Run only this extractor. Repeat it to run several. Since 1.1.82 the other sections already in the blob are kept; only the sections of the extractors that ran are replaced (one that ran and found nothing loses its old section; one that is not set up keeps it). | All 23. Ones that are not set up are skipped. | `--include stale-prs` |
 | `--store` | Where to save the blob: `file` or `postgres`. `--storage` still works as an old name. It prints a note. | `postgres` if `BRIAR_DATABASE_URL` is set, else `file`. `BRIAR_STORE` or `store` in `.briar.toml` change it. | `--store postgres` |
 | `--blob-name` | Name to save the blob under. | `knowledge:<company>`. | `--blob-name knowledge:acme.old` |
 | `--root` | Folder for the file store. The blob goes to `<root>/knowledge/<company>.md`. Ignored for Postgres. | `./knowledge` | `--root ./kb` |

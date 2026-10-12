@@ -10,10 +10,10 @@ baked into `agent.system_prompt`."""
 from __future__ import annotations
 
 import logging
-import re
 from typing import Dict, List
 
 from briar.extract import EXTRACTORS, TASK_SCOPED_EXTRACTORS
+from briar.extract.composer import KnowledgeComposer
 from briar.iac.scaffold.archetypes import AgentArchetype
 
 log = logging.getLogger(__name__)
@@ -63,35 +63,10 @@ class KnowledgeSplicer:
             text = blobs.get(ref.name, "")
             if not text:
                 continue
-            for heading, body in cls._parse_sections(text).items():
+            for heading, body in KnowledgeComposer.split_sections(text).items():
                 sections[heading] = body
         log.debug("KnowledgeSplicer(%s): loaded %d sections", company, len(sections))
         return cls(company, sections)
-
-    @staticmethod
-    def _parse_sections(text: str) -> Dict[str, str]:
-        """Split a knowledge blob on `## ` headings. Returns a dict
-        keyed by the heading text (before any em-dash continuation)."""
-        sections: Dict[str, str] = {}
-        current_heading = ""
-        current_lines: List[str] = []
-        for line in text.splitlines():
-            if line.startswith("## "):
-                if current_heading:
-                    sections[current_heading] = "\n".join(current_lines).rstrip()
-                # Heading: take everything after `## `, normalise by
-                # splitting on em-dash so "## PR archaeology — 1 repo(s)"
-                # becomes key "PR archaeology".
-                raw = line[3:].strip()
-                head = re.split(r"\s+[—–-]\s+", raw, maxsplit=1)[0].strip()
-                current_heading = head
-                current_lines = [line]
-                continue
-            if current_heading:
-                current_lines.append(line)
-        if current_heading:
-            sections[current_heading] = "\n".join(current_lines).rstrip()
-        return sections
 
     def section(self, extractor_name: str) -> str:
         """Return the markdown chunk for one extractor, or empty

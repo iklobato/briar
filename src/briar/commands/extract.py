@@ -15,7 +15,7 @@ from briar.extract import EXTRACTORS
 from briar.extract.base import ExtractedSection
 from briar.extract.canonical import AdvancedHelpAction, apply_canonical, hide_canonicalised_flags, register_canonical_flags
 from briar.extract.claude_md import ClaudeMdMerger
-from briar.extract.composer import render_json, render_markdown
+from briar.extract.composer import KnowledgeComposer, render_json, render_markdown
 from briar.storage import KNOWLEDGE_STORE_NAMES, default_store_kind, make_store
 
 _CLAUDE_MD_DETAIL_ROOT = Path(".briar/knowledge")
@@ -51,7 +51,7 @@ class CommandExtract(Command):
             action="append",
             default=[],
             choices=sorted(EXTRACTORS.keys()),
-            help="Which extractor(s) to run (repeatable; default: all available)",
+            help="Which extractor(s) to run (repeatable; default: all available). Sections of other extractors already in the blob are kept.",
         )
         # `--store` is the name every other command uses; `--storage` is
         # the legacy spelling, kept (hidden) as a deprecated alias so
@@ -97,6 +97,10 @@ class CommandExtract(Command):
         selected = args.include or list(EXTRACTORS.keys())
 
         sections: List[ExtractedSection] = []
+        # Headings of the extractors that ran, with or without data: their
+        # old sections are replaced. Sections of every other extractor (left
+        # out of --include, or not available here) stay in the blob.
+        refreshed: List[str] = []
         for name in selected:
             ext = EXTRACTORS[name]
             # Fan the canonical flags (--repo, --max, …) out to this
@@ -106,6 +110,7 @@ class CommandExtract(Command):
                 _status(f"  skipped {name}  (not available in this env)")
                 continue
             _status(f"  running {name} ...")
+            refreshed.append(ext.heading)
             section = ext.extract(args)
             if section.is_empty:
                 _status(f"  {name}: no data")
@@ -115,10 +120,14 @@ class CommandExtract(Command):
         if not sections:
             raise CliError("nothing extracted — every enabled extractor returned empty")
 
-        md = render_markdown(company=args.company, sections=sections)
         blob_name = args.blob_name or f"knowledge:{args.company}"
-
         store = make_store(args.storage, file_root=Path(args.root))
+        md = KnowledgeComposer.merge_markdown(
+            company=args.company,
+            existing=store.get(blob_name),
+            fresh=render_markdown(company=args.company, sections=sections),
+            refreshed=refreshed,
+        )
         ref = store.put(blob_name, md, category="knowledge")
         _status(f"\nwrote blob '{ref.name}' " f"({ref.byte_count} bytes, {len(sections)} sections) " f"via store={args.storage}")
 

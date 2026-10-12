@@ -6,8 +6,9 @@ programmatic consumers. Static-only — no instance state."""
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterable, List
 
 from briar.extract.base import ExtractedSection
 
@@ -72,6 +73,50 @@ class KnowledgeComposer:
             "sections": [cls._section_to_dict(s) for s in sections],
         }
         return json.dumps(payload, indent=2, sort_keys=True, default=str)
+
+    @staticmethod
+    def split_sections(text: str) -> Dict[str, str]:
+        """Split a knowledge blob on `## ` headings, in order. Keys are the
+        heading text before a spaced dash ("## PR archaeology - 1 repo(s)"
+        gives "PR archaeology", an extractor's `heading`); values
+        are the section text, heading line included. Text before the first
+        `## ` (the blob's title block) is not returned."""
+        sections: Dict[str, str] = {}
+        current_heading = ""
+        current_lines: List[str] = []
+        for line in text.splitlines():
+            if line.startswith("## "):
+                if current_heading:
+                    sections[current_heading] = "\n".join(current_lines).rstrip()
+                raw = line[3:].strip()
+                current_heading = re.split(r"\s+[\N{EM DASH}\N{EN DASH}-]\s+", raw, maxsplit=1)[0].strip()
+                current_lines = [line]
+                continue
+            if current_heading:
+                current_lines.append(line)
+        if current_heading:
+            sections[current_heading] = "\n".join(current_lines).rstrip()
+        return sections
+
+    @classmethod
+    def merge_markdown(cls, *, company: str, existing: str, fresh: str, refreshed: Iterable[str]) -> str:
+        """Rebuild a blob from `existing` with the sections under the
+        `refreshed` headings taken from `fresh`. A refreshed heading that
+        `fresh` lacks (its extractor ran but found nothing) is dropped;
+        every other section of `existing` is kept, in place. New sections
+        go at the end."""
+        refreshed_headings = set(refreshed)
+        new_sections = cls.split_sections(fresh)
+        merged: Dict[str, str] = {}
+        for heading, chunk in cls.split_sections(existing).items():
+            if heading not in refreshed_headings:
+                merged[heading] = chunk
+            elif heading in new_sections:
+                merged[heading] = new_sections[heading]
+        for heading, chunk in new_sections.items():
+            merged.setdefault(heading, chunk)
+        header = cls.markdown(company=company, sections=[])
+        return header + "\n" + "\n\n".join(merged.values()) + "\n"
 
     @classmethod
     def _render_section(
