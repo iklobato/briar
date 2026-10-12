@@ -5,6 +5,16 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [Unreleased]
+
+### Fixed
+
+- **MCP setup failures print one `error:` line.** A runbook that asks for
+  MCP servers on an install without the `mcp` package (or a server that
+  never connects) used to end in a traceback and exit 2. `McpError` is now
+  a `CliError`, so briar prints `error: MCP support requires the mcp
+  package...` and exits 1, like every other user-facing failure.
+
 ## [1.1.71] - 2026-10-08
 
 ### Changed
