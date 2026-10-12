@@ -136,13 +136,13 @@ You get `../.briar.toml`. Commands run in any folder below it find it.
 - If a config file already exists above the current folder, its values
   become the defaults for `init` too.
 - Since 1.1.75 the Docker image `iklob1/briar` has `git`, so briar can
-  read the `origin` remote of the repo you mount. This works only when
-  the folder looks owned by the container user (uid 1000). Docker
-  Desktop on Mac and Windows does that. On Linux, git refuses a folder
-  owned by another uid ("detected dubious ownership"), and
-  `briar doctor` shows `warn` for `git remote`. Then pass `--owner` and
-  `--repo`, or set `[repo]` in `.briar.toml`, which briar reads without
-  git. Before 1.1.75 the image had no `git`, so this was always needed.
+  read the `origin` remote of the repo you mount. Since 1.1.79 this
+  works whoever owns the folder. In 1.1.75 to 1.1.78, on Linux, git
+  refused a folder not owned by the container user (uid 1000)
+  ("detected dubious ownership"), and `briar doctor` showed `warn` for
+  `git remote`. With those versions, pass `--owner` and `--repo`, or set
+  `[repo]` in `.briar.toml`, which briar reads without git. Before
+  1.1.75 the image had no `git`, so this was always needed.
 
 ## `briar config show`
 

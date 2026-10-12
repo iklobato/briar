@@ -181,8 +181,8 @@ It runs the same steps as on your machine: a branch `chore/acme-42` and a
 draft PR on `acme-co/acme-app`. Add `--dry-run` to see the prompt first.
 
 - `--git-user-name` and `--git-user-email` give the commits your name and
-  email. You can mount `~/.gitconfig` instead, but see the first point
-  under "Good to know".
+  email. You can mount `~/.gitconfig` instead, read-only:
+  `-v "$HOME/.gitconfig":/home/briar/.gitconfig:ro`.
 - `-e GITHUB_TOKEN` lets `git push` and `gh` log in to GitHub. In the
   image, git asks `gh` for the login, and `gh` reads `GITHUB_TOKEN`.
 - `-e ANTHROPIC_API_KEY` is the Claude key. `-e CLAUDE_CODE_OAUTH_TOKEN`
@@ -192,18 +192,14 @@ draft PR on `acme-co/acme-app`. Add `--dry-run` to see the prompt first.
 
 Good to know:
 
-- `gh auth setup-git` writes a GitHub login line into `~/.gitconfig`.
-  That line replaces the image's own and points at `gh` on your
-  machine (for example `/usr/local/bin/gh`), which is not in the image,
-  so a mounted `.gitconfig` like that makes the push fail with
-  "gh: not found". Pass `--git-user-name` and `--git-user-email` instead.
+- A `~/.gitconfig` from a Mac works. `gh auth setup-git` writes the
+  path of `gh` on your machine into it (`/usr/local/bin/gh` or
+  `/opt/homebrew/bin/gh`). Since 1.1.79 the image has `gh` at both
+  paths. Before that, the push failed with "gh: not found".
 - briar can also read owner and repo from the mounted repo's git
-  `origin` remote. This works only when the folder looks owned by the
-  container user (uid 1000). Docker Desktop on Mac and Windows does
-  that. On Linux, git refuses a folder owned by another uid
-  ("detected dubious ownership"). Then pass `--repo`, or keep `[repo]`
-  in `.briar.toml`, which briar reads without git. The agent's own
-  clone is not affected.
+  `origin` remote. Since 1.1.79 this works whoever owns the folder.
+  Before that, on Linux, git refused a folder not owned by uid 1000
+  ("detected dubious ownership"), and you had to pass `--repo`.
 - The image sets up the git login for GitHub only. For Bitbucket, run
   agents from a local install.
 - The image sets `BRIAR_NO_DEFAULT_MCP=1`, because it has no `npx` or
