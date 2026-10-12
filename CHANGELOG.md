@@ -5,6 +5,24 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.81] - 2026-10-12
+
+### Fixed
+
+- **`plan run --dry-run` changes nothing.** Each card's implement ran dry
+  and exited 0, so the loop marked the card `done`, saved the plan and
+  asked the LLM to update the plan notes. The `plan.run` history it
+  recorded was read back by the next real run and by `plan status`, so a
+  preview made the board look finished. A dry run now walks the cards in
+  memory only: the saved plan, the notes blob and the `plan.run` history
+  stay as they were, and the session is journaled as `plan.dry-run`. The
+  selector still calls the LLM.
+
+### Changed
+
+- `FEATURES.md`: `agent prfix` addresses review comments; failing CI logs
+  are context only (its procedure has no CI step).
+
 ## [1.1.80] - 2026-10-12
 
 ### Fixed

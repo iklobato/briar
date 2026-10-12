@@ -117,6 +117,11 @@ def _add_llm_arguments(parser: argparse.ArgumentParser, *, required: bool) -> No
     )
 
 
+def _keep_plan_in_memory(store: KnowledgeStore, plan: ImplementationPlan) -> str:
+    """`save_plan` stand-in for `plan run --dry-run`: writes nothing."""
+    return ""
+
+
 def _require_llm(args: argparse.Namespace, *, op: str) -> LLMProvider:
     if not args.llm:
         raise CliError(f"--llm is required for `briar plan {op}` (LLM-driven planning)")
@@ -383,7 +388,11 @@ class RunOp(PlanOp):
         parser.add_argument("--git-user-name", default="")
         parser.add_argument("--git-user-email", default="")
         parser.add_argument("--keep-worktree", action="store_true")
-        parser.add_argument("--dry-run", action="store_true", help="Propagate --dry-run to every implement call.")
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Pass --dry-run to every implement call and keep the plan, its notes and its run history unchanged.",
+        )
         parser.add_argument("--runbook", default="", help="Runbook YAML for this company's messages block.")
         # The per-card `agent implement` reuses the plan's `--root` as its
         # file-store root (one root, not two), so there is no separate
@@ -416,7 +425,15 @@ class RunOp(PlanOp):
         processed = 0
         replans = 0
 
-        with session(command="plan.run", target=f"{plan.name}@{target}"):
+        # --dry-run walks the plan in memory only: card statuses still move so
+        # the loop shows which cards it would pick, but the saved plan, the
+        # knowledge writeback and the `plan.run` history that a later real run
+        # (and `plan status`) reads all stay as they were. The session is
+        # still journaled, under a name outside that `plan.run` prefix.
+        persist_plan = _keep_plan_in_memory if args.dry_run else save_plan
+        session_command = "plan.dry-run" if args.dry_run else "plan.run"
+
+        with session(command=session_command, target=f"{plan.name}@{target}"):
             record(
                 "plan.run.start",
                 value={"plan": plan.name, "target": target},
@@ -461,7 +478,7 @@ class RunOp(PlanOp):
                         return ExitCode.GENERAL_ERROR
                     record("plan.replan.requested", value=plan.name, rationale=decision.why)
                     plan = replan(plan, llm=llm)
-                    save_plan(store, plan)
+                    persist_plan(store, plan)
                     replans += 1
                     outcomes["replans"] = replans
                     continue
@@ -475,7 +492,7 @@ class RunOp(PlanOp):
 
                 processed += 1
                 card.status = PlanCardStatus.IN_PROGRESS
-                save_plan(store, plan)
+                persist_plan(store, plan)
                 impl_args = self._build_implement_args(args, card, tracker_project)
                 record(
                     "plan.run.card.start",
@@ -490,11 +507,12 @@ class RunOp(PlanOp):
                     card.last_attempt_summary = ""
                     outcomes["done"] += 1
                     record("plan.run.card.completed", value=card.key, rationale="implement rc=0")
-                    save_plan(store, plan)
-                    try:
-                        writer.write(store=store, plan=plan, card=card, diff="")
-                    except Exception:  # noqa: BLE001 — writeback never blocks the loop
-                        log.exception("plan run: writeback failed for card=%s", card.key)
+                    persist_plan(store, plan)
+                    if not args.dry_run:
+                        try:
+                            writer.write(store=store, plan=plan, card=card, diff="")
+                        except Exception:  # noqa: BLE001: writeback never blocks the loop
+                            log.exception("plan run: writeback failed for card=%s", card.key)
                 else:
                     card.status = PlanCardStatus.BLOCKED
                     card.last_attempt_summary = (exc_msg or f"implement rc={rc}")[:500]
@@ -505,7 +523,7 @@ class RunOp(PlanOp):
                         rationale=f"implement rc={rc}",
                         artifacts={"last_attempt_summary": card.last_attempt_summary},
                     )
-                    save_plan(store, plan)
+                    persist_plan(store, plan)
 
                 if rc != 0 and not args.continue_on_failure:
                     record(

@@ -19,7 +19,7 @@ from briar.agent._llm import LLMResponse
 from briar.commands.plan import CommandPlan, RunOp
 from briar.journal import Journal, set_active_journal
 from briar.journal.store.file import FileJournalStore
-from briar.plan import ImplementationPlan, PlanCard, save_plan
+from briar.plan import ImplementationPlan, PlanCard, PlanCardStatus, load_plan, save_plan
 from briar.storage import make_store
 
 
@@ -233,7 +233,7 @@ class PlanRunTests(unittest.TestCase):
 
     def test_dry_run_propagates_to_implement(self) -> None:
         self._save(_seeded_plan([PlanCard(key="A", title="a")]))
-        llm = _FakeLLM([_pick("A"), _wb(), _complete()])
+        llm = _FakeLLM([_pick("A"), _complete()])
         captured: dict = {}
 
         def _capture(ns):
@@ -295,6 +295,31 @@ class PlanRunTests(unittest.TestCase):
         reloaded = load_plan(self.kstore, "demo")
         self.assertEqual(reloaded.cards[0].status.value, "blocked")
         self.assertIn("RuntimeError", reloaded.cards[0].last_attempt_summary)
+
+    def test_dry_run_walks_cards_in_memory_and_saves_nothing(self) -> None:
+        self._save(_seeded_plan([PlanCard(key="A", title="a"), PlanCard(key="B", title="b")]))
+        # No writeback responses: a dry run must not call the knowledge writer.
+        llm = _FakeLLM([_pick("A"), _pick("B"), _complete()])
+        args = _run_args("demo", self.tmp, journal_root=self.journal_root, dry_run=True)
+
+        rc, impl = self._run(llm, args)
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(impl.call_count, 2)
+        saved = load_plan(self.kstore, "demo")
+        self.assertEqual([c.status for c in saved.cards], [PlanCardStatus.PENDING, PlanCardStatus.PENDING])
+        self.assertEqual(self.kstore.get("knowledge:acme.demo"), "")
+
+    def test_dry_run_history_is_not_read_by_a_later_real_run(self) -> None:
+        self._save(_seeded_plan([PlanCard(key="A", title="a")]))
+        args = _run_args("demo", self.tmp, journal_root=self.journal_root, dry_run=True)
+
+        self._run(_FakeLLM([_pick("A"), _complete()]), args)
+
+        # Plan context and `plan status` read sessions by the `plan.run`
+        # prefix; a dry run is kept for `briar journal`, under another name.
+        self.assertEqual(self.jstore.list(command_prefix="plan.run"), [])
+        self.assertEqual([r.command for r in self.jstore.list()], ["plan.dry-run"])
 
     def test_writeback_called_on_success(self) -> None:
         """Writeback runs after rc=0 and the result lands in `knowledge:<company>.<plan>`."""

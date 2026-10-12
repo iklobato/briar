@@ -287,9 +287,12 @@ briar plan run q3 --company acme --repo acme-co/acme-app \
 ```
 
 Each picked card runs `agent implement --dry-run`. The selector still
-calls the LLM. Each dry-run card exits 0, so it is marked `done` and the
-notes step runs. Set the cards back with `plan advance --status pending`
-afterwards.
+calls the LLM, so you see which card it would pick next. Since 1.1.81 a
+dry run changes nothing: the saved plan keeps its card statuses, the
+notes step is skipped, and the session is journaled as `plan.dry-run`,
+which the next real run and `plan status` do not read. Before 1.1.81 a
+dry run marked each picked card `done`; set them back with
+`plan advance --status pending`.
 
 ```bash
 # The whole board, past failures, with a bot identity and a runbook
@@ -338,7 +341,7 @@ The summary looks like this:
 | `--git-user-name` | Commit name in each worktree. | The runbook's `git_identity.name`, then your `git config` (not when `CI` is set). | `--git-user-name "Acme Bot"` |
 | `--git-user-email` | Commit email in each worktree. | The runbook's `git_identity.email`, then your `git config` (not when `CI` is set). | `--git-user-email bot@acme.com` |
 | `--keep-worktree` | Keep each card's temp folder. Failed cards always keep it. | Off. | `--keep-worktree` |
-| `--dry-run` | Run `agent implement --dry-run` for each card. | Off. | `--dry-run` |
+| `--dry-run` | Run `agent implement --dry-run` for each card, and save nothing: no card status, no notes, no `plan.run` history. | Off. | `--dry-run` |
 | `--runbook` | Runbook YAML. The company's `messages:`, `mcp:` and `git_identity` blocks are used. | None. | `--runbook runbooks/acme.yaml` |
 | `--meeting-key` | One Fireflies meeting ID to add to every card's prompt. | None. | `--meeting-key 01JB7Q4ZK3M8` |
 | `--meeting-query` | Words to search meetings for. | The card key. | `--meeting-query "q3 planning"` |
