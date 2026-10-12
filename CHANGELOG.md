@@ -5,7 +5,38 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
-## [Unreleased]
+## [1.1.80] - 2026-10-12
+
+### Changed
+
+- **CHANGELOG** entries for 1.1.72 to 1.1.79, which were released without
+  one (or under "Unreleased"). `FEATURES.md` sections 3 and 9 to 11
+  rechecked against 1.1.79 (13 flag and env-var fixes) plus a Docker image
+  note in section 12.
+  `CONTRIBUTING.md`: the release also makes the GitHub Release, and a PR
+  writes its CHANGELOG entry under the version it will get. Docs only.
+
+## [1.1.79] - 2026-10-12
+
+### Fixed
+
+- **Docker: a mounted repo works whoever owns it.** On Linux the folder you
+  mount at `/work` belongs to your host user, rarely uid 1000, and git in
+  the image refused it ("dubious ownership"). The image now trusts every
+  folder (`safe.directory '*'`): it has one user and you pick what to mount.
+- **Docker: a Mac `~/.gitconfig` no longer breaks the push.** `gh auth
+  setup-git` writes `/usr/local/bin/gh` or `/opt/homebrew/bin/gh` into the
+  file; the image now links both paths to its own `gh` (PR #53).
+
+## [1.1.78] - 2026-10-12
+
+### Added
+
+- **A GitHub Release for every version.** The release workflow now ends by
+  creating the GitHub Release for the new tag, with notes generated from
+  the merged PRs. It skips a tag that already has one (PR #52).
+
+## [1.1.77] - 2026-10-12
 
 ### Fixed
 
@@ -13,14 +44,56 @@ cut automatically on merge to `main` (patch bump + PyPI + Docker).
   MCP servers on an install without the `mcp` package (or a server that
   never connects) used to end in a traceback and exit 2. `McpError` is now
   a `CliError`, so briar prints `error: MCP support requires the mcp
-  package...` and exits 1, like every other user-facing failure.
-- **Docker: a mounted repo works whoever owns it.** On Linux the folder you
-  mount at `/work` belongs to your host user, rarely uid 1000, and git in
-  the image refused it ("dubious ownership"). The image now trusts every
-  folder (`safe.directory '*'`): it has one user and you pick what to mount.
-- **Docker: a Mac `~/.gitconfig` no longer breaks the push.** `gh auth
-  setup-git` writes `/usr/local/bin/gh` or `/opt/homebrew/bin/gh` into the
-  file; the image now links both paths to its own `gh`.
+  package...` and exits 1, like every other user-facing failure (PR #51).
+
+## [1.1.76] - 2026-10-12
+
+### Changed
+
+- **README and `agents/*.md` rewritten in plain language**, with every
+  parameter: what it does, default, allowed values and an example. New
+  pages `agents/mcp.md` and `agents/setup.md`. Docs only (PR #48).
+
+## [1.1.75] - 2026-10-11
+
+### Fixed
+
+- **`briar agent` and `plan run` work in the Docker image.** `iklob1/briar`
+  had neither `git` nor `gh`, so every run failed at the clone ("Bad git
+  executable"). The image now ships both, and `gh` is git's login helper
+  for github.com, so pushes use `GITHUB_TOKEN`. It also sets
+  `BRIAR_NO_DEFAULT_MCP=1`, because it has no `npx` or `uvx` for the
+  built-in think/time MCP servers; `-e BRIAR_NO_DEFAULT_MCP=0` turns them
+  back on in an image that adds them (PR #50).
+
+## [1.1.74] - 2026-10-11
+
+### Fixed
+
+- **Agents run on a plain `pip install briar-cli`.** Every `briar agent`
+  run and every `plan run` card, even `--dry-run`, failed with `McpError:
+  MCP support requires the mcp package`, because the built-in think/time
+  MCP servers need the `mcp` package from the `[mcp]` extra. Without it
+  they are now skipped with one warning, like `--no-default-mcp`. Servers a
+  runbook declares still fail loudly when `mcp` is missing (PR #49).
+
+## [1.1.73] - 2026-10-11
+
+### Changed
+
+- **PyPI describes the CLI.** The package description and keywords still
+  described the archived Briar SaaS client; they now describe the CLI.
+- **The Docker image carries `io.modelcontextprotocol.server.name`**, so
+  the official MCP registry can list `docker.io/iklob1/briar` as
+  `io.github.iklobato/briar` (PR #47).
+
+## [1.1.72] - 2026-10-08
+
+### Removed
+
+- Unused code: `CANONICAL_LIST` and `CANONICAL_SCALAR` in
+  `extract/canonical.py`, and `CollectorRegistry.for_paths` in
+  `dashboard/collectors.py`. No behavior change (PR #46).
 
 ## [1.1.71] - 2026-10-08
 

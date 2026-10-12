@@ -67,5 +67,10 @@ test that fails before the fix and passes after.
 ## Releases
 
 Pushing to `main` triggers `.github/workflows/release.yml`, which runs the
-quality gate, bumps the patch version, tags, and publishes to PyPI (+ Docker).
+quality gate, bumps the patch version, tags, publishes to PyPI (+ Docker),
+and creates the GitHub Release with notes generated from the merged PRs.
 Don't bump the version by hand. Open a PR; merging it ships the release.
+The workflow does not touch `CHANGELOG.md`. Every merge bumps the patch
+version once, so write your entry in the same PR under the next number
+(the current version in `pyproject.toml` plus one patch), and check that
+number again right before you merge.
