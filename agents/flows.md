@@ -1,434 +1,210 @@
-# Briar — end-to-end usage flows (cookbook)
+# briar flows: how commands work together
 
-Recipes that chain several `briar` commands into a real outcome. Most
-flows deliberately combine **more than one feature** — a typical shape is
-`secrets` (gate) → `extract` (mine) → `agent`/`plan` (act) → `context`
-(inspect) → `journal`/`dashboard` (audit). Each flow lists the exact
-shell calls with example parameters, a **Features combined** line so you
-can see what's working together, and how to verify it. Flow 14 strings
-the whole tool into one chain; Flow 15 does the same across every provider
-and every extractor. Placeholders used throughout:
+Each flow below chains a few `briar` commands to reach one real result.
+Every command is ready to run. The values are examples you swap for your
+own:
 
-| Placeholder | Example | Means |
-|---|---|---|
-| `<COMPANY>` | `acme` | company key — must match a runbook YAML / credential namespace |
-| `<OWNER>` | `acme-co` | GitHub org / owner (or Bitbucket workspace) |
-| `<REPO>` | `acme-app` | repository slug |
-| `<PROJECT>` | `ACME` | tracker project key |
+| Value | Stands for |
+|---|---|
+| `acme` | Your company key. It names the knowledge blob and the credential variables (`JIRA_ACME_TOKEN`). |
+| `acme-co/acme-app` | Your repo, as `owner/repo`. |
+| `ACME`, `ACME-42` | Your Jira project and a ticket in it. |
+| `482`, `fix/login` | A PR number and its branch. |
+| `q3` | A plan name. |
+| `runbooks/` | A folder of runbook YAML files. |
 
-Per-command detail lives in the sibling files ([extract.md](extract.md),
-[agent.md](agent.md), [plan.md](plan.md), …). When in doubt, append
-`--help` — that output is the contract; this file is the opinionated
-how-to-combine-them guide. All flows assume the global flags from
-[README.md](README.md) (`--format`, `--verbose`).
+Each command has its own page with every flag: [extract.md](extract.md),
+[agent.md](agent.md), [plan.md](plan.md), and the rest of
+[the index](README.md). To run a flow with Docker, use the mounts in the
+[README](../README.md#run-with-docker). Since 1.1.75 the image has `git`
+and `gh`, so `agent` and `plan run` work there too. Add your
+`~/.gitconfig` and `-e GITHUB_TOKEN` (see
+[Run an agent in Docker](../README.md#run-an-agent-in-docker)).
 
----
+## Flow 1: Set up a new company
 
-## Flow 1 — Onboard a brand-new company from zero
-
-Get credentials in place, prove coverage, then take the first cold
-snapshot of the world.
+Save credentials, check them, then take the first snapshot.
 
 ```bash
-# 1. Acquire per-provider credentials (each lands in ~/.config/briar/secrets.env)
-briar auth login github-pat   --company <COMPANY>     # paste a PAT with repo + read:org
-briar auth login aws-static   --company <COMPANY>     # paste an access key / secret
-briar auth login jira-token   --company <COMPANY>     # paste a Jira API token + base URL
-briar auth login fireflies    --company <COMPANY>     # paste your Fireflies API key
+# 1. Save credentials. Each one goes to ~/.config/briar/secrets.env
+briar auth login github-pat --company acme
+briar auth login jira-token --company acme
+briar auth login aws-static --company acme
+briar auth login fireflies --company acme
 
-# 2. Prove every (company, extractor) pair in your runbooks is covered
-briar secrets doctor --examples examples/
+# 2. Check which credentials each runbook still lacks
+briar secrets doctor --examples runbooks/
 
-# 4. First cold extraction — everything available for the company
-briar extract --company <COMPANY> \
-    --repo <OWNER>/<REPO> \
-    --ticket-project <PROJECT>
+# 3. First snapshot: repo, Jira project, AWS and meetings
+briar extract --company acme --repo acme-co/acme-app \
+    --ticket-project ACME --ticket-archaeology-project ACME
+
+# 4. Read what was saved
+briar context get knowledge:acme
 ```
 
-**The same flow with Docker:**
+You get `knowledge:acme`, a markdown file with one section per extractor
+that had what it needed. Step 2 lists any missing variable by name.
+
+## Flow 2: Implement one Jira ticket
+
+Refresh what the agent needs to know, check the prompt for free, then run.
 
 ```bash
-# 1. Acquire per-provider credentials (each lands in ~/.config/briar/secrets.env)
-docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
-    iklob1/briar auth login github-pat   --company <COMPANY>     # paste a PAT with repo + read:org
-docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
-    iklob1/briar auth login aws-static   --company <COMPANY>     # paste an access key / secret
-docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
-    iklob1/briar auth login jira-token   --company <COMPANY>     # paste a Jira API token + base URL
-docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
-    iklob1/briar auth login fireflies    --company <COMPANY>     # paste your Fireflies API key
+# 1. The sections the agent reads: tools, file pairs, reviewers, open PRs, PR history
+briar extract --company acme --repo acme-co/acme-app \
+    --include codebase-conventions --include code-hotspots \
+    --include reviewer-profile --include active-work --include pr-archaeology
 
-# 2. Prove every (company, extractor) pair in your runbooks is covered
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar secrets doctor --examples examples/
+# 2. Print the prompt. No clone, no Claude call.
+briar agent implement --company acme --repo acme-co/acme-app \
+    --ticket-key ACME-42 --tracker jira --dry-run
 
-# 4. First cold extraction — everything available for the company
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar extract --company <COMPANY> \
-    --repo <OWNER>/<REPO> \
-    --ticket-project <PROJECT>
+# 3. Run it. Meetings and Slack threads that mention ACME-42 are added.
+briar agent implement --company acme --repo acme-co/acme-app \
+    --ticket-key ACME-42 --tracker jira
+
+# 4. Look at the draft PR
+gh pr list --repo acme-co/acme-app --head chore/acme-42
 ```
 
-**Verify:** `briar secrets doctor` shows no `missing` rows; step 4 exits
-`0` and `briar context get knowledge:<COMPANY>` returns non-empty markdown.
+You get a branch `chore/acme-42` and a draft PR. If an acceptance
+criterion is unclear, you get a question on the ticket instead.
 
----
+Step 3 reads Slack only when `SLACK_ACME_TOKEN` and `SLACK_ACME_COOKIE_D`
+are set. It reads Fireflies only when `FIREFLIES_ACME_API_KEY` is set.
 
-## Flow 2 — Extract AWS + Fireflies + PRs, then fix a PR
-
-The headline flow, touching four features end to end: **secrets** (gate)
-→ **extract** (mine infra + meetings + PRs) → **context** (inspect the
-blob) → **agent** (fix the PR with the meeting spliced in).
+## Flow 3: Fix the review comments on a PR
 
 ```bash
-# 1. secrets — gate on credential coverage before spending anything
-briar secrets doctor --examples examples/
+# 1. Fresh reviewer habits, so fixes match what each reviewer wants
+briar extract --company acme --repo acme-co/acme-app \
+    --include reviewer-profile --include codebase-conventions
 
-# 2. extract — one pass covering three sources into knowledge:<COMPANY>
-briar extract --company <COMPANY> \
-    --include aws-infra \
-    --include meeting-digest \
-    --include pr-archaeology \
-    --repo <OWNER>/<REPO> \
-    --aws-extract-region us-east-1 \
-    --since-days 14
+# 2. Print the prompt with the PR's comments and failing CI steps
+briar agent prfix --company acme --repo acme-co/acme-app \
+    --pr 482 --branch fix/login --dry-run
 
-# 3. context — eyeball what landed before the agent reads it
-briar context get knowledge:<COMPANY> | head -40
-
-# 4. agent — address PR #128's open review comments, with the matching
-#    Fireflies transcript fetched just-in-time into the prompt.
-#    Add --dry-run first to preview the prompt + tools for free.
-briar agent prfix --company <COMPANY> \
-    --repo <OWNER>/<REPO> \
-    --pr 128 --branch fix/login-retry \
-    --meeting fireflies --meeting-query "login retry" --meeting-top-k 3 \
-    --runbook examples/<COMPANY>.yaml
+# 3. Fix it, using the meeting where the team decided the approach
+briar agent prfix --company acme --repo acme-co/acme-app \
+    --pr 482 --branch fix/login --meeting-key 01JB7Q4ZK3M8
 ```
 
-**The same flow with Docker:**
+You get one commit per addressed comment on `fix/login`, and a short reply
+on each thread with the commit SHA. A PR that is approved, green, and has
+only positive comments is skipped.
+
+Without `--meeting-key`, the agent searches meetings and Slack for
+`acme-co/acme-app#482`. Use `--meeting-query` or `--slack-query` to
+search for other words, like the reviewer's name.
+
+## Flow 4: Ship a board, card by card
 
 ```bash
-# 1. secrets — gate on credential coverage before spending anything
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar secrets doctor --examples examples/
+# 1. Company knowledge for the card summaries
+briar extract --company acme --repo acme-co/acme-app \
+    --include codebase-conventions --include active-work \
+    --include active-tickets --ticket-project ACME
 
-# 2. extract — one pass covering three sources into knowledge:<COMPANY>
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar extract --company <COMPANY> \
-    --include aws-infra \
-    --include meeting-digest \
-    --include pr-archaeology \
-    --repo <OWNER>/<REPO> \
-    --aws-extract-region us-east-1 \
-    --since-days 14
+# 2. Build the plan from the Jira project ACME
+briar plan build jira:ACME --name q3 --company acme \
+    --llm anthropic --with-knowledge
 
-# 3. context — eyeball what landed before the agent reads it
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar context get knowledge:<COMPANY> | head -40
+# 3. Read it, and ask what would run first. This changes nothing.
+briar plan status q3
+briar plan next q3 --company acme --llm anthropic
 
-# 4. agent — address PR #128's open review comments, with the matching
-#    Fireflies transcript fetched just-in-time into the prompt.
-#    Add --dry-run first to preview the prompt + tools for free.
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar \
-    -v "$HOME/.ssh":/home/briar/.ssh:ro -v "$HOME/.gitconfig":/home/briar/.gitconfig:ro \
-    -e ANTHROPIC_API_KEY \
-    iklob1/briar agent prfix --company <COMPANY> \
-    --repo <OWNER>/<REPO> \
-    --pr 128 --branch fix/login-retry \
-    --meeting fireflies --meeting-query "login retry" --meeting-top-k 3 \
-    --runbook examples/<COMPANY>.yaml
+# 4. Run one card to check the setup
+briar plan run q3 --company acme --repo acme-co/acme-app \
+    --tracker jira --llm anthropic --limit 1
+
+# 5. See what the loop learned from that card
+briar context get knowledge:acme.q3
+
+# 6. Run the rest, and keep going past a failed card
+briar plan run q3 --company acme --repo acme-co/acme-app \
+    --tracker jira --llm anthropic --continue-on-failure
+
+# 7. Retry a blocked card after you fix the cause
+briar plan advance q3 --card ACME-43 --status pending
 ```
 
-**Features combined:** `secrets` · `extract` (3 extractors) · `context` ·
-`agent prfix` (+ JIT meeting context).
+You get a draft PR for each finished card. `plan status q3` shows what
+is done, blocked and pending. `briar journal list --command plan.run`
+lists each run.
 
-**Verify:** step 4 exits `0` and logs `agent-done` (visible with `-v`);
-the PR shows new commits + inline replies prefixed `[AI] `. `briar agent`
-writes no journal session, so the run's log is the audit trail.
+Pass `--tracker jira` for a Jira board. The default for `plan run` is
+`github-issues`. If you save to Postgres, add `--store postgres` to every
+command in this flow, including `context get`.
 
----
+## Flow 5: List every tagged AWS resource
 
-## Flow 3 — Implement a Jira ticket end-to-end
-
-Clone, branch, code, test, open a draft PR — one ticket, autonomously —
-combining **extract** → **agent implement**, with a
-**secrets** pre-check.
+Once, with the full detail in a JSON file:
 
 ```bash
-# 1. secrets — confirm this company's tracker + repo creds are present
-briar secrets doctor --examples examples/
-
-# 2. extract — fresh conventions + ticket context for the engineer agent
-briar extract --company <COMPANY> \
-    --include codebase-conventions --include active-tickets \
-    --repo <OWNER>/<REPO> --ticket-project <PROJECT>
-
-# 3. agent — implement one ticket (ticket-context fetched JIT for the key).
-#    --keep-worktree leaves the tree in /tmp to inspect; --dry-run previews.
-briar agent implement --company <COMPANY> \
-    --repo <OWNER>/<REPO> \
-    --ticket-project <PROJECT> --ticket-key <PROJECT>-412 \
-    --tracker jira \
-    --runbook examples/<COMPANY>.yaml
-```
-
-**The same flow with Docker:**
-
-```bash
-# 1. secrets — confirm this company's tracker + repo creds are present
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar secrets doctor --examples examples/
-
-# 2. extract — fresh conventions + ticket context for the engineer agent
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar extract --company <COMPANY> \
-    --include codebase-conventions --include active-tickets \
-    --repo <OWNER>/<REPO> --ticket-project <PROJECT>
-
-# 3. agent — implement one ticket (ticket-context fetched JIT for the key).
-#    --keep-worktree leaves the tree in /tmp to inspect; --dry-run previews.
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar \
-    -v "$HOME/.ssh":/home/briar/.ssh:ro -v "$HOME/.gitconfig":/home/briar/.gitconfig:ro \
-    -e ANTHROPIC_API_KEY \
-    iklob1/briar agent implement --company <COMPANY> \
-    --repo <OWNER>/<REPO> \
-    --ticket-project <PROJECT> --ticket-key <PROJECT>-412 \
-    --tracker jira \
-    --runbook examples/<COMPANY>.yaml
-```
-
-**Features combined:** `secrets` · `extract` · `agent implement` (+ JIT
-ticket context). For *many* tickets at once, graduate to the plan loop in
-Flow 4 (which also records a journal session).
-
-**Verify:** exit `0`, `agent-done` logged (visible with `-v`), and a new
-draft PR on a fresh branch.
-
----
-
-## Flow 4 — Build and run an implementation plan from a board
-
-Turn a tracker board into an ordered plan, then let the selector→implement
-→writeback loop ship it card by card — combining **extract** (knowledge),
-**plan**, **context** (watch the plan-knowledge blob learn), **dashboard**
-and **journal** (monitor + audit).
-
-```bash
-# 0. extract — refresh the knowledge the synthesiser will splice in
-briar extract --company <COMPANY> --include codebase-conventions \
-    --include active-tickets --repo <OWNER>/<REPO> --ticket-project <PROJECT>
-
-# 1. plan build — board → ordered plan, with knowledge:<COMPANY> spliced in
-briar plan build "https://github.com/orgs/<OWNER>/projects/7" \
-    --company <COMPANY> --name q3-auth \
-    --with-knowledge --llm anthropic --store postgres
-
-# 2. plan — inspect what got synthesised before spending money
-briar plan status q3-auth --company <COMPANY> --store postgres
-briar plan next   q3-auth --company <COMPANY> --store postgres --llm anthropic   # what the selector would pick
-
-# 3. plan run — smoke ONE card end-to-end
-briar plan run q3-auth \
-    --repo <OWNER>/<REPO> \
-    --tracker jira --tracker-project <PROJECT> \
-    --llm anthropic --company <COMPANY> --store postgres \
-    --limit 1
-
-# 4. context — watch the plan-scoped knowledge blob the loop updates
-#    after each card (KnowledgeWriter merges learnings into it)
-briar context --store postgres get knowledge:<COMPANY>.q3-auth | tail -20
-
-# 5. plan run — let the loop go wide; keep going past a failing card
-briar plan run q3-auth \
-    --repo <OWNER>/<REPO> \
-    --tracker jira --tracker-project <PROJECT> \
-    --llm anthropic --company <COMPANY> --store postgres \
-    --continue-on-failure
-
-# 6. dashboard + journal — monitor progress and audit each card's run
-briar dashboard --examples examples/ --once
-briar journal list --command plan.
-```
-
-**The same flow with Docker:**
-
-```bash
-# 0. extract — refresh the knowledge the synthesiser will splice in
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar extract --company <COMPANY> --include codebase-conventions \
-    --include active-tickets --repo <OWNER>/<REPO> --ticket-project <PROJECT>
-
-# 1. plan build — board → ordered plan, with knowledge:<COMPANY> spliced in
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar plan build "https://github.com/orgs/<OWNER>/projects/7" \
-    --company <COMPANY> --name q3-auth \
-    --with-knowledge --llm anthropic --store postgres
-
-# 2. plan — inspect what got synthesised before spending money
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar plan status q3-auth --company <COMPANY> --store postgres
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar plan next   q3-auth --company <COMPANY> --store postgres --llm anthropic   # what the selector would pick
-
-# 3. plan run — smoke ONE card end-to-end
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar \
-    -v "$HOME/.ssh":/home/briar/.ssh:ro -v "$HOME/.gitconfig":/home/briar/.gitconfig:ro \
-    -e ANTHROPIC_API_KEY \
-    iklob1/briar plan run q3-auth \
-    --repo <OWNER>/<REPO> \
-    --tracker jira --tracker-project <PROJECT> \
-    --llm anthropic --company <COMPANY> --store postgres \
-    --limit 1
-
-# 4. context — watch the plan-scoped knowledge blob the loop updates
-#    after each card (KnowledgeWriter merges learnings into it)
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar context --store postgres get knowledge:<COMPANY>.q3-auth | tail -20
-
-# 5. plan run — let the loop go wide; keep going past a failing card
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar \
-    -v "$HOME/.ssh":/home/briar/.ssh:ro -v "$HOME/.gitconfig":/home/briar/.gitconfig:ro \
-    -e ANTHROPIC_API_KEY \
-    iklob1/briar plan run q3-auth \
-    --repo <OWNER>/<REPO> \
-    --tracker jira --tracker-project <PROJECT> \
-    --llm anthropic --company <COMPANY> --store postgres \
-    --continue-on-failure
-
-# 6. dashboard + journal — monitor progress and audit each card's run
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar dashboard --examples examples/ --once
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar journal list --command plan.
-```
-
-**Features combined:** `extract` · `plan build/status/next/run` ·
-`context` (plan-knowledge blob) · `dashboard` · `journal`.
-
-**Verify:** `plan status` shows cards moving `pending → done`; the
-`knowledge:<COMPANY>.q3-auth` blob grows after each card; each completed
-card has a PR and a `plan.run.card.completed` event in the `plan.run`
-journal session. Exit `1` means the run finished with
-blocked cards — read `plan status` to see which.
-
----
-
-## Flow 5 — Account-wide AWS inventory, persisted on demand
-
-Enumerate every tagged resource and keep a queryable, drift-tracked JSON
-companion (the prompt blob stays small — counts only).
-
-```bash
-# Option A — ad-hoc, with the full inventory dumped to a JSON sidecar
-briar extract --company <COMPANY> \
-    --include aws-infra \
+briar extract --company acme --include aws-infra \
     --aws-extract-service tagging-inventory \
     --aws-extract-region us-east-1 \
-    --out-json /tmp/<COMPANY>-aws.json
-
-# Option B — scheduled, persisting the companion blob automatically.
-#   In the runbook YAML, set on the company's knowledge binding:
-#     knowledge:
-#       store: postgres
-#       name: knowledge:<COMPANY>
-#       config: { inventory: "true" }
-briar runbook extract examples/<COMPANY>.yaml
-
-# Inspect the companion and watch it drift over time
-briar context --store postgres list --prefix inventory:
-briar context --store postgres get  inventory:<COMPANY> | jq '.sections[].data.resources | length'
+    --out-json ./acme-aws.json
 ```
 
-**The same flow with Docker:**
+The blob gets a count per AWS service. `./acme-aws.json` gets each
+resource with its ARN, type, region and tags.
+
+On a schedule, with a JSON copy saved next to the blob each time, put
+this in `runbooks/acme.yaml`:
+
+```yaml
+version: 1
+companies:
+  acme:
+    knowledge:
+      store: postgres
+      name: knowledge:acme
+      config:
+        inventory: "true"
+    schedules:
+      - task: inventory
+        every: "day at 03:00"
+        extract:
+          - name: aws-infra
+            args:
+              aws_extract_region: us-east-1
+              aws_extract_service: [tagging-inventory]
+```
+
+Then run it once, and look at the saved copy:
 
 ```bash
-# Option A — ad-hoc, with the full inventory dumped to a JSON sidecar
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar extract --company <COMPANY> \
-    --include aws-infra \
-    --aws-extract-service tagging-inventory \
-    --aws-extract-region us-east-1 \
-    --out-json /tmp/<COMPANY>-aws.json
-
-# Option B — scheduled, persisting the companion blob automatically.
-#   In the runbook YAML, set on the company's knowledge binding:
-#     knowledge:
-#       store: postgres
-#       name: knowledge:<COMPANY>
-#       config: { inventory: "true" }
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar runbook extract examples/<COMPANY>.yaml
-
-# Inspect the companion and watch it drift over time
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar context --store postgres list --prefix inventory:
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar context --store postgres get  inventory:<COMPANY> | jq '.sections[].data.resources | length'
+briar runbook extract runbooks/acme.yaml
+briar context list --store postgres --prefix inventory:
+briar context get --store postgres inventory:acme
 ```
 
-**Verify:** the markdown `Resource inventory` section shows per-service
-counts; `/tmp/<COMPANY>-aws.json` (or `inventory:<COMPANY>`) carries the
-full per-resource rows (ARN, type, region, tags). Re-running only rewrites
-the companion when resources actually change.
+You get `inventory:acme`, a JSON blob with every resource. It is
+rewritten only when your resources change, so the Postgres history shows
+what changed and when.
 
----
-
-## Flow 6 — Run the scheduler 24/7 (production)
+## Flow 6: Keep knowledge fresh on a server
 
 ```bash
-# 1. Confirm every runbook in the directory has its credentials
-briar secrets doctor --examples /etc/briar/runbooks/
+# 1. Check credentials for every runbook in the folder
+briar secrets doctor --examples runbooks/
 
-# 2. One-shot refresh of every company (good before a release)
-briar runbook sweep /etc/briar/runbooks/
+# 2. Run every runbook once, now
+briar runbook sweep runbooks/
 
-# 3. Stay alive and fire each (company, task) on its cron cadence
-briar runbook serve /etc/briar/runbooks/
+# 3. Stay running and fire each task on its schedule
+briar runbook serve runbooks/
+
+# 4. Check the server from a browser, or once in a terminal
+briar dashboard --examples runbooks/ --once
 ```
 
-**The same flow with Docker:**
-
-```bash
-# 1. Confirm every runbook in the directory has its credentials
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar secrets doctor --examples /etc/briar/runbooks/
-
-# 2. One-shot refresh of every company (good before a release)
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar runbook sweep /etc/briar/runbooks/
-
-# 3. Stay alive and fire each (company, task) on its cron cadence
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar runbook serve /etc/briar/runbooks/
-```
-
-Typical systemd unit (the process never daemonises itself):
+`runbook serve` logs `scheduler starting: N job(s)`, then
+`fire task=... company=...` and `result task=... status=...` for each
+run. It does not go to the background by itself. Run it under systemd,
+for example:
 
 ```ini
 # /etc/systemd/system/briar-scheduler.service
@@ -439,610 +215,128 @@ User=briar
 EnvironmentFile=/etc/briar/secrets.env
 ```
 
-**Verify:** `systemctl status briar-scheduler` is active; the log (stderr)
-shows `registered company=<name> task=<name> every=...` per job; after the
-first fire it shows `fire task=...` and `result task=... status=...`.
+When a task fails, briar can alert you. List the channels in
+`BRIAR_NOTIFY_SINKS` (for example `slack,telegram`). See
+[runbook.md](runbook.md).
 
----
-
-## Flow 7 — Fix a PR using a specific meeting as the deciding input
-
-When a reviewer's ask traces back to a particular call, pin that
-transcript instead of keyword search.
+## Flow 7: Bitbucket and Linear instead of GitHub and Jira
 
 ```bash
-# Preview the wiring for free (no LLM call)
-briar agent prfix --company <COMPANY> \
-    --repo <OWNER>/<REPO> \
-    --pr 204 --branch feat/rate-limit \
-    --meeting fireflies --meeting-key 01HXXXXMEETINGID \
-    --meeting-max-bytes 8000 \
-    --dry-run
+# 1. Save credentials for both
+briar auth login bitbucket-app-password --company acme
+briar auth login linear-api-key --company acme
 
-# Re-run for real once the prompt looks right (drop --dry-run)
-briar agent prfix --company <COMPANY> \
-    --repo <OWNER>/<REPO> \
-    --pr 204 --branch feat/rate-limit \
-    --meeting fireflies --meeting-key 01HXXXXMEETINGID \
-    --runbook examples/<COMPANY>.yaml
+# 2. Read Bitbucket PR history and the repo's tools
+briar extract --company acme --provider bitbucket --repo acme-co/acme-app \
+    --include pr-archaeology --include codebase-conventions
+
+# 3. Implement a Linear ticket in the Bitbucket repo
+briar agent implement --company acme --provider bitbucket \
+    --repo acme-co/acme-app --ticket-key ENG-7 --tracker linear
 ```
 
-**The same flow with Docker:**
+You get the same knowledge sections, read from Bitbucket. Step 3 pushes
+a branch `chore/eng-7`. In 1.1.75 the agent cannot open the Bitbucket PR
+itself (its shell refuses `curl`), so open the PR by hand.
+
+## Flow 8: Many repos, projects and authors at once
 
 ```bash
-# Preview the wiring for free (no LLM call)
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar \
-    -v "$HOME/.ssh":/home/briar/.ssh:ro -v "$HOME/.gitconfig":/home/briar/.gitconfig:ro \
-    -e ANTHROPIC_API_KEY \
-    iklob1/briar agent prfix --company <COMPANY> \
-    --repo <OWNER>/<REPO> \
-    --pr 204 --branch feat/rate-limit \
-    --meeting fireflies --meeting-key 01HXXXXMEETINGID \
-    --meeting-max-bytes 8000 \
-    --dry-run
-
-# Re-run for real once the prompt looks right (drop --dry-run)
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar \
-    -v "$HOME/.ssh":/home/briar/.ssh:ro -v "$HOME/.gitconfig":/home/briar/.gitconfig:ro \
-    -e ANTHROPIC_API_KEY \
-    iklob1/briar agent prfix --company <COMPANY> \
-    --repo <OWNER>/<REPO> \
-    --pr 204 --branch feat/rate-limit \
-    --meeting fireflies --meeting-key 01HXXXXMEETINGID \
-    --runbook examples/<COMPANY>.yaml
-```
-
-**Verify:** the dry-run output shows a `## Meeting context` section in the
-system prompt containing the expected transcript.
-
----
-
-## Flow 8 — Cost-safe agent rollout (free → one card → wide)
-
-Three escalating gates so you never discover a misconfiguration at scale.
-
-```bash
-# 1. FREE — render the exact prompt + tool list, skip the LLM entirely
-briar agent implement --company <COMPANY> \
-    --repo <OWNER>/<REPO> \
-    --ticket-project <PROJECT> --ticket-key <PROJECT>-77 \
-    --tracker jira --dry-run
-
-# 2. ONE paid card through the plan loop
-briar plan run q3-auth --repo <OWNER>/<REPO> \
-    --tracker jira --tracker-project <PROJECT> \
-    --llm anthropic --company <COMPANY> --limit 1
-
-# 3. GO WIDE
-briar plan run q3-auth --repo <OWNER>/<REPO> \
-    --tracker jira --tracker-project <PROJECT> \
-    --llm anthropic --company <COMPANY> --continue-on-failure
-```
-
-**The same flow with Docker:**
-
-```bash
-# 1. FREE — render the exact prompt + tool list, skip the LLM entirely
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar \
-    -v "$HOME/.ssh":/home/briar/.ssh:ro -v "$HOME/.gitconfig":/home/briar/.gitconfig:ro \
-    -e ANTHROPIC_API_KEY \
-    iklob1/briar agent implement --company <COMPANY> \
-    --repo <OWNER>/<REPO> \
-    --ticket-project <PROJECT> --ticket-key <PROJECT>-77 \
-    --tracker jira --dry-run
-
-# 2. ONE paid card through the plan loop
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar \
-    -v "$HOME/.ssh":/home/briar/.ssh:ro -v "$HOME/.gitconfig":/home/briar/.gitconfig:ro \
-    -e ANTHROPIC_API_KEY \
-    iklob1/briar plan run q3-auth --repo <OWNER>/<REPO> \
-    --tracker jira --tracker-project <PROJECT> \
-    --llm anthropic --company <COMPANY> --limit 1
-
-# 3. GO WIDE
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar \
-    -v "$HOME/.ssh":/home/briar/.ssh:ro -v "$HOME/.gitconfig":/home/briar/.gitconfig:ro \
-    -e ANTHROPIC_API_KEY \
-    iklob1/briar plan run q3-auth --repo <OWNER>/<REPO> \
-    --tracker jira --tracker-project <PROJECT> \
-    --llm anthropic --company <COMPANY> --continue-on-failure
-```
-
-**Verify:** step 1 prints `system_prompt_bytes=… tool_count=…` and makes
-zero API calls; step 2 produces exactly one PR before you commit to step 3.
-
----
-
-## Flow 9 — Bitbucket + Linear stack (no GitHub, no Jira)
-
-Every provider is swappable by a flag — the extractors and agents don't
-hard-code a vendor.
-
-```bash
-# 1. Credentials for the non-default vendors
-briar auth login bitbucket-app-password --company <COMPANY>
-briar auth login linear-api-key         --company <COMPANY>
-
-# 2. Mine Bitbucket PRs
-briar extract --company <COMPANY> \
-    --include pr-archaeology --include codebase-conventions \
-    --provider bitbucket --repo <OWNER>/<REPO>
-
-# 3. Implement a Linear ticket against a Bitbucket repo
-briar agent implement --company <COMPANY> \
-    --repo <OWNER>/<REPO> --provider bitbucket \
-    --ticket-project ENG --ticket-key ENG-7 --tracker linear
-```
-
-**The same flow with Docker:**
-
-```bash
-# 1. Credentials for the non-default vendors
-docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
-    iklob1/briar auth login bitbucket-app-password --company <COMPANY>
-docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
-    iklob1/briar auth login linear-api-key         --company <COMPANY>
-
-# 2. Mine Bitbucket PRs
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar extract --company <COMPANY> \
-    --include pr-archaeology --include codebase-conventions \
-    --provider bitbucket --repo <OWNER>/<REPO>
-
-# 3. Implement a Linear ticket against a Bitbucket repo
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar \
-    -v "$HOME/.ssh":/home/briar/.ssh:ro -v "$HOME/.gitconfig":/home/briar/.gitconfig:ro \
-    -e ANTHROPIC_API_KEY \
-    iklob1/briar agent implement --company <COMPANY> \
-    --repo <OWNER>/<REPO> --provider bitbucket \
-    --ticket-project ENG --ticket-key ENG-7 --tracker linear
-```
-
-**Verify:** extraction's `Active work` / `PR archaeology` sections render
-Bitbucket PRs; the agent opens a Bitbucket PR.
-
----
-
-## Flow 10 — Fan out across many repos, boards, and authors
-
-Repeatable flags compose: `--repo` per repo (canonical), `--ticket-project`
-per board (the per-extractor override for tracker extractors, since their
-project keys differ in shape from `owner/repo`), author allow/block as
-`allow ∩ ¬block`.
-
-```bash
-briar extract --company <COMPANY> \
-    --include pr-archaeology --include active-tickets --include reviewer-profile \
-    --repo <OWNER>/web --repo <OWNER>/api --repo <OWNER>/infra \
-    --ticket-project <PROJECT> --ticket-project OPS \
+briar extract --company acme \
+    --include pr-archaeology --include active-work --include active-tickets \
+    --repo acme-co/web --repo acme-co/api --repo acme-co/infra \
+    --ticket-project ACME --ticket-project OPS \
     --authors-allow alice --authors-allow bob \
-    --authors-block dependabot --authors-block renovate
-
-# or with Docker:
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar extract --company <COMPANY> \
-    --include pr-archaeology --include active-tickets --include reviewer-profile \
-    --repo <OWNER>/web --repo <OWNER>/api --repo <OWNER>/infra \
-    --ticket-project <PROJECT> --ticket-project OPS \
-    --authors-allow alice --authors-allow bob \
-    --authors-block dependabot --authors-block renovate
+    --authors-block 'dependabot[bot]'
 ```
 
-**Verify:** the blob has one PR section spanning all three repos and one
-ticket section spanning both projects; bot PRs are absent.
+You get one PR section that covers all three repos, and one ticket
+section for both Jira projects. Only PRs by `alice` or `bob` are kept.
+The author filters apply to `pr-archaeology` and `active-work` only.
 
----
+## Flow 9: Make a config bundle for another system
 
-## Flow 11 — Scaffold a downstream automation config
-
-Emit a JSON config bundle another system (CI, a webhook handler) can drive.
+`briar scaffold` writes a JSON bundle that another system (a webhook
+handler, a CI job) can use to run an agent.
 
 ```bash
-# Issue → plan → approve → implement, triggered by a GitHub webhook
-briar scaffold implementation \
-    --prefix <COMPANY> \
-    --source jira --jira-project <PROJECT> \
+# Jira ticket -> plan -> human approval -> implement, started by a GitHub webhook
+briar scaffold implementation --prefix acme \
+    --source jira --jira-project ACME \
     --archetype engineer --shape plan-approve-act \
     --trigger-kind github_webhook \
-    --owner <OWNER> --repo <REPO> \
-    --out <COMPANY>-impl.json
+    --owner acme-co --repo acme-app \
+    --out acme-impl.json
 
-# A no-human-gate PR-fixer bundle
-briar scaffold pr-fixes --prefix <COMPANY> \
-    --owner <OWNER> --repo <REPO> \
-    --out <COMPANY>-prfix.json
+# A PR fixer that runs every hour, with no approval step
+briar scaffold pr-fixes --prefix acme \
+    --owner acme-co --repo acme-app \
+    --out acme-prfix.json
 ```
 
-**The same flow with Docker:**
+You get two JSON files. `jq . acme-impl.json` shows the archetype,
+shape, trigger and source you chose. See [scaffold.md](scaffold.md).
+
+## Flow 10: See what happened
 
 ```bash
-# Issue → plan → approve → implement, triggered by a GitHub webhook
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar scaffold implementation \
-    --prefix <COMPANY> \
-    --source jira --jira-project <PROJECT> \
-    --archetype engineer --shape plan-approve-act \
-    --trigger-kind github_webhook \
-    --owner <OWNER> --repo <REPO> \
-    --out <COMPANY>-impl.json
+# Server status once, as text (good for CI)
+briar dashboard --examples runbooks/ --once
 
-# A no-human-gate PR-fixer bundle
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar scaffold pr-fixes --prefix <COMPANY> \
-    --owner <OWNER> --repo <REPO> \
-    --out <COMPANY>-prfix.json
-```
+# The same as a web page on http://127.0.0.1:8080
+briar dashboard --examples runbooks/ --port 8080
 
-**Verify:** the `--out` file is valid JSON; `jq . <COMPANY>-impl.json`
-shows the archetype, shape, trigger, and source you selected.
-
----
-
-## Flow 12 — Operate & audit (dashboard + journal)
-
-```bash
-# Snapshot the droplet/runbook state once (CI-friendly), then exit
-briar dashboard --examples examples/ --once
-
-# Or serve the read-only HTML status page on loopback
-briar dashboard --examples examples/ --host 127.0.0.1 --port 8080
-
-# Inspect what scaffold / plan run decided and why
+# Every plan run, newest first
 briar journal list --command plan.run
-briar journal show <SESSION_ID>
-briar journal export <SESSION_ID> --as json | jq '.decisions[].choice'
+
+# One run in detail (use an id from the list)
+briar journal show 3f9a1c2b7d4e
+
+# Save it as JSON for a report
+briar journal export 3f9a1c2b7d4e --as json --out q3-run.json
 ```
 
-**The same flow with Docker:**
+The journal holds each selector decision with its reason, and each card
+start, success and failure. Only `plan run` and `scaffold` write journal
+sessions. A plain `agent implement` or `agent prfix` does not. Its
+record is the PR and the log printed with `-v`.
+
+## Flow 11: Manage knowledge blobs by hand
+
+The store holds plain markdown blobs by name. You can add your own.
 
 ```bash
-# Snapshot the droplet/runbook state once (CI-friendly), then exit
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar dashboard --examples examples/ --once
-
-# Or serve the read-only HTML status page on loopback
-docker run --rm -p 8080:8080 -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar \
-    iklob1/briar dashboard --host 0.0.0.0 --examples examples/ --port 8080
-
-# Inspect what scaffold / plan run decided and why
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar journal list --command plan.run
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar journal show <SESSION_ID>
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar journal export <SESSION_ID> --as json | jq '.decisions[].choice'
-```
-
-**Verify:** the dashboard renders schedules, recent cycles and GitHub
-quota; `journal show` prints the ordered `DecisionEvent`s for the run.
-
----
-
-## Flow 13 — Direct knowledge & memory management
-
-The store is content-agnostic — read/write any blob by name.
-
-```bash
-# Seed a free-form memory blob (agents only splice knowledge:<COMPANY>* blobs, not memory:*)
+# Save a note from the command line
 briar context put memory:reviewer-alice \
-    --content "Alice always asks for a regression test + a changelog entry."
+    --content "Alice asks for a regression test and a changelog line."
 
-# Or load one from a file
-briar context put knowledge:<COMPANY>.house-style --from-file ./house-style.md
+# Save a markdown file as a blob
+briar context put memory:acme-house-style --from-file ./house-style.md
 
-# Read / enumerate / clean up
-briar context get  knowledge:<COMPANY>
+# Read, list and delete
+briar context get knowledge:acme
 briar context list --prefix knowledge:
-briar context list --prefix inventory:
-briar context delete memory:reviewer-alice
-
-# Everything above works against shared postgres truth instead of disk
-briar context --store postgres list --prefix knowledge:
+briar context delete memory:reviewer-alice --yes
 ```
 
-**The same flow with Docker:**
+You get blobs you can read back by name. `memory:` blobs are for people.
+The agent never reads them.
 
-```bash
-# Seed a free-form memory blob (agents only splice knowledge:<COMPANY>* blobs, not memory:*)
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar context put memory:reviewer-alice \
-    --content "Alice always asks for a regression test + a changelog entry."
+The agent reads only extractor sections, found by headings like
+`## Codebase conventions`, in blobs named `knowledge:acme...`. A blob
+you write by hand reaches the agent only if it uses one of those
+headings. When two blobs have the same section, only one is used.
 
-# Or load one from a file
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar context put knowledge:<COMPANY>.house-style --from-file ./house-style.md
+`context` uses the file store unless you pass `--store postgres` (or set
+`BRIAR_STORE=postgres`). That is true even when `BRIAR_DATABASE_URL` is
+set. See [context.md](context.md).
 
-# Read / enumerate / clean up
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar context get  knowledge:<COMPANY>
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar context list --prefix knowledge:
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar context list --prefix inventory:
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar context delete memory:reviewer-alice --yes   # no TTY, so skip the prompt
+## Putting it together
 
-# Everything above works against shared postgres truth instead of disk
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar context --store postgres list --prefix knowledge:
-```
+A common order for a new team:
 
-**Verify:** `context get` round-trips what you `put`; `context categories`
-shows the distinct prefixes in use.
-
----
-
-## Flow 14 — Full lifecycle in one sitting (onboard → schedule → ship → audit)
-
-The capstone: every major feature in one chain, taking a company from no
-credentials to merged AI-authored PRs with an audit trail.
-
-```bash
-# 1. auth + secrets — get credentials in, prove coverage
-briar auth login github-pat --company <COMPANY>
-briar auth login jira-token --company <COMPANY>
-briar auth login aws-static --company <COMPANY>
-briar auth login fireflies  --company <COMPANY>
-briar secrets doctor --examples examples/
-
-# 2. runbook — stand up scheduled extraction so knowledge stays fresh
-#    (knowledge.config.inventory: "true" in the YAML also persists the
-#     AWS inventory companion — see Flow 5)
-briar runbook sweep examples/                 # one-shot refresh now
-# briar runbook serve examples/               # ...or run the daemon
-
-# 3. context — confirm the knowledge + inventory blobs exist
-briar context --store postgres list --prefix knowledge:
-briar context --store postgres list --prefix inventory:
-
-# 4. plan — board → ordered plan, knowledge spliced in
-briar plan build "https://github.com/orgs/<OWNER>/projects/7" \
-    --company <COMPANY> --name q3-auth --with-knowledge \
-    --llm anthropic --store postgres
-
-# 5. plan run — ship the plan card by card (engineer agent per card)
-briar plan run q3-auth --repo <OWNER>/<REPO> \
-    --tracker jira --tracker-project <PROJECT> \
-    --llm anthropic --company <COMPANY> --store postgres \
-    --continue-on-failure
-
-# 6. agent prfix — when a human reviews a shipped PR, address the comments
-briar agent prfix --company <COMPANY> --repo <OWNER>/<REPO> \
-    --pr 131 --branch q3-auth/card-3 \
-    --meeting fireflies --meeting-query "auth review" \
-    --runbook examples/<COMPANY>.yaml
-
-# 7. dashboard + journal — monitor the estate and audit every decision
-briar dashboard --examples examples/ --once
-briar journal list --command plan.
-```
-
-**The same flow with Docker:**
-
-```bash
-# 1. auth + secrets — get credentials in, prove coverage
-docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
-    iklob1/briar auth login github-pat --company <COMPANY>
-docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
-    iklob1/briar auth login jira-token --company <COMPANY>
-docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
-    iklob1/briar auth login aws-static --company <COMPANY>
-docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
-    iklob1/briar auth login fireflies  --company <COMPANY>
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar secrets doctor --examples examples/
-
-# 2. runbook — stand up scheduled extraction so knowledge stays fresh
-#    (knowledge.config.inventory: "true" in the YAML also persists the
-#     AWS inventory companion — see Flow 5)
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar runbook sweep examples/                 # one-shot refresh now
-# docker run --rm -v "$PWD":/work -w /work \
-#     -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-#     iklob1/briar runbook serve examples/               # ...or run the daemon
-
-# 3. context — confirm the knowledge + inventory blobs exist
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar context --store postgres list --prefix knowledge:
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar context --store postgres list --prefix inventory:
-
-# 4. plan — board → ordered plan, knowledge spliced in
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar plan build "https://github.com/orgs/<OWNER>/projects/7" \
-    --company <COMPANY> --name q3-auth --with-knowledge \
-    --llm anthropic --store postgres
-
-# 5. plan run — ship the plan card by card (engineer agent per card)
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar \
-    -v "$HOME/.ssh":/home/briar/.ssh:ro -v "$HOME/.gitconfig":/home/briar/.gitconfig:ro \
-    -e ANTHROPIC_API_KEY \
-    iklob1/briar plan run q3-auth --repo <OWNER>/<REPO> \
-    --tracker jira --tracker-project <PROJECT> \
-    --llm anthropic --company <COMPANY> --store postgres \
-    --continue-on-failure
-
-# 6. agent prfix — when a human reviews a shipped PR, address the comments
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar \
-    -v "$HOME/.ssh":/home/briar/.ssh:ro -v "$HOME/.gitconfig":/home/briar/.gitconfig:ro \
-    -e ANTHROPIC_API_KEY \
-    iklob1/briar agent prfix --company <COMPANY> --repo <OWNER>/<REPO> \
-    --pr 131 --branch q3-auth/card-3 \
-    --meeting fireflies --meeting-query "auth review" \
-    --runbook examples/<COMPANY>.yaml
-
-# 7. dashboard + journal — monitor the estate and audit every decision
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar dashboard --examples examples/ --once
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar journal list --command plan.
-```
-
-**Features combined:** `auth` · `secrets` · `runbook` (sweep/serve) ·
-`extract` (via runbook) · `context` · `plan build/run` · `agent prfix` ·
-`dashboard` · `journal` — the whole tool in nine commands.
-
----
-
-## Flow 15 — All providers, all extractors, ship a Jira card, then auto-fix its PR
-
-The maximalist single-company chain: **auth** every provider (GitHub, AWS,
-Fireflies, Slack, and Jira via a session cookie) → **extract** everything
-(every extractor in one pass) into `knowledge:<COMPANY>` → **agent
-implement** one Jira card end to end → **agent prfix** to pull the
-resulting PR and fix its review comments automatically.
-Slack has no `--include` extractor and no `auth login`
-target: it is a read-only web session the agents pull in just-in-time via
-`--slack-query` (the same way `--meeting-query` pulls Fireflies).
-
-```bash
-# 1. auth — one login per vendor (creds land in ~/.config/briar/secrets.env)
-briar auth login github-pat   --company <COMPANY>    # PAT with repo + read:org
-briar auth login aws-static   --company <COMPANY>    # access key + secret
-briar auth login fireflies    --company <COMPANY>    # Fireflies API key
-briar auth login jira-session --company <COMPANY>    # paste a Jira session cookie + base URL
-# Slack uses a read-only browser web session (company-scoped env, no login
-# target): export the xoxc token + the d cookie.
-export SLACK_<COMPANY>_TOKEN=xoxc-...
-export SLACK_<COMPANY>_COOKIE_D=xoxd-...
-export ANTHROPIC_API_KEY=sk-ant-...                  # LLM key for the agent steps
-
-# 2. secrets — gate: prove every (company, extractor) pair has its creds
-briar secrets doctor --examples examples/
-
-# 3. extract — EVERY extractor in one pass (omit --include to run them all:
-#    the GitHub, AWS, Jira and Fireflies sources into knowledge:<COMPANY>)
-briar extract --company <COMPANY> \
-    --repo <OWNER>/<REPO> --ticket-project <PROJECT>
-
-# 4. context — eyeball what landed before the agents read it
-briar context get knowledge:<COMPANY> | head -40
-
-# 5. agent implement — ship one Jira card end to end (clone, branch, code,
-#    open a draft PR), with Fireflies + Slack pulled in just-in-time.
-#    Add --dry-run first to preview the prompt + tools for free.
-briar agent implement --company <COMPANY> \
-    --repo <OWNER>/<REPO> \
-    --ticket-project <PROJECT> --ticket-key <PROJECT>-412 --tracker jira \
-    --meeting-query "<PROJECT>-412" --slack-query "<PROJECT>-412" \
-    --runbook examples/<COMPANY>.yaml
-
-# 6. agent prfix — a human reviews the PR; pull it and fix the open review
-#    comments automatically (push fixes, reply inline).
-briar agent prfix --company <COMPANY> \
-    --repo <OWNER>/<REPO> \
-    --pr 412 --branch <PROJECT>-412 \
-    --slack-query "<PROJECT>-412" \
-    --runbook examples/<COMPANY>.yaml
-```
-
-**The same flow with Docker:**
-
-```bash
-# 1. auth — one login per vendor (writes into the mounted ~/.config/briar)
-docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
-    iklob1/briar auth login github-pat --company <COMPANY>
-docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
-    iklob1/briar auth login aws-static --company <COMPANY>
-docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
-    iklob1/briar auth login fireflies --company <COMPANY>
-docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
-    iklob1/briar auth login jira-session --company <COMPANY>
-# Slack web-session creds + LLM key live in your host env; the agent steps
-# below forward them with -e (see step 5/6):
-export SLACK_<COMPANY>_TOKEN=xoxc-...
-export SLACK_<COMPANY>_COOKIE_D=xoxd-...
-export ANTHROPIC_API_KEY=sk-ant-...
-
-# 2. secrets — gate: prove every (company, extractor) pair has its creds
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar secrets doctor --examples examples/
-
-# 3. extract — EVERY extractor in one pass into knowledge:<COMPANY>
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar extract --company <COMPANY> \
-    --repo <OWNER>/<REPO> --ticket-project <PROJECT>
-
-# 4. context — eyeball what landed before the agents read it
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar context get knowledge:<COMPANY> | head -40
-
-# 5. agent implement — ship one Jira card end to end, Fireflies from the
-#    mounted creds, Slack forwarded with -e for --slack-query.
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar \
-    -v "$HOME/.ssh":/home/briar/.ssh:ro -v "$HOME/.gitconfig":/home/briar/.gitconfig:ro \
-    -e ANTHROPIC_API_KEY -e SLACK_<COMPANY>_TOKEN -e SLACK_<COMPANY>_COOKIE_D \
-    iklob1/briar agent implement --company <COMPANY> \
-    --repo <OWNER>/<REPO> \
-    --ticket-project <PROJECT> --ticket-key <PROJECT>-412 --tracker jira \
-    --meeting-query "<PROJECT>-412" --slack-query "<PROJECT>-412" \
-    --runbook examples/<COMPANY>.yaml
-
-# 6. agent prfix — pull the PR and fix its review comments automatically
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar \
-    -v "$HOME/.ssh":/home/briar/.ssh:ro -v "$HOME/.gitconfig":/home/briar/.gitconfig:ro \
-    -e ANTHROPIC_API_KEY -e SLACK_<COMPANY>_TOKEN -e SLACK_<COMPANY>_COOKIE_D \
-    iklob1/briar agent prfix --company <COMPANY> \
-    --repo <OWNER>/<REPO> \
-    --pr 412 --branch <PROJECT>-412 \
-    --slack-query "<PROJECT>-412" \
-    --runbook examples/<COMPANY>.yaml
-```
-
-**Features combined:** `auth` (4 targets, incl. `jira-session`) ·
-`secrets` · `extract` (all extractors) · `context` · `agent implement` ·
-`agent prfix` (+ JIT Fireflies + Slack context).
-
-**Verify:** step 2 shows no `missing` rows; step 3 writes a non-empty
-`knowledge:<COMPANY>` with one section per extractor; step 5 exits `0`,
-logs `agent-done` (visible with `-v`), and opens a draft PR; step 6 pushes
-new commits with inline replies prefixed `[AI] ` on that PR.
-
----
-
-## Composing flows
-
-These chain naturally:
-
-- **Daily loop:** Flow 6 (scheduler) keeps `knowledge:<COMPANY>` fresh →
-  Flow 4 (plan run) ships cards against it → Flow 12 audits the result.
-- **Reactive PR fix:** a webhook fires Flow 2/7 (prfix) using the latest
-  scheduled knowledge, no manual extract needed.
-- **Onboarding → first value:** Flow 1 → Flow 2 → Flow 3 takes a new
-  company from no credentials to a merged AI-authored PR.
+1. Flow 1 to save credentials and take the first snapshot.
+2. Flow 6 to keep that snapshot fresh on a server.
+3. Flow 2 for one ticket, then Flow 4 for a whole board.
+4. Flow 3 whenever a reviewer comments on one of those PRs.
+5. Flow 10 to check what ran and why.

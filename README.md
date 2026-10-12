@@ -1,170 +1,264 @@
 # briar
 
-**Turn the live state of your tools into agent-ready context — then let autonomous agents act on it. All on your machine.**
+briar is a command-line tool that runs on your own machine. It does two
+things:
 
-`briar` is a local-first Python CLI that mines what's actually happening across your stack — GitHub, Bitbucket, AWS/GCP/Azure, Jira, Linear, Fireflies — into a local knowledge store, then runs LLM agents that fix PRs and ship tickets against it. No SaaS, no remote workspace, no data leaving your laptop: your credentials, your machine, your APIs.
+1. It reads what is going on in your team's tools (GitHub or Bitbucket,
+   Jira or Linear, AWS, Fireflies) and saves it as markdown "knowledge".
+2. It runs AI coding agents that use that knowledge. One agent takes a
+   ticket and opens a draft PR. Another fixes the review comments on a PR.
+
+There is no briar server and no account. briar talks only to the services
+you set up: your code host, your tracker, your cloud, and your LLM
+provider. Your credentials stay in a file on your machine.
+
+## Install
 
 ```bash
 pip install briar-cli
 briar version
 ```
 
-Or run it with Docker, nothing to install:
+You get `briar-cli 1.1.75` (or newer). briar needs Python 3.10 or later.
+
+The base install covers GitHub, Bitbucket, AWS, Jira, Linear, Fireflies,
+Anthropic (Claude) and AWS Bedrock, with a file or Postgres store. It
+also runs the coding agents. Extras add more:
 
 ```bash
-docker pull iklob1/briar
-docker run --rm iklob1/briar version
+pip install 'briar-cli[mcp]'      # briar mcp serve, briar chat, MCP tools for agents
+pip install 'briar-cli[all]'      # everything below
 ```
 
----
+The extras are `[openai]`, `[gemini]`, `[mcp]`, `[gcp]`, `[azure]` and
+`[vault]`.
 
-## Run with Docker
+To run `briar agent` or `briar plan run` you also need `git` and the
+GitHub CLI `gh`, because the agent runs them.
 
-Every example below shows a native `briar …` line and its Docker equivalent.
-The Docker form mounts what the CLI needs and is otherwise identical:
+The `[mcp]` extra adds three things:
 
-```bash
-# Canonical invocation used throughout this README:
-docker run --rm \
-    -v "$PWD":/work -w /work \                               # your repo checkout
-    -v "$HOME/.config/briar":/home/briar/.config/briar \     # stored credentials
-    -e ANTHROPIC_API_KEY \                                   # LLM key from your env
-    iklob1/briar <args>
-```
+- `briar mcp serve` and `briar chat`. They do not start without it.
+- The tool servers listed under `mcp:` in a runbook. An agent run with
+  such a runbook stops without the extra.
+- Two small helper tools for agents, "think" and "time". Without the
+  extra, briar skips them, logs one warning and goes on.
 
-- **`dashboard`** also needs a published port and a non-loopback bind:
-  `docker run --rm -p 8080:8080 iklob1/briar dashboard --host 0.0.0.0`.
-- **`agent` / `plan run`** push git, so add your SSH key and git identity:
-  `-v "$HOME/.ssh":/home/briar/.ssh:ro -v "$HOME/.gitconfig":/home/briar/.gitconfig:ro`.
-- Pass any extra provider env the same way, e.g. `-e FIREFLIES_ACME_API_KEY`.
-
----
+Since 1.1.74 a plain install runs agents. Older versions stopped with
+``MCP support requires the `mcp` package`` unless you passed
+`--no-default-mcp`.
 
 ## Quickstart
 
-The common flow: authenticate a provider, mine its live state into knowledge, then act on it.
-
 ```bash
-# 1. Authenticate the providers you'll use (tokens land in ~/.config/briar/secrets.env)
+# 1. Save a GitHub token and Jira login. They go to ~/.config/briar/secrets.env
 briar auth login github-pat --company acme
-export ANTHROPIC_API_KEY=sk-ant-...        # LLM key comes from the environment
+briar auth login jira-token --company acme
 
-# 2. Mine a repo's PR history into a knowledge blob
-briar extract --company acme \
-    --include pr-archaeology \
-    --repo acme-co/acme-app --max 50
+# 2. Give briar a Claude key. It reads it from your shell.
+export ANTHROPIC_API_KEY=sk-ant-your-key
 
-# 3. Read it back
+# 3. Read the repo's recent PRs and its tools into the blob knowledge:acme
+briar extract --company acme --repo acme-co/acme-app \
+    --include pr-archaeology --include codebase-conventions --max 50
+
+# 4. Read what was saved
 briar context get knowledge:acme
 
-# 4. Let an agent act on a ticket — clone, branch, code, open a draft PR
+# 5. Print the agent's prompt for ticket ACME-42. No cost, nothing pushed.
+briar agent implement --company acme --repo acme-co/acme-app \
+    --ticket-key ACME-42 --tracker jira --dry-run
+
+# 6. Run it for real: clone, branch, code, test, open a draft PR
 briar agent implement --company acme --repo acme-co/acme-app \
     --ticket-key ACME-42 --tracker jira
 ```
 
-The same flow with Docker:
+After step 3 you have `./knowledge/knowledge/acme.md`. After step 6 you
+have a branch `chore/acme-42` and a draft PR on `acme-co/acme-app`.
+
+## Less typing with `.briar.toml`
+
+Every setting is looked up in this order: the flag you type, then an
+environment variable, then `.briar.toml`, then the built-in default. The
+repo owner and name can also come from the git `origin` remote.
+
+Write a starter file in your repo:
 
 ```bash
-# 1. Authenticate (writes into the mounted ~/.config/briar)
-docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
-    iklob1/briar auth login github-pat --company acme
-
-# 2. Extract
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar extract --company acme --include pr-archaeology \
-    --repo acme-co/acme-app --max 50
-
-# 3. Read it back
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar \
-    iklob1/briar context get knowledge:acme
-
-# 4. Let an agent act on a ticket (git push → mount SSH + git identity)
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar \
-    -v "$HOME/.ssh":/home/briar/.ssh:ro -v "$HOME/.gitconfig":/home/briar/.gitconfig:ro \
-    -e ANTHROPIC_API_KEY \
-    iklob1/briar agent implement --company acme --repo acme-co/acme-app \
-    --ticket-key ACME-42 --tracker jira
+briar init --company acme
 ```
 
-Add `--dry-run` to any `agent` command to preview the exact prompt and tools without spending a token.
-
-> **Telemetry:** `briar` ships with opt-out error/usage analytics. No prompts, file contents, ticket keys, repo names, paths, or secret values ever leave the machine. Turn it off with `briar telemetry off`, `BRIAR_TELEMETRY=off`, or `DO_NOT_TRACK=1`.
-
----
-
-## Less typing
-
-briar resolves every flag through one chain — **CLI flag > env var > project config > built-in default** — so stable values move off the command line. Drop a `.briar.toml` at your repo root:
+You get a `.briar.toml` with the company, the store, and the repo taken
+from git. The `[agent]` part comes commented out. Uncomment it to set
+agent defaults:
 
 ```toml
 company = "acme"
-store   = "postgres"
+store   = "file"
 
 [repo]
-owner = "acme-co"
-repo  = "acme-app"
+owner    = "acme-co"
+repo     = "acme-app"
+provider = "github"
+
+[agent]
+model          = "claude-sonnet-4-6"
+git_user_name  = "Acme Bot"
+git_user_email = "bot@acme.com"
 ```
 
-Then, inside the checkout, the same extract is just:
+Inside that repo the commands get short:
 
 ```bash
-briar extract --include pr-archaeology     # company + repo come from config/git
-
-# or with Docker (the mounted $PWD provides the .briar.toml + git checkout):
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar extract --include pr-archaeology
+briar extract --include pr-archaeology
+briar agent implement --ticket-key ACME-42
 ```
 
-Setup helpers: `briar init` (write a starter `.briar.toml`), `briar config show` (resolved value + source for each setting), `briar doctor` (check config / git / creds / store), `eval "$(briar completion bash)"` (tab-completion, also zsh). Each runs under Docker with the canonical invocation, e.g. `docker run --rm -v "$PWD":/work -w /work iklob1/briar doctor`.
+`briar config show` prints each setting and where it came from.
+`briar doctor` checks the config, git, credentials and store.
+`eval "$(briar completion bash)"` turns on tab completion (`zsh` works too).
+See [setup.md](https://github.com/iklobato/briar/blob/main/agents/setup.md).
 
----
+## Run with Docker
 
-## More than extraction
-
-- **`briar runbook serve runbooks/`** — keep per-company knowledge fresh on a schedule, in-process (no cron).
-  Docker: `docker run --rm -v "$PWD":/work -w /work -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY iklob1/briar runbook serve runbooks/`
-- **`briar agent prfix` / `implement`** — address a PR's open review comments, or take a ticket end-to-end (add the SSH + git-identity mounts shown above).
-- **`briar plan build` / `run`** — turn a Jira / GitHub Projects board into an ordered plan and run it card by card.
-- **`briar dashboard`** — read-only HTML status page:
-  `docker run --rm -p 8080:8080 -v "$PWD":/work -w /work iklob1/briar dashboard --host 0.0.0.0`
-- **`briar mcp serve` / `chat`**: serve briar's knowledge, runbook config and extractors as MCP tools (stdio or http), or drive them from an interactive terminal chat. Needs the `[mcp]` extra (included in the Docker image).
-  Docker (stdio needs `-i`): `docker run --rm -i -v "$PWD":/work -w /work iklob1/briar mcp serve`
-- **`briar scaffold` · `context` · `secrets doctor` · `journal`** — config bundles, local knowledge blobs, credential coverage, decision audit.
-
-Every command takes `--format json` for scripting, and most list flags repeat (`--include a --include b`).
-
----
-
-## Install options
+The image `iklob1/briar` has briar, the `[mcp]` extra, `git` and `gh`.
+Nothing else to install:
 
 ```bash
-pip install briar-cli                # base: GitHub/Bitbucket/AWS, Jira/Linear, Anthropic + Bedrock, file + Postgres
-pip install 'briar-cli[all]'         # everything (OpenAI, Gemini, MCP, GCP, Azure, Vault)
-
-# or pull the prebuilt image (no Python install needed; base providers + MCP server):
-docker pull iklob1/briar             # tags: latest, and each release e.g. 1.1.56
+docker run --rm iklob1/briar version
 ```
 
-Individual extras: `[openai]`, `[gemini]`, `[mcp]`, `[gcp]`, `[azure]`, `[vault]`. **Python 3.10+** (tested through 3.12).
+To work on a repo, mount it and your briar config folder:
 
----
+```bash
+docker run --rm \
+    -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar \
+    -e ANTHROPIC_API_KEY \
+    iklob1/briar extract --company acme --include pr-archaeology
+```
 
-## Documentation
+- `-v "$PWD":/work -w /work` mounts your repo, so `.briar.toml` and
+  `./knowledge` work as on your machine.
+- `-v "$HOME/.config/briar":/home/briar/.config/briar` mounts the
+  credentials that `briar auth login` saved.
+- `-e ANTHROPIC_API_KEY` passes a variable from your shell. Repeat `-e`
+  for others. Saved credentials need no `-e`.
 
-Full command reference, every flag, runbook-YAML schema, configuration, and recipes:
+Some commands need more:
 
-**📖 [usebriar.com/docs](https://usebriar.com/docs)**
+| Command | Add |
+|---|---|
+| `auth login` | `-it`, because it asks you to paste a token. |
+| `dashboard` | `-p 8080:8080`, and `--host 0.0.0.0` at the end. |
+| `mcp serve` over stdio | `-i`, so the MCP client can talk to it. |
 
-- End-to-end usage flows: [`agents/flows.md`](agents/flows.md)
-- Per-command operator manual: [`agents/`](agents/README.md)
-- Comprehensive multi-company runbook: [`examples/all_features.yaml`](examples/all_features.yaml)
+```bash
+docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
+    iklob1/briar auth login github-pat --company acme
 
----
+docker run --rm -p 8080:8080 -v "$PWD":/work -w /work \
+    iklob1/briar dashboard --host 0.0.0.0
+```
+
+### Run an agent in Docker
+
+Since 1.1.75 the image can run `briar agent` and `briar plan run`. Add
+two keys and your git name and email:
+
+```bash
+docker run --rm \
+    -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar \
+    -e GITHUB_TOKEN -e ANTHROPIC_API_KEY \
+    iklob1/briar agent implement --company acme --repo acme-co/acme-app \
+    --ticket-key ACME-42 --tracker jira \
+    --git-user-name "Dana Lee" --git-user-email dana@acme.com
+```
+
+It runs the same steps as on your machine: a branch `chore/acme-42` and a
+draft PR on `acme-co/acme-app`. Add `--dry-run` to see the prompt first.
+
+- `--git-user-name` and `--git-user-email` give the commits your name and
+  email. You can mount `~/.gitconfig` instead, but see the first point
+  under "Good to know".
+- `-e GITHUB_TOKEN` lets `git push` and `gh` log in to GitHub. In the
+  image, git asks `gh` for the login, and `gh` reads `GITHUB_TOKEN`.
+- `-e ANTHROPIC_API_KEY` is the Claude key. `-e CLAUDE_CODE_OAUTH_TOKEN`
+  works too.
+- The Jira keys come from the mounted config folder.
+- `--repo` can also come from `[repo]` in the mounted `.briar.toml`.
+
+Good to know:
+
+- `gh auth setup-git` writes a GitHub login line into `~/.gitconfig`.
+  That line replaces the image's own and points at `gh` on your
+  machine (for example `/usr/local/bin/gh`), which is not in the image,
+  so a mounted `.gitconfig` like that makes the push fail with
+  "gh: not found". Pass `--git-user-name` and `--git-user-email` instead.
+- briar can also read owner and repo from the mounted repo's git
+  `origin` remote. This works only when the folder looks owned by the
+  container user (uid 1000). Docker Desktop on Mac and Windows does
+  that. On Linux, git refuses a folder owned by another uid
+  ("detected dubious ownership"). Then pass `--repo`, or keep `[repo]`
+  in `.briar.toml`, which briar reads without git. The agent's own
+  clone is not affected.
+- The image sets up the git login for GitHub only. For Bitbucket, run
+  agents from a local install.
+- The image sets `BRIAR_NO_DEFAULT_MCP=1`, because it has no `npx` or
+  `uvx` for the agent's helper tools. An image of your own that adds
+  them can pass `-e BRIAR_NO_DEFAULT_MCP=0`.
+- The image is built for `linux/amd64` only. On Apple Silicon, Docker
+  runs it with emulation.
+- The container runs as user `briar` (uid 1000). On Linux, the folders
+  you mount must be writable by that uid.
+- Tags are `latest` and each version, for example `iklob1/briar:1.1.75`.
+
+## Commands
+
+Each command has a manual in [`agents/`](https://github.com/iklobato/briar/blob/main/agents/README.md).
+The same reference, with more examples, is at
+[usebriar.com/docs](https://usebriar.com/docs).
+
+| Command | What it does | Manual |
+|---|---|---|
+| `briar extract` | Reads your tools into a knowledge blob (23 extractors). | [extract.md](https://github.com/iklobato/briar/blob/main/agents/extract.md) |
+| `briar agent implement` | Takes one ticket and opens a draft PR. | [agent.md](https://github.com/iklobato/briar/blob/main/agents/agent.md) |
+| `briar agent prfix` | Fixes and answers the review comments on one PR. | [agent.md](https://github.com/iklobato/briar/blob/main/agents/agent.md) |
+| `briar plan` | Turns a Jira or GitHub Projects board into a plan, then runs it card by card. | [plan.md](https://github.com/iklobato/briar/blob/main/agents/plan.md) |
+| `briar runbook` | Runs extractors from a YAML file, once or on a schedule. | [runbook.md](https://github.com/iklobato/briar/blob/main/agents/runbook.md) |
+| `briar context` | Reads, writes, lists and deletes knowledge blobs. | [context.md](https://github.com/iklobato/briar/blob/main/agents/context.md) |
+| `briar scaffold` | Writes a JSON config bundle for an agent workflow. | [scaffold.md](https://github.com/iklobato/briar/blob/main/agents/scaffold.md) |
+| `briar auth` | Saves credentials (`login`, `logout`, `list`, `status`, `refresh`). | [auth.md](https://github.com/iklobato/briar/blob/main/agents/auth.md) |
+| `briar secrets` | Shows which credentials are missing (`doctor`, `bootstrap`). | [creds.md](https://github.com/iklobato/briar/blob/main/agents/creds.md) |
+| `briar journal` | Shows the decisions that `plan run` and `scaffold` recorded. | [journal.md](https://github.com/iklobato/briar/blob/main/agents/journal.md) |
+| `briar dashboard` | Serves a read-only status page. | [dashboard.md](https://github.com/iklobato/briar/blob/main/agents/dashboard.md) |
+| `briar mcp serve`, `briar chat` | Serves briar as MCP tools, or drives them from a chat in your terminal. | [mcp.md](https://github.com/iklobato/briar/blob/main/agents/mcp.md) |
+| `briar init`, `config show`, `doctor`, `completion` | Setup helpers. | [setup.md](https://github.com/iklobato/briar/blob/main/agents/setup.md) |
+| `briar telemetry` | Shows or changes what usage data is sent. | [telemetry.md](https://github.com/iklobato/briar/blob/main/agents/telemetry.md) |
+| `briar version` | Prints the version. | [version.md](https://github.com/iklobato/briar/blob/main/agents/version.md) |
+
+Recipes that chain these commands are in
+[flows.md](https://github.com/iklobato/briar/blob/main/agents/flows.md). A
+runbook that uses every feature is
+[examples/all_features.yaml](https://github.com/iklobato/briar/blob/main/examples/all_features.yaml).
+
+Three flags work with every command, anywhere on the line:
+
+| Flag | What it does |
+|---|---|
+| `--format table\|json\|yaml\|csv\|quiet` | Output shape. Lists default to `table`, single records to `json`. |
+| `--verbose`, `-v` | Debug logs on stderr. `BRIAR_VERBOSE=1` does the same. |
+| `--version`, `-V` | Print the version and exit. |
+
+## Telemetry
+
+briar sends error reports and usage counts by default. No prompts, file
+contents, ticket keys, repo names, paths or secret values leave your
+machine. Turn it off with `briar telemetry off`, `BRIAR_TELEMETRY=off`
+or `DO_NOT_TRACK=1`.
 
 ## License
 
-See [LICENSE](LICENSE).
+MIT. See [LICENSE](https://github.com/iklobato/briar/blob/main/LICENSE).

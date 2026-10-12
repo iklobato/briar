@@ -1,101 +1,108 @@
 # `briar dashboard`
 
-## Purpose
-Serve a read-only HTML status page summarising the local briar
-deployment. Aggregates the collectors in `dashboard/collectors.py`
-into one page: scheduler state, recent cycles, GitHub API quota,
-connectivity probes, git state, disk/memory/load, log tail.
+## What it does
 
-## When to use
-- A host has briar installed and you want a quick "is it healthy"
-  view in a browser.
-- You're debugging a `runbook serve` instance and want to see what
-  it's actually running.
-- One-off snapshot for an incident — use `--once` to write a
-  static page and exit.
+`briar dashboard` starts a small web page that shows the health of a
+machine that runs briar. The page is read-only: you can look, not
+change anything. It is built again on every page load.
 
-## Prerequisites
-- Nothing else: runs in-process. The page is built from local files
-  (scheduler log, runbook YAMLs, git checkout) plus TCP probes to
-  `api.github.com`, `github.com` and `sts.amazonaws.com`.
+The page shows:
 
-## Commands
+| Card | Where the data comes from |
+|---|---|
+| System | Host name, uptime, disk use for `--disk-path`, load, memory, CPU count. Uptime, load and memory come from `/proc`, so they show as unknown or 0 on macOS. |
+| Deploy | The git commit, branch, author and `origin` URL of `--repo-path`. A token in the URL is removed. |
+| Scheduler process | Whether a `briar runbook serve` process is running (found with `pgrep`). |
+| Schedules | Every company and task in the runbook files in `--examples`, with its `every:` value, its extractors and a next run time. That time leaves out the small offset `runbook serve` adds (see [runbook.md](runbook.md)). A file that fails to load shows as `(parse error)`. |
+| Recent cycles, log tail, GitHub quota | Lines read from the log file at `--log-file`. |
+| Connectivity | A TCP connect test to `api.github.com`, `github.com` and `sts.amazonaws.com` on port 443 (2 second limit). |
+| Dashboard | The page's own process ID, uptime and request count. |
 
-### Serve interactively
+It also answers `/healthz` with `ok`, for uptime checks. Every other
+path returns 404.
+
+## Use it when
+
+- You run `briar runbook serve` on a server and want a quick "is it healthy?" view.
+- You want to see when each runbook task will run next.
+- You need a one-time status page to attach to an incident note.
+
+## Examples
 
 ```bash
+# Start the page on this machine only, at http://127.0.0.1:8080
 briar dashboard
-# Opens on http://127.0.0.1:8080 (default --host / --port; loopback only)
-
-# or with Docker (bind 0.0.0.0 so it's reachable from the host):
-docker run --rm -p 8080:8080 -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar \
-    iklob1/briar dashboard --host 0.0.0.0
 ```
 
-### Bind to localhost only
+You get a web server on port 8080. Open `http://127.0.0.1:8080` in your browser. Stop it with Ctrl-C.
 
 ```bash
-briar dashboard --host 127.0.0.1 --port 8080
+# Show the schedules from your runbooks folder.
+briar dashboard --examples runbooks/
+```
 
-# or with Docker (publish to the host's loopback only; bind all
-# interfaces *inside* the container so -p can reach it):
+You get the Schedules card filled from `runbooks/*.yaml`.
+
+```bash
+# Use another port, and read the scheduler log from a custom path.
+briar dashboard --port 9090 --log-file /var/log/briar/serve.log
+```
+
+You get the page on port 9090, with the log cards read from `/var/log/briar/serve.log`.
+
+```bash
+# Write the page once to a file, with no server.
+briar dashboard --once --examples runbooks/ > status.html
+```
+
+You get a static `status.html` file. The command ends right away.
+
+```bash
+# Check that a running dashboard is up.
+curl http://127.0.0.1:8080/healthz
+```
+
+You get `ok`.
+
+## All parameters
+
+| Parameter | What it means | Default | Example |
+|---|---|---|---|
+| `--host` | The address to listen on. `127.0.0.1` means only this machine can open the page. `--host 0.0.0.0` opens it to the network, so check your firewall first: the page has no login. | `127.0.0.1` | `--host 0.0.0.0` |
+| `--port` | The port to listen on. | `8080` | `--port 9090` |
+| `--examples` | The folder with your runbook YAML files, for the Schedules card. | `./examples` | `--examples runbooks/` |
+| `--log-file` | The scheduler log file to read for the log, cycles and GitHub quota cards. | `/var/log/briar/scheduler.log` | `--log-file /var/log/briar/serve.log` |
+| `--disk-path` | The folder whose disk use the System card shows. | `/` | `--disk-path /var/lib/briar` |
+| `--repo-path` | The git checkout the Deploy card reads. | `.` (the current folder) | `--repo-path /opt/briar` |
+| `--once` | Print the page HTML to stdout once and exit, with no server. `--host` and `--port` are not used. | off | `--once` |
+
+## Good to know
+
+- `briar runbook serve` writes its log to stderr, not to a file. To
+  fill the log cards, send that output to the file you pass in
+  `--log-file`, for example with `>> /var/log/briar/scheduler.log 2>&1`.
+- A missing log file is not an error. The log cards are just empty.
+- If one card fails, briar logs the error and shows that card empty.
+  The rest of the page still works. Run with `--verbose` to see why.
+- The Recent cycles card looks for an older log line format. It may
+  stay empty with logs from `runbook serve`.
+- `address already in use` means another program uses that port. Pick
+  another with `--port`.
+- The page has no login. Keep the default `127.0.0.1`, or put a proxy
+  with a login in front of it.
+
+## Run it with Docker
+
+Inside a container, listen on `0.0.0.0` and publish the port. Publish
+it on `127.0.0.1` so only your machine can reach it.
+
+```bash
 docker run --rm -p 127.0.0.1:8080:8080 -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar \
-    iklob1/briar dashboard --host 0.0.0.0 --port 8080
+    iklob1/briar dashboard --host 0.0.0.0 --examples runbooks/
 ```
 
-### One-off snapshot
-
-```bash
-briar dashboard --once > /tmp/briar-status.html
-
-# or with Docker (snapshot to stdout, no server, so no published port):
-docker run --rm -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar -e ANTHROPIC_API_KEY \
-    iklob1/briar dashboard --once > /tmp/briar-status.html
-```
-
-Renders one page, writes to stdout, exits. Useful for cron / on-call
-deliverables.
-
-### Schedules view
-
-```bash
-briar dashboard --examples ./examples
-
-# or with Docker (bind 0.0.0.0 so it's reachable from the host):
-docker run --rm -p 8080:8080 -v "$PWD":/work -w /work \
-    -v "$HOME/.config/briar":/home/briar/.config/briar \
-    iklob1/briar dashboard --host 0.0.0.0 --examples ./examples
-```
-
-Points the schedules card at a directory of runbook YAMLs (default `./examples`).
-
-### Specific debug paths
-
-| Flag | What it overrides |
-|---|---|
-| `--log-file <path>` | Which logfile to tail in the "recent activity" card (default `/var/log/briar/scheduler.log`) |
-| `--repo-path <path>` | Where to read git state from (default `.`) |
-| `--disk-path <path>` | Which mount to compute free space for (default `/`) |
-
-## Verifying success
-
-Interactive:
-1. `http://<host>:<port>` returns HTTP 200 with HTML.
-2. The "schedulers" card lists the companies and tasks from your
-   `--examples` YAMLs.
-
-One-off:
-1. Exit `0`.
-2. Output file parses as HTML.
-
-## Common failures
-
-| Symptom | Fix |
-|---|---|
-| `address already in use` on `:8080` | Another `briar dashboard` is running, or that port is taken. Pass `--port <N>` |
-| One card shows "collector failed" | The collector raised, isolated correctly. Click the card / run `-v` to see which one. Often a missing optional dep |
-| "recent activity" card empty | `--log-file` points nowhere. Pass an absolute path |
-| Want to expose publicly | Don't bind `0.0.0.0` without a reverse proxy in front; the page has no auth |
+You get the page at `http://127.0.0.1:8080`, with the schedules from the `runbooks/` folder in your current folder.
+Since 1.1.75 the image has `git`, so the Deploy card can show the last
+commit of the mounted folder. On Linux, git refuses a folder owned by
+another uid than 1000, and the card then has empty fields (see
+[setup.md](setup.md)). Before 1.1.75 that card stayed empty in Docker.
