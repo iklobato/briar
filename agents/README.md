@@ -6,7 +6,7 @@ then the one file for your task.
 
 The output of `briar <command> -h` is the final word on flags. These
 pages explain what the flags do, when to use them, and what can go wrong.
-They match briar-cli 1.1.72.
+They match briar-cli 1.1.75.
 
 ## How each manual is laid out
 

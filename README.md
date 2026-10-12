@@ -19,25 +19,34 @@ pip install briar-cli
 briar version
 ```
 
-You get `briar-cli 1.1.72` (or newer). briar needs Python 3.10 or later.
+You get `briar-cli 1.1.75` (or newer). briar needs Python 3.10 or later.
 
 The base install covers GitHub, Bitbucket, AWS, Jira, Linear, Fireflies,
-Anthropic (Claude) and AWS Bedrock, with a file or Postgres store. Extras
-add more:
+Anthropic (Claude) and AWS Bedrock, with a file or Postgres store. It
+also runs the coding agents. Extras add more:
 
 ```bash
-pip install 'briar-cli[mcp]'      # MCP tools for agents, and briar mcp serve
+pip install 'briar-cli[mcp]'      # briar mcp serve, briar chat, MCP tools for agents
 pip install 'briar-cli[all]'      # everything below
 ```
 
 The extras are `[openai]`, `[gemini]`, `[mcp]`, `[gcp]`, `[azure]` and
 `[vault]`.
 
-To run `briar agent` or `briar plan run` you also need:
+To run `briar agent` or `briar plan run` you also need `git` and the
+GitHub CLI `gh`, because the agent runs them.
 
-- `git` and the GitHub CLI `gh`, because the agent runs them.
-- The `[mcp]` extra, or the `--no-default-mcp` flag. By default the agent
-  starts two small helper tools, and they need the `mcp` package.
+The `[mcp]` extra adds three things:
+
+- `briar mcp serve` and `briar chat`. They do not start without it.
+- The tool servers listed under `mcp:` in a runbook. An agent run with
+  such a runbook stops without the extra.
+- Two small helper tools for agents, "think" and "time". Without the
+  extra, briar skips them, logs one warning and goes on.
+
+Since 1.1.74 a plain install runs agents. Older versions stopped with
+``MCP support requires the `mcp` package`` unless you passed
+`--no-default-mcp`.
 
 ## Quickstart
 
@@ -113,8 +122,8 @@ See [setup.md](https://github.com/iklobato/briar/blob/main/agents/setup.md).
 
 ## Run with Docker
 
-The image `iklob1/briar` has briar and the `[mcp]` extra. Nothing else
-to install:
+The image `iklob1/briar` has briar, the `[mcp]` extra, `git` and `gh`.
+Nothing else to install:
 
 ```bash
 docker run --rm iklob1/briar version
@@ -130,7 +139,7 @@ docker run --rm \
     iklob1/briar extract --company acme --include pr-archaeology
 ```
 
-- `-v "$PWD":/work -w /work` mounts your repo, so `.briar.toml`, git and
+- `-v "$PWD":/work -w /work` mounts your repo, so `.briar.toml` and
   `./knowledge` work as on your machine.
 - `-v "$HOME/.config/briar":/home/briar/.config/briar` mounts the
   credentials that `briar auth login` saved.
@@ -153,15 +162,58 @@ docker run --rm -p 8080:8080 -v "$PWD":/work -w /work \
     iklob1/briar dashboard --host 0.0.0.0
 ```
 
+### Run an agent in Docker
+
+Since 1.1.75 the image can run `briar agent` and `briar plan run`. Add
+two keys and your git name and email:
+
+```bash
+docker run --rm \
+    -v "$PWD":/work -w /work \
+    -v "$HOME/.config/briar":/home/briar/.config/briar \
+    -e GITHUB_TOKEN -e ANTHROPIC_API_KEY \
+    iklob1/briar agent implement --company acme --repo acme-co/acme-app \
+    --ticket-key ACME-42 --tracker jira \
+    --git-user-name "Dana Lee" --git-user-email dana@acme.com
+```
+
+It runs the same steps as on your machine: a branch `chore/acme-42` and a
+draft PR on `acme-co/acme-app`. Add `--dry-run` to see the prompt first.
+
+- `--git-user-name` and `--git-user-email` give the commits your name and
+  email. You can mount `~/.gitconfig` instead, but see the first point
+  under "Good to know".
+- `-e GITHUB_TOKEN` lets `git push` and `gh` log in to GitHub. In the
+  image, git asks `gh` for the login, and `gh` reads `GITHUB_TOKEN`.
+- `-e ANTHROPIC_API_KEY` is the Claude key. `-e CLAUDE_CODE_OAUTH_TOKEN`
+  works too.
+- The Jira keys come from the mounted config folder.
+- `--repo` can also come from `[repo]` in the mounted `.briar.toml`.
+
 Good to know:
 
-- The image has no `git` or `gh`. Run `briar agent` and `briar plan run`
-  from a local install.
+- `gh auth setup-git` writes a GitHub login line into `~/.gitconfig`.
+  That line replaces the image's own and points at `gh` on your
+  machine (for example `/usr/local/bin/gh`), which is not in the image,
+  so a mounted `.gitconfig` like that makes the push fail with
+  "gh: not found". Pass `--git-user-name` and `--git-user-email` instead.
+- briar can also read owner and repo from the mounted repo's git
+  `origin` remote. This works only when the folder looks owned by the
+  container user (uid 1000). Docker Desktop on Mac and Windows does
+  that. On Linux, git refuses a folder owned by another uid
+  ("detected dubious ownership"). Then pass `--repo`, or keep `[repo]`
+  in `.briar.toml`, which briar reads without git. The agent's own
+  clone is not affected.
+- The image sets up the git login for GitHub only. For Bitbucket, run
+  agents from a local install.
+- The image sets `BRIAR_NO_DEFAULT_MCP=1`, because it has no `npx` or
+  `uvx` for the agent's helper tools. An image of your own that adds
+  them can pass `-e BRIAR_NO_DEFAULT_MCP=0`.
 - The image is built for `linux/amd64` only. On Apple Silicon, Docker
   runs it with emulation.
 - The container runs as user `briar` (uid 1000). On Linux, the folders
   you mount must be writable by that uid.
-- Tags are `latest` and each version, for example `iklob1/briar:1.1.72`.
+- Tags are `latest` and each version, for example `iklob1/briar:1.1.75`.
 
 ## Commands
 

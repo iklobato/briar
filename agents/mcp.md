@@ -21,10 +21,11 @@ pip install 'briar-cli[mcp]'
 
 The Docker image `iklob1/briar` already has it.
 
-The same extra is needed by `briar agent` and `briar plan run`, which
-start their own helper MCP servers (see [agent.md](agent.md)). That is
-the other direction: there, briar is the MCP **host**. On this page,
-briar is the **server**.
+`briar agent` and `briar plan run` use the same extra in the other
+direction: there, briar is the MCP **host** and starts helper MCP
+servers (see [agent.md](agent.md)). Since 1.1.74 they run without the
+extra and skip the helpers. They need it only for servers listed under
+`mcp:` in a runbook. On this page, briar is the **server**.
 
 ## The tools briar offers
 

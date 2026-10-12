@@ -3,7 +3,7 @@
 ## What it does
 
 Prints the installed briar version as one line, such as
-`briar-cli 1.1.72`.
+`briar-cli 1.1.75`.
 
 ## Use it when
 
@@ -18,14 +18,14 @@ Prints the installed briar version as one line, such as
 briar version
 ```
 
-You get `briar-cli 1.1.72`.
+You get `briar-cli 1.1.75` (or newer).
 
 ```bash
 # The same line, with no startup work at all.
 briar --version
 ```
 
-You get `briar-cli 1.1.72`. `-V` is a short form of `--version`.
+You get `briar-cli 1.1.75` (or newer). `-V` is a short form of `--version`.
 
 ```bash
 # Check the version inside the Docker image.

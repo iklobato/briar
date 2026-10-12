@@ -16,8 +16,10 @@ own:
 Each command has its own page with every flag: [extract.md](extract.md),
 [agent.md](agent.md), [plan.md](plan.md), and the rest of
 [the index](README.md). To run a flow with Docker, use the mounts in the
-[README](../README.md#run-with-docker). `agent` and `plan run` need `git`
-and `gh`, so run those from a local install.
+[README](../README.md#run-with-docker). Since 1.1.75 the image has `git`
+and `gh`, so `agent` and `plan run` work there too. Add your
+`~/.gitconfig` and `-e GITHUB_TOKEN` (see
+[Run an agent in Docker](../README.md#run-an-agent-in-docker)).
 
 ## Flow 1: Set up a new company
 
@@ -234,7 +236,7 @@ briar agent implement --company acme --provider bitbucket \
 ```
 
 You get the same knowledge sections, read from Bitbucket. Step 3 pushes
-a branch `chore/eng-7`. In 1.1.72 the agent cannot open the Bitbucket PR
+a branch `chore/eng-7`. In 1.1.75 the agent cannot open the Bitbucket PR
 itself (its shell refuses `curl`), so open the PR by hand.
 
 ## Flow 8: Many repos, projects and authors at once

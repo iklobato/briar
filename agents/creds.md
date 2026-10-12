@@ -135,7 +135,7 @@ You get the same report, or `bootstrap kind=envfile not configured` and exit cod
 
 | Parameter | What it means | Default | Example |
 |---|---|---|---|
-| `--kind` | The loader to run. Only `envfile` exists in 1.1.72. | Empty: run every loader that finds its source. | `--kind envfile` |
+| `--kind` | The loader to run. Only `envfile` exists in 1.1.75. | Empty: run every loader that finds its source. | `--kind envfile` |
 | `--dry-run` | Read the file and print the names it would load, but set nothing. | off | `--dry-run` |
 
 ### Good to know

@@ -31,10 +31,13 @@ briar clones for this run only. Your own checkout is never touched.
 | Claude credentials. | The agent is Claude. | `CLAUDE_CODE_OAUTH_TOKEN` (tried first) or `ANTHROPIC_API_KEY`. |
 | A repo token. | briar clones the repo with it. | GitHub: `GITHUB_TOKEN`. Bitbucket: `BITBUCKET_ACME_USERNAME` and `BITBUCKET_ACME_APP_PASSWORD`. |
 | Tracker credentials (`implement` only). | briar reads the ticket. | Jira: `JIRA_ACME_URL`, `JIRA_ACME_EMAIL`, `JIRA_ACME_TOKEN`. Linear: `LINEAR_ACME_TOKEN`. GitHub Issues: `GITHUB_TOKEN`. |
-| `git` and `gh` on your `PATH`. | The agent runs them to commit, push, and open or read the PR. `gh` uses `GITHUB_TOKEN`. | Install both. The Docker image has neither, so run this command from a local install. |
-| Push access over HTTPS. | After the clone, briar removes the token from the `origin` URL. The push then uses your normal git login for the host. | For GitHub, `gh auth setup-git` is one way. |
+| `git` and `gh` on your `PATH`. | The agent runs them to commit, push, and open or read the PR. `gh` uses `GITHUB_TOKEN`. | Install both. The Docker image has both since 1.1.75 (see [Run an agent in Docker](../README.md#run-an-agent-in-docker)). |
+| Push access over HTTPS. | After the clone, briar removes the token from the `origin` URL. The push then uses your normal git login for the host. | For GitHub, `gh auth setup-git` is one way. The Docker image sets this up for GitHub already. |
 | A git identity for commits. | Commits must have a human name and email. | `--git-user-name` and `--git-user-email`, or `git_identity` in the runbook, or your own `git config` (not used when `CI` is set). |
-| The `mcp` extra, or `--no-default-mcp`. | By default the agent starts two small helper tools ("think" via `npx`, "time" via `uvx`). They need the `mcp` package. Without it the run stops with ``MCP support requires the `mcp` package``. | `pip install 'briar-cli[mcp]'`, or pass `--no-default-mcp`, or set `BRIAR_NO_DEFAULT_MCP=1`. |
+
+A plain `pip install briar-cli` is enough. The `[mcp]` extra is
+optional here. Since 1.1.74 a run without it goes on; older versions
+stopped unless you passed `--no-default-mcp`.
 
 Optional, but they make the agent better:
 
@@ -46,6 +49,13 @@ Optional, but they make the agent better:
 - `FIREFLIES_ACME_API_KEY`, so the agent reads meetings about the work.
 - `SLACK_ACME_TOKEN` and `SLACK_ACME_COOKIE_D`, so it reads Slack threads about the work.
 - A runbook YAML (`--runbook`), so it can post messages through set channels.
+- The `[mcp]` extra (`pip install 'briar-cli[mcp]'`). It gives the agent
+  two small helper tools: "think" (needs `npx`) and "time" (needs
+  `uvx`). A tool whose program is missing is skipped. Without the
+  extra, briar skips both and logs one warning, then the run goes on:
+  ``mcp: the `mcp` package is not installed, so the built-in think/time servers are skipped; install 'briar-cli[mcp]' to enable them``.
+  `--no-default-mcp` hides that warning. The extra is required only
+  when the runbook lists servers under `mcp:`.
 
 ## How `implement` works
 
@@ -105,8 +115,8 @@ briar agent implement --company acme --repo acme-co/acme-app \
 
 You get the full system prompt, the first message, the list of tools,
 and the size of each context section. There is no clone and no Claude
-call. briar still reads the ticket, meetings and Slack, and starts the
-helper tools.
+call. briar still reads the ticket, meetings and Slack. With the `[mcp]`
+extra it also starts the helper tools.
 
 Run it for real:
 
@@ -223,7 +233,7 @@ The agent reads up to 5 Slack threads that match "alice login".
 | `--git-user-name` | `user.name` for commits in the worktree. | The runbook's `git_identity.name`, then your `git config user.name` (skipped when `CI` is set). | `--git-user-name "Acme Bot"` |
 | `--git-user-email` | `user.email` for commits in the worktree. | The runbook's `git_identity.email`, then your `git config user.email` (skipped when `CI` is set). | `--git-user-email bot@acme.com` |
 | `--keep-worktree` | Keep the temp folder after a successful run. A failed run always keeps it. | Off. | `--keep-worktree` |
-| `--no-default-mcp` | Do not start the two built-in helper tools ("think" and "time"). Same as `BRIAR_NO_DEFAULT_MCP=1`. Use it on hosts without `npx` or `uvx`, or without the `mcp` extra. | Off (helpers start). | `--no-default-mcp` |
+| `--no-default-mcp` | Do not start the two built-in helper tools ("think" and "time"). Same as `BRIAR_NO_DEFAULT_MCP=1`. Use it on hosts without `npx` or `uvx`. Without the `mcp` extra the helpers are skipped anyway, and this flag only hides the warning. | Off (helpers start when the `mcp` extra is installed). | `--no-default-mcp` |
 | `--dry-run` | Print the prompt, the first message and the tool list, then stop. No clone, no Claude call, no Claude credentials needed. | Off. | `--dry-run` |
 | `--runbook` | Runbook YAML to read this company's block from. Its `messages:` gives the agent a `send_message` tool. Its `mcp:` adds tool servers. Its `git_identity` sets the commit identity. | None. | `--runbook runbooks/acme.yaml` |
 | `--meeting-key` | One Fireflies meeting ID to add to the prompt. Wins over `--meeting-query`. | None. | `--meeting-key 01JB7Q4ZK3M8` |
@@ -276,7 +286,10 @@ see each turn, the token count, and a cost estimate in the log.
 |---|---|
 | `0` | The agent finished on its own. Read the final text: it may say `skipped`, or that it asked a question on the ticket. |
 | `1` | The run failed. Examples: missing Claude credentials, clone failed, no git identity, a Claude call failed, or the turn limit was hit. |
-| `2` | Bad flags, an unknown provider, or an unexpected crash (for example the missing `mcp` extra). |
+| `2` | Bad flags, an unknown provider, or an unexpected crash. |
+
+A runbook with an `mcp:` block on an install without the `mcp` extra fails
+with an error telling you to run `pip install 'briar-cli[mcp]'`.
 | `130` | You pressed Ctrl-C. |
 
 `briar agent` does not write a journal session. Only `plan run` and

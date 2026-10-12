@@ -40,7 +40,7 @@ The `envfile` store uses the first of these paths that applies:
 Every briar command loads that file when it starts. A key you already
 exported in your shell wins over the same key in the file.
 
-Only the `envfile` store is loaded at start in 1.1.72. Keys you save to
+Only the `envfile` store is loaded at start in 1.1.75. Keys you save to
 `aws-secretsmanager`, `ssm` or `vault` are not loaded into other briar
 commands by briar itself. You must put them in the environment yourself,
 for example from your deploy tool.
@@ -192,7 +192,7 @@ You get the three `/briar/AWS_ACME_*` parameters deleted from SSM.
 
 ### What it does
 
-It is meant to renew keys without a new login. In 1.1.72 no target can
+It is meant to renew keys without a new login. In 1.1.75 no target can
 do this. Every target prints `credential expired: ...` with the `login`
 command to run, and exits with code 2.
 
@@ -203,7 +203,7 @@ command to run, and exits with code 2.
 ### Examples
 
 ```bash
-# Exits 2 in 1.1.72 and tells you to run login again.
+# Exits 2 in 1.1.75 and tells you to run login again.
 briar auth refresh aws-sso --company acme
 ```
 

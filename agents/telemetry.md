@@ -38,7 +38,7 @@ Each event carries only these fields:
 | `flags_present` | The **names** of the options that had a value in this run, such as `company,format,store`. Never the values. Defaults count too. |
 | `error_type`, `error_message` | Error events only: the error class (such as `CliError`) and the error text after cleaning (see below). |
 
-Sentry also gets the release (`briar-cli@1.1.72`) and the environment
+Sentry also gets the release (such as `briar-cli@1.1.75`) and the environment
 (`production`, or the value of `$BRIAR_ENV`).
 
 An error event is sent when a command stops with an error. Most

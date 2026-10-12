@@ -213,7 +213,7 @@ list per status. Blocked cards show the last error.
 
 Also takes `--store`, `--root` and `--company`.
 
-The DONE rows have room for a commit and a PR link. In 1.1.72 `plan run`
+The DONE rows have room for a commit and a PR link. In 1.1.75 `plan run`
 does not record them, so those columns are usually empty.
 
 ## `plan next`
@@ -346,8 +346,9 @@ The summary looks like this:
 
 The hidden agent flags work here too: `--meeting`, `--meeting-top-k`,
 `--meeting-max-bytes`, `--chat`, `--slack-top-k` and `--slack-max-bytes`
-(see [agent.md](agent.md)). There is no `--no-default-mcp` here. Set
-`BRIAR_NO_DEFAULT_MCP=1` instead. Each card reads knowledge from the
+(see [agent.md](agent.md)). There is no `--no-default-mcp` here. To
+skip the helper tools, or to hide their warning on a plain install, set
+`BRIAR_NO_DEFAULT_MCP=1`. Each card reads knowledge from the
 plan's own `--store` and `--root`.
 
 `run` also takes `--store`, `--root`, `--company`, `--journal-store` and
@@ -422,7 +423,7 @@ Otherwise briar looks in another place and reports `plan not found: plan:q3`.
 - A card left `in_progress` after a crash or Ctrl-C is never picked
   again. Set it back with `plan advance --status pending`.
 - After each finished card, the notes LLM sees only the card's title and
-  summary. In 1.1.72 briar does not pass it the code diff. A failed
+  summary. In 1.1.75 briar does not pass it the code diff. A failed
   write is logged and never stops the loop.
 - `plan run` stops on the first failed card unless you pass
   `--continue-on-failure`.
