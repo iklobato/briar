@@ -41,3 +41,20 @@ def test_read_tools_have_no_confirm(tools) -> None:
     for name in _READ_TOOLS:
         props = tools[name].inputSchema.get("properties", {})
         assert "confirm" not in props, f"read tool {name} must not be gated"
+
+
+def test_extract_run_takes_repo_since_days_and_max(tools) -> None:
+    props = tools["extract_run"].inputSchema.get("properties", {})
+    assert {"repo", "since_days", "max_items"} <= set(props)
+
+
+def test_extract_run_forwards_repo_to_the_service(mocker) -> None:
+    from briar.service import extract as extract_service
+    from briar.service._gating import GateResult
+
+    run = mocker.patch.object(extract_service, "run_extract", return_value=GateResult.previewed("ok"))
+    server = build_server(ServerContext(root="/tmp/briar-test"))
+
+    asyncio.run(server.call_tool("extract_run", {"company": "acme", "repo": ["acme/api"], "since_days": 30, "max_items": 5}))
+
+    assert run.call_args.kwargs["extractor_args"] == {"repo": ["acme/api"], "since_days": 30, "max": 5}

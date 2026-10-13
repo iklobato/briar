@@ -5,6 +5,18 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.84] - 2026-10-13
+
+### Fixed
+
+- **The MCP tool `extract_run` can mine repos.** It had no way to name a
+  repo, so every repo and tracker extractor was skipped over MCP (only
+  `aws-infra` could run). It now takes `repo`, `since_days` and
+  `max_items`, which work like `briar extract --repo/--since-days/--max`.
+  The service behind it (`service.extract.run_extract`) now fans the
+  canonical keys out to each extractor, as the CLI and runbook YAML
+  already did; a per-extractor key still wins.
+
 ## [1.1.83] - 2026-10-13
 
 ### Fixed
