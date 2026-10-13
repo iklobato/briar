@@ -90,7 +90,7 @@ class ToolError(Exception):
 
 class BashTool:
     name = "bash"
-    description = "Run a shell command. Allowlisted verbs only: git, gh, curl, ls, cat, head, tail, grep, find, wc, python/pytest/ruff/black/mypy, npm/node, make. NEVER --force, --amend, rebase, squash, rm -rf, sudo. Returns stdout+stderr. Non-zero exit becomes a tool_result with the error visible to you."
+    description = "Run a shell command. Allowlisted verbs only: git, gh, ls, cat, head, tail, grep, rg, find, wc, pwd, echo, cd, tee, sort, uniq, python/python3/pytest/ruff/black/mypy, npm/node, make. No HTTP clients (use python3). NEVER --force, --amend, rebase, squash, rm -rf, sudo. Returns stdout+stderr. Non-zero exit becomes a tool_result with the error visible to you."
 
     INPUT_SCHEMA: Dict[str, Any] = {
         "type": "object",

@@ -311,8 +311,10 @@ with an error telling you to run `pip install 'briar-cli[mcp]'`.
   among others. Each command stops after 60 seconds by default, and after
   300 seconds at most.
 - The file tools can read and write only inside the worktree.
-- On Bitbucket, briar tells the agent to open the PR with `curl`, but the
-  tool refuses `curl`. Expect a pushed branch and open the PR yourself.
+- On Bitbucket, the agent opens the PR with a short Python script it saves
+  under `.git/` (never committed) and runs with `python3`, since the shell
+  refuses `curl`. Before 1.1.88 it was told to use `curl`, so it could not
+  open the PR.
 - Comments the agent posts through `send_message` on a PR, in Jira or in Slack start with `[AI] `.
 - `--model` must be a Claude model name. Each turn may use up to 8000
   output tokens.
