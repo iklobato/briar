@@ -177,7 +177,7 @@ class RunbookScheduler:
             log.info("fire task=%s company=%s yaml=%s", task, company, yaml_path.name)
             try:
                 runbook = load_runbook_file(yaml_path)
-                rows = extract_runbook(runbook, task)
+                rows = extract_runbook(runbook, task, company=company)
                 for row in rows:
                     log.info("result task=%s company=%s status=%s output=%s", row.task, row.company, row.status, row.output)
             except Exception:  # noqa: BLE001 — must not abort the loop

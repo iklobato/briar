@@ -5,6 +5,16 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.90] - 2026-10-13
+
+### Fixed
+
+- **`runbook serve` runs each company's task once.** The scheduler makes
+  one job per (company, task), but each job ran that task for every
+  company that had it. With N companies sharing a task name, each one ran
+  N times per period, and the per-company time offset was lost.
+  `extract_runbook` takes a `company` now and each job passes its own.
+
 ## [1.1.89] - 2026-10-13
 
 ### Fixed
