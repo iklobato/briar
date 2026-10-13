@@ -5,6 +5,23 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.85] - 2026-10-13
+
+### Fixed
+
+- **`plan run` uses each card's branch name and parent.** The plan stored
+  a branch name and a parent per card (from the LLM, or the selector's
+  `branch_parent` pick), but `agent implement` always cloned the default
+  branch and pushed `chore/<key>`, so cards meant to stack on each other
+  did not. `agent implement` now takes `--branch-name` and
+  `--base-branch`: it clones the base, the agent pushes the branch, and
+  the draft PR targets the base (`gh pr create --base`, Bitbucket
+  `destination.branch.name`). `plan run` passes the card's fields. A
+  parent equal to the plan's `--default-branch` (default `main`) falls
+  back to the repo's real default branch with a warning, so repos whose
+  default is `master` keep working; any other missing parent fails the
+  card.
+
 ## [1.1.84] - 2026-10-13
 
 ### Fixed

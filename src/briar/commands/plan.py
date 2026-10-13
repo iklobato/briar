@@ -493,7 +493,7 @@ class RunOp(PlanOp):
                 processed += 1
                 card.status = PlanCardStatus.IN_PROGRESS
                 persist_plan(store, plan)
-                impl_args = self._build_implement_args(args, card, tracker_project)
+                impl_args = self._build_implement_args(args, card, tracker_project, default_branch=plan.default_branch)
                 record(
                     "plan.run.card.start",
                     value=card.key,
@@ -546,15 +546,29 @@ class RunOp(PlanOp):
             return int(ExitCode.GENERAL_ERROR), f"{type(exc).__name__}: {exc}"
 
     @staticmethod
-    def _build_implement_args(args: argparse.Namespace, card: PlanCard, tracker_project: str) -> argparse.Namespace:
+    def _build_implement_args(
+        args: argparse.Namespace,
+        card: PlanCard,
+        tracker_project: str,
+        *,
+        default_branch: str = "main",
+    ) -> argparse.Namespace:
         """Translate the run-loop args + one plan card → an
-        `agent implement` argparse.Namespace. Adapter pattern."""
+        `agent implement` argparse.Namespace. Adapter pattern.
+
+        The card's branch fields steer the clone and the PR: a parent
+        that is another card's branch stacks this card on it. A parent
+        equal to the plan's `default_branch` may fall back to the repo's
+        real default branch (plans default to `main`)."""
         impl = argparse.Namespace()
         impl.company = args.company
         impl.owner = args.owner
         impl.repo = args.repo
         impl.ticket_project = tracker_project
         impl.ticket_key = card.key
+        impl.branch_name = card.branch_name
+        impl.base_branch = card.branch_parent
+        impl.base_branch_optional = card.branch_parent == default_branch
         impl.tracker = args.tracker
         impl.provider = args.provider
         impl.store = args.store

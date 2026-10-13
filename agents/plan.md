@@ -133,6 +133,11 @@ With `--llm`, the LLM writes a summary (up to 240 characters), scope,
 risks, dependencies (only keys that are on the board), and a branch name
 like `fix/login-retry`. The text rules above still fill any gaps.
 
+`plan run` uses each card's branch name and parent: the agent clones the
+parent, pushes the card's branch, and opens the PR against the parent.
+Before 1.1.85 every card started from the default branch and pushed
+`chore/<key>`, whatever the plan said.
+
 ```bash
 # Text rules only, no LLM
 briar plan build jira:ACME --name q3 --company acme
@@ -159,7 +164,7 @@ You get the plan as markdown on stdout. Nothing is saved.
 |---|---|---|---|
 | `board` | The board to read: a Jira board URL, `jira:<KEY>`, or a GitHub Projects URL. Required. | None. | `jira:ACME` |
 | `--name` | Plan name. Other subcommands use it. | Made from the last two parts of the URL. `jira:ACME` gives `jiraacme`, and `.../boards/12` gives `boards-12`. Set it yourself. | `--name q3` |
-| `--default-branch` | Branch each card starts from. The selector may choose another per card. | `main` | `--default-branch develop` |
+| `--default-branch` | Branch each card starts from. The selector may choose another per card (for example the branch of the card it builds on). If this branch does not exist in the repo, the card starts from the repo's real default branch, with a warning. | `main` | `--default-branch develop` |
 | `--max-cards` | Most cards to read from the board. | `50` | `--max-cards 20` |
 | `--with-knowledge` | Add `knowledge:<company>`, `active-tickets:<company>` and `active-work:<company>` to each card's prompt. Needs `--company`. Has an effect only with `--llm`. | Off. | `--with-knowledge` |
 | `--print` | After saving, also print the plan as markdown. | Off. | `--print` |

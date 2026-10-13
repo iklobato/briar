@@ -816,7 +816,7 @@ class GitProviderRegistryTests(unittest.TestCase):
         class FakeProvider:
             kind = "github"
 
-            def pr_creation_recipe(self, *, owner, repo, branch):
+            def pr_creation_recipe(self, *, owner, repo, branch, base=""):
                 return "  6. DO THE FAKE THING.\n  7. DONE.\n"
 
         text = CommandAgent._implement_specific_instructions(provider=FakeProvider(), owner="acme", repo="app", ticket_key="ACME-1")

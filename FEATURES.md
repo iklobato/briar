@@ -719,6 +719,8 @@ Same as `prfix` but uses ticket identity:
 | `--ticket-key <key>` | ✓ | — |
 | `--ticket-project <key>` | | derived from the key (Jira/Linear) or owner/repo (GH/BB) |
 | `--tracker {jira,github-issues,bitbucket-issues,linear}` | | `jira` |
+| `--branch-name <name>` | | `chore/<key>` |
+| `--base-branch <name>` | | the repo's default branch (clone + PR base) |
 | `--meeting-query` / `--slack-query` (default) | | the ticket key |
 
 (All other prfix flags apply identically.)

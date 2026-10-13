@@ -257,10 +257,11 @@ class RepositoryProvider(ABC):
         Bitbucket, …). The actual URL passed to `git clone`."""
 
     @abstractmethod
-    def pr_creation_recipe(self, *, owner: str, repo: str, branch: str) -> str:
+    def pr_creation_recipe(self, *, owner: str, repo: str, branch: str, base: str = "") -> str:
         """Procedure lines 6-7 of the engineer archetype's instruction
         string — the vendor-specific recipe for opening a draft PR.
-        Returned as ready-to-splice markdown."""
+        `base` is the branch the PR targets; empty means the repo's
+        default branch. Returned as ready-to-splice markdown."""
 
     @abstractmethod
     def list_pulls(self, repo: str, *, state: str, max_count: int) -> List[PullRequest]:
