@@ -39,6 +39,10 @@ before each pick. Since 1.1.93 `plan run` also gives it to the coding
 agent of each card, as a "Plan notes" section of its prompt, read again
 before every card. Before 1.1.93 the agent did not see it.
 
+When the selector names no parent, a card starts from the branch of its
+first finished dependency (since 1.1.96), so it builds on that code. A
+card counts as done only when its agent made a commit (since 1.1.96).
+
 ## Card statuses
 
 | Status | Meaning |

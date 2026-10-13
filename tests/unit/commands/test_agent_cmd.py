@@ -447,3 +447,28 @@ class TestPlanNotesInImplementPrompt:
 
         titles = [s.title for s in agent_seam.runner.captured["config"].task_context_sections]
         assert "Plan notes" not in titles
+
+
+class TestImplementWithoutCommitsIsNotSuccess:
+    """`agent implement` that ends without a single commit did not
+    implement the ticket. Up to 1.1.95 it exited 0, so `plan run` marked
+    such a card done (seen in a real run: the agent only left a comment)."""
+
+    def _run(self, cli, agent_seam, mocker, *, commits):
+        mocker.patch.object(agent_mod.CommandAgent, "_clone", return_value=True)
+        mocker.patch.object(agent_mod.CommandAgent, "_set_git_identity", return_value=True)
+        agent_seam.set_result(commits=commits)
+        return cli(*_IMPL_REAL)
+
+    def test_no_commits_exits_with_error(self, cli, agent_seam, mocker) -> None:
+        assert self._run(cli, agent_seam, mocker, commits=[]).code == ExitCode.GENERAL_ERROR
+
+    def test_commits_exit_ok(self, cli, agent_seam, mocker) -> None:
+        assert self._run(cli, agent_seam, mocker, commits=["abc1234"]).code == ExitCode.OK
+
+    def test_dry_run_without_commits_still_ok(self, cli, agent_seam) -> None:
+        assert cli(*_IMPL).code == ExitCode.OK
+
+    def test_prfix_without_commits_still_ok(self, cli, agent_seam) -> None:
+        # prfix may rightly change nothing (approved PR, only replies).
+        assert cli(*_PRFIX).code == ExitCode.OK

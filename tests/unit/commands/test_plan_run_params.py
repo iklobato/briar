@@ -583,3 +583,38 @@ class TestPlanNotesReachTheAgent:
         impl = RunOp._build_implement_args(_run_ns(), PlanCard(key="A", title="a"), "acme/widgets", plan_notes="- use the v2 client")
 
         assert impl.plan_notes == "- use the v2 client"
+
+
+class TestDependentCardStacksOnItsDependency:
+    """A card whose dependency is done stacks on that dependency's branch
+    when the selector names no parent. In a real run (2026-10-13) the
+    selector left `branch_parent` empty, the agent of card #2 cloned
+    `main`, found no code from card #1, and wrote nothing."""
+
+    @staticmethod
+    def _cards(dep_status):
+        first = PlanCard(key="A-1", title="a", branch_name="feat/a-1", branch_parent="main", status=dep_status)
+        second = PlanCard(key="A-2", title="b", branch_name="feat/a-2", branch_parent="main", depends_on=["A-1"])
+        return _plan(first, second), second
+
+    def test_done_dependency_branch_becomes_the_parent(self) -> None:
+        from briar.plan import PlanCardStatus
+
+        plan, card = self._cards(PlanCardStatus.DONE)
+
+        assert RunOp._stacked_parent(plan, card) == "feat/a-1"
+
+    def test_pending_dependency_gives_no_parent(self) -> None:
+        from briar.plan import PlanCardStatus
+
+        plan, card = self._cards(PlanCardStatus.PENDING)
+
+        assert RunOp._stacked_parent(plan, card) == ""
+
+    def test_stacked_parent_may_fall_back_when_its_branch_is_gone(self) -> None:
+        card = PlanCard(key="A-2", title="b", branch_name="feat/a-2", branch_parent="feat/a-1")
+
+        impl = RunOp._build_implement_args(_run_ns(), card, "acme/widgets", default_branch="main", optional_parents=["feat/a-1"])
+
+        assert impl.base_branch == "feat/a-1"
+        assert impl.base_branch_optional is True

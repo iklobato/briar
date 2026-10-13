@@ -37,7 +37,8 @@ from briar.commands._enums import ExitCode
 
 
 def _result(**over: Any) -> SimpleNamespace:
-    base = dict(iterations=1, stop_reason="end_turn", final_text="", tool_calls=0, commits=[], error="")
+    # One commit: a real implement run with none now exits 1 (no work done).
+    base = dict(iterations=1, stop_reason="end_turn", final_text="", tool_calls=0, commits=["abc1234"], error="")
     base.update(over)
     ns = SimpleNamespace(**base)
     ns.cost_summary = lambda: "in=0 out=0 ≈$0.000"

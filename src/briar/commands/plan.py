@@ -23,7 +23,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Iterable, List, Optional
 
 from briar._registry import build_registry
 from briar.agent._llm import LLMProvider
@@ -489,6 +489,8 @@ class RunOp(PlanOp):
                     raise CliError(f"selector picked unknown card {decision.key!r}")
                 if decision.branch_parent:
                     card.branch_parent = decision.branch_parent
+                else:
+                    card.branch_parent = self._stacked_parent(plan, card) or card.branch_parent
 
                 processed += 1
                 card.status = PlanCardStatus.IN_PROGRESS
@@ -498,6 +500,7 @@ class RunOp(PlanOp):
                     card,
                     tracker_project,
                     default_branch=plan.default_branch,
+                    optional_parents=self._done_dependency_branches(plan, card),
                     plan_notes=self._plan_notes(store, plan),
                 )
                 record(
@@ -552,6 +555,22 @@ class RunOp(PlanOp):
             return int(ExitCode.GENERAL_ERROR), f"{type(exc).__name__}: {exc}"
 
     @staticmethod
+    def _done_dependency_branches(plan: ImplementationPlan, card: PlanCard) -> List[str]:
+        """Branches of this card's dependencies that are done, in
+        `depends_on` order."""
+        by_key = {c.key: c for c in plan.cards}
+        deps = [by_key.get(key) for key in card.depends_on]
+        return [d.branch_name for d in deps if d is not None and d.status == PlanCardStatus.DONE and d.branch_name]
+
+    @classmethod
+    def _stacked_parent(cls, plan: ImplementationPlan, card: PlanCard) -> str:
+        """The branch to stack on when the selector names none: the first
+        done dependency's branch, so the card starts from code its
+        dependency already wrote. Empty when no dependency is done."""
+        branches = cls._done_dependency_branches(plan, card)
+        return branches[0] if branches else ""
+
+    @staticmethod
     def _plan_notes(store, plan: ImplementationPlan) -> str:
         """The plan's notes blob, re-read per card so the writeback from
         the previous card is included."""
@@ -566,6 +585,7 @@ class RunOp(PlanOp):
         tracker_project: str,
         *,
         default_branch: str = "main",
+        optional_parents: Iterable[str] = (),
         plan_notes: str = "",
     ) -> argparse.Namespace:
         """Translate the run-loop args + one plan card → an
@@ -583,7 +603,10 @@ class RunOp(PlanOp):
         impl.ticket_key = card.key
         impl.branch_name = card.branch_name
         impl.base_branch = card.branch_parent
-        impl.base_branch_optional = card.branch_parent == default_branch
+        # A parent that is the plan default or a done dependency's branch
+        # may be missing (repo default is `master`; branch deleted after
+        # merge): fall back to the repo's default branch then.
+        impl.base_branch_optional = card.branch_parent == default_branch or card.branch_parent in set(optional_parents)
         impl.plan_notes = plan_notes
         impl.tracker = args.tracker
         impl.provider = args.provider

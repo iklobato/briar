@@ -5,6 +5,23 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.96] - 2026-10-13
+
+### Fixed
+
+Found in a real `plan run` on a test board:
+
+- **A card stacks on a finished dependency.** When the selector names no
+  `branch_parent`, `plan run` now starts a card from the branch of its
+  first dependency that is done. Before, card #2 started from `main`,
+  did not find card #1's code and wrote nothing. If that branch is gone
+  (deleted after merge) the card starts from the repo's default branch.
+- **A card is only done when the agent made a commit.** `agent
+  implement` (not a dry run) that ends without a commit now exits 1, so
+  `plan run` marks the card blocked. Before, an agent that only left a
+  comment counted as done. `prfix` is unchanged: it may rightly commit
+  nothing.
+
 ## [1.1.95] - 2026-10-13
 
 ### Fixed
