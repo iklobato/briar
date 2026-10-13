@@ -137,3 +137,36 @@ def test_canonical_repo_feeds_repo_slug_tracker_project(tracker):
     ns.tracker = tracker
     apply_canonical(ns, ext)
     assert ns.ticket_project == ["acme/web"]
+
+
+class TestRepoFlagReplacesConfigDefault:
+    """An explicit `--repo` replaces the repo from `.briar.toml` / the git
+    remote. Up to 1.1.90 argparse appended to that default, so
+    `briar extract --repo other/x` also mined the config repo."""
+
+    @staticmethod
+    def _parser(default):
+        import argparse
+
+        from briar.config import apply_config_defaults
+        from briar.extract.canonical import register_canonical_flags
+
+        parser = argparse.ArgumentParser()
+        register_canonical_flags(parser)
+        apply_config_defaults(parser, default)
+        return parser
+
+    def test_explicit_repo_replaces_config_repo(self) -> None:
+        parser = self._parser({"repo": {"owner": "acme", "repo": "api"}})
+
+        assert parser.parse_args(["--repo", "other/x"]).repo == ["other/x"]
+
+    def test_repeated_repo_still_collects_every_value(self) -> None:
+        parser = self._parser({"repo": {"owner": "acme", "repo": "api"}})
+
+        assert parser.parse_args(["--repo", "a/b", "--repo", "c/d"]).repo == ["a/b", "c/d"]
+
+    def test_no_flag_keeps_config_repo(self) -> None:
+        parser = self._parser({"repo": {"owner": "acme", "repo": "api"}})
+
+        assert parser.parse_args([]).repo == ["acme/api"]

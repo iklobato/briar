@@ -257,7 +257,7 @@ per-extractor flag (next section) wins when you give both.
 
 | Parameter | What it means | Default | Example |
 |---|---|---|---|
-| `--repo` | Repo to read, as `owner/repo`. Repeat for more repos. It also sets the project for GitHub Issues and Bitbucket Issues. | From `.briar.toml` (`repos` list or `[repo]`), else the git `origin` remote, else none. | `--repo acme-co/acme-app` |
+| `--repo` | Repo to read, as `owner/repo`. Repeat for more repos. It also sets the project for GitHub Issues and Bitbucket Issues. When you pass it, it replaces the default repo (since 1.1.91; before, it was added to it). | From `.briar.toml` (`repos` list or `[repo]`), else the git `origin` remote, else none. | `--repo acme-co/acme-app` |
 | `--since-days` | How many days of history to read. | Per extractor: `code-hotspots` 30, `defect-hotspots` 90, `revert-signals` 90, `commit-message-quality` 90, `meeting-digest` 7. | `--since-days 60` |
 | `--max` | Most items (PRs, commits, alerts, runs, releases, tickets, meetings) to read per repo or project. | Per extractor, 25 to 200. See the table below. | `--max 50` |
 | `--top-n` | How many top results to show per repo. | Per extractor, 5 to 15. See the table below. | `--top-n 5` |

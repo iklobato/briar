@@ -5,6 +5,16 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.91] - 2026-10-13
+
+### Fixed
+
+- **`briar extract --repo` replaces the config repo.** The default repo
+  from `.briar.toml` or the git remote was kept, and `--repo` was added to
+  it, so `briar extract --repo other/x` inside a checkout also mined the
+  checkout's repo. The first `--repo` now replaces the default; repeating
+  `--repo` still collects every value.
+
 ## [1.1.90] - 2026-10-13
 
 ### Fixed

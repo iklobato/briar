@@ -179,6 +179,19 @@ def _tracker_takes_repo_slugs(ns: argparse.Namespace, extractor) -> bool:
     return tracker_cls is not None and tracker_cls.project_is_repo_slug
 
 
+class _ReplaceDefaultAppend(argparse._AppendAction):
+    """`append` whose first explicit value replaces the default list.
+
+    `--repo`'s default is seeded from `.briar.toml` or the git remote
+    (`config.apply_config_defaults`, `infer`). Plain `append` extends that
+    default, so `--repo other/x` also mined the config repo."""
+
+    def __call__(self, parser, namespace, values, option_string=None):  # noqa: ANN001
+        if getattr(namespace, self.dest, None) is self.default:
+            setattr(namespace, self.dest, [])
+        super().__call__(parser, namespace, values, option_string)
+
+
 def register_canonical_flags(parser: argparse.ArgumentParser) -> argparse._ArgumentGroup:
     """Register the canonical flags on `parser` inside a labelled group
     and return the group (so the caller can place core flags alongside).
@@ -192,7 +205,7 @@ def register_canonical_flags(parser: argparse.ArgumentParser) -> argparse._Argum
     )
     group.add_argument(
         "--repo",
-        action="append",
+        action=_ReplaceDefaultAppend,
         default=[],
         metavar="OWNER/REPO",
         help="Repository (or tracker project) to mine. Repeatable. " "Feeds every included extractor's repo/project list.",
