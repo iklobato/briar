@@ -494,8 +494,14 @@ class CommandAgent(SubcommandCommand):
             print(f"--- commits: {', '.join(result.commits)} ---")
         # Keep the worktree on failure even when --keep-worktree was off,
         # so an operator can `cd` into it and inspect what the agent did.
+        # An implement run that wrote no commit did not implement the ticket
+        # (it stopped to ask, or gave up); report it so `plan run` blocks the
+        # card instead of marking it done. prfix may rightly change nothing.
+        no_work = op_name == "implement" and not args.dry_run and not result.commits and not result.error
+        if no_work:
+            log.error("agent-implement: ended without a commit; the ticket is not implemented")
         self._cleanup_worktree(worktree, keep=args.keep_worktree or bool(result.error))
-        return ExitCode.OK if not result.error else ExitCode.GENERAL_ERROR
+        return ExitCode.GENERAL_ERROR if (result.error or no_work) else ExitCode.OK
 
     @staticmethod
     def _clone(provider, owner: str, repo: str, dest: Path, *, branch: str = "") -> bool:
