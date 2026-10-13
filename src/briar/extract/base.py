@@ -250,7 +250,7 @@ class TaskScopedExtractor(ABC):
 
       ``KnowledgeExtractor.extract(args)``  runs on a cron-equivalent
                                             schedule; output goes into
-                                            ``./knowledge/<company>.md``
+                                            ``knowledge:<company>``
                                             and applies to every task.
       ``TaskScopedExtractor.fetch(args)``   runs once at agent
                                             invocation; output is

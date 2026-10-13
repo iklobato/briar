@@ -507,10 +507,6 @@ class TestBindingResolution:
         assert binding.store == "file"
         assert binding.name == "custom/acme.md"
 
-    def test_default_path_when_unconfigured(self) -> None:
-        binding = RunbookExtractor._binding_for(CompanyEntry(), "acme")
-        assert binding.name == "./knowledge/acme.md"
-
     def test_task_blob_name_without_md_suffix(self) -> None:
         assert RunbookExtractor._task_blob_name("acme", "nightly") == "acme.nightly"
 
@@ -656,3 +652,36 @@ class TestNotifyFailure:
         # A sink failure must not propagate out of the fire-and-forget path.
         _notify_failure("acme", "extractors", "boom", "trace")
         assert any("raised" in r.message for r in caplog_briar.records)
+
+
+class TestDefaultKnowledgeBlobReachesAgents:
+    """A company with no `knowledge.name` writes `knowledge:<company>`, the
+    name the coding agents read (`KnowledgeSplicer`). Up to 1.1.85 the
+    default was the path `./knowledge/<company>.md`, which no agent read."""
+
+    def test_default_binding_is_the_knowledge_blob(self) -> None:
+        binding = RunbookExtractor._binding_for(CompanyEntry(), "acme")
+
+        assert binding.store == "file"
+        assert binding.name == "knowledge:acme"
+
+    def test_runbook_without_knowledge_name_feeds_the_agent(self, mocker, tmp_path, monkeypatch) -> None:
+        import briar.extract as extract_mod
+        from briar.extract import EXTRACTORS
+        from briar.iac.scaffold._knowledge import KnowledgeSplicer
+        from briar.storage import make_store
+
+        monkeypatch.chdir(tmp_path)
+        heading = EXTRACTORS["pr-archaeology"].heading
+        fake = _FakeExtractor(section=ExtractedSection(title=f"{heading} \N{EM DASH} 1 repo(s)", body="merged PR patterns"))
+        mocker.patch.object(extract_mod, "EXTRACTORS", _FakeRegistry({"pr-archaeology": fake}))
+
+        RunbookExtractor.extract(_runbook({"acme": CompanyEntry(schedules=[_schedule(names=["pr-archaeology"])])}))
+
+        splicer = KnowledgeSplicer.from_store(make_store("file", file_root=tmp_path / "knowledge"), "acme")
+        assert "merged PR patterns" in splicer.section("pr-archaeology")
+
+    def test_explicit_knowledge_file_is_kept(self) -> None:
+        binding = RunbookExtractor._binding_for(CompanyEntry(knowledge_file="./kb/acme.md"), "acme")
+
+        assert binding.name == "./kb/acme.md"
