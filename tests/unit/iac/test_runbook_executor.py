@@ -685,3 +685,35 @@ class TestDefaultKnowledgeBlobReachesAgents:
         binding = RunbookExtractor._binding_for(CompanyEntry(knowledge_file="./kb/acme.md"), "acme")
 
         assert binding.name == "./kb/acme.md"
+
+
+class TestExtractCompanyFilter:
+    def test_company_filter_runs_only_that_company(self, mocker) -> None:
+        registry = _FakeRegistry(fake=_FakeExtractor())
+        store = _FakeStore(_FakeOutcome(wrote=True, byte_count=5))
+        _patch_seams(mocker, registry=registry, store=store)
+        rb = _runbook(
+            {
+                "acme": CompanyEntry(knowledge=KnowledgeBinding(store="file", name="acme.md"), schedules=[_schedule()]),
+                "globex": CompanyEntry(knowledge=KnowledgeBinding(store="file", name="globex.md"), schedules=[_schedule()]),
+            }
+        )
+
+        rows = RunbookExtractor.extract(rb, "extractors", company="acme")
+
+        assert [r.company for r in rows] == ["acme"]
+        assert registry["fake"].extract_calls == 1
+
+    def test_no_company_filter_runs_every_company(self, mocker) -> None:
+        registry = _FakeRegistry(fake=_FakeExtractor())
+        _patch_seams(mocker, registry=registry, store=_FakeStore(_FakeOutcome(wrote=True)))
+        rb = _runbook(
+            {
+                "acme": CompanyEntry(knowledge=KnowledgeBinding(store="file", name="acme.md"), schedules=[_schedule()]),
+                "globex": CompanyEntry(knowledge=KnowledgeBinding(store="file", name="globex.md"), schedules=[_schedule()]),
+            }
+        )
+
+        rows = RunbookExtractor.extract(rb)
+
+        assert sorted(r.company for r in rows) == ["acme", "globex"]

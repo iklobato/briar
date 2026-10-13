@@ -140,11 +140,13 @@ class RunbookExtractor:
     every schedule; a non-empty value runs only the matching task."""
 
     @classmethod
-    def extract(cls, runbook_file: RunbookFile, task: Optional[str] = None) -> List[ExtractRow]:
+    def extract(cls, runbook_file: RunbookFile, task: Optional[str] = None, *, company: Optional[str] = None) -> List[ExtractRow]:
         """`task=None` runs every schedule; a non-empty string filters
         to one matching task. Empty-string and None are equivalent —
         the empty-string sentinel ``NO_TASK_FILTER`` is gone; argparse
-        defaults that pass `""` still work via the `task or None` coerce."""
+        defaults that pass `""` still work via the `task or None` coerce.
+        `company` limits the run to one company (the scheduler's
+        per-(company, task) jobs); None runs every company."""
         from briar.extract import EXTRACTORS
         from briar.extract.composer import KnowledgeComposer
         from briar.storage import make_store
@@ -152,10 +154,14 @@ class RunbookExtractor:
         # Normalize argparse's empty-string default and explicit None to
         # the same "no filter" semantics so callers don't need to know.
         task_filter: Optional[str] = task or None
+        # Captured before the loop below rebinds `company` to each entry.
+        company_filter: Optional[str] = company or None
 
         rows: List[ExtractRow] = []
         log.info("runbook-extract: starting companies=%d task_filter=%r", len(runbook_file.companies), task_filter or "(all)")
         for company_name, company in runbook_file.companies.items():
+            if company_filter is not None and company_name != company_filter:
+                continue
             with log_context(company=company_name):
                 schedules = RunbookSchedules.for_company(company)
                 if task_filter is not None:

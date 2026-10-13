@@ -209,3 +209,19 @@ class TestRunForever:
         assert not thread.is_alive()
         assert calls["n"] >= 2  # survived the first raise and ticked again
         assert any("run_pending() raised" in r.message for r in caplog_briar.records)
+
+
+class TestJobRunsOnlyItsCompany:
+    """Each (company, task) job runs that company only. Up to 1.1.89 the
+    job called `extract_runbook(runbook, task)` with no company, so a task
+    name shared by N companies ran N times per company per period."""
+
+    def test_fired_job_passes_its_company(self, tmp_path: Path, mocker) -> None:
+        (tmp_path / "a.yaml").write_text("x")
+        extract = _patch_load(mocker, _runbook({"acme": [("nightly", "day at 03:17")], "globex": [("nightly", "day at 03:17")]}))
+
+        jobs = RunbookScheduler(tmp_path).register_all()
+        for registered in jobs:
+            registered.job.job_func()
+
+        assert sorted(call.kwargs["company"] for call in extract.call_args_list) == ["acme", "globex"]
