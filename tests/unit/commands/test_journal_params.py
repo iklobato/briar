@@ -243,3 +243,26 @@ class TestExportFlags:
         assert result.code == 0
         assert "scaffold.run" in out.read_text()
         assert f"wrote {out}" in result.err  # status on stderr
+
+
+class TestKnowledgeConfigDoesNotReachJournal:
+    """`store`/`root` in `.briar.toml` name the KNOWLEDGE store. Up to
+    1.1.91 journal's `--store`/`--root` shared those dests, so
+    `store = "postgres"` made every `briar journal` command fail ("unknown
+    journal store") and `root` moved the journal into the knowledge folder."""
+
+    def test_knowledge_store_and_root_in_config_leave_journal_defaults(self, cli, journal_seam, monkeypatch) -> None:
+        monkeypatch.setattr("briar.config.load_project_config", lambda *a, **k: {"store": "postgres", "root": "./kb"})
+
+        result = cli("journal", "list")
+
+        assert result.code == 0, result.err
+        kind, root = journal_seam.factory_calls[0]
+        assert kind == "file"
+        assert str(root) == "journal"
+
+    def test_explicit_journal_flags_still_apply(self, cli, journal_seam, tmp_path) -> None:
+        result = cli("journal", "list", "--store", "file", "--root", str(tmp_path / "j"))
+
+        assert result.code == 0, result.err
+        assert journal_seam.factory_calls[0] == ("file", tmp_path / "j")

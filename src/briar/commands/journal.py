@@ -111,18 +111,22 @@ class CommandJournal(Command):
 
 
 def _add_store_args(parser: argparse.ArgumentParser) -> None:
+    # Own dests: `.briar.toml` `store`/`root` name the knowledge store and
+    # are applied to every action whose dest is `store`/`root`.
     parser.add_argument(
         "--store",
+        dest="journal_store",
         default="file",
         choices=JOURNAL_STORE_NAMES,
         help="Journal store backend (default: file).",
     )
     parser.add_argument(
         "--root",
+        dest="journal_root",
         default="./journal",
         help="Root directory for the file-backed store (default: ./journal).",
     )
 
 
 def _open_store(args: argparse.Namespace):
-    return make_journal_store(args.store, file_root=Path(args.root))
+    return make_journal_store(args.journal_store, file_root=Path(args.journal_root))

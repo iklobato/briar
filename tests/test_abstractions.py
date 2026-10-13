@@ -602,11 +602,11 @@ class CredentialBootstrapTests(unittest.TestCase):
     addition stays in shape."""
 
     def test_registry_lists_envfile(self) -> None:
-        """envfile is the only registered bootstrap today; it must be
-        present so startup hydration works."""
+        """envfile runs first (local keys win), then default-store (the
+        remote store `auth login` saves to by default)."""
         from briar.credentials._bootstraps import BOOTSTRAPS
 
-        self.assertEqual(list(BOOTSTRAPS.keys()), ["envfile"])
+        self.assertEqual(list(BOOTSTRAPS.keys()), ["envfile", "default-store"])
 
     def test_auto_bootstrap_no_backend_configured(self) -> None:
         """No backend is available → empty list. Startup must be
