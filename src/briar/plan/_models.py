@@ -216,6 +216,13 @@ class PlanContext:
             if opened_card and opened_card not in closed_keys:
                 in_progress = opened_card
 
+        # The card's current status wins over its journal history: a card
+        # put back to pending (`plan advance`) must not read as completed.
+        # History of cards no longer on the plan (after a replan) is kept.
+        status_by_key = {c.key: c.status for c in plan.cards}
+        completed = [(k, r) for k, r in completed if status_by_key.get(k, PlanCardStatus.DONE) == PlanCardStatus.DONE]
+        failed = [(k, r) for k, r in failed if status_by_key.get(k, PlanCardStatus.BLOCKED) == PlanCardStatus.BLOCKED]
+
         knowledge = ""
         company_knowledge = ""
         try:
