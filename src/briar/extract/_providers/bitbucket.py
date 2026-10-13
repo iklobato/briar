@@ -86,13 +86,14 @@ class BitbucketProvider(RepositoryProvider):
         # Bitbucket's workspace-token auth convention: `x-token-auth`.
         return f"https://x-token-auth:{token}@bitbucket.org/{owner}/{repo}.git"
 
-    def pr_creation_recipe(self, *, owner: str, repo: str, branch: str) -> str:
+    def pr_creation_recipe(self, *, owner: str, repo: str, branch: str, base: str = "") -> str:
         env_token = f"BITBUCKET_{self._company.upper().replace('-', '_')}_APP_PASSWORD"
+        destination = f", `destination.branch.name` (= `{base}`)" if base else ""
         return (
             "  6. Open a draft PR via the Bitbucket v2 API. The workspace access token is in env var "
             f"`{env_token}`. Auth: `-u 'x-token-auth:${env_token}'`. Endpoint: "
             f"`POST https://api.bitbucket.org/2.0/repositories/{owner}/{repo}/pullrequests`. "
-            f"Body JSON fields: `title`, `description`, `source.branch.name` (= `{branch}`), `draft: true`. "
+            f"Body JSON fields: `title`, `description`, `source.branch.name` (= `{branch}`){destination}, `draft: true`. "
             "The response's `links.html.href` is the PR URL.\n"
             "  7. End your output with the PR URL on its own line. No fictitious URLs — if the curl fails, "
             "surface the error verbatim.\n"

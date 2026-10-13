@@ -80,12 +80,15 @@ class GithubProvider(RepositoryProvider):
         # GitHub's HTTPS auth convention: `x-access-token` as the username.
         return f"https://x-access-token:{token}@github.com/{owner}/{repo}.git"
 
-    def pr_creation_recipe(self, *, owner: str, repo: str, branch: str) -> str:
+    def pr_creation_recipe(self, *, owner: str, repo: str, branch: str, base: str = "") -> str:
         # owner/repo/branch are unused for the GitHub recipe — `gh pr create`
         # infers them from the worktree — but kept in the signature for
-        # parity with other providers.
+        # parity with other providers. `base` must be explicit: gh would
+        # target the default branch and a stacked card's PR would carry
+        # its parent's commits too.
+        base_flag = f"--base {base} " if base else ""
         return (
-            "  6. Open a draft PR via `gh pr create --draft --title '<key>: <short>' "
+            f"  6. Open a draft PR via `gh pr create --draft {base_flag}--title '<key>: <short>' "
             "--body '<plan + test plan + risks>'`.\n"
             "  7. End your output with the PR URL on its own line. No fictitious URLs "
             "— if `gh pr create` fails, surface the error.\n"

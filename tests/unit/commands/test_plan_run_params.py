@@ -539,3 +539,25 @@ class TestRunSeamWiring:
             str(journal_root),
         )
         assert captured["ns"].ticket_project == "BOARD-7"
+
+
+class TestPlanRunPassesCardBranches:
+    """Each card's `branch_name` / `branch_parent` reach `agent implement`.
+    Up to 1.1.84 they were recorded in the plan but never used."""
+
+    def test_card_branch_name_and_parent_reach_implement(self) -> None:
+        card = PlanCard(key="KAN-2", title="t", branch_name="feat/kan-2-login", branch_parent="feat/kan-1-schema")
+
+        impl = RunOp._build_implement_args(_run_ns(), card, "acme/widgets", default_branch="main")
+
+        assert impl.branch_name == "feat/kan-2-login"
+        assert impl.base_branch == "feat/kan-1-schema"
+        assert impl.base_branch_optional is False
+
+    def test_parent_equal_to_plan_default_may_fall_back(self) -> None:
+        card = PlanCard(key="KAN-1", title="t", branch_name="feat/kan-1", branch_parent="main")
+
+        impl = RunOp._build_implement_args(_run_ns(), card, "acme/widgets", default_branch="main")
+
+        assert impl.base_branch == "main"
+        assert impl.base_branch_optional is True

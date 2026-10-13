@@ -20,13 +20,16 @@ No real LLM, git, or network. Every external boundary is mocked.
 
 from __future__ import annotations
 
+import argparse
 from types import SimpleNamespace
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import pytest
 
 import briar.commands.agent as agent_mod
 from briar.commands._enums import ExitCode
+from briar.extract._providers.bitbucket import BitbucketProvider
+from briar.extract._providers.github import GithubProvider
 
 # ─── helpers ────────────────────────────────────────────────────────────
 
@@ -125,6 +128,9 @@ _IMPL = [
     "ENG-7",
     "--dry-run",
 ]
+
+# The real (clone) path of `agent implement`, with a git identity.
+_IMPL_REAL = [a for a in _IMPL if a != "--dry-run"] + ["--git-user-name", "Bot", "--git-user-email", "bot@example.test"]
 
 _PRFIX = [
     "agent",
@@ -317,3 +323,111 @@ class TestDryRunSkipsLLM:
         mocker.patch.object(agent_mod.CommandAgent, "_set_git_identity", return_value=True)
         cli(*argv)
         assert agent_seam.runner.captured["config"].dry_run is False
+
+
+class TestImplementUsesBranchFlags:
+    """`--branch-name` / `--base-branch` steer the clone, the agent's
+    branch and the PR base. Up to 1.1.84 implement always cloned the
+    default branch and pushed `chore/<key>`."""
+
+    def test_dry_run_instructions_use_branch_name_and_base(self, cli, agent_seam) -> None:
+        result = cli(*_IMPL, "--branch-name", "feat/eng-7-login", "--base-branch", "feat/eng-6")
+
+        assert result.code == ExitCode.OK, result.err
+        text = agent_seam.runner.captured["config"].extra_user_instructions
+        assert "git checkout -b feat/eng-7-login" in text
+        assert "fresh clone of `feat/eng-6`" in text
+        agent_seam.provider.pr_creation_recipe.assert_called_once_with(owner="acme", repo="widgets", branch="feat/eng-7-login", base="feat/eng-6")
+
+    def test_without_flags_keeps_old_defaults(self, cli, agent_seam) -> None:
+        cli(*_IMPL)
+
+        text = agent_seam.runner.captured["config"].extra_user_instructions
+        assert "git checkout -b chore/eng-7" in text
+        assert "fresh clone of the default branch" in text
+        agent_seam.provider.pr_creation_recipe.assert_called_once_with(owner="acme", repo="widgets", branch="chore/eng-7", base="")
+
+    def test_clones_the_base_branch(self, cli, agent_seam, mocker) -> None:
+        clone = mocker.patch.object(agent_mod.CommandAgent, "_clone", return_value=True)
+        mocker.patch.object(agent_mod.CommandAgent, "_set_git_identity", return_value=True)
+
+        cli(*_IMPL_REAL, "--base-branch", "feat/eng-6")
+
+        assert clone.call_args.kwargs["branch"] == "feat/eng-6"
+
+    def test_missing_base_branch_fails(self, cli, agent_seam, mocker) -> None:
+        mocker.patch.object(agent_mod.CommandAgent, "_clone", return_value=False)
+
+        result = cli(*_IMPL_REAL, "--base-branch", "feat/eng-6")
+
+        assert result.code == ExitCode.GENERAL_ERROR
+        assert "config" not in agent_seam.runner.captured
+
+
+class TestOptionalBaseFallsBackToDefault:
+    """`plan run` marks a parent equal to the plan's `--default-branch`
+    (default `main`) as optional: a repo whose default is `master` still
+    works, as it did before."""
+
+    def _args(self, base_optional: bool) -> argparse.Namespace:
+        return argparse.Namespace(
+            company="acme",
+            owner="acme",
+            repo="widgets",
+            store="file",
+            knowledge="./knowledge",
+            provider="github",
+            dry_run=False,
+            keep_worktree=False,
+            git_user_name="Bot",
+            git_user_email="bot@example.test",
+            runbook="",
+            base_branch="main",
+            base_branch_optional=base_optional,
+        )
+
+    def _patch(self, mocker, agent_seam) -> List[str]:
+        tried: List[str] = []
+
+        def clone(provider, owner, repo, dest, *, branch=""):
+            tried.append(branch)
+            return branch == ""
+
+        mocker.patch.object(agent_mod.CommandAgent, "_clone", staticmethod(clone))
+        mocker.patch.object(agent_mod.CommandAgent, "_set_git_identity", return_value=True)
+        return tried
+
+    def test_optional_base_retries_the_default_branch(self, mocker, agent_seam) -> None:
+        tried = self._patch(mocker, agent_seam)
+        args = self._args(base_optional=True)
+
+        setup = agent_mod.CommandAgent()._prepare_agent_workdir(args, op_name="implement", clone_branch=args.base_branch)
+
+        assert not isinstance(setup, int)
+        assert tried == ["main", ""]
+        assert args.base_branch == ""
+
+    def test_required_base_does_not_fall_back(self, mocker, agent_seam) -> None:
+        tried = self._patch(mocker, agent_seam)
+        args = self._args(base_optional=False)
+
+        setup = agent_mod.CommandAgent()._prepare_agent_workdir(args, op_name="implement", clone_branch=args.base_branch)
+
+        assert setup == ExitCode.GENERAL_ERROR
+        assert tried == ["main"]
+
+
+class TestPrRecipeTargetsBase:
+    def test_github_recipe_sets_base(self) -> None:
+        recipe = GithubProvider.pr_creation_recipe(object.__new__(GithubProvider), owner="o", repo="r", branch="feat/x", base="feat/a")
+        assert "--base feat/a" in recipe
+
+    def test_github_recipe_without_base_is_unchanged(self) -> None:
+        recipe = GithubProvider.pr_creation_recipe(object.__new__(GithubProvider), owner="o", repo="r", branch="feat/x")
+        assert "--base" not in recipe
+
+    def test_bitbucket_recipe_sets_destination(self) -> None:
+        provider = object.__new__(BitbucketProvider)
+        provider._company = "acme"
+        recipe = provider.pr_creation_recipe(owner="o", repo="r", branch="feat/x", base="feat/a")
+        assert "`destination.branch.name` (= `feat/a`)" in recipe

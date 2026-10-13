@@ -61,7 +61,8 @@ Optional, but they make the agent better:
 
 1. briar checks `--company` and the repo, and opens the knowledge store.
 2. It makes a temp folder named `briar-agent-implement-*` and clones the
-   default branch into it (the last 50 commits).
+   default branch into it (the last 50 commits). With `--base-branch`, it
+   clones that branch instead; if that branch does not exist, the run fails.
 3. It reads the ticket: description, acceptance criteria, comments and
    status history. If that fails, the agent goes on with the key alone.
 4. It looks up Fireflies meetings and Slack threads that mention the
@@ -71,9 +72,10 @@ Optional, but they make the agent better:
    meetings and the Slack threads.
 6. The agent works for up to 30 turns. A turn is one call to Claude.
 7. The agent's instructions are: create branch `chore/acme-42` (built from
-   the ticket key), make the change, and run the test command found by
+   the ticket key, or the `--branch-name` you pass), make the change, and run the test command found by
    `codebase-conventions`. It pushes only when the tests pass, with
    `git push -u origin HEAD`. Then it opens a draft PR and prints its URL.
+   With `--base-branch`, the PR targets that branch, not the default one.
 8. If an acceptance criterion is unclear, the agent stops and posts a
    question on the ticket instead of guessing.
 9. briar prints the agent's final message and the commit SHAs. It deletes
@@ -246,6 +248,8 @@ The agent reads up to 5 Slack threads that match "alice login".
 |---|---|---|---|
 | `--ticket-key` | The ticket to implement. Jira `ACME-42`, Linear `ENG-7`, GitHub or Bitbucket Issues `'#42'`. Required. | None. | `--ticket-key ACME-42` |
 | `--tracker` | Where the ticket lives: `jira`, `github-issues`, `bitbucket-issues` or `linear`. | `jira`, or `tracker` in `.briar.toml`. | `--tracker linear` |
+| `--branch-name` | Branch the agent creates and pushes. | `chore/<key>`, for example `chore/acme-42`. | `--branch-name fix/login-retry` |
+| `--base-branch` | Branch to clone and open the PR against. Use it to stack this ticket on another open branch. Since 1.1.85. | The repo's default branch. | `--base-branch feat/acme-41-schema` |
 | `--ticket-project` | Tracker project. Jira project key, Linear team, or `owner/repo` for GitHub and Bitbucket Issues. | Jira and Linear: the part of the key before the last dash (`ACME-42` gives `ACME`). Issues: `owner/repo`. | `--ticket-project ACME` |
 
 ### Only for `prfix`

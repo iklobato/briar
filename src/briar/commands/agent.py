@@ -158,6 +158,16 @@ class ImplementOp(AgentOp):
         parser.add_argument("--ticket-key", required=True, help="Ticket identifier (Jira: PROJ-123; GH/BB: #42; Linear: ENG-7)")
         parser.add_argument("--tracker", default="jira", choices=TrackerRegistry.kinds(), help="Tracker provider for the ticket (default: jira).")
         parser.add_argument(
+            "--branch-name",
+            default="",
+            help="Feature branch the agent creates and pushes (default: chore/<ticket-key>).",
+        )
+        parser.add_argument(
+            "--base-branch",
+            default="",
+            help="Branch to clone and open the PR against, e.g. the branch of a card this one stacks on " "(default: the repo's default branch).",
+        )
+        parser.add_argument(
             "--dry-run",
             action="store_true",
             help="Build + print the system prompt + user message + tool list, skip the LLM call. "
@@ -270,12 +280,9 @@ class CommandAgent(SubcommandCommand):
     def _run_implement(self, args: argparse.Namespace) -> int:
         """Implement one ticket end-to-end via the engineer archetype.
 
-        Parallel to `_run_prfix` but anchored on a ticket key instead
-        of a PR number. Clones the default branch (the agent creates
-        its own feature branch + pushes + opens a PR); fetches the
-        full ticket body via the ticket-context task-scoped extractor;
-        splices it into the agent's system prompt."""
-        setup = self._prepare_agent_workdir(args, op_name="implement")
+        Clones `--base-branch` (default branch when empty); the agent
+        pushes `--branch-name` and opens a PR against the base."""
+        setup = self._prepare_agent_workdir(args, op_name="implement", clone_branch=args.base_branch)
         if isinstance(setup, int):
             return setup
         worktree, provider, store = setup
@@ -322,6 +329,8 @@ class CommandAgent(SubcommandCommand):
                     owner=args.owner,
                     repo=args.repo,
                     ticket_key=args.ticket_key,
+                    branch=args.branch_name,
+                    base=args.base_branch,
                 ),
                 task_context_sections=tuple(task_sections),
                 dry_run=args.dry_run,
@@ -379,7 +388,17 @@ class CommandAgent(SubcommandCommand):
         # as a string in the system prompt (renders fine), the agent
         # never executes against the filesystem.
         if not args.dry_run:
-            if not self._clone(provider, args.owner, args.repo, worktree, branch=clone_branch):
+            cloned = self._clone(provider, args.owner, args.repo, worktree, branch=clone_branch)
+            if not cloned and clone_branch and getattr(args, "base_branch_optional", False):
+                # `plan run` marks a base equal to the plan's --default-branch
+                # (default `main`) as optional: a repo whose default branch
+                # has another name still works, from its real default.
+                log.warning("%s: base branch %r not found; using the repo's default branch", log_prefix, clone_branch)
+                self._cleanup_worktree(worktree, keep=False)
+                worktree = Path(tempfile.mkdtemp(prefix=f"briar-agent-{op_name}-"))
+                args.base_branch = ""
+                cloned = self._clone(provider, args.owner, args.repo, worktree)
+            if not cloned:
                 log.error("%s: clone failed; aborting", log_prefix)
                 self._cleanup_worktree(worktree, keep=args.keep_worktree)
                 return ExitCode.GENERAL_ERROR
@@ -710,7 +729,7 @@ class CommandAgent(SubcommandCommand):
         return [section]
 
     @staticmethod
-    def _implement_specific_instructions(*, provider, owner: str, repo: str, ticket_key: str) -> str:
+    def _implement_specific_instructions(*, provider, owner: str, repo: str, ticket_key: str, branch: str = "", base: str = "") -> str:
         """Compose the agent's procedure instructions. Lines 1-5 are
         provider-agnostic; lines 6-7 (the PR-creation recipe) come
         from `provider.pr_creation_recipe(...)` so adding a new vendor
@@ -718,20 +737,22 @@ class CommandAgent(SubcommandCommand):
 
         `provider` is a constructed `RepositoryProvider`. The caller
         already built one to drive the clone — we reuse it instead of
-        looking it up by string here."""
+        looking it up by string here. `branch` defaults to
+        `chore/<ticket>`; an empty `base` means the default branch."""
         from briar.plan._models import suggest_branch
 
-        branch = suggest_branch(ticket_key)
+        branch = branch or suggest_branch(ticket_key)
+        cloned_from = f"`{base}`" if base else "the default branch"
         common = (
-            f"The target ticket is {ticket_key} on {owner}/{repo}. The worktree is a fresh clone of the "
-            "default branch. Procedure:\n"
+            f"The target ticket is {ticket_key} on {owner}/{repo}. The worktree is a fresh clone of "
+            f"{cloned_from}. Procedure:\n"
             "  1. Read the ticket-context section above for the full body + acceptance criteria. Address EVERY AC.\n"
             f"  2. Create a feature branch: `git checkout -b {branch}`.\n"
             "  3. Make the change. Match codebase-conventions (test runner, linter, formatter, migration tool).\n"
             "  4. Run the test command from codebase-conventions locally; only push when it's green.\n"
             "  5. Push: `git push -u origin HEAD` (NEVER --force).\n"
         )
-        recipe = provider.pr_creation_recipe(owner=owner, repo=repo, branch=branch)
+        recipe = provider.pr_creation_recipe(owner=owner, repo=repo, branch=branch, base=base)
         return (
             common
             + recipe
