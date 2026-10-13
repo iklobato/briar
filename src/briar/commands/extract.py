@@ -15,7 +15,8 @@ from briar.extract import EXTRACTORS
 from briar.extract.base import ExtractedSection
 from briar.extract.canonical import AdvancedHelpAction, apply_canonical, hide_canonicalised_flags, register_canonical_flags
 from briar.extract.claude_md import ClaudeMdMerger
-from briar.extract.composer import KnowledgeComposer, render_json, render_markdown
+from briar.extract.composer import render_json, render_markdown
+from briar.service.extract import write_knowledge_blob
 from briar.storage import KNOWLEDGE_STORE_NAMES, default_store_kind, make_store
 
 _CLAUDE_MD_DETAIL_ROOT = Path(".briar/knowledge")
@@ -121,14 +122,13 @@ class CommandExtract(Command):
             raise CliError("nothing extracted — every enabled extractor returned empty")
 
         blob_name = args.blob_name or f"knowledge:{args.company}"
-        store = make_store(args.storage, file_root=Path(args.root))
-        md = KnowledgeComposer.merge_markdown(
+        ref = write_knowledge_blob(
+            make_store(args.storage, file_root=Path(args.root)),
+            blob_name=blob_name,
             company=args.company,
-            existing=store.get(blob_name),
-            fresh=render_markdown(company=args.company, sections=sections),
+            sections=sections,
             refreshed=refreshed,
         )
-        ref = store.put(blob_name, md, category="knowledge")
         _status(f"\nwrote blob '{ref.name}' " f"({ref.byte_count} bytes, {len(sections)} sections) " f"via store={args.storage}")
 
         if args.out_json:
