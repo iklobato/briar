@@ -5,6 +5,16 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.97] - 2026-10-13
+
+### Fixed
+
+- **A card put back to pending is picked again.** The selector read
+  done and failed cards from the journal only, so after `plan advance
+  --status pending` the card still showed as completed and `plan run`
+  ended with "no remaining work" (seen in a real run). The card's current
+  status now wins; history of cards no longer on the plan is kept.
+
 ## [1.1.96] - 2026-10-13
 
 ### Fixed

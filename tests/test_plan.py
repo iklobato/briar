@@ -536,7 +536,11 @@ class PlanContextTests(unittest.TestCase):
                 {"choice": "plan.run.card.start", "value": "C"},
             ]
         )
-        plan = _plan_with(PlanCard(key="A", title="a"), PlanCard(key="B", title="b"), PlanCard(key="C", title="c"))
+        plan = _plan_with(
+            PlanCard(key="A", title="a", status=PlanCardStatus.DONE),
+            PlanCard(key="B", title="b", status=PlanCardStatus.BLOCKED),
+            PlanCard(key="C", title="c"),
+        )
         kstore = _FakeStore()
         kstore.put("knowledge:acme.demo", "plan body")
         kstore.put("knowledge:acme", "company body")
@@ -546,6 +550,27 @@ class PlanContextTests(unittest.TestCase):
         self.assertEqual(ctx.in_progress, "C")
         self.assertEqual(ctx.knowledge, "plan body")
         self.assertEqual(ctx.company_knowledge, "company body")
+
+    def test_card_reset_to_pending_is_not_reported_done(self) -> None:
+        # `plan advance --status pending` puts a card back in the queue.
+        # Up to 1.1.96 its old "completed" journal entry still reached the
+        # selector, which then saw it as both pending and completed and
+        # ended the run with "no remaining work" (real run, 2026-10-13).
+        store, _ = self._fake_journal_with(
+            [
+                {"choice": "plan.run.card.completed", "value": "A", "rationale": "ok"},
+                {"choice": "plan.run.card.failed", "value": "B", "rationale": "fail"},
+            ]
+        )
+        plan = _plan_with(PlanCard(key="A", title="a"), PlanCard(key="B", title="b"))
+        ctx = PlanContext.from_stores(journal_store=store, knowledge_store=_FakeStore(), plan=plan)
+        self.assertEqual(ctx.completed, [])
+        self.assertEqual(ctx.failed, [])
+
+    def test_history_of_cards_no_longer_on_the_plan_is_kept(self) -> None:
+        store, _ = self._fake_journal_with([{"choice": "plan.run.card.completed", "value": "OLD", "rationale": "ok"}])
+        ctx = PlanContext.from_stores(journal_store=store, knowledge_store=_FakeStore(), plan=_plan_with(PlanCard(key="A", title="a")))
+        self.assertEqual(ctx.completed, [("OLD", "ok")])
 
 
 # ─── status renderer ────────────────────────────────────────────────
