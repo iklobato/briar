@@ -236,8 +236,9 @@ briar agent implement --company acme --provider bitbucket \
 ```
 
 You get the same knowledge sections, read from Bitbucket. Step 3 pushes
-a branch `chore/eng-7`. In 1.1.75 the agent cannot open the Bitbucket PR
-itself (its shell refuses `curl`), so open the PR by hand.
+a branch `chore/eng-7` and opens a draft PR with a Python script (since
+1.1.88; before, it was told to use `curl`, which its shell refuses, so you
+opened the PR by hand).
 
 ## Flow 8: Many repos, projects and authors at once
 

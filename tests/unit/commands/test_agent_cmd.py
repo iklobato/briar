@@ -430,4 +430,5 @@ class TestPrRecipeTargetsBase:
         provider = object.__new__(BitbucketProvider)
         provider._company = "acme"
         recipe = provider.pr_creation_recipe(owner="o", repo="r", branch="feat/x", base="feat/a")
-        assert "`destination.branch.name` (= `feat/a`)" in recipe
+        assert '"destination"' in recipe
+        assert '{"branch": {"name": "feat/a"}}' in recipe

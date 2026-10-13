@@ -464,3 +464,63 @@ class CloudConstructionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPrCreationRecipeRunsUnderTheBashTool:
+    """The agent's bash tool blocks `curl`, so the Bitbucket PR recipe
+    (curl up to 1.1.87) could not run. It now has the agent save a Python
+    script under `.git/` (never committed) and run it with `python3`."""
+
+    @staticmethod
+    def _script(recipe: str) -> str:
+        return recipe.split("```python\n", 1)[1].split("```", 1)[0]
+
+    def _run(self, recipe: str, env: dict) -> dict:
+        import io
+        import json
+
+        sent: dict = {}
+
+        def urlopen(request, timeout):  # noqa: ANN001
+            sent.update(url=request.full_url, method=request.get_method(), auth=request.get_header("Authorization"), body=json.loads(request.data))
+            return io.BytesIO(b'{"links": {"html": {"href": "https://bitbucket.org/o/r/pull-requests/7"}}}')
+
+        with mock.patch.dict("os.environ", env, clear=False), mock.patch("urllib.request.urlopen", urlopen):
+            exec(compile(self._script(recipe), "briar-open-pr.py", "exec"), {})
+        return sent
+
+    def test_recipe_never_uses_curl_and_runs_an_allowed_command(self) -> None:
+        from briar.agent.tools import BashTool
+
+        recipe = _provider().pr_creation_recipe(owner="o", repo="r", branch="feat/x")
+
+        assert "curl" not in recipe.lower()
+        BashTool._validate("python3 .git/briar-open-pr.py")
+
+    def test_workspace_token_uses_bearer_and_targets_the_base(self) -> None:
+        recipe = _provider().pr_creation_recipe(owner="o", repo="r", branch="feat/x", base="feat/a")
+
+        sent = self._run(recipe, {"BITBUCKET_ACME_APP_PASSWORD": "tok", "BITBUCKET_ACME_USERNAME": "x-token-auth"})
+
+        assert sent["url"] == "https://api.bitbucket.org/2.0/repositories/o/r/pullrequests"
+        assert sent["method"] == "POST"
+        assert sent["auth"] == "Bearer tok"
+        assert sent["body"]["source"] == {"branch": {"name": "feat/x"}}
+        assert sent["body"]["destination"] == {"branch": {"name": "feat/a"}}
+        assert sent["body"]["draft"] is True
+
+    def test_app_password_uses_basic_auth_and_no_base_means_no_destination(self) -> None:
+        import base64
+
+        recipe = _provider().pr_creation_recipe(owner="o", repo="r", branch="feat/x")
+
+        sent = self._run(recipe, {"BITBUCKET_ACME_APP_PASSWORD": "pw", "BITBUCKET_ACME_USERNAME": "alice"})
+
+        assert sent["auth"] == "Basic " + base64.b64encode(b"alice:pw").decode()
+        assert "destination" not in sent["body"]
+
+
+def test_bash_tool_description_does_not_offer_curl() -> None:
+    from briar.agent.tools import BashTool
+
+    assert "curl" not in BashTool.description

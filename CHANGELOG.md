@@ -5,6 +5,19 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.88] - 2026-10-13
+
+### Fixed
+
+- **The agent can open a Bitbucket PR.** The Bitbucket PR recipe told the
+  agent to use `curl`, which the agent's shell refuses, so Bitbucket runs
+  ended with a pushed branch and no PR. The recipe now gives the agent a
+  short Python script to save under `.git/` (never committed) and run
+  with `python3`. It uses the same auth as briar's own Bitbucket calls
+  (Bearer for workspace tokens, Basic for app passwords) and sets
+  `destination` when there is a base branch. The bash tool's description
+  no longer lists `curl` as allowed.
+
 ## [1.1.87] - 2026-10-13
 
 ### Fixed
