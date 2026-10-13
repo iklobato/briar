@@ -103,8 +103,9 @@ def register_tools(mcp: Any, ctx: Any) -> None:
         out_json: str = "",
         confirm: bool = False,
     ) -> Dict[str, Any]:
-        """Run knowledge extractors and write the blob. Dry-run (lists what would
-        run, calls nothing) unless confirm=true."""
+        """Run knowledge extractors and merge their sections into the blob;
+        sections of extractors that did not run are kept. Dry-run (lists what
+        would run, calls nothing) unless confirm=true."""
         return extract_service.run_extract(
             company=company,
             include=include,

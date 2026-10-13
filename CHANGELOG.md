@@ -5,6 +5,17 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.83] - 2026-10-13
+
+### Fixed
+
+- **The MCP tool `extract_run` keeps the rest of the knowledge blob.**
+  1.1.82 fixed this for `briar extract` only: the MCP tool had its own
+  copy of the write and still replaced the whole blob. Both now go
+  through one function (`service.extract.write_knowledge_blob`), so they
+  merge the same way: sections of the extractors that ran are replaced,
+  all other sections stay.
+
 ## [1.1.82] - 2026-10-12
 
 ### Fixed

@@ -64,3 +64,66 @@ def test_custom_blob_name_honored(tmp_path, mocker) -> None:
 
     out = es.run_extract(company="acme", include=[name], blob_name="knowledge:custom", root=_root(tmp_path))
     assert out.result["blob_name"] == "knowledge:custom"
+
+
+class TestRunExtractKeepsOtherSections:
+    """The MCP `extract_run` tool refreshes the sections it ran and keeps
+    the rest of the blob. Up to 1.1.82 it replaced the blob whole."""
+
+    @staticmethod
+    def _seed(root: str, **bodies: str) -> None:
+        from briar.extract.composer import render_markdown
+        from briar.storage import make_store
+
+        # Real titles read "<heading> \N{EM DASH} <detail>"; the splitter keys on <heading>.
+        sections = [ExtractedSection(title=EXTRACTORS[n].heading + " \N{EM DASH} old", body=b) for n, b in bodies.items()]
+        make_store("file", file_root=root).put("knowledge:acme", render_markdown(company="acme", sections=sections))
+
+    @staticmethod
+    def _sections(root: str) -> dict:
+        from briar.iac.scaffold._knowledge import KnowledgeSplicer
+        from briar.storage import make_store
+
+        splicer = KnowledgeSplicer.from_store(make_store("file", file_root=root), "acme")
+        return {n: splicer.section(n) for n in ("pr-archaeology", "reviewer-profile", "code-hotspots")}
+
+    def test_refreshing_one_extractor_keeps_the_others(self, tmp_path, mocker) -> None:
+        root = _root(tmp_path)
+        self._seed(root, **{"pr-archaeology": "old prs", "reviewer-profile": "old reviewers"})
+        pr = EXTRACTORS["pr-archaeology"]
+        mocker.patch.object(pr, "is_available", return_value=True)
+        mocker.patch.object(pr, "extract", return_value=ExtractedSection(title=pr.heading + " \N{EM DASH} 1 repo(s)", body="new prs"))
+
+        es.run_extract(company="acme", include=["pr-archaeology"], root=root)
+
+        sections = self._sections(root)
+        assert "new prs" in sections["pr-archaeology"]
+        assert "old prs" not in sections["pr-archaeology"]
+        assert "old reviewers" in sections["reviewer-profile"]
+
+    def test_included_extractor_with_no_data_drops_its_old_section(self, tmp_path, mocker) -> None:
+        root = _root(tmp_path)
+        self._seed(root, **{"code-hotspots": "old hotspots", "reviewer-profile": "old reviewers"})
+        pr, hot = EXTRACTORS["pr-archaeology"], EXTRACTORS["code-hotspots"]
+        for ext in (pr, hot):
+            mocker.patch.object(ext, "is_available", return_value=True)
+        mocker.patch.object(pr, "extract", return_value=ExtractedSection(title=pr.heading, body="new prs"))
+        mocker.patch.object(hot, "extract", return_value=empty_section())
+
+        es.run_extract(company="acme", include=["pr-archaeology", "code-hotspots"], root=root)
+
+        sections = self._sections(root)
+        assert sections["code-hotspots"] == ""
+        assert "old reviewers" in sections["reviewer-profile"]
+
+    def test_included_extractor_that_cannot_run_keeps_its_old_section(self, tmp_path, mocker) -> None:
+        root = _root(tmp_path)
+        self._seed(root, **{"code-hotspots": "old hotspots"})
+        pr, hot = EXTRACTORS["pr-archaeology"], EXTRACTORS["code-hotspots"]
+        mocker.patch.object(pr, "is_available", return_value=True)
+        mocker.patch.object(hot, "is_available", return_value=False)
+        mocker.patch.object(pr, "extract", return_value=ExtractedSection(title=pr.heading, body="new prs"))
+
+        es.run_extract(company="acme", include=["pr-archaeology", "code-hotspots"], root=root)
+
+        assert "old hotspots" in self._sections(root)["code-hotspots"]

@@ -21,9 +21,32 @@ from typing import Any, Dict, List, Optional
 from briar.errors import CliError
 from briar.extract import EXTRACTORS
 from briar.extract.base import ExtractedSection
-from briar.extract.composer import render_json, render_markdown
+from briar.extract.composer import KnowledgeComposer, render_json, render_markdown
 from briar.service._gating import GateMode, GateResult
-from briar.storage import make_store
+from briar.storage import KnowledgeRef, KnowledgeStore, make_store
+
+
+def write_knowledge_blob(
+    store: KnowledgeStore,
+    *,
+    blob_name: str,
+    company: str,
+    sections: List[ExtractedSection],
+    refreshed: List[str],
+) -> KnowledgeRef:
+    """Merge `sections` into the stored blob and write it back.
+
+    `refreshed` holds the headings of the extractors that ran, with or
+    without data: their old sections are replaced (or dropped when empty).
+    Sections of every other extractor stay. The one write path for both
+    `briar extract` and the MCP `extract_run` tool."""
+    md = KnowledgeComposer.merge_markdown(
+        company=company,
+        existing=store.get(blob_name),
+        fresh=render_markdown(company=company, sections=sections),
+        refreshed=refreshed,
+    )
+    return store.put(blob_name, md, category="knowledge")
 
 
 def _namespace_for(name: str, *, company: str, overrides: Dict[str, Any]) -> argparse.Namespace:
@@ -71,6 +94,7 @@ def run_extract(
         )
 
     sections: List[ExtractedSection] = []
+    refreshed: List[str] = []
     ran: List[str] = []
     skipped: List[str] = []
     empty: List[str] = []
@@ -80,6 +104,7 @@ def run_extract(
         if not ext.is_available(ns):
             skipped.append(name)
             continue
+        refreshed.append(ext.heading)
         section = ext.extract(ns)
         if section.is_empty:
             empty.append(name)
@@ -90,8 +115,13 @@ def run_extract(
     if not sections:
         raise CliError("nothing extracted — every enabled extractor returned empty")
 
-    md = render_markdown(company=company, sections=sections)
-    ref = make_store(storage, file_root=Path(root)).put(target, md, category="knowledge")
+    ref = write_knowledge_blob(
+        make_store(storage, file_root=Path(root)),
+        blob_name=target,
+        company=company,
+        sections=sections,
+        refreshed=refreshed,
+    )
 
     result: Dict[str, Any] = {
         "blob_name": ref.name,
