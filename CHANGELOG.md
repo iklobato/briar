@@ -5,6 +5,19 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.89] - 2026-10-13
+
+### Fixed
+
+- **`ci-health` works on Bitbucket.** The Bitbucket provider passed raw
+  pipeline names through (`COMPLETED`, `SUCCESSFUL`, `FAILED`), named each
+  run by its unique build number and set no end time, while `ci-health`
+  compares against GitHub's `success`/`failure`. So on Bitbucket the pass
+  rate was always 0, no pipeline was ever flagged flaky, and there was no
+  run duration. `list_ci_runs` now maps states and results to the GitHub
+  words, names a run by its pipeline selector (for example
+  `branches: main`), and sets `updated_at` from `completed_on`.
+
 ## [1.1.88] - 2026-10-13
 
 ### Fixed

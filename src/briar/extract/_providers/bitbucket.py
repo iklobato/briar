@@ -71,6 +71,12 @@ except urllib.error.HTTPError as exc:
 """
 
 
+# Bitbucket pipeline states/results in the GitHub Actions vocabulary that
+# `CiRun` consumers (`ci-health`, `github-deployments`) compare against.
+_PIPELINE_STATUS = {"COMPLETED": "completed", "IN_PROGRESS": "in_progress", "PENDING": "queued", "PAUSED": "waiting"}
+_PIPELINE_CONCLUSION = {"SUCCESSFUL": "success", "FAILED": "failure", "ERROR": "failure", "STOPPED": "cancelled", "EXPIRED": "timed_out"}
+
+
 class BitbucketProvider(RepositoryProvider):
     kind = "bitbucket"
     BASE = "https://api.bitbucket.org/"
@@ -224,13 +230,20 @@ class BitbucketProvider(RepositoryProvider):
             target = data.get("target") or {}
             state = data.get("state") or {}
             result = state.get("result") if isinstance(state, dict) else {}
+            selector = (target.get("selector") or {}) if isinstance(target, dict) else {}
+            state_name = str(state.get("name", "") if isinstance(state, dict) else "")
+            result_name = str((result or {}).get("name", ""))
             out.append(
                 CiRun(
-                    name=str(data.get("build_number") or ""),
-                    status=str(state.get("name", "") if isinstance(state, dict) else ""),
-                    conclusion=str((result or {}).get("name", "")),
+                    # The selector names the pipeline the way a GitHub
+                    # workflow name does; the build number is unique per
+                    # run, so grouping on it never finds a flaky pipeline.
+                    name=": ".join(str(v) for v in (selector.get("type"), selector.get("pattern")) if v) or "default",
+                    status=_PIPELINE_STATUS.get(state_name, state_name.lower()),
+                    conclusion=_PIPELINE_CONCLUSION.get(result_name, result_name.lower()),
                     head_branch=str(target.get("ref_name") or "") if isinstance(target, dict) else "",
                     created_at=str(data.get("created_on") or ""),
+                    updated_at=str(data.get("completed_on") or ""),
                 )
             )
             if len(out) >= limit:
