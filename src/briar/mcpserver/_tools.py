@@ -107,9 +107,10 @@ def register_tools(mcp: Any, ctx: Any) -> None:
         confirm: bool = False,
     ) -> Dict[str, Any]:
         """Run knowledge extractors and merge their sections into the blob;
-        sections of extractors that did not run are kept. `repo` (owner/repo,
-        or a tracker project) is required by every repo extractor; without it
-        they are skipped. `since_days` and `max_items` match `briar extract
+        sections of extractors that did not run are kept. `repo` (list of
+        owner/repo) is required by every repo extractor; without it they are
+        skipped; Jira/Linear project keys cannot be passed here. `since_days`
+        and `max_items` match `briar extract
         --since-days/--max`. Dry-run (lists what would run, calls nothing)
         unless confirm=true."""
         canonical = {"repo": repo, "since_days": since_days, "max": max_items}
