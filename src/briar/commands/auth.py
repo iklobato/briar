@@ -78,8 +78,8 @@ class CommandAuth(Command):
         refresh = sub.add_parser(
             "refresh",
             help=(
-                "Renew an OAuth / SSO bundle without re-prompting. Paste-based targets (PAT, app-password, "
-                "Jira API token, Jira session cookie) cannot refresh — re-run login."
+                "Renew keys without a new login. No target supports it yet: every target exits 2 "
+                "and prints the `briar auth login` command to run instead."
             ),
         )
         refresh.add_argument("target", choices=targets)

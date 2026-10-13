@@ -40,10 +40,13 @@ The `envfile` store uses the first of these paths that applies:
 Every briar command loads that file when it starts. A key you already
 exported in your shell wins over the same key in the file.
 
-Only the `envfile` store is loaded at start in 1.1.75. Keys you save to
-`aws-secretsmanager`, `ssm` or `vault` are not loaded into other briar
-commands by briar itself. You must put them in the environment yourself,
-for example from your deploy tool.
+Since 1.1.92, when `$BRIAR_DEFAULT_STORE` names `aws-secretsmanager`,
+`ssm` or `vault`, every briar command also loads all keys from that store
+when it starts, after the envfile. A key already in your shell or the
+envfile wins. If the store cannot be read, briar logs a warning and goes
+on. Keys in a remote store that is not `$BRIAR_DEFAULT_STORE` are not
+loaded; put them in the environment yourself. Before 1.1.92 no remote
+store was loaded at start.
 
 ## Targets
 

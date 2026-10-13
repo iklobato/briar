@@ -5,6 +5,25 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.92] - 2026-10-13
+
+### Fixed
+
+- **`.briar.toml` `store = "postgres"` no longer breaks `briar journal`.**
+  The journal's `--store` and `--root` shared their names with the
+  knowledge store's, so the project config set them too: every `briar
+  journal` command failed with "unknown journal store", and `root` moved
+  the journal into the knowledge folder. The journal flags have their own
+  names inside briar now; the flags you type are the same.
+- **Keys saved to a remote store reach other commands.** `briar auth
+  login --cred-store ssm|aws-secretsmanager|vault` saved keys that no
+  other command loaded (only the envfile was read at start). When
+  `$BRIAR_DEFAULT_STORE` names one of those stores, every command now
+  loads its keys at start, after the envfile; the shell and the envfile
+  still win, and names like `LD_PRELOAD` or `PATH` are never loaded.
+- `briar auth refresh -h` no longer says it renews OAuth / SSO keys. No
+  target supports refresh yet; the help now says so.
+
 ## [1.1.91] - 2026-10-13
 
 ### Fixed
