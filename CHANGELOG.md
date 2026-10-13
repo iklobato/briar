@@ -5,6 +5,20 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.95] - 2026-10-13
+
+### Fixed
+
+- **The agent's bash tool reads quotes before it splits commands.** It
+  split on `;`, `|` and `&&` first, so a quoted PR body, commit message
+  or `python3 -c "..."` with one of those characters was rejected ("No
+  closing quotation"). In a real `plan run` the agent spent all 30 turns
+  on this and never opened the PR. Two gaps closed at the same time: a
+  command after a single `&` and a command on a new line were run without
+  checking their verb against the allowlist.
+- The bash tool's description tells the model that a `VAR=value` prefix
+  is not allowed (the real run lost turns on `PYTHONPATH=... python3`).
+
 ## [1.1.94] - 2026-10-13
 
 ### Fixed

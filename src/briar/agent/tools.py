@@ -9,7 +9,6 @@ arbitrary shell, only the verbs we declare safe.
 from __future__ import annotations
 
 import logging
-import re
 import shlex
 import subprocess
 from dataclasses import dataclass
@@ -80,6 +79,13 @@ _FORBIDDEN_TOKENS = (
 )
 
 
+# Command separators the lexer splits on outside quotes. `&` is not one:
+# it would break `2>&1`; `&&` / `&` arrive as their own whitespace-split
+# tokens instead (a glued `ls&&mv` stays one word and fails the allowlist).
+_SEPARATOR_CHARS = ";|\n"
+_BACKGROUND_OPERATORS = frozenset({"&", "&&"})
+
+
 @dataclass
 class ToolError(Exception):
     message: str
@@ -90,7 +96,7 @@ class ToolError(Exception):
 
 class BashTool:
     name = "bash"
-    description = "Run a shell command. Allowlisted verbs only: git, gh, ls, cat, head, tail, grep, rg, find, wc, pwd, echo, cd, tee, sort, uniq, python/python3/pytest/ruff/black/mypy, npm/node, make. No HTTP clients (use python3). NEVER --force, --amend, rebase, squash, rm -rf, sudo. Returns stdout+stderr. Non-zero exit becomes a tool_result with the error visible to you."
+    description = "Run a shell command. Allowlisted verbs only: git, gh, ls, cat, head, tail, grep, rg, find, wc, pwd, echo, cd, tee, sort, uniq, python/python3/pytest/ruff/black/mypy, npm/node, make. No HTTP clients (use python3). No `VAR=value` prefix before a command (run from the worktree instead). NEVER --force, --amend, rebase, squash, rm -rf, sudo. Returns stdout+stderr. Non-zero exit becomes a tool_result with the error visible to you."
 
     INPUT_SCHEMA: Dict[str, Any] = {
         "type": "object",
@@ -144,22 +150,26 @@ class BashTool:
         for tok in _FORBIDDEN_TOKENS:
             if tok in lowered:
                 raise ToolError(f"bash-tool rejected: forbidden token {tok!r} in command")
-        # Parse the leading verb of every &&-chained chunk and confirm
-        # each is allowlisted. We can't shlex.split the whole thing —
-        # `&&` and `|` are operators not args — so split on those first.
-        chunks = re.split(r"\s*(?:&&|\|\||\||;)\s*", command)
-        for chunk in chunks:
-            if not chunk.strip():
+        # Confirm the leading verb of every command in the line. The lexer
+        # parses quotes first, so `;`, `|` and newlines inside a quoted PR
+        # body or commit message stay part of their argument; outside quotes
+        # they (and `&`, `&&`) start a new command whose verb is checked.
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=_SEPARATOR_CHARS)
+        lexer.whitespace = " \t\r"
+        lexer.whitespace_split = True
+        try:
+            tokens = list(lexer)
+        except ValueError as exc:
+            raise ToolError(f"bash-tool rejected: cannot parse shell tokens \N{EM DASH} {exc}") from exc
+        expect_verb = True
+        for token in tokens:
+            if token in _BACKGROUND_OPERATORS or set(token) <= set(_SEPARATOR_CHARS):
+                expect_verb = True
                 continue
-            try:
-                parts = shlex.split(chunk)
-            except ValueError as exc:
-                raise ToolError(f"bash-tool rejected: cannot parse shell tokens — {exc}") from exc
-            if not parts:
-                continue
-            verb = parts[0]
-            if verb not in _ALLOWED_VERBS:
-                raise ToolError(f"bash-tool rejected: verb {verb!r} not in allowlist {sorted(_ALLOWED_VERBS)!r}")
+            if expect_verb:
+                if token not in _ALLOWED_VERBS:
+                    raise ToolError(f"bash-tool rejected: verb {token!r} not in allowlist {sorted(_ALLOWED_VERBS)!r}")
+                expect_verb = False
 
     def _resolve_cwd(self, cwd: str) -> Path:
         path = Path(cwd).expanduser().resolve()

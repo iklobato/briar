@@ -310,3 +310,42 @@ def test_send_writer_construction_failure_surfaces(monkeypatch: pytest.MonkeyPat
     with mock.patch("briar.messaging.make_writer", side_effect=ValueError("no such kind")):
         with pytest.raises(ToolError, match="cannot construct writer"):
             tool.run(channel="ops", body="hi")
+
+
+# ── BashTool: operators inside quotes (plan run 2026-10-13) ────────────
+# Up to 1.1.94 the validator split on `;`, `|` and `&&` before parsing
+# quotes, so `gh pr create --body "a; b"` or `git commit -m "a | b"` was
+# rejected ("No closing quotation") and a real plan run spent its 30
+# turns without opening the PR.
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'gh pr create --draft --base main --title "#1: slugify" --body "Plan: add slugify; tests pass"',
+        'gh pr create --draft --title t --body "a | b && c"',
+        'git commit -m "Add slugify; with tests"',
+        "python3 -c \"import textkit; print('ok')\"",
+        "echo 'a;b|c'",
+        "python3 -m pytest -q 2>&1 | tail -5",
+        'gh pr create --title t --body "line one\nline two; with mv in it"',
+    ],
+)
+def test_bash_accepts_operators_inside_quotes(tmp_path: Path, command: str) -> None:
+    BashTool._validate(command)
+
+
+@pytest.mark.parametrize(
+    "command, verb",
+    [
+        ("ls; mv a b", "mv"),
+        ("ls | xargs rm", "xargs"),
+        ("ls & mv a b", "mv"),
+        ("ls || mv a b", "mv"),
+        ('echo "fine"; mv a b', "mv"),
+        ("ls\nmv a b", "mv"),
+    ],
+)
+def test_bash_checks_every_command_outside_quotes(tmp_path: Path, command: str, verb: str) -> None:
+    with pytest.raises(ToolError, match=f"verb '{verb}' not in allowlist"):
+        BashTool._validate(command)
