@@ -214,9 +214,10 @@ class ListCiRunsTests(unittest.TestCase):
             SimpleNamespace(
                 data={
                     "build_number": 42,
-                    "target": {"ref_name": "main"},
+                    "target": {"ref_name": "main", "selector": {"type": "branches", "pattern": "main"}},
                     "state": {"name": "COMPLETED", "result": {"name": "SUCCESSFUL"}},
                     "created_on": "2026-05-01T00:00:00Z",
+                    "completed_on": "2026-05-01T00:07:00Z",
                 }
             )
         ]
@@ -226,10 +227,13 @@ class ListCiRunsTests(unittest.TestCase):
             out = _provider().list_ci_runs("acme/app", limit=10)
         self.assertEqual(len(out), 1)
         self.assertIsInstance(out[0], CiRun)
-        self.assertEqual(out[0].name, "42")
-        self.assertEqual(out[0].status, "COMPLETED")
-        self.assertEqual(out[0].conclusion, "SUCCESSFUL")
+        # Normalised to the GitHub vocabulary `ci-health` reads (up to
+        # 1.1.88 the raw Bitbucket names came through and pass_rate was 0).
+        self.assertEqual(out[0].name, "branches: main")
+        self.assertEqual(out[0].status, "completed")
+        self.assertEqual(out[0].conclusion, "success")
         self.assertEqual(out[0].head_branch, "main")
+        self.assertEqual(out[0].updated_at, "2026-05-01T00:07:00Z")
 
     def test_limit_caps(self) -> None:
         pipes = [SimpleNamespace(data={"build_number": n, "state": {}}) for n in range(10)]
@@ -524,3 +528,49 @@ def test_bash_tool_description_does_not_offer_curl() -> None:
     from briar.agent.tools import BashTool
 
     assert "curl" not in BashTool.description
+
+
+def _pipeline(n: int, result: str, *, state: str = "COMPLETED", pattern: str = "main") -> SimpleNamespace:
+    return SimpleNamespace(
+        data={
+            "build_number": n,
+            "target": {"ref_name": "main", "selector": {"type": "branches", "pattern": pattern}},
+            "state": {"name": state, "result": {"name": result} if result else None},
+            "created_on": "2026-05-01T00:00:00Z",
+            "completed_on": "2026-05-01T00:10:00Z",
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("bitbucket", "neutral"),
+    [("SUCCESSFUL", "success"), ("FAILED", "failure"), ("ERROR", "failure"), ("STOPPED", "cancelled"), ("EXPIRED", "timed_out")],
+)
+def test_pipeline_results_map_to_neutral_conclusions(bitbucket: str, neutral: str) -> None:
+    repo = mock.MagicMock()
+    repo.pipelines.each.return_value = iter([_pipeline(1, bitbucket)])
+    with _patch_repo(repo):
+        assert _provider().list_ci_runs("acme/app", limit=5)[0].conclusion == neutral
+
+
+def test_running_pipeline_is_not_completed() -> None:
+    repo = mock.MagicMock()
+    repo.pipelines.each.return_value = iter([_pipeline(1, "", state="IN_PROGRESS")])
+    with _patch_repo(repo):
+        run = _provider().list_ci_runs("acme/app", limit=5)[0]
+    assert (run.status, run.conclusion) == ("in_progress", "")
+
+
+def test_ci_health_on_bitbucket_counts_passes_flakes_and_duration() -> None:
+    import argparse
+
+    from briar.extract.ci_health import ExtractCiHealth
+
+    repo = mock.MagicMock()
+    repo.pipelines.each.return_value = iter([_pipeline(3, "SUCCESSFUL"), _pipeline(2, "FAILED"), _pipeline(1, "SUCCESSFUL")])
+    with _patch_repo(repo):
+        section = ExtractCiHealth()._analyse_repo("acme/app", argparse.Namespace(cihealth_limit=20), _provider())
+
+    assert section.data["pass_rate"] == 0.67
+    assert section.data["flaky_workflows"] == ["branches: main"]
+    assert section.data["median_run_minutes"] == 10.0
