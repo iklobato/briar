@@ -434,6 +434,17 @@ class AgentRunner:
         return "\n".join(lines)
 
     def _build_initial_user_message(self) -> str:
+        if self._cfg.task != "prfix":
+            # Only prfix has a built-in procedure; other tasks (implement)
+            # bring their whole procedure in `extra_user_instructions`.
+            intro = (
+                f"Run the {self._archetype.name} workflow for company {self._cfg.company!r} "
+                f"in repo {self._cfg.target!r}. The working directory at {self._workdir} "
+                "is a clean git worktree."
+            )
+            if self._cfg.extra_user_instructions:
+                intro = intro + "\n\n" + self._cfg.extra_user_instructions
+            return intro
         intro = textwrap.dedent(
             f"""\
             Run the {self._archetype.name} workflow for company {self._cfg.company!r}

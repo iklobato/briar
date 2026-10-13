@@ -5,6 +5,17 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.87] - 2026-10-13
+
+### Fixed
+
+- **`agent implement` no longer gets the PR-review procedure.** The
+  agent's first message always started with prfix's steps ("the PR branch
+  you should fix", `gh pr view`, reply to review threads), and the
+  implement steps came after as "additional instructions", so an
+  implement run read two procedures that disagree. Only `prfix` gets that
+  procedure now; `implement` gets a short intro and its own steps.
+
 ## [1.1.86] - 2026-10-13
 
 ### Fixed
