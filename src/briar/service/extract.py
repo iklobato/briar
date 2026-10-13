@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional
 from briar.errors import CliError
 from briar.extract import EXTRACTORS
 from briar.extract.base import ExtractedSection
+from briar.extract.canonical import apply_canonical
 from briar.extract.composer import KnowledgeComposer, render_json, render_markdown
 from briar.service._gating import GateMode, GateResult
 from briar.storage import KnowledgeRef, KnowledgeStore, make_store
@@ -51,14 +52,19 @@ def write_knowledge_blob(
 
 def _namespace_for(name: str, *, company: str, overrides: Dict[str, Any]) -> argparse.Namespace:
     """Build the argparse namespace one extractor expects: its own defaults,
-    then `company` (unless overridden), then caller overrides on top."""
+    then `company` (unless overridden), then caller overrides on top.
+    Canonical keys (`repo`, `since_days`, `max`, ...) fan out to the
+    extractor's private dests, as in `briar extract` and runbook YAML;
+    a private key in `overrides` wins."""
+    extractor = EXTRACTORS[name]
     seed = argparse.ArgumentParser(add_help=False)
-    EXTRACTORS[name].add_arguments(seed)
+    extractor.add_arguments(seed)
     ns = seed.parse_args([])
     if company and "company" not in overrides:
         setattr(ns, "company", company)
     for key, value in overrides.items():
         setattr(ns, key, value)
+    apply_canonical(ns, extractor)
     return ns
 
 

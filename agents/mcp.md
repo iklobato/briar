@@ -40,7 +40,7 @@ extra and skip the helpers. They need it only for servers listed under
 | `runbook_get` | Returns the runbook as JSON. Keys appear only as env var names. | no |
 | `runbook_validate` | Checks the runbook and reports the result. | no |
 | `mcp_server_set_enabled` | Turns one entry in a company's `mcp:` block on or off, and saves the runbook file. | yes |
-| `extract_run` | Runs extractors for a company and merges the result into the blob: the sections of the extractors that ran are replaced, all other sections stay. With no `include` list, it runs every extractor. | yes |
+| `extract_run` | Runs extractors for a company and merges the result into the blob: the sections of the extractors that ran are replaced, all other sections stay. With no `include` list, it runs every extractor. Pass `repo` (a list of `owner/repo`) for the repo extractors; without it they are skipped. Jira and Linear project keys cannot be passed over MCP yet. `since_days` and `max_items` work like `briar extract --since-days` and `--max`. | yes |
 
 A **blob** is one named markdown text in briar's knowledge store, such
 as `knowledge:acme` (see [context.md](context.md)).

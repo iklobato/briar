@@ -101,11 +101,19 @@ def register_tools(mcp: Any, ctx: Any) -> None:
         include: Optional[List[str]] = None,
         blob_name: str = "",
         out_json: str = "",
+        repo: Optional[List[str]] = None,
+        since_days: Optional[int] = None,
+        max_items: Optional[int] = None,
         confirm: bool = False,
     ) -> Dict[str, Any]:
         """Run knowledge extractors and merge their sections into the blob;
-        sections of extractors that did not run are kept. Dry-run (lists what
-        would run, calls nothing) unless confirm=true."""
+        sections of extractors that did not run are kept. `repo` (list of
+        owner/repo) is required by every repo extractor; without it they are
+        skipped; Jira/Linear project keys cannot be passed here. `since_days`
+        and `max_items` match `briar extract
+        --since-days/--max`. Dry-run (lists what would run, calls nothing)
+        unless confirm=true."""
+        canonical = {"repo": repo, "since_days": since_days, "max": max_items}
         return extract_service.run_extract(
             company=company,
             include=include,
@@ -113,5 +121,6 @@ def register_tools(mcp: Any, ctx: Any) -> None:
             blob_name=blob_name,
             root=ctx.root,
             out_json=out_json,
+            extractor_args={key: value for key, value in canonical.items() if value is not None},
             gate=GateMode.from_confirm(confirm),
         ).as_dict()

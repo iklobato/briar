@@ -127,3 +127,48 @@ class TestRunExtractKeepsOtherSections:
         es.run_extract(company="acme", include=["pr-archaeology", "code-hotspots"], root=root)
 
         assert "old hotspots" in self._sections(root)["code-hotspots"]
+
+
+class TestRunExtractCanonicalArgs:
+    """`extractor_args` takes the canonical keys (`repo`, `since_days`,
+    `max`, ...) like `briar extract` and runbook YAML. Up to 1.1.83 they were
+    set on the namespace but never fanned out, so over MCP every repo
+    extractor stayed unavailable."""
+
+    def test_repo_key_makes_repo_extractor_runnable(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setenv("GITHUB_TOKEN", "test-token")
+
+        out = es.run_extract(
+            company="acme",
+            include=["pr-archaeology"],
+            root=_root(tmp_path),
+            extractor_args={"repo": ["acme/api"]},
+            gate=GateMode.DRY_RUN,
+        )
+
+        assert "would run 1 extractor(s) ['pr-archaeology']" in out.summary
+
+    def test_repo_and_max_reach_the_private_dests(self, tmp_path, monkeypatch, mocker) -> None:
+        monkeypatch.setenv("GITHUB_TOKEN", "test-token")
+        pr = EXTRACTORS["pr-archaeology"]
+        extract = mocker.patch.object(pr, "extract", return_value=ExtractedSection(title=pr.heading, body="b"))
+
+        es.run_extract(company="acme", include=["pr-archaeology"], root=_root(tmp_path), extractor_args={"repo": ["acme/api"], "max": 7})
+
+        ns = extract.call_args.args[0]
+        assert ns.pr_repo == ["acme/api"]
+        assert ns.pr_max == 7
+
+    def test_private_key_wins_over_canonical(self, tmp_path, monkeypatch, mocker) -> None:
+        monkeypatch.setenv("GITHUB_TOKEN", "test-token")
+        pr = EXTRACTORS["pr-archaeology"]
+        extract = mocker.patch.object(pr, "extract", return_value=ExtractedSection(title=pr.heading, body="b"))
+
+        es.run_extract(
+            company="acme",
+            include=["pr-archaeology"],
+            root=_root(tmp_path),
+            extractor_args={"repo": ["acme/api"], "pr_repo": ["acme/web"]},
+        )
+
+        assert extract.call_args.args[0].pr_repo == ["acme/web"]
