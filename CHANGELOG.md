@@ -5,6 +5,16 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.94] - 2026-10-13
+
+### Fixed
+
+- **The MCP tool `extract_run` can read Jira and Linear.** It had no way
+  to name a tracker or a project key (`repo` feeds only GitHub and
+  Bitbucket Issues), so `active-tickets` and `ticket-archaeology` could
+  not run over MCP for Jira or Linear. It now takes `tracker` and
+  `ticket_project`.
+
 ## [1.1.93] - 2026-10-13
 
 ### Fixed

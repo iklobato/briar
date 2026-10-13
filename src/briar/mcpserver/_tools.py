@@ -104,16 +104,27 @@ def register_tools(mcp: Any, ctx: Any) -> None:
         repo: Optional[List[str]] = None,
         since_days: Optional[int] = None,
         max_items: Optional[int] = None,
+        tracker: Optional[str] = None,
+        ticket_project: Optional[List[str]] = None,
         confirm: bool = False,
     ) -> Dict[str, Any]:
         """Run knowledge extractors and merge their sections into the blob;
         sections of extractors that did not run are kept. `repo` (list of
         owner/repo) is required by every repo extractor; without it they are
-        skipped; Jira/Linear project keys cannot be passed here. `since_days`
-        and `max_items` match `briar extract
+        skipped. `tracker` (jira, linear, github-issues, bitbucket-issues) and
+        `ticket_project` (Jira project keys, Linear teams) feed the ticket
+        extractors. `since_days` and `max_items` match `briar extract
         --since-days/--max`. Dry-run (lists what would run, calls nothing)
         unless confirm=true."""
-        canonical = {"repo": repo, "since_days": since_days, "max": max_items}
+        canonical = {
+            "repo": repo,
+            "since_days": since_days,
+            "max": max_items,
+            "tracker": tracker,
+            # The two ticket extractors name their project list differently.
+            "ticket_project": ticket_project,
+            "ticket_archaeology_project": ticket_project,
+        }
         return extract_service.run_extract(
             company=company,
             include=include,

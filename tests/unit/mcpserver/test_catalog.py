@@ -58,3 +58,36 @@ def test_extract_run_forwards_repo_to_the_service(mocker) -> None:
     asyncio.run(server.call_tool("extract_run", {"company": "acme", "repo": ["acme/api"], "since_days": 30, "max_items": 5}))
 
     assert run.call_args.kwargs["extractor_args"] == {"repo": ["acme/api"], "since_days": 30, "max": 5}
+
+
+def test_extract_run_forwards_tracker_and_ticket_project(mocker) -> None:
+    # Up to 1.1.93 Jira / Linear project keys could not reach the ticket
+    # extractors over MCP (`repo` feeds only repo-slug trackers).
+    from briar.service import extract as extract_service
+    from briar.service._gating import GateResult
+
+    run = mocker.patch.object(extract_service, "run_extract", return_value=GateResult.previewed("ok"))
+    server = build_server(ServerContext(root="/tmp/briar-test"))
+
+    asyncio.run(server.call_tool("extract_run", {"company": "acme", "tracker": "jira", "ticket_project": ["ACME"]}))
+
+    assert run.call_args.kwargs["extractor_args"] == {"tracker": "jira", "ticket_project": ["ACME"], "ticket_archaeology_project": ["ACME"]}
+
+
+def test_jira_project_makes_ticket_extractors_runnable(tmp_path, monkeypatch) -> None:
+    from briar.service import GateMode
+    from briar.service import extract as extract_service
+
+    monkeypatch.setenv("JIRA_ACME_EMAIL", "dev@example.test")
+    monkeypatch.setenv("JIRA_ACME_TOKEN", "placeholder")
+    monkeypatch.setenv("JIRA_ACME_URL", "https://acme.atlassian.net")
+
+    out = extract_service.run_extract(
+        company="acme",
+        include=["active-tickets", "ticket-archaeology"],
+        root=str(tmp_path),
+        extractor_args={"tracker": "jira", "ticket_project": ["ACME"], "ticket_archaeology_project": ["ACME"]},
+        gate=GateMode.DRY_RUN,
+    )
+
+    assert "would run 2 extractor(s)" in out.summary
