@@ -101,15 +101,9 @@ def _runner(tmp_path: Path, llm: LLMProvider, **cfg: Any) -> AgentRunner:
     store = mock.MagicMock()
     store.list.return_value = []
     store.get.return_value = ""
-    config = AgentRunConfig(
-        company="acme",
-        task="implement",
-        archetype_name="engineer",
-        workdir=tmp_path,
-        knowledge_store=store,
-        target="acme/widgets",
-        **cfg,
-    )
+    fields: Dict[str, Any] = {"task": "implement", "archetype_name": "engineer"}
+    fields.update(cfg)
+    config = AgentRunConfig(company="acme", workdir=tmp_path, knowledge_store=store, target="acme/widgets", **fields)
     return AgentRunner(config, llm=llm)
 
 
@@ -297,12 +291,6 @@ def test_system_prompt_includes_nonempty_sections_skips_empty(tmp_path: Path) ->
     assert "Hidden" not in prompt
 
 
-def test_initial_user_message_appends_extra_instructions(tmp_path: Path) -> None:
-    runner = _runner(tmp_path, ScriptedLLM([_text_turn("ok")]), extra_user_instructions="Be terse.")
-    msg = runner._build_initial_user_message()
-    assert "Additional instructions:\nBe terse." in msg
-
-
 def test_system_prompt_survives_knowledge_splicer_failure(tmp_path: Path) -> None:
     # If the splicer blows up, the runner logs and continues with no
     # prologue rather than aborting the run.
@@ -363,3 +351,26 @@ def test_cost_summary_pricing() -> None:
     r = AgentRunResult(company="c", task="t", input_tokens=1_000_000, output_tokens=1_000_000)
     # $3/M in + $15/M out = $18.000
     assert r.cost_summary() == "in=1,000,000 out=1,000,000 ≈$18.000"
+
+
+def test_implement_first_message_has_no_prfix_procedure(tmp_path: Path) -> None:
+    # Up to 1.1.86 every task got the PR-review procedure ("worktree on the
+    # PR branch you should fix", `gh pr view`, reply to threads), so an
+    # implement run read two conflicting procedures.
+    runner = _runner(tmp_path, ScriptedLLM([_text_turn("ok")]), extra_user_instructions="1. Read the ticket.")
+
+    msg = runner._build_initial_user_message()
+
+    assert "gh pr view" not in msg
+    assert "PR branch you should fix" not in msg
+    assert "1. Read the ticket." in msg
+
+
+def test_prfix_first_message_keeps_the_review_procedure(tmp_path: Path) -> None:
+    runner = _runner(tmp_path, ScriptedLLM([_text_turn("ok")]), task="prfix", archetype_name="pr-fixer", extra_user_instructions="PR #42.")
+
+    msg = runner._build_initial_user_message()
+
+    assert "gh pr view" in msg
+    assert "PR branch you should fix" in msg
+    assert "Additional instructions:\nPR #42." in msg
