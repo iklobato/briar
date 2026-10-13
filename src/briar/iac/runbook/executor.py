@@ -326,7 +326,9 @@ class RunbookExtractor:
             return company.knowledge
         if company.knowledge_file:
             return KnowledgeBinding(store="file", name=company.knowledge_file)
-        return KnowledgeBinding(store="file", name=f"./knowledge/{company_name}.md")
+        # Same name as `briar extract`: the coding agents read every blob
+        # whose name starts with `knowledge:<company>`.
+        return KnowledgeBinding(store="file", name=f"knowledge:{company_name}")
 
     @staticmethod
     def _task_blob_name(base_name: str, task: str) -> str:

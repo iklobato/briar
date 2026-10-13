@@ -71,7 +71,7 @@ This file gives you three tasks. Once a day, at 03:17 UTC, the
 | `version` | Always `1`. |
 | `companies` | One block per company. The block name (`acme`) is the company name. At least one is required. |
 | `knowledge.store` | `file` or `postgres`. Default `file`. |
-| `knowledge.name` | The blob to write, such as `knowledge:acme` or a path like `./knowledge/acme.md`. Default: `./knowledge/<company>.md` in the `file` store. |
+| `knowledge.name` | The blob to write, such as `knowledge:acme` or a path like `./knowledge/acme.md`. Agents read only blobs named `knowledge:<company>...`, so a path is for you, not for them. Default: `knowledge:<company>` in the `file` store (since 1.1.86; before, `./knowledge/<company>.md`, which agents never read). |
 | `knowledge.root` | The folder for the `file` store. Default `./knowledge`. |
 | `knowledge.config.dsn_env` | For `postgres`: the name of the env var that holds the database URL. |
 | `knowledge.config.inventory` | Set to `"true"` to also save a JSON copy of all the raw data (see below). |

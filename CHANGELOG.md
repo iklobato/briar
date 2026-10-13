@@ -5,6 +5,18 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.86] - 2026-10-13
+
+### Fixed
+
+- **A runbook with no `knowledge.name` now feeds the agents.** The default
+  blob was the path `./knowledge/<company>.md`, but coding agents read only
+  blobs named `knowledge:<company>...`, so scheduled extracts never reached
+  them. The default is now `knowledge:<company>` (file
+  `./knowledge/knowledge/<company>.md`), the same name `briar extract`
+  writes. An explicit `knowledge.name` or `knowledge_file` is unchanged.
+  An old `./knowledge/<company>.md` is left in place; delete it by hand.
+
 ## [1.1.85] - 2026-10-13
 
 ### Fixed
