@@ -5,6 +5,15 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.98] - 2026-10-13
+
+### Docs
+
+- `agents/plan.md` and `agents/agent.md` describe 1.1.95 to 1.1.97: what
+  the bash tool accepts, that `implement` exits 1 without a commit, and
+  when a card counts as done. A real `plan run` on a test board opened
+  two stacked draft PRs on 1.1.97.
+
 ## [1.1.97] - 2026-10-13
 
 ### Fixed
