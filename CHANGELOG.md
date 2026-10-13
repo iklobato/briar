@@ -5,6 +5,18 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.93] - 2026-10-13
+
+### Fixed
+
+- **`plan run` gives the plan's notes to each card's agent.** The plan
+  notes blob `knowledge:<company>.<plan>` (seeded by `plan build`,
+  rewritten after each finished card) reached only the selector: the
+  agent's knowledge loader keeps only extractor sections, so it dropped
+  the blob, though the writeback code said agents saw it. `plan run` now
+  reads the blob before each card and `agent implement` adds it to the
+  prompt as a "Plan notes" section.
+
 ## [1.1.92] - 2026-10-13
 
 ### Fixed

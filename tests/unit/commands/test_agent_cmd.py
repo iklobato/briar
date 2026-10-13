@@ -432,3 +432,18 @@ class TestPrRecipeTargetsBase:
         recipe = provider.pr_creation_recipe(owner="o", repo="r", branch="feat/x", base="feat/a")
         assert '"destination"' in recipe
         assert '{"branch": {"name": "feat/a"}}' in recipe
+
+
+class TestPlanNotesInImplementPrompt:
+    def test_plan_notes_become_a_task_section(self, agent_seam) -> None:
+        args = argparse.Namespace(plan_notes="- use the v2 client", meeting="", chat="", meeting_key="", meeting_query="", slack_query="")
+
+        sections = agent_mod.CommandAgent()._plan_notes_sections(args)
+
+        assert [(s.title, s.body) for s in sections] == [("Plan notes", "- use the v2 client")]
+
+    def test_implement_without_plan_has_no_notes_section(self, cli, agent_seam) -> None:
+        cli(*_IMPL)
+
+        titles = [s.title for s in agent_seam.runner.captured["config"].task_context_sections]
+        assert "Plan notes" not in titles

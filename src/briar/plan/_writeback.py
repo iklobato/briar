@@ -3,11 +3,10 @@ knowledge blob so the next selector call sees what was learned.
 
 `knowledge:<company>.<plan>` is the live source of truth. It is seeded
 at `plan build` time with a plan summary, then merged after each
-successful card by the writer here. The implement agent's
-`KnowledgeSplicer` already concatenates every blob whose name starts
-with `knowledge:<company>` (see `iac/scaffold/_knowledge.py:57`), so
-this blob is automatically visible to subsequent `agent implement`
-calls without any extra wiring.
+successful card by the writer here. `plan run` re-reads it before each
+card and passes it to `agent implement` as a "Plan notes" section
+(`RunOp._plan_notes`); the agent's `KnowledgeSplicer` would drop it,
+since it keeps only extractor sections.
 
 One concrete class. No ABC — there is one implementation. If a no-op
 or in-memory writer ever shows up for tests, lift to ABC + factory

@@ -35,8 +35,9 @@ The other subcommands let you look at a plan and change it by hand.
 
 `knowledge:acme.q3` starts as a summary of all cards. After each card
 that finishes, the LLM rewrites it with new notes. The selector reads it
-before each pick. The coding agent does not see it, because the agent
-reads only the extractor sections it needs (see [agent.md](agent.md)).
+before each pick. Since 1.1.93 `plan run` also gives it to the coding
+agent of each card, as a "Plan notes" section of its prompt, read again
+before every card. Before 1.1.93 the agent did not see it.
 
 ## Card statuses
 
