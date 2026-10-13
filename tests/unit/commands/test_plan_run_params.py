@@ -561,3 +561,25 @@ class TestPlanRunPassesCardBranches:
 
         assert impl.base_branch == "main"
         assert impl.base_branch_optional is True
+
+
+class TestPlanNotesReachTheAgent:
+    """`knowledge:<company>.<plan>` (seeded by `plan build`, updated after
+    each card) goes to the per-card agent. Up to 1.1.92 only the selector
+    read it: the agent's knowledge splicer keeps extractor sections only."""
+
+    def test_plan_notes_blob_is_read_for_the_card(self, store_root) -> None:
+        store = make_store("file", file_root=store_root)
+        store.put("knowledge:acme.demo", "# notes\n- use the v2 client\n")
+
+        notes = RunOp._plan_notes(store, _plan(name="demo"))
+
+        assert "use the v2 client" in notes
+
+    def test_no_blob_means_no_notes(self, store_root) -> None:
+        assert RunOp._plan_notes(make_store("file", file_root=store_root), _plan(name="demo")) == ""
+
+    def test_notes_reach_the_implement_args(self) -> None:
+        impl = RunOp._build_implement_args(_run_ns(), PlanCard(key="A", title="a"), "acme/widgets", plan_notes="- use the v2 client")
+
+        assert impl.plan_notes == "- use the v2 client"

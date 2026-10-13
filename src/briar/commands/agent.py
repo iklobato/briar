@@ -430,6 +430,16 @@ class CommandAgent(SubcommandCommand):
             meeting_max_bytes=getattr(args, "meeting_max_bytes", 50_000),
         )
 
+    @staticmethod
+    def _plan_notes_sections(args: argparse.Namespace) -> list:
+        """`plan run` hands each card the plan's notes blob
+        (`knowledge:<company>.<plan>`); the knowledge splicer only keeps
+        extractor sections, so they go in as their own task section."""
+        from briar.extract.base import ExtractedSection
+
+        notes = (getattr(args, "plan_notes", "") or "").strip()
+        return [ExtractedSection(title="Plan notes", body=notes)] if notes else []
+
     def _fetch_slack_context_from_args(
         self,
         args: argparse.Namespace,
@@ -448,11 +458,12 @@ class CommandAgent(SubcommandCommand):
         )
 
     def _fetch_enrichment_context_from_args(self, args: argparse.Namespace, default_query: str) -> list:
-        """Fetch every optional task-enrichment source (meeting
+        """Fetch every optional task-enrichment source (plan notes, meeting
         transcripts + Slack threads) off the same default query. Each is
         non-fatal and returns [] when its provider is unconfigured, so
         prfix/implement get all available enrichment in one call."""
-        sections = self._fetch_meeting_context_from_args(args, default_query)
+        sections = self._plan_notes_sections(args)
+        sections += self._fetch_meeting_context_from_args(args, default_query)
         sections += self._fetch_slack_context_from_args(args, default_query)
         return sections
 

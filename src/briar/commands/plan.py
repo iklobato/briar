@@ -493,7 +493,13 @@ class RunOp(PlanOp):
                 processed += 1
                 card.status = PlanCardStatus.IN_PROGRESS
                 persist_plan(store, plan)
-                impl_args = self._build_implement_args(args, card, tracker_project, default_branch=plan.default_branch)
+                impl_args = self._build_implement_args(
+                    args,
+                    card,
+                    tracker_project,
+                    default_branch=plan.default_branch,
+                    plan_notes=self._plan_notes(store, plan),
+                )
                 record(
                     "plan.run.card.start",
                     value=card.key,
@@ -546,12 +552,21 @@ class RunOp(PlanOp):
             return int(ExitCode.GENERAL_ERROR), f"{type(exc).__name__}: {exc}"
 
     @staticmethod
+    def _plan_notes(store, plan: ImplementationPlan) -> str:
+        """The plan's notes blob, re-read per card so the writeback from
+        the previous card is included."""
+        if not (plan.company and plan.name):
+            return ""
+        return store.get(f"knowledge:{plan.company}.{plan.name}") or ""
+
+    @staticmethod
     def _build_implement_args(
         args: argparse.Namespace,
         card: PlanCard,
         tracker_project: str,
         *,
         default_branch: str = "main",
+        plan_notes: str = "",
     ) -> argparse.Namespace:
         """Translate the run-loop args + one plan card → an
         `agent implement` argparse.Namespace. Adapter pattern.
@@ -569,6 +584,7 @@ class RunOp(PlanOp):
         impl.branch_name = card.branch_name
         impl.base_branch = card.branch_parent
         impl.base_branch_optional = card.branch_parent == default_branch
+        impl.plan_notes = plan_notes
         impl.tracker = args.tracker
         impl.provider = args.provider
         impl.store = args.store
