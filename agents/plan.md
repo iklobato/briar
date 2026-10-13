@@ -49,7 +49,7 @@ card counts as done only when its agent made a commit (since 1.1.96).
 |---|---|
 | `pending` | Not started. Only pending cards can be picked. `build` sets every card to pending. |
 | `in_progress` | `run` sets this right before it calls the agent. If you stop the run, the card stays here. |
-| `done` | The agent exited with code 0. That does not prove a PR exists, so check it. |
+| `done` | The agent exited with code 0 and made at least one commit (since 1.1.96; before, a run with no commit counted too). It does not prove a PR exists, so check it. |
 | `blocked` | The agent failed. The selector never picks it again until you set it back to `pending`. |
 
 ## Selector decisions

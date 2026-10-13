@@ -305,12 +305,18 @@ with an error telling you to run `pip install 'briar-cli[mcp]'`.
   `git`, `gh`, `ls`, `cat`, `head`, `tail`, `grep`, `rg`, `find`, `wc`,
   `pwd`, `echo`, `cd`, `python`, `python3`, `pytest`, `ruff`, `black`,
   `mypy`, `npm`, `node`, `make`, `tee`, `sort`, `uniq`. A test command like
-  `uv run pytest`, `go test` or `cargo test` is refused.
+  `uv run pytest`, `go test` or `cargo test` is refused, and so is a
+  `VAR=value` prefix such as `PYTHONPATH=. pytest`. Every command in a
+  line joined by `;`, `|`, `&&`, `&` or a new line is checked; text inside
+  quotes (a PR body, a commit message) may hold those characters (since
+  1.1.95; before, they were refused).
 - The tool also refuses any command that contains `--force`, `--amend`,
   `rebase`, `squash`, `reset --hard`, `rm -rf`, `sudo`, `curl` or `wget`,
   among others. Each command stops after 60 seconds by default, and after
   300 seconds at most.
 - The file tools can read and write only inside the worktree.
+- `implement` exits 1 when the agent made no commit (since 1.1.96), so
+  `plan run` marks that card blocked, not done.
 - On Bitbucket, the agent opens the PR with a short Python script it saves
   under `.git/` (never committed) and runs with `python3`, since the shell
   refuses `curl`. Before 1.1.88 it was told to use `curl`, so it could not
