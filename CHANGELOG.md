@@ -9,8 +9,10 @@ cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
 ### Docs
 
-- README: a header with badges and quick links, a "What you get" list,
-  and "Learn briar step by step": eight steps from install to a scheduler
+- README written for someone new to briar: an intro that says the
+  problem briar solves in plain words, a "What you get" list that explains
+  each term, a header with badges and quick links, and "Learn briar step
+  by step" (with a short glossary): eight steps from install to a scheduler
   (setup, extract, adding knowledge, `--merge-claude-md`, `agent implement
   --dry-run`, a runbook, `agent prfix --dry-run`, `runbook serve` for two
   teams). Each step names the problem it solves, gives the commands to
