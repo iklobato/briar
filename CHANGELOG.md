@@ -5,6 +5,15 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.99] - 2026-10-29
+
+### Docs
+
+- README shows the five diagrams from usebriar.com: where the knowledge
+  comes from and where the work goes, which command to use, inside an
+  agent run, answering a review, and working a board. The SVG files are
+  in `docs/diagrams/`.
+
 ## [1.1.98] - 2026-10-13
 
 ### Docs

@@ -12,6 +12,32 @@ There is no briar server and no account. briar talks only to the services
 you set up: your code host, your tracker, your cloud, and your LLM
 provider. Your credentials stay in a file on your machine.
 
+## Where the knowledge comes from, and where the work goes
+
+![briar reads code, tickets, cloud, meetings and Slack into a local knowledge store; agents read that knowledge plus live ticket context, work in a clean git worktree, and open draft PRs that you review and merge.](https://raw.githubusercontent.com/iklobato/briar/main/docs/diagrams/under-the-hood.svg)
+
+Everything in the dashed box runs on your machine and reads from your
+tools. Agents push branches, open draft PRs and reply on reviews; their
+`send_message` tool only reaches the channels you list in the runbook.
+
+1. Extractors read your tools, on demand or on a schedule, and write
+   markdown knowledge to a local folder or to Postgres.
+2. You point an agent at a ticket or a PR. It fetches the ticket, the PR's
+   review threads, and matching meeting notes and Slack messages live.
+3. In a clean git worktree it first reads the knowledge sections that fit
+   its job (conventions, hotspots, reviewers, PR history), writes the code
+   on a new branch and runs your tests. Coding agents run on Anthropic with
+   your own key.
+4. It pushes and opens a draft PR. If you allow those channels in the
+   runbook, it can also comment on the ticket or post in Slack or Telegram.
+5. You review. `briar agent prfix` answers the comments with one commit per
+   thread. You merge; briar never does.
+6. A plan run writes what each card taught into the plan's knowledge, which
+   its selector reads before the next pick. All knowledge also feeds Claude
+   Code (`CLAUDE.md`) and any MCP client.
+
+More diagrams are in [See it run](#see-it-run).
+
 ## Install
 
 ```bash
@@ -247,6 +273,82 @@ Three flags work with every command, anywhere on the line:
 | `--format table\|json\|yaml\|csv\|quiet` | Output shape. Lists default to `table`, single records to `json`. |
 | `--verbose`, `-v` | Debug logs on stderr. `BRIAR_VERBOSE=1` does the same. |
 | `--version`, `-V` | Print the version and exit. |
+
+## See it run
+
+### Which command?
+
+![A decision tree from what you need right now (understand, change code, check the setup) to the exact briar command for eleven common situations.](https://raw.githubusercontent.com/iklobato/briar/main/docs/diagrams/which-command.svg)
+
+1. Want to know something about the code, the team or production? Read it
+   once with `briar extract`, every day with `runbook serve`, from Claude
+   Code or any MCP client, or ask `briar chat`.
+2. Want code changed? One ticket is `agent implement`, an open PR with
+   review comments is `agent prfix`, and a whole board is `plan build` once,
+   then `plan run`.
+3. Setting up or checking? `briar init` and `briar doctor` first,
+   `secrets doctor` when a credential is missing, and `journal list` to read
+   back what a plan run decided.
+
+### Inside an agent run
+
+![One agent run: briar assembles a system prompt from persona, the knowledge sections that persona reads, task context and procedure, then loops between the Anthropic model and tools that run in a temporary git worktree, for at most 30 turns.](https://raw.githubusercontent.com/iklobato/briar/main/docs/diagrams/agent-run.svg)
+
+1. briar builds one system prompt: the agent's persona, the knowledge
+   sections that persona reads (for implement: codebase conventions, code
+   hotspots, reviewer profiles, active work, PR history and the meeting
+   digest), the ticket or PR context, and the procedure to follow.
+2. The Anthropic model answers with tool calls. briar runs them inside a
+   temporary git worktree and sends back the results. This repeats for at
+   most 30 turns (`--max-iter`).
+3. The tools are bash and file read, write and edit. `send_message` and MCP
+   tools are added only when the runbook lists channels or servers.
+4. When the model finishes, briar prints its final message (ending with the
+   PR URL) and deletes the worktree. On an error or the turn ceiling the
+   worktree is kept so you can look.
+5. `--dry-run` prints the prompt and the tool list and stops there: no
+   clone, no model call.
+
+### Answering a review
+
+![How briar agent prfix answers a review: skip a PR that is already approved and green, otherwise handle each open thread with a fix commit, a reply, or a note saying why, then push fast-forward and reply with the commit SHA.](https://raw.githubusercontent.com/iklobato/briar/main/docs/diagrams/review.svg)
+
+1. prfix reads the PR with `gh pr view`: review decision, branch and
+   checks.
+2. If it is approved, every required check is green and every open thread
+   is positive, it reports "skipped" and stops.
+3. Otherwise it lists every open review thread and PR comment and handles
+   them one at a time.
+4. A requested code change gets the smallest fix and its own commit citing
+   the comment. A question or opinion gets a reply, no commit. A fix that
+   isn't safe gets a comment saying why.
+5. Then it pushes fast-forward to the PR branch and replies on each thread
+   it addressed with the commit SHA.
+6. It never force-pushes, amends, rebases or squashes, and never commits as
+   a bot identity.
+
+### Working a board
+
+![How briar plan run works a board: a selector picks the next card, replans, completes or stops; picked cards go to agent implement, and each success writes a lesson into the plan's knowledge that the selector reads next time.](https://raw.githubusercontent.com/iklobato/briar/main/docs/diagrams/board.svg)
+
+1. `plan build` reads a Jira board or GitHub Project and turns it into an
+   ordered card list (with `--with-knowledge`, using your knowledge too). It
+   also seeds a `knowledge:acme.q3` blob for the plan.
+2. `plan run` asks the selector (an LLM) what to do next. It reads the
+   plan, the knowledge and the journal of earlier decisions.
+3. Pick: the card's ticket goes to `agent implement`, on the card's branch
+   (`chore/kan-2` when built without an LLM), from the card's parent
+   branch. Success marks it done and writes a lesson into
+   `knowledge:acme.q3`, which the selector reads before its next pick.
+4. A failed card is marked blocked. The run stops there, unless
+   `--continue-on-failure`.
+5. Replan: briar re-reads the board, keeps the status of cards it already
+   knew, and adds new ones as pending. At most 3 times per run
+   (`--max-replans`).
+6. Complete ends the run. Blocked stops it until you step in. `--limit N`
+   stops after N cards. Every decision lands in the journal.
+
+The diagrams are copies of the ones on [usebriar.com](https://usebriar.com/).
 
 ## Telemetry
 
