@@ -5,6 +5,15 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.101] - 2026-10-29
+
+### Docs
+
+- `CLAUDE.md`: notes for agents working in this repo. What briar is, the
+  repo layout, how a merge becomes a release and how to check it, behavior
+  that is easy to get wrong, what was done, next steps, open issues and
+  findings, and what to watch.
+
 ## [1.1.100] - 2026-10-29
 
 ### Docs
