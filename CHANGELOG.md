@@ -5,6 +5,23 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.100] - 2026-10-29
+
+### Docs
+
+- README written for someone new to briar: an intro that says the
+  problem briar solves in plain words, a "What you get" list that explains
+  each term, a header with badges and quick links, and "Learn briar in 3
+  examples" (with a short glossary): set up and collect facts (`init`,
+  `doctor`, `extract --merge-claude-md`, `context get`), keep them fresh
+  with `runbook serve`, and the two AI agents with `--dry-run`. Each
+  example names the problem it solves, explains every command, shows a GIF
+  of a real run and says what you get. The GIFs are in `docs/demo/`.
+  Install and Docker are short now and link to usebriar.com/docs; the
+  `.briar.toml` section moved into example 1; the four "See it run"
+  diagrams fold open on click.
+  Removed the old version notes ("You get 1.1.75", "Since 1.1.7x").
+
 ## [1.1.99] - 2026-10-29
 
 ### Docs
