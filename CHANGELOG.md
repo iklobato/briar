@@ -5,6 +5,16 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.100] - 2026-10-29
+
+### Docs
+
+- README: a header with badges and quick links, a demo GIF (a real
+  `extract` and `agent implement --dry-run` on this repo), and a "What you
+  get" list. Install, `.briar.toml` and Docker are short now and link to
+  usebriar.com/docs; the four "See it run" diagrams fold open on click.
+  Removed the old version notes ("You get 1.1.75", "Since 1.1.7x").
+
 ## [1.1.99] - 2026-10-29
 
 ### Docs
