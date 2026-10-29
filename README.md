@@ -14,9 +14,9 @@ coding agents that open draft PRs with it.**
 
 [Install](#install) · [Quickstart](#quickstart) · [Docs](https://usebriar.com/docs) · [Website](https://usebriar.com) · [Changelog](https://github.com/iklobato/briar/blob/main/CHANGELOG.md)
 
-<img src="https://raw.githubusercontent.com/iklobato/briar/main/docs/demo/02-extract.gif" alt="briar extract reads the merged PRs and releases of iklobato/briar into one markdown blob, then briar context get prints it" width="800">
+<img src="https://raw.githubusercontent.com/iklobato/briar/main/docs/demo/01-setup-and-extract.gif" alt="briar init, briar doctor, then briar extract collects facts about the repo and briar context get prints them" width="800">
 
-New to briar? [Learn it step by step](#learn-briar-step-by-step), from install to agents.
+New to briar? [Learn it in 3 examples](#learn-briar-in-3-examples), from install to AI agents.
 
 </div>
 
@@ -128,7 +128,7 @@ What each extra adds:
 ## Quickstart
 
 The short version, for a GitHub repo with Jira tickets. New to briar?
-[Learn it step by step](#learn-briar-step-by-step) instead.
+[Learn it in 3 examples](#learn-briar-in-3-examples) instead.
 
 ```bash
 # 1. Save a GitHub token and Jira login. They go to ~/.config/briar/secrets.env
@@ -157,13 +157,13 @@ briar agent implement --company acme --repo acme-co/acme-app \
 After step 3 you have `./knowledge/knowledge/acme.md`. After step 6 you
 have a branch `chore/acme-42` and a draft PR on `acme-co/acme-app`.
 
-## Learn briar step by step
+## Learn briar in 3 examples
 
-Eight short steps, written for someone who has never used briar. Each step
-says the problem it solves, what each command does, what happens behind
-the scenes, and what you get at the end. Every GIF is a real run in a clone
-of this repo on briar 1.1.99: the commands really ran; only the typing is
-paced, and a long output is shown one screen at a time so you can read it.
+Written for someone who has never used briar. Each example says the
+problem it solves, what each command does, what happens behind the scenes,
+and what you get. Every GIF is a real run in a clone of this repo on briar
+1.1.99: the commands really ran; only the typing is paced, and a long
+output is shown one screen at a time so you can read it.
 
 **Before you start** (once, about 2 minutes):
 
@@ -175,10 +175,10 @@ export GITHUB_TOKEN=$(gh auth token)   # gives briar your GitHub login, so it ca
 
 If you do not use the GitHub CLI `gh`, run
 `briar auth login github-pat --company myteam` and paste a GitHub token
-instead. That token is all the steps below need. Nothing is sent to an AI,
-so they cost nothing. You only need an AI key
-(`export ANTHROPIC_API_KEY=...`) later, when you drop `--dry-run` in steps
-5 and 7 and let the agent really work.
+instead. That token is all examples 1 and 2 need. Nothing is sent to an
+AI, so they cost nothing. Example 3 also uses `--dry-run`, so it costs
+nothing either; you only need an AI key (`export ANTHROPIC_API_KEY=...`)
+when you drop `--dry-run` and let the agent really work.
 
 **Words you will see:**
 
@@ -190,122 +190,111 @@ so they cost nothing. You only need an AI key
 | prompt | The instructions text that briar gives the AI. |
 | `--dry-run` | "Show me what you would do, but do not do it." No AI call, nothing changes. |
 | draft PR | A PR marked "not ready", so nobody merges it by accident. |
-| runbook | A YAML file that lists which extractors to run, for which team, and when. |
+| runbook | A YAML file that lists which extractors to run, for which team, and how often. |
 
-### 1. Set up briar in your repo
+### Example 1: Set up briar and collect facts
 
-**The problem:** every briar command has to know your team's name and which
-GitHub repo to read. You also want to know your tokens work before you
-start.
+**The problem:** an AI that writes code for you does not know your repo or
+how your team works: how fast PRs get merged, who writes them, how often
+you release, how often CI passes.
 
 ```bash
-briar init --company myteam   # creates .briar.toml, a small settings file in your repo
-briar doctor                  # checks that briar has everything it needs
-briar config show             # lists every setting and where it came from
+briar init --company myteam    # creates .briar.toml, a small settings file in your repo
+briar doctor                   # checks that briar has everything it needs
+briar extract --include pr-archaeology --include release-cadence --include ci-health --merge-claude-md
+                               # collects three kinds of facts and tells Claude Code where they are
+briar context get knowledge:myteam   # prints the facts briar saved
 ```
 
-![briar init writes .briar.toml, briar doctor shows every check as ok, briar config show lists each setting and its source](https://raw.githubusercontent.com/iklobato/briar/main/docs/demo/01-setup.gif)
+![briar init writes .briar.toml, briar doctor shows every check as ok, briar extract collects three kinds of facts and updates CLAUDE.md, briar context get prints them](https://raw.githubusercontent.com/iklobato/briar/main/docs/demo/01-setup-and-extract.gif)
 
 **What happens:**
 
 - `init` runs `git remote get-url origin` to find the GitHub owner and repo
   name, and writes them into `.briar.toml` with the team name you chose
-  (`myteam` is just a label).
+  (`myteam` is just a label). After this, no command needs `--company` or
+  `--repo`. To see each setting and where it came from, run
+  `briar config show`.
 - `doctor` checks Python, the settings file, the git remote, your GitHub
   token and your AI key. `ok` means ready; `warn` tells you what is missing
   and what needs it.
-- `config show` prints each setting with its source. A flag you type wins
-  over an environment variable, which wins over `.briar.toml`.
+- `extract` runs the extractors you name with `--include`. They ask the
+  GitHub API for your merged PRs (`pr-archaeology`), your releases
+  (`release-cadence`) and your last 100 CI runs (`ci-health`), and sum
+  them up. The result is saved as one markdown file under `./knowledge/`,
+  called `knowledge:myteam`.
+- `--merge-claude-md` also writes the facts to `.briar/knowledge/myteam.md`
+  and adds a short block to `CLAUDE.md` that points to it. Claude Code (an
+  AI coding assistant) reads `CLAUDE.md` when it starts, so every session
+  begins with your facts. Your own text in `CLAUDE.md` stays as it is.
+- `context get` prints the saved file. It only reads your disk; nothing
+  goes online.
 
-**You get:** from now on no command needs `--company` or `--repo`. Every
-setting is listed in
-[the configuration docs](https://usebriar.com/docs/configuration#project-config).
+**You get:** your repo's facts in one text file, ready for any AI.
 
-### 2. Collect facts about your repo
+`briar extract -h` lists all 23 extractors. Good ones to add later:
+`code-hotspots` (the files that change the most),
+`codebase-conventions` (your test runner, linter and formatter) and
+`stale-prs` (open PRs nobody touched for a while). Running `extract` again
+only replaces the sections of the extractors that ran, so the facts you
+already have stay. `briar extract` with no `--include` runs all 23; on this
+repo that took about 4 minutes.
 
-**The problem:** an AI that writes code for you has no idea how your team
-works: how fast PRs get merged, who writes them, how often you release.
+### Example 2: Keep the facts fresh with a runbook
 
-```bash
-briar extract --include pr-archaeology --include release-cadence   # collect two kinds of facts
-briar context get knowledge:myteam                                  # print what was saved
+**The problem:** facts from last month are wrong today, and you do not want
+to type the extract command every day.
+
+Save this as `runbooks/myteam.yaml`. It lists the same three extractors as
+example 1:
+
+```yaml
+version: 1
+companies:
+  myteam:
+    schedules:
+      - task: extractors
+        every: "minute"          # only for the demo; use "day at 03:17" for real
+        extract:
+          - name: pr-archaeology
+            args: {pr_repo: [iklobato/briar]}
+          - name: release-cadence
+            args: {release_repo: [iklobato/briar]}
+          - name: ci-health
+            args: {cihealth_repo: [iklobato/briar]}
 ```
 
-![briar extract reads the merged PRs and releases into one blob, briar context get prints it](https://raw.githubusercontent.com/iklobato/briar/main/docs/demo/02-extract.gif)
+```bash
+briar runbook serve runbooks   # start a scheduler for every runbook in the folder
+```
+
+![briar runbook serve runs the myteam job by itself, saves knowledge:myteam again, then stops on Ctrl+C](https://raw.githubusercontent.com/iklobato/briar/main/docs/demo/02-runbook.gif)
 
 **What happens:**
 
-- `extract` runs the extractors you name with `--include`. Here,
-  `pr-archaeology` asks the GitHub API for your merged PRs and
-  `release-cadence` asks for your releases. briar sums them up (time to
-  merge, top authors, days between releases).
-- It saves the result as one markdown file under `./knowledge/`, called
-  `knowledge:myteam`.
-- `context get` prints that file. It only reads your disk; nothing goes
-  online.
+- `serve` is a scheduler: a program that keeps running and starts each job
+  on time. Every second it checks which job is due.
+- When the job is due, it does the same work as `briar extract` and saves
+  `knowledge:myteam` again. The log lines show each step.
+- It runs until you press Ctrl+C. On a server you leave it running.
+- To run the file once, right now, use `briar runbook extract runbooks/myteam.yaml`.
+- More teams go under `companies:`. Each team gets its own file, and their
+  first runs start a few seconds apart, so they do not all call GitHub at
+  the same moment.
+- A runbook writes its whole file each time, so list in it every extractor
+  you want to keep.
 
-**You get:** your team's facts in one text file that any briar agent reads
-before it works. Good extractors to start with:
+**You get:** facts that refresh themselves, without anyone typing a
+command.
 
-| Extractor | What it finds |
-|---|---|
-| `pr-archaeology` | Merged PRs: how long they take to merge, who writes them. |
-| `release-cadence` | How often you release, and the latest release. |
-| `ci-health` | How often CI passes, which workflows fail at random, how long runs take. |
-| `code-hotspots` | The files that change the most, and the files that change with them. |
-| `codebase-conventions` | Your language, test runner, linter and formatter. |
-| `stale-prs` | Open PRs nobody touched for a while. |
+### Example 3: Let AI agents do the work
 
-`briar extract -h` lists all 23. `briar extract` with no `--include` runs
-every one of them; on this repo that took about 4 minutes.
+An agent reads your facts first, then works on its own. briar has two:
+one turns a ticket into a draft PR, the other answers review comments.
+Both are shown with `--dry-run`, so you see exactly what the AI would be
+told, without running it.
 
-### 3. Add more facts later
-
-**The problem:** you want one more fact, without collecting everything
-again.
-
-```bash
-briar extract --include ci-health    # collect CI facts only
-briar context get knowledge:myteam   # print the file again
-```
-
-![briar extract --include ci-health, then the blob shows PR archaeology, release cadence and CI health](https://raw.githubusercontent.com/iklobato/briar/main/docs/demo/03-add-knowledge.gif)
-
-**What happens:**
-
-- `ci-health` asks the GitHub API for your last 100 CI runs and works out
-  the pass rate and the flaky workflows.
-- briar adds that section to the same file. It only replaces the sections
-  of the extractors that just ran, so the two from step 2 stay.
-
-**You get:** facts that grow one piece at a time.
-
-### 4. Give the facts to Claude Code
-
-**The problem:** Claude Code (an AI coding assistant) starts every new
-session knowing nothing about your team.
-
-```bash
-briar extract --include codebase-conventions --merge-claude-md   # collect, then update CLAUDE.md
-```
-
-![briar extract --merge-claude-md, then CLAUDE.md shows the briar-knowledge block](https://raw.githubusercontent.com/iklobato/briar/main/docs/demo/04-claude-md.gif)
-
-**What happens:**
-
-- `codebase-conventions` reads files like `pyproject.toml`,
-  `package.json` or `go.mod` from GitHub to find your language, test
-  runner, linter and formatter.
-- `--merge-claude-md` writes the full text to `.briar/knowledge/myteam.md`
-  and adds a short block to `CLAUDE.md` that points to it. The block sits
-  between two markers; your own text in `CLAUDE.md` stays as it is.
-- The block lists only the topics of this run, so put every extractor you
-  want Claude Code to see in the same command.
-
-**You get:** Claude Code reads `CLAUDE.md` when it starts, so every session
-begins with your team's facts.
-
-### 5. Let an AI agent turn a ticket into a PR
+#### A ticket becomes a draft PR
 
 **The problem:** before an AI can write good code for a ticket, it needs
 the ticket, your repo's rules and your team's facts, all in one set of
@@ -315,7 +304,7 @@ instructions, and it must not be able to do anything risky.
 briar agent implement --ticket-key 38 --tracker github-issues --dry-run   # build the agent's prompt for issue #38
 ```
 
-![briar agent implement --dry-run prints the steps, the strict rules, the tools and the ticket context for issue #38](https://raw.githubusercontent.com/iklobato/briar/main/docs/demo/05-agent-dry-run.gif)
+![briar agent implement --dry-run prints the steps, the strict rules, the tools and the ticket context for issue #38](https://raw.githubusercontent.com/iklobato/briar/main/docs/demo/03-agent-ticket.gif)
 
 **What happens:**
 
@@ -326,53 +315,12 @@ briar agent implement --ticket-key 38 --tracker github-issues --dry-run   # buil
 - `--dry-run` prints all of that and stops. No AI is called, nothing is
   cloned, nothing is pushed.
 
-**You get:** you see exactly what the AI would be told. Run it again
-without `--dry-run`, with `ANTHROPIC_API_KEY` set, and the agent writes the
-code on a new branch, runs your tests and opens a draft PR. You review it
-and merge it; briar never merges. Jira and Linear tickets work the same way
-(`--tracker jira`, `--tracker linear`).
+**You get:** run it again without `--dry-run`, with `ANTHROPIC_API_KEY`
+set, and the agent writes the code on a new branch, runs your tests and
+opens a draft PR. You review it and merge it; briar never merges. Jira and
+Linear tickets work the same way (`--tracker jira`, `--tracker linear`).
 
-### 6. Save your extract command in a file
-
-**The problem:** the extract command gets long, and you have to remember
-it every day.
-
-Save this as `runbook.yaml`:
-
-```yaml
-version: 1
-companies:
-  myteam:
-    schedules:
-      - task: extractors
-        every: "day at 03:17"
-        extract:
-          - name: pr-archaeology
-            args: {pr_repo: [iklobato/briar]}
-          - name: ci-health
-            args: {cihealth_repo: [iklobato/briar]}
-          - name: release-cadence
-            args: {release_repo: [iklobato/briar]}
-```
-
-```bash
-briar runbook extract runbook.yaml   # run every extractor listed in the file, now
-```
-
-![briar runbook extract runbook.yaml runs three extractors and prints a summary table](https://raw.githubusercontent.com/iklobato/briar/main/docs/demo/06-runbook.gif)
-
-**What happens:**
-
-- briar reads the file: one team (`myteam`), three extractors, and the repo
-  each one reads.
-- It does the same work as `briar extract` for each one, prints a log line
-  per step, and ends with a table of what it wrote.
-- A runbook writes its whole file each time, so sections written by other
-  commands are replaced.
-
-**You get:** one short command instead of a long one.
-
-### 7. Let an AI agent answer review comments
+#### Review comments get answered
 
 **The problem:** reviewers leave comments on your PR, and fixing each one,
 committing and replying on GitHub takes time.
@@ -381,63 +329,19 @@ committing and replying on GitHub takes time.
 briar agent prfix --pr 75 --branch docs/readme-hero --dry-run   # build the agent's prompt for PR #75
 ```
 
-![briar agent prfix --dry-run prints the review comment, the fix steps, the strict rules and the tools](https://raw.githubusercontent.com/iklobato/briar/main/docs/demo/07-prfix.gif)
+![briar agent prfix --dry-run prints the review comment, the fix steps, the strict rules and the tools](https://raw.githubusercontent.com/iklobato/briar/main/docs/demo/04-agent-review.gif)
 
 **What happens:**
 
 - briar reads PR #75, its description and its open review comments from
   GitHub (here there is one, shown under "Inline review comments (1)").
 - It builds the prompt: one small commit per comment, then a reply on the
-  comment with the commit's SHA (its id), and the same safety rules as in
-  step 5.
+  comment with the commit's SHA (its id), and the same safety rules as
+  above.
 - `--dry-run` prints it and stops. Nothing changes on the PR.
 
 **You get:** run it without `--dry-run` and the agent fixes each comment,
 pushes to the PR's branch and replies on GitHub.
-
-### 8. Refresh the facts automatically
-
-**The problem:** facts from last month are wrong today, and you may have
-more than one team.
-
-Save this as `runbooks/teams.yaml`:
-
-```yaml
-version: 1
-companies:
-  briar:
-    schedules:
-      - task: pr-history
-        every: "minute"
-        extract:
-          - name: pr-archaeology
-            args: {pr_repo: [iklobato/briar]}
-  flask:
-    schedules:
-      - task: pr-history
-        every: "minute"
-        extract:
-          - name: pr-archaeology
-            args: {pr_repo: [pallets/flask]}
-```
-
-```bash
-briar runbook serve runbooks   # start a scheduler for every runbook in the folder
-```
-
-![briar runbook serve registers two teams, runs each one a few seconds apart, writes two files, then stops on Ctrl+C](https://raw.githubusercontent.com/iklobato/briar/main/docs/demo/08-scheduler.gif)
-
-**What happens:**
-
-- `serve` is a scheduler: a program that keeps running and starts each
-  job on time. Every second it checks which job is due.
-- Each team gets its own file: `knowledge:briar.pr-history` and
-  `knowledge:flask.pr-history`. The first runs start a few seconds apart,
-  so many teams do not call GitHub at the same moment.
-- It runs until you press Ctrl+C.
-
-**You get:** facts that stay fresh. On a server you leave it running, with
-times like `"day at 03:17"` instead of every minute.
 
 ## Commands
 
