@@ -142,7 +142,8 @@ have a branch `chore/acme-42` and a draft PR on `acme-co/acme-app`.
 
 ## Examples
 
-Six real runs inside a clone of this repo, from setup to a full runbook.
+Eight real runs inside a clone of this repo, from setup to a scheduler
+that keeps two teams' knowledge fresh.
 They were recorded on briar 1.1.99; the commands ran for real and only
 the typing is paced. After example 1 no command needs `--company` or
 `--repo`: they come from `.briar.toml`.
@@ -214,6 +215,49 @@ Note that a runbook writes its whole blob each time, so sections from
 other runs are replaced.
 
 ![briar runbook extract runbook.yaml runs three extractors and prints a summary table](https://raw.githubusercontent.com/iklobato/briar/main/docs/demo/06-runbook.gif)
+
+### Advanced
+
+**7. Answer a review.** PR #75 has one review comment, left on this
+README. `briar agent prfix` reads the PR, its description and every open
+review thread, and builds the prompt for the agent that fixes PRs: one
+small commit per comment, then a reply on the thread with the commit SHA,
+and never a force-push, amend or rebase. With `--dry-run` it prints that
+prompt and stops: no model call, no commit, no reply. The comment shows up
+under "Inline review comments (1)".
+
+![briar agent prfix --pr 75 --dry-run prints the review comment, the fix procedure, the strict rules and the tools](https://raw.githubusercontent.com/iklobato/briar/main/docs/demo/07-prfix.gif)
+
+**8. Keep knowledge fresh on a schedule.** One runbook in a `runbooks/`
+folder, for two teams that each follow their own repo:
+
+```yaml
+version: 1
+companies:
+  briar:
+    schedules:
+      - task: pr-history
+        every: "minute"
+        extract:
+          - name: pr-archaeology
+            args: {pr_repo: [iklobato/briar]}
+  flask:
+    schedules:
+      - task: pr-history
+        every: "minute"
+        extract:
+          - name: pr-archaeology
+            args: {pr_repo: [pallets/flask]}
+```
+
+`briar runbook serve runbooks` loads every YAML in the folder and runs each
+team's task on its `every:` time, here once a minute. Each team gets its
+own blob: `knowledge:briar.pr-history` and `knowledge:flask.pr-history`.
+The first runs start a few seconds apart on purpose, so many teams do not
+call GitHub at the same moment. It keeps running until you press Ctrl+C;
+on a server you would leave it on, with times like `"day at 03:17"`.
+
+![briar runbook serve runbooks registers two teams, runs each one a few seconds apart, writes two blobs, then stops on Ctrl+C](https://raw.githubusercontent.com/iklobato/briar/main/docs/demo/08-scheduler.gif)
 
 ## Less typing with `.briar.toml`
 
