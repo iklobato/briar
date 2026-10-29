@@ -148,7 +148,8 @@ have a branch `chore/acme-42` and a draft PR on `acme-co/acme-app`.
 Eight steps, from nothing to agents and a scheduler. Each step says the
 problem it solves, gives the commands to copy, shows a real run, and says
 what you get. The runs were recorded in a clone of this repo on briar
-1.1.99: the commands really ran, only the typing is paced.
+1.1.99: the commands really ran; only the typing is paced, and a long
+output is shown one screen at a time so you can read it.
 
 **Before you start** (once, about 2 minutes):
 
