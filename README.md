@@ -14,7 +14,9 @@ coding agents that open draft PRs with it.**
 
 [Install](#install) · [Quickstart](#quickstart) · [Docs](https://usebriar.com/docs) · [Website](https://usebriar.com) · [Changelog](https://github.com/iklobato/briar/blob/main/CHANGELOG.md)
 
-<img src="https://raw.githubusercontent.com/iklobato/briar/main/docs/demo.gif" alt="briar extract reads the iklobato/briar repo into markdown knowledge, then briar agent implement --dry-run shows that knowledge and issue #38 inside the agent's prompt" width="800">
+<img src="https://raw.githubusercontent.com/iklobato/briar/main/docs/demo/02-extract.gif" alt="briar extract reads the merged PRs and releases of iklobato/briar into one markdown blob, then briar context get prints it" width="800">
+
+More in [Examples](#examples).
 
 </div>
 
@@ -137,6 +139,81 @@ briar agent implement --company acme --repo acme-co/acme-app \
 
 After step 3 you have `./knowledge/knowledge/acme.md`. After step 6 you
 have a branch `chore/acme-42` and a draft PR on `acme-co/acme-app`.
+
+## Examples
+
+Six real runs inside a clone of this repo, from setup to a full runbook.
+They were recorded on briar 1.1.99; the commands ran for real and only
+the typing is paced. After example 1 no command needs `--company` or
+`--repo`: they come from `.briar.toml`.
+
+### Basic
+
+**1. Set up a repo.** `briar init` writes `.briar.toml` with a company
+name and the GitHub repo it finds in your git remote. `briar doctor` then
+checks Python, that file, the remote, your keys and the store. You do this
+once per repo.
+
+![briar init writes .briar.toml, briar doctor shows every check as ok](https://raw.githubusercontent.com/iklobato/briar/main/docs/demo/01-setup.gif)
+
+**2. Read your repo into knowledge.** `briar extract` runs two extractors
+against GitHub: one reads the merged PRs (how fast they merge, who writes
+them), the other the releases (how often you ship). It saves both as one
+markdown blob, `knowledge:demo`. `briar context get` prints that blob.
+
+![briar extract writes two sections, briar context get prints them](https://raw.githubusercontent.com/iklobato/briar/main/docs/demo/02-extract.gif)
+
+**3. Add more without losing what you have.** A second `extract` with
+`ci-health` adds the CI pass rate and the flaky workflows. The two
+sections from example 2 stay: a run only replaces the sections it ran.
+
+![briar extract --include ci-health, then the blob shows PR archaeology, release cadence and CI health](https://raw.githubusercontent.com/iklobato/briar/main/docs/demo/03-add-knowledge.gif)
+
+### More
+
+**4. Give Claude Code the knowledge.** `--merge-claude-md` writes a short
+index of the topics this run read into `CLAUDE.md`, between two markers,
+and the full text into `.briar/knowledge/demo.md`. Claude Code reads
+`CLAUDE.md` when it starts, so it knows the file is there. Your own text
+in `CLAUDE.md` outside the markers is kept.
+
+![briar extract --merge-claude-md, then CLAUDE.md shows the briar-knowledge block](https://raw.githubusercontent.com/iklobato/briar/main/docs/demo/04-claude-md.gif)
+
+**5. See what an agent gets for a ticket.** `briar agent implement` for
+GitHub issue #38, with `--dry-run`. briar builds the whole prompt (the
+agent's rules, the saved knowledge, the issue text) and the list of tools
+the agent may use, prints them and stops: no clone, no model call,
+nothing pushed. Without `--dry-run` the agent writes the code on a new
+branch, runs the tests and opens a draft PR.
+
+![briar agent implement --dry-run prints the steps, the strict rules, the tools and the ticket context for issue #38](https://raw.githubusercontent.com/iklobato/briar/main/docs/demo/05-agent-dry-run.gif)
+
+**6. Run a runbook.** A runbook is a YAML file that lists the extractors
+to run for each company, and when:
+
+```yaml
+version: 1
+companies:
+  demo:
+    schedules:
+      - task: extractors
+        every: "day at 03:17"
+        extract:
+          - name: pr-archaeology
+            args: {pr_repo: [iklobato/briar]}
+          - name: ci-health
+            args: {cihealth_repo: [iklobato/briar]}
+          - name: release-cadence
+            args: {release_repo: [iklobato/briar]}
+```
+
+`briar runbook extract runbook.yaml` runs all of them now, prints one log
+line per step, and ends with a table of what it wrote. `briar runbook
+serve <folder>` runs every runbook in a folder on its `every:` schedule.
+Note that a runbook writes its whole blob each time, so sections from
+other runs are replaced.
+
+![briar runbook extract runbook.yaml runs three extractors and prints a summary table](https://raw.githubusercontent.com/iklobato/briar/main/docs/demo/06-runbook.gif)
 
 ## Less typing with `.briar.toml`
 

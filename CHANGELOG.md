@@ -9,9 +9,11 @@ cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
 ### Docs
 
-- README: a header with badges and quick links, a demo GIF (a real
-  `extract` and `agent implement --dry-run` on this repo), and a "What you
-  get" list. Install, `.briar.toml` and Docker are short now and link to
+- README: a header with badges and quick links, a "What you get" list,
+  and an Examples section with six GIFs of real runs on this repo (setup,
+  extract, adding knowledge, `--merge-claude-md`, `agent implement
+  --dry-run`, a runbook), each with a short caption. The GIFs are in
+  `docs/demo/`. Install, `.briar.toml` and Docker are short now and link to
   usebriar.com/docs; the four "See it run" diagrams fold open on click.
   Removed the old version notes ("You get 1.1.75", "Since 1.1.7x").
 
