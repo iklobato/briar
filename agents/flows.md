@@ -196,9 +196,6 @@ briar runbook sweep runbooks/
 
 # 3. Stay running and fire each task on its schedule
 briar runbook serve runbooks/
-
-# 4. Check the server from a browser, or once in a terminal
-briar dashboard --examples runbooks/ --once
 ```
 
 `runbook serve` logs `scheduler starting: N job(s)`, then
@@ -258,12 +255,6 @@ The author filters apply to `pr-archaeology` and `active-work` only.
 ## Flow 9: See what happened
 
 ```bash
-# Server status once, as text (good for CI)
-briar dashboard --examples runbooks/ --once
-
-# The same as a web page on http://127.0.0.1:8080
-briar dashboard --examples runbooks/ --port 8080
-
 # Every plan run, newest first
 briar journal list --command plan.run
 

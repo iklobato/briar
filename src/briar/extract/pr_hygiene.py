@@ -34,7 +34,6 @@ class ExtractPrHygiene(RepoBackedExtractor):
     name = "pr-hygiene"
     heading = "PR hygiene"
     description = "PR size distribution, large-PR rate, rubber-stamp rate, time-to-first-review"
-    requires_github = True
 
     _availability_arg = "prhygiene_repo"
 

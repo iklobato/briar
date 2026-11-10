@@ -32,7 +32,7 @@ only in the private site repo.
 | Latest version | 1.1.100 (PyPI, Docker Hub `iklob1/briar:1.1.100`, GitHub Release `v1.1.100` = latest) |
 | Python | 3.10, 3.11, 3.12 (CI runs all three) |
 | Release trigger | every push to `main`, except `chore(release):` commits |
-| MCP registry | `io.github.iklobato/briar`, latest 1.1.94 (no MCP tool changed since) |
+| MCP registry | `io.github.iklobato/briar`, latest 1.1.94; stays there, 2.0 has no MCP server |
 | Open issues | #76, #77 (section 8) |
 | Open PRs | none |
 | Stars / forks | 2 / 0 |
@@ -44,12 +44,10 @@ only in the private site repo.
 | `src/briar/cli.py` | Entry point: parser, config defaults, git inference |
 | `src/briar/commands/` | One module per top-level command (`extract`, `agent`, `plan`, `runbook`, `context`, `auth`, ...) |
 | `src/briar/extract/` | The extractors. 23 scheduled ones in `EXTRACTORS`, 4 task-scoped ones (ticket, PR review, meeting, Slack context) in `TASK_SCOPED_EXTRACTORS`, both in `extract/__init__.py`. Providers in `_providers/`, `_trackers/`, `_clouds/`, `_meetings/` |
-| `src/briar/extract/composer.py` | `KnowledgeComposer`: writes `## <heading> - <detail>` sections, `split_sections` parses them, `merge_markdown` merges a run into a stored blob |
-| `src/briar/service/` | Shared logic for the CLI and the MCP server. `service/extract.py::write_knowledge_blob` is the one write path for extract |
+| `src/briar/extract/composer.py` | `KnowledgeComposer`: writes `## <heading> - <detail>` sections, `split_sections` parses them, `merge_markdown` merges a run into a stored blob (called from `CommandExtract._write_blob`, the one write path of `briar extract`) |
 | `src/briar/agent/` | `runner.py` (the tool loop), `tools.py` (bash allowlist and forbidden tokens), persona and prompt building |
 | `src/briar/plan/` | Board readers (`_boards/`), selector, store, run loop |
 | `src/briar/iac/runbook/` | Runbook loader, executor, `scheduler.py` (`runbook serve`) |
-| `src/briar/mcpserver/` | `briar mcp serve`; tools in `_tools.py` (10 `@mcp.tool()`) |
 | `src/briar/credentials/` | Credential stores: env file, AWS Secrets Manager, SSM, Vault |
 | `agents/*.md` | The user manual, one file per command (linked from the README) |
 | `docs/diagrams/`, `docs/demo/` | README images (section 9) |
@@ -83,9 +81,11 @@ only in the private site repo.
 - **Fake secrets in docs must look fake.** GitGuardian blocks PRs on
   realistic ones (`ghp_...` with a real-looking body, `sk-ant-api03-...`,
   `postgresql://user:pass@`). Use `<placeholder>` or `sk-ant-...`.
-- **Grep every caller before calling a fix done.** `service/` holds copies
-  of command logic for the MCP server, so a bug often lives in two places
-  (it happened with the extract merge: CLI fixed in 1.1.82, MCP in 1.1.83).
+- **Grep every caller before calling a fix done.** The extract loop is still
+  copied in `iac/runbook/executor.py` (2.0 decision D32 removes the copy), so
+  a bug can live in two places. In 1.x the MCP server's `service/` layer was
+  a third copy (the extract merge was fixed in the CLI in 1.1.82 and in MCP
+  in 1.1.83).
 - **After a release, verify it live**, not from the run log:
   - PyPI: `curl -s https://pypi.org/pypi/briar-cli/<version>/json`
     (the plain `/pypi/briar-cli/json` lags a few minutes).
@@ -94,17 +94,16 @@ only in the private site repo.
 - **`gh pr edit` fails** on this repo ("Projects (classic) is being
   deprecated") and changes nothing. Edit a PR body with
   `gh api -X PATCH repos/iklobato/briar/pulls/<n> -F body=@file`.
-- **The MCP registry entry pins a version.** Re-publish only after a
-  release that changes an MCP tool or the image's MCP behavior
-  (`mcp-publisher login github` gives a device code that expires in about
-  15 minutes, then `mcp-publisher publish`).
+- **The MCP registry entry pins 1.1.94.** 2.0 removed `briar mcp serve`, so
+  do not re-publish it from 2.0 (in 1.x: `mcp-publisher login github` gives
+  a device code that expires in about 15 minutes, then
+  `mcp-publisher publish`).
 
 ## 5. Behavior that is easy to get wrong (checked in code)
 
 - Coding agents (`agent implement`, `agent prfix`) always run on
   **Anthropic**: `AgentRunner` is built without `llm_kind`. Only `plan`
-  (the selector) and `chat` take `--llm` (anthropic, openai, gemini,
-  bedrock). An OpenRouter key works through `ANTHROPIC_BASE_URL` +
+  (the selector) takes `--llm` (anthropic, openai, gemini, bedrock). An OpenRouter key works through `ANTHROPIC_BASE_URL` +
   `ANTHROPIC_API_KEY`; if `CLAUDE_CODE_OAUTH_TOKEN` is set, briar prefers it.
 - **`--dry-run` on agents**: builds and prints the prompt and the tool
   list, makes a temp dir, but does not clone (`_prepare_agent_workdir`:
@@ -153,7 +152,7 @@ only in the private site repo.
   `linux/amd64` only, runs as uid 1000. The git login is set up for GitHub
   only.
 - **`[mcp]` extra**: without it, agents skip the default think/time servers
-  with one warning (since 1.1.74); `mcp serve` and `chat` need it.
+  with one warning (since 1.1.74); runbook `mcp:` servers need it.
 
 ## 6. What was done (summary)
 
@@ -192,7 +191,7 @@ Full detail per version is in `CHANGELOG.md`. In short:
 3. The plan-run findings in section 8, branch-name slug first.
 4. The untested paths in section 8 that need real credentials (Bitbucket,
    Jira or Linear over MCP, remote credential stores, Postgres).
-5. Bump the MCP registry only after an MCP-facing change.
+5. The MCP registry stays at 1.1.94; 2.0 has no MCP server.
 
 ## 8. What is still open
 
@@ -226,9 +225,6 @@ criteria in each):**
   decided; the cause on that machine was not checked (2026-10-29).
 - `auth refresh` supports no target: a real GitHub refresh needs a GitHub
   App and its client secret. Help text and docs say it is not supported.
-- The Docker MCP catalog (`docker/mcp-registry`) builds from the repo
-  `Dockerfile`, which copies a `dist/` only CI makes, so briar cannot be
-  listed there until the Dockerfile builds from source.
 
 **Never run for real (unit tests only):** a successful Bitbucket PR, the
 remote default credential store against real SSM, Secrets Manager or
@@ -255,6 +251,6 @@ MCP client run that writes data.
   the output of those commands changes. The recorder scripts are not in
   git. The images load from `raw.githubusercontent.com/.../main/...` so
   PyPI shows them too; a PR preview shows them only after merge.
-- **MCP registry** stays at the last MCP-facing release (1.1.94 now).
+- **MCP registry** stays at 1.1.94, the last release with `briar mcp serve`.
 - **Merged branches** pile up on GitHub (50 remote branches on
   2026-10-29). Delete them only after checking each one is merged.

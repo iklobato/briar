@@ -30,7 +30,6 @@ class ExtractCiHealth(RepoBackedExtractor):
     name = "ci-health"
     heading = "CI health"
     description = "pass rate, flaky workflows, and run-duration trend"
-    requires_github = True  # legacy flag
 
     _availability_arg = "cihealth_repo"
 

@@ -65,7 +65,6 @@ class ExtractReviewNits(RepoBackedExtractor):
     name = "review-nits"
     heading = "Recurring review asks"
     description = "phrases reviewers repeat across PRs — candidates to codify as lint rules or conventions"
-    requires_github = True  # legacy flag
 
     _availability_arg = "nits_repo"
 

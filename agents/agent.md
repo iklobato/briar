@@ -11,7 +11,7 @@ There are two commands:
   one commit per comment, and replies to each comment.
 
 Both always use Anthropic's Claude models. There is no `--llm` flag here.
-(`briar plan` and `briar chat` are the commands that take `--llm`.)
+(`briar plan` is the command that takes `--llm`.)
 
 The agent works in a worktree: a separate temporary copy of the repo that
 briar clones for this run only. Your own checkout is never touched.

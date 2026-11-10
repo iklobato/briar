@@ -22,7 +22,6 @@ class ExtractTodoDensity(RepoBackedExtractor):
     name = "todo-density"
     heading = "TODO/FIXME density"
     description = "count of TODO/FIXME/HACK markers and the files carrying the most"
-    requires_github = True  # legacy flag
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         super().add_arguments(parser)

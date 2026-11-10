@@ -1102,7 +1102,7 @@ class StoreBindingResolutionTests(unittest.TestCase):
             self.assertEqual(store._root, Path(tmp))
 
     def test_registry_make_store_synthesizes_binding_for_cli_callers(self) -> None:
-        """CLI commands (`briar context`, `briar dashboard`) call
+        """CLI commands (`briar context`, `briar extract`) call
         ``make_store(name, file_root=...)`` without a binding. The
         registry synthesizes a `StoreBinding` so backends still go
         through `from_binding` — no special case for the CLI path."""
@@ -3387,15 +3387,6 @@ class Phase12FollowupTests(unittest.TestCase):
     deferred list: security defaults, constant centralisation, deduplicated
     scaffold helpers, missing tracker timeouts."""
 
-    def test_dashboard_host_defaults_to_loopback(self) -> None:
-        """0.0.0.0 default was a security-review red flag."""
-        from briar.commands.dashboard import CommandDashboard
-
-        parser = argparse.ArgumentParser()
-        CommandDashboard().add_arguments(parser)
-        ns = parser.parse_args([])
-        self.assertEqual(ns.host, "127.0.0.1")
-
     def test_sentry_emit_does_not_put_message_in_body(self) -> None:
         """capture_message body bypasses before_send; the Phase 12 fix
         sends only the error_type as the message body and routes the
@@ -3555,9 +3546,9 @@ class Phase14StructuralCleanupTests(unittest.TestCase):
 
     def test_unused_requires_classvars_deleted(self) -> None:
         """4 of the 6 `requires_*` ClassVars were declared but never
-        read anywhere. Phase 13 deleted them; only the 2 that the
-        dashboard collector actually reads (`requires_github` /
-        `requires_aws`) survive."""
+        read anywhere. Phase 13 deleted them; 2.0 deleted the last 2
+        (`requires_github` / `requires_aws`) with the dashboard that read
+        them."""
         from briar.extract.base import CloudBackedExtractor, KnowledgeExtractor, MeetingBackedExtractor, RepoBackedExtractor, TrackerBackedExtractor
 
         # Base + 4 *Backed* subclasses no longer declare the dead flags
@@ -3571,9 +3562,8 @@ class Phase14StructuralCleanupTests(unittest.TestCase):
                     f"{cls.__name__} still declares one of the dead requires_* ClassVars",
                 )
 
-        # The live ones remain on the base for the dashboard
-        self.assertIn("requires_github", KnowledgeExtractor.__dict__)
-        self.assertIn("requires_aws", KnowledgeExtractor.__dict__)
+        self.assertNotIn("requires_github", KnowledgeExtractor.__dict__)
+        self.assertNotIn("requires_aws", KnowledgeExtractor.__dict__)
 
     def test_command_agent_helpers_extracted(self) -> None:
         """Phase 14 extracted `_prepare_agent_workdir` +

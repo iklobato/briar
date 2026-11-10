@@ -265,11 +265,11 @@ briar runbook serve runbooks/ --tick 5
 You get the same schedule, with a check every 5 seconds.
 
 ```bash
-# Keep the log in the file the dashboard reads.
+# Keep the log in a file.
 briar runbook serve runbooks/ >> /var/log/briar/scheduler.log 2>&1
 ```
 
-You get the log in `/var/log/briar/scheduler.log`, where `briar dashboard` looks by default.
+You get the log in `/var/log/briar/scheduler.log`.
 
 ### All parameters
 

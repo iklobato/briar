@@ -31,7 +31,6 @@ class ExtractCommitMessageQuality(RepoBackedExtractor):
     name = "commit-message-quality"
     heading = "Commit message quality"
     description = "conventional-commits adherence and subject-line hygiene"
-    requires_github = True  # legacy flag
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         super().add_arguments(parser)

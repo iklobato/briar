@@ -36,7 +36,6 @@ class ExtractReleaseCadence(RepoBackedExtractor):
     name = "release-cadence"
     heading = "Release cadence"
     description = "how often the repo ships — release frequency and recency"
-    requires_github = True  # legacy flag
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         super().add_arguments(parser)

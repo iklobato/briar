@@ -23,7 +23,6 @@ class ExtractCodebaseConventions(RepoBackedExtractor):
     name = "codebase-conventions"
     heading = "Codebase conventions"
     description = "language, test runner, linter, migration tool per repo"
-    requires_github = True  # legacy flag
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         super().add_arguments(parser)

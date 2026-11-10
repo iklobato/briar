@@ -416,7 +416,7 @@ companies:
   # Demonstrates the full vendor swap: pr-archaeology against Bitbucket
   # via app-password basic auth; ticket-archaeology against Linear via
   # GraphQL; AWS is in us-west-2 (different region from acme).
-  # Knowledge goes to Postgres so multiple readers (scheduler + dashboard)
+  # Knowledge goes to Postgres so multiple readers (scheduler + agents)
   # share one source of truth without file-lock contention.
   #
   # Required env vars:

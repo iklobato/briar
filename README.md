@@ -62,9 +62,7 @@ Your tokens stay in a file on your computer.
 - **You stay in charge.** Agents only open draft PRs. briar has no command
   that merges.
 - **Works with your other AI tools.** `--merge-claude-md` adds the facts to
-  `CLAUDE.md`, the file Claude Code reads when it starts. `briar mcp serve`
-  shares the facts with any app that speaks MCP (a standard way for AI apps
-  to call tools); it offers 10 tools.
+  `CLAUDE.md`, the file Claude Code reads when it starts.
 - **Runs on your computer.** No account. Keys stay in a file on your
   machine, or in AWS Secrets Manager, SSM or Vault.
 
@@ -90,7 +88,7 @@ tools. Agents push branches, open draft PRs and reply on reviews; their
    thread. You merge; briar never does.
 6. A plan run writes what each card taught into the plan's knowledge, which
    its selector reads before the next pick. All knowledge also feeds Claude
-   Code (`CLAUDE.md`) and any MCP client.
+   Code (`CLAUDE.md`).
 
 More diagrams are in [See it run](#see-it-run).
 
@@ -109,7 +107,7 @@ Anthropic (Claude) and AWS Bedrock, with a file or Postgres store, and
 runs the coding agents. Extras add more:
 
 ```bash
-pip install 'briar-cli[mcp]'      # briar mcp serve, briar chat, MCP tools for agents
+pip install 'briar-cli[mcp]'      # MCP tools for agents (a runbook's mcp: block)
 pip install 'briar-cli[all]'      # openai, gemini, mcp, gcp, azure, vault
 ```
 
@@ -360,14 +358,14 @@ The same reference, with more examples, is at
 | `briar auth` | Saves credentials (`login`, `logout`, `list`, `status`, `refresh`). | [auth.md](https://github.com/iklobato/briar/blob/main/agents/auth.md) |
 | `briar secrets` | Shows which credentials are missing (`doctor`, `bootstrap`). | [creds.md](https://github.com/iklobato/briar/blob/main/agents/creds.md) |
 | `briar journal` | Shows the decisions that `plan run` recorded. | [journal.md](https://github.com/iklobato/briar/blob/main/agents/journal.md) |
-| `briar dashboard` | Serves a read-only status page. | [dashboard.md](https://github.com/iklobato/briar/blob/main/agents/dashboard.md) |
-| `briar mcp serve`, `briar chat` | Serves briar as MCP tools, or drives them from a chat in your terminal. | [mcp.md](https://github.com/iklobato/briar/blob/main/agents/mcp.md) |
 | `briar init`, `config show`, `doctor`, `completion` | Setup helpers. | [setup.md](https://github.com/iklobato/briar/blob/main/agents/setup.md) |
 | `briar telemetry` | Shows or changes what usage data is sent. | [telemetry.md](https://github.com/iklobato/briar/blob/main/agents/telemetry.md) |
 | `briar version` | Prints the version. | [version.md](https://github.com/iklobato/briar/blob/main/agents/version.md) |
 
-`briar scaffold` was removed in 2.0. It is still in briar 1.x:
-`pip install 'briar-cli<2'`.
+`briar scaffold`, `briar dashboard`, `briar mcp serve` and `briar chat`
+were removed in 2.0. They are still in briar 1.x:
+`pip install 'briar-cli<2'`. The MCP registry entry
+`io.github.iklobato/briar` stays on 1.x (1.1.94).
 
 Recipes that chain these commands are in
 [flows.md](https://github.com/iklobato/briar/blob/main/agents/flows.md). A
@@ -392,8 +390,8 @@ The same four diagrams as on [usebriar.com](https://usebriar.com/#diagrams). Cli
 ![A decision tree from what you need right now (understand, change code, check the setup) to the exact briar command for eleven common situations.](https://raw.githubusercontent.com/iklobato/briar/main/docs/diagrams/which-command.svg)
 
 1. Want to know something about the code, the team or production? Read it
-   once with `briar extract`, every day with `runbook serve`, from Claude
-   Code or any MCP client, or ask `briar chat`.
+   once with `briar extract`, every day with `runbook serve`, or from Claude
+   Code with `briar extract --merge-claude-md`.
 2. Want code changed? One ticket is `agent implement`, an open PR with
    review comments is `agent prfix`, and a whole board is `plan build` once,
    then `plan run`.

@@ -25,7 +25,6 @@ class ExtractDependencyHealth(RepoBackedExtractor):
     name = "dependency-health"
     heading = "Dependency health"
     description = "open dependency vulnerabilities by severity"
-    requires_github = True  # legacy flag
 
     _availability_arg = "deps_repo"
 

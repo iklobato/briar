@@ -74,7 +74,7 @@ class StorePostgres(KnowledgeStore):
 
     # Process-wide engines + session factories, keyed by the *original*
     # DSN string. Two stores constructed against the same DSN share a
-    # pool — important because dashboard + scheduler + agent runner each
+    # pool — important because scheduler + agent runner each
     # build their own StorePostgres instance and we don't want N pools
     # per process.
     _engines:  ClassVar[Dict[str, Engine]]       = {}
@@ -132,8 +132,8 @@ class StorePostgres(KnowledgeStore):
         """Get-or-build the process-wide Engine for this DSN.
 
         Pool sizing: defaults to 4 + 2 overflow = 6 max per process.
-        Three processes (dashboard, scheduler, agent runner) × 6 = 18
-        slots, comfortably under DO managed PG's ~22 non-superuser
+        Two processes (scheduler, agent runner) × 6 = 12 slots (18 in
+        1.x, which also ran the dashboard), comfortably under DO managed PG's ~22 non-superuser
         budget on the small tier.
 
         `pool_pre_ping` re-validates before checkout — replaces the

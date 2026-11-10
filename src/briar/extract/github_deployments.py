@@ -19,7 +19,6 @@ class ExtractGithubDeployments(RepoBackedExtractor):
     name = "github-deployments"
     heading = "GitHub deployments"
     description = "environments, deployments, recent CI runs"
-    requires_github = True  # legacy flag
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         super().add_arguments(parser)

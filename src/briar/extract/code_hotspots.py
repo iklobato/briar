@@ -25,7 +25,6 @@ class ExtractCodeHotspots(RepoBackedExtractor):
     name = "code-hotspots"
     heading = "Code hotspots"
     description = "files that change together — co-change clustering for context"
-    requires_github = True  # legacy flag
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         super().add_arguments(parser)
