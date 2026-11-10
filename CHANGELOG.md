@@ -20,6 +20,12 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`.
 - Telemetry events carry their fields as Sentry "extra" data instead of
   tags, so the Sentry library's own scrubber also filters secret-named
   keys. briar's allow-list and secret and path scrubbing are unchanged.
+- The command line is moving from argparse to Typer, a few commands at a
+  time. `briar --help`, `version`, `init`, `config`, `doctor` and
+  `telemetry` are on Typer now: same flags, defaults and exit codes, but
+  their help and usage errors read differently. `briar --install-completion`
+  and `briar --show-completion` are new. The other commands still use their
+  1.x parser for now.
 
 ### Removed
 

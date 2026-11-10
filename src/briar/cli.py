@@ -28,6 +28,7 @@ warnings.filterwarnings(
 )
 
 import argparse
+import functools
 import logging
 import os
 import sys
@@ -252,33 +253,30 @@ def main(argv: Optional[List[str]] = None) -> int:
             log.debug("telemetry: install failed", exc_info=True)
 
     commands = CommandRegistry.build()
-    parser = _build_parser(commands)
 
-    # Fold project config (.briar.toml / [tool.briar]) + env into the
-    # parser defaults so a bare command inherits stable values (company,
-    # store, repo, model, …) and explicit flags still override. Skipped
-    # for help/usage so `briar -h` touches no config file.
+    # Project config (.briar.toml / [tool.briar]) and env become the default
+    # of every option they name, so a bare command inherits stable values
+    # (company, store, repo, model, ...) and an explicit flag still wins.
+    # Skipped for help/usage so `briar -h` touches no config file.
+    project_config = None
     if not metadata_only:
-        from briar.config import apply_config_defaults, load_project_config
+        from briar.config import load_project_config
 
-        satisfied = apply_config_defaults(parser, load_project_config())
-        if satisfied:
-            log.debug("config: satisfied defaults for %s", sorted(set(satisfied)))
-
-        # Below config in the precedence chain: infer --owner/--repo from
-        # the local git `origin` remote for whatever config didn't supply.
-        from briar.infer import apply_inference_defaults
-
-        inferred = apply_inference_defaults(parser, satisfied)
-        if inferred:
-            log.debug("infer: filled %s from git remote", sorted(set(inferred)))
+        project_config = load_project_config()
 
     normalised: List[str] = []
     for flag, value in kv.items():
         normalised.extend([flag, value])
     normalised.extend(remaining)
 
-    args = parser.parse_args(normalised)
+    # Typer parses; a command not on Typer yet goes to its 1.x parser.
+    from briar.cli_app import CommandLine
+
+    command_line = CommandLine(commands, kv.get("--format", "table"))
+    parsed = command_line.parse(normalised, functools.partial(_build_parser, command_line.pass_through_commands()), project_config)
+    if parsed.args is None:
+        return parsed.exit_code
+    args = parsed.args
     log.debug("dispatching command=%s args=%r", args.command, vars(args))
 
     _warn_legacy_flags(raw_argv, log)

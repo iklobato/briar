@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import dataclass
 
-from briar.commands.base import Subcommand, SubcommandCommand
+from briar.commands.base import CommandOptions, Route, Subcommand, SubcommandCommand
 
 
 class ConfigShowOp(Subcommand):
@@ -18,12 +19,13 @@ class ConfigShowOp(Subcommand):
     help = "Print each setting's resolved value and its source."
 
     def run(self, command: "SubcommandCommand", args: argparse.Namespace) -> int:
-        from briar.config import find_config_file, resolve_with_source
+        from briar.config import find_config_file, load_project_config
         from briar.formatting import render
+        from briar.settings import SettingsResolver
 
         path = find_config_file()
         print(f"config file: {path if path else '(none found — using env / git / defaults)'}", file=sys.stderr)
-        rows = [{"setting": r.setting, "value": r.value, "source": r.source} for r in resolve_with_source()]
+        rows = [item.row() for item in SettingsResolver.from_project(load_project_config()).resolved()]
         render(rows, args.format, ["setting", "value", "source"])
         return 0
 
@@ -35,3 +37,8 @@ class CommandConfig(SubcommandCommand):
     dest = "config_op"
     op_noun = "config op"
     ops = {"show": ConfigShowOp()}
+
+
+@dataclass(frozen=True)
+class ConfigShowOptions(CommandOptions):
+    ROUTE = Route(CommandConfig.name, CommandConfig.dest, ConfigShowOp.name)

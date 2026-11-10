@@ -74,11 +74,12 @@ def _github_check() -> Check:
 
 
 def _store_check() -> Check:
-    from briar.config import resolve_with_source
+    from briar.config import load_project_config
+    from briar.settings import SettingsResolver
 
-    store = next((r.value for r in resolve_with_source() if r.setting == "store"), "(unset)")
+    store = SettingsResolver.from_project(load_project_config()).settings().store
     if store != "postgres":
-        return Check("store", OK, store if store != "(unset)" else "file (default)")
+        return Check("store", OK, store or "file (default)")
     has_dsn = _env_present("BRIAR_DATABASE_URL") or any(k.startswith("BRIAR_") and k.endswith("_DATABASE_URL") for k in os.environ)
     if has_dsn:
         return Check("store", OK, "postgres (DSN set)")

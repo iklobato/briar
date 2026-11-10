@@ -10,12 +10,54 @@ import argparse
 import logging
 import sys
 from abc import ABC, abstractmethod
-from typing import ClassVar, Dict
+from dataclasses import dataclass, fields
+from enum import Enum
+from typing import ClassVar, Dict, Protocol, Tuple
 
 from briar.commands._enums import ExitCode
 from briar.errors import CliError
 
 log = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class Route:
+    """Where a command's options go: the command and, for a command with operations,
+    the namespace attribute its dispatcher reads and the operation name."""
+
+    command: str
+    op_dest: str = ""
+    op: str = ""
+
+    def path(self) -> Tuple[str, ...]:
+        return (self.command, self.op) if self.op else (self.command,)
+
+    def namespace_fields(self) -> Dict[str, str]:
+        named = {"command": self.command}
+        if self.op_dest:
+            named[self.op_dest] = self.op
+        return named
+
+
+class NamespaceSource(Protocol):
+    """Builds the namespace a command's `run()` takes (`briar.cli_app.NamespaceBuilder`)."""
+
+    def from_options(self, route: Route, values: Dict[str, object]) -> argparse.Namespace: ...
+
+
+@dataclass(frozen=True)
+class CommandOptions:
+    """A command's options on Typer (spec 002): one field per 1.x option, named after its
+    1.x dest, with a `typer.Option` default. Typer builds the instance from the command
+    line; `run()` gets the same namespace 1.x gave it."""
+
+    ROUTE: ClassVar[Route] = Route("")
+
+    def namespace(self, source: NamespaceSource) -> argparse.Namespace:
+        return source.from_options(self.ROUTE, {field.name: self._plain(getattr(self, field.name)) for field in fields(self)})
+
+    def _plain(self, value: object) -> object:
+        return value.value if isinstance(value, Enum) else value
 
 
 def normalize_owner_repo(args: argparse.Namespace) -> None:
@@ -123,6 +165,10 @@ class Command(ABC):
     def run(self, args: argparse.Namespace) -> int:
         """Execute the command. Returns the process exit code."""
 
+    def help_for(self, op: str) -> str:
+        """The help line of one operation; a command without operations has only its own."""
+        return self.help
+
     @staticmethod
     def confirm(prompt: str) -> bool:
         """Yes/no prompt; treats EOF (piped input) as a no.
@@ -177,6 +223,9 @@ class SubcommandCommand(Command):
     dest: ClassVar[str] = "op"
     op_noun: ClassVar[str] = "op"
     ops: ClassVar[Dict[str, Subcommand]] = {}
+
+    def help_for(self, op: str) -> str:
+        return self.ops[op].help
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         sub = parser.add_subparsers(dest=self.dest, required=True, metavar="OP")

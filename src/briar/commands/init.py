@@ -7,12 +7,15 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
 
-from briar.commands.base import Command
+import typer
+
+from briar.commands._enums import KnowledgeStoreChoice
+from briar.commands.base import Command, CommandOptions, Route
 from briar.errors import CliError
-from briar.storage import KNOWLEDGE_STORE_NAMES
 
 _TEMPLATE = "briar.init_templates"
 
@@ -20,19 +23,6 @@ _TEMPLATE = "briar.init_templates"
 class CommandInit(Command):
     name = "init"
     help = "Generate a starter .briar.toml (repo inferred from git)."
-
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("--company", default="", help="Company key to write into the config")
-        parser.add_argument(
-            "--store",
-            choices=list(KNOWLEDGE_STORE_NAMES),
-            default="file",
-            help="Default knowledge store backend (default: file)",
-        )
-        parser.add_argument("--owner", default="", help="Repo owner (default: inferred from git origin)")
-        parser.add_argument("--repo", default="", help="Repo name (default: inferred from git origin)")
-        parser.add_argument("--path", default=".briar.toml", help="Output path (default: ./.briar.toml)")
-        parser.add_argument("--force", action="store_true", help="Overwrite an existing file")
 
     def run(self, args: argparse.Namespace) -> int:
         path = Path(args.path)
@@ -64,3 +54,15 @@ class CommandInit(Command):
         for key, value in markers.items():
             template = template.replace(f"@@{key}@@", value)
         return template
+
+
+@dataclass(frozen=True)
+class InitOptions(CommandOptions):
+    ROUTE = Route(CommandInit.name)
+
+    company: str = typer.Option("", "--company", help="Company key to write into the config")
+    store: KnowledgeStoreChoice = typer.Option(KnowledgeStoreChoice.FILE, "--store", help="Default knowledge store backend (default: file)")
+    owner: str = typer.Option("", "--owner", help="Repo owner (default: inferred from git origin)")
+    repo: str = typer.Option("", "--repo", help="Repo name (default: inferred from git origin)")
+    path: str = typer.Option(".briar.toml", "--path", help="Output path (default: ./.briar.toml)")
+    force: bool = typer.Option(False, "--force", help="Overwrite an existing file")
