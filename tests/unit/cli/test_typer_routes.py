@@ -16,11 +16,13 @@ from briar.commands._enums import (
     CredentialStoreChoice,
     JournalStoreChoice,
     KnowledgeStoreChoice,
+    LlmChoice,
     MeetingChoice,
     OutputFormat,
     ProviderChoice,
     TrackerChoice,
 )
+from briar.agent._llms import LLMRegistry
 from briar.config import load_project_config
 from briar.credentials import CredentialStoreRegistry
 from briar.credentials._bootstraps import CredentialBootstrapRegistry
@@ -92,6 +94,9 @@ class TestChoicesMatchTheRegistries:
 
     def test_meeting_choices_are_the_meeting_sources(self) -> None:
         assert [choice.value for choice in MeetingChoice] == list(meeting_kinds())
+
+    def test_llm_choices_are_the_llm_providers(self) -> None:
+        assert [choice.value for choice in LlmChoice] == list(LLMRegistry.kinds())
 
 
 class TestSettingsFillTyperOptions:
@@ -184,6 +189,17 @@ class TestAgentDefaults:
 
         assert run.code == 0, run.err
         assert recorded_run["args"].store == store
+
+
+class TestPlanDefaults:
+    def test_settings_fill_plan_run(self, cli: Callable[..., SimpleNamespace], project: Project, recorded_run: Dict[str, argparse.Namespace]) -> None:
+        project.write('company = "acme"\nroot = "kb"\ntracker = "jira"\n[agent]\nmodel = "m-1"\n')
+
+        run = cli("plan", "run", "p", "--llm", "anthropic")
+
+        assert run.code == 0, run.err
+        args = recorded_run["args"]
+        assert (args.company, args.root, args.tracker, args.model) == ("acme", "kb", "jira", "m-1")
 
 
 class TestRemovedAliases:

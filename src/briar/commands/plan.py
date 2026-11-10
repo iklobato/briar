@@ -22,19 +22,20 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
+import typer
+
 from briar._registry import build_registry
 from briar.agent._llm import LLMProvider
-from briar.agent._llms import AnthropicLLM, LLMRegistry, make_llm
-from briar.commands._enums import ExitCode
-from briar.commands.base import Subcommand, SubcommandCommand, add_chat_arguments, add_meeting_arguments, confirm, normalize_owner_repo
+from briar.agent._llms import AnthropicLLM, make_llm
+from briar.commands._enums import ExitCode, JournalStoreChoice, KnowledgeStoreChoice, LlmChoice, ProviderChoice, TrackerChoice
+from briar.commands.base import CommandOptions, EnrichmentOptions, Route, Subcommand, SubcommandCommand, confirm, normalize_owner_repo
 from briar.errors import CliError
-from briar.extract._providers import PROVIDERS
-from briar.extract._trackers import TRACKERS
 from briar.formatting import render
-from briar.journal import JOURNAL_STORE_NAMES, make_journal_store, record, session
+from briar.journal import make_journal_store, record, session
 from briar.plan import (
     ImplementationPlan,
     KnowledgeWriter,
@@ -55,7 +56,7 @@ from briar.plan import (
     save_plan,
 )
 from briar.plan._enums import PlanCardStatus
-from briar.storage import KNOWLEDGE_STORE_NAMES, KnowledgeStore, default_store_kind, make_store
+from briar.storage import KnowledgeStore, default_store_kind, make_store
 
 log = logging.getLogger(__name__)
 
@@ -65,56 +66,6 @@ log = logging.getLogger(__name__)
 
 class PlanOp(Subcommand):
     """One `briar plan` subcommand."""
-
-
-def _add_store_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--store",
-        default=default_store_kind(),
-        choices=list(KNOWLEDGE_STORE_NAMES),
-        help="KnowledgeStore backend used to persist the plan (default: postgres if BRIAR_DATABASE_URL set, else file)",
-    )
-    parser.add_argument(
-        "--root",
-        default="./knowledge",
-        help="Local file root (only used when --store=file)",
-    )
-    parser.add_argument(
-        "--company",
-        default="",
-        help="Company key — used by the postgres store for DSN resolution, "
-        "by tracker providers for per-company credentials, and to namespace "
-        "the plan-scoped knowledge blob (`knowledge:<company>.<plan>`).",
-    )
-
-
-def _add_journal_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--journal-store",
-        default="file",
-        choices=list(JOURNAL_STORE_NAMES),
-        help="JournalStore backend used to read past run decisions (default: file).",
-    )
-    parser.add_argument(
-        "--journal-root",
-        default="./journal",
-        help="Local journal root (only used when --journal-store=file).",
-    )
-
-
-def _add_llm_arguments(parser: argparse.ArgumentParser, *, required: bool) -> None:
-    parser.add_argument(
-        "--llm",
-        default="",
-        required=required,
-        choices=list(LLMRegistry.kinds()) if required else ([""] + list(LLMRegistry.kinds())),
-        help="LLM provider. " + ("Required." if required else "Empty = heuristics-only."),
-    )
-    parser.add_argument(
-        "--model",
-        default="",
-        help="Override the LLM provider's default model.",
-    )
 
 
 def _keep_plan_in_memory(store: KnowledgeStore, plan: ImplementationPlan) -> str:
@@ -134,45 +85,6 @@ def _require_llm(args: argparse.Namespace, *, op: str) -> LLMProvider:
 class BuildOp(PlanOp):
     name = "build"
     help = "Fetch a tracker board and persist an ordered implementation plan."
-
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument(
-            "board",
-            help="Board URL (Jira board, GitHub Projects v2) or short form (jira:KEY).",
-        )
-        parser.add_argument(
-            "--name",
-            default="",
-            help="Plan name. Defaults to a slug derived from the board URL.",
-        )
-        parser.add_argument(
-            "--default-branch",
-            default="main",
-            help="Branch each card branches from by default. The LLM selector may " "override per pick.",
-        )
-        parser.add_argument(
-            "--max-cards",
-            type=int,
-            default=50,
-            help="Cap on cards pulled from the board (default: 50).",
-        )
-        parser.add_argument(
-            "--with-knowledge",
-            action="store_true",
-            help="Splice the company's knowledge blob (knowledge:<company>) and " "active-tickets blob into each card's synthesis context.",
-        )
-        parser.add_argument(
-            "--print",
-            action="store_true",
-            help="After building, print the plan markdown to stdout.",
-        )
-        parser.add_argument(
-            "--dry-run",
-            action="store_true",
-            help="Build the plan but do NOT persist it. Implies --print.",
-        )
-        _add_llm_arguments(parser, required=False)
-        _add_store_arguments(parser)
 
     def run(self, plan_cmd: "CommandPlan", args: argparse.Namespace) -> int:
         store = plan_cmd._open_store(args)
@@ -230,10 +142,6 @@ class ShowOp(PlanOp):
     name = "show"
     help = "Print the markdown body of a stored plan."
 
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("name", help="Plan name (the slug used at build time).")
-        _add_store_arguments(parser)
-
     def run(self, plan_cmd: "CommandPlan", args: argparse.Namespace) -> int:
         store = plan_cmd._open_store(args)
         plan = load_plan(store, args.name)
@@ -245,11 +153,6 @@ class ShowOp(PlanOp):
 class StatusOp(PlanOp):
     name = "status"
     help = "Show past / current / to-be-done cards with journal artifacts."
-
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("name", help="Plan name.")
-        _add_store_arguments(parser)
-        _add_journal_arguments(parser)
 
     def run(self, plan_cmd: "CommandPlan", args: argparse.Namespace) -> int:
         store = plan_cmd._open_store(args)
@@ -268,12 +171,6 @@ class NextOp(PlanOp):
     name = "next"
     help = "Ask the LLM selector what to do next; print the decision."
 
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("name", help="Plan name.")
-        _add_llm_arguments(parser, required=True)
-        _add_store_arguments(parser)
-        _add_journal_arguments(parser)
-
     def run(self, plan_cmd: "CommandPlan", args: argparse.Namespace) -> int:
         store = plan_cmd._open_store(args)
         journal_store = plan_cmd._open_journal_store(args)
@@ -288,21 +185,6 @@ class NextOp(PlanOp):
 class AdvanceOp(PlanOp):
     name = "advance"
     help = "Mark a card with a chosen status. --card is required."
-
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("name", help="Plan name.")
-        parser.add_argument(
-            "--card",
-            required=True,
-            help="Card key to mark.",
-        )
-        parser.add_argument(
-            "--status",
-            default="done",
-            choices=[s.value for s in PlanCardStatus],
-            help="Status to set (default: done).",
-        )
-        _add_store_arguments(parser)
 
     def run(self, plan_cmd: "CommandPlan", args: argparse.Namespace) -> int:
         store = plan_cmd._open_store(args)
@@ -321,9 +203,6 @@ class ListOp(PlanOp):
     name = "list"
     help = "List stored plans."
 
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        _add_store_arguments(parser)
-
     def run(self, plan_cmd: "CommandPlan", args: argparse.Namespace) -> int:
         store = plan_cmd._open_store(args)
         items = [{"name": name} for name in sorted(list_plans(store))]
@@ -334,11 +213,6 @@ class ListOp(PlanOp):
 class ClearOp(PlanOp):
     name = "clear"
     help = "Remove a stored plan."
-
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("name", help="Plan name.")
-        parser.add_argument("--yes", action="store_true", help="Skip confirmation.")
-        _add_store_arguments(parser)
 
     def run(self, plan_cmd: "CommandPlan", args: argparse.Namespace) -> int:
         store = plan_cmd._open_store(args)
@@ -353,56 +227,6 @@ class ClearOp(PlanOp):
 class RunOp(PlanOp):
     name = "run"
     help = "Iterate the LLM selector: pick → implement → writeback, with replan."
-
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("name", help="Plan name (the slug used at build time).")
-        # Loop control.
-        parser.add_argument(
-            "--limit",
-            type=int,
-            default=0,
-            help="Stop after N cards (0 = unlimited).",
-        )
-        parser.add_argument(
-            "--continue-on-failure",
-            action="store_true",
-            help="On implement failure, mark card blocked and continue. Default: stop.",
-        )
-        parser.add_argument(
-            "--max-replans",
-            type=int,
-            default=3,
-            help="Cap on selector REPLAN actions per invocation (default: 3).",
-        )
-        # Per-card implement args.
-        parser.add_argument("--owner", default="", help="Repository owner (GitHub) or workspace (Bitbucket). Inferred from git if omitted.")
-        parser.add_argument("--repo", default="", help="Repository as `owner/repo`, or a bare name with --owner. Inferred from git if omitted.")
-        parser.add_argument(
-            "--tracker-project",
-            default="",
-            help="Tracker project key passed to `agent implement`. Defaults to <owner>/<repo>.",
-        )
-        parser.add_argument("--tracker", default="github-issues", choices=sorted(TRACKERS.keys()), help="Tracker provider (default: github-issues).")
-        parser.add_argument("--provider", default="github", choices=sorted(PROVIDERS.keys()), help="Repository provider (default: github).")
-        parser.add_argument("--max-iter", type=int, default=0, help="Iteration ceiling per card.")
-        parser.add_argument("--git-user-name", default="")
-        parser.add_argument("--git-user-email", default="")
-        parser.add_argument("--keep-worktree", action="store_true")
-        parser.add_argument(
-            "--dry-run",
-            action="store_true",
-            help="Pass --dry-run to every implement call and keep the plan, its notes and its run history unchanged.",
-        )
-        parser.add_argument("--runbook", default="", help="Runbook YAML for this company's messages block.")
-        # The per-card `agent implement` reuses the plan's `--root` as its
-        # file-store root (one root, not two), so there is no separate
-        # `--knowledge` flag here. Meeting + Slack enrichment flags are the
-        # same shared set `agent` exposes (sizing knobs hidden from -h).
-        add_meeting_arguments(parser, query_help="Keyword search across recent meetings (defaults to the card key).")
-        add_chat_arguments(parser, query_help="Keyword search across Slack threads (defaults to the card key).")
-        _add_llm_arguments(parser, required=True)
-        _add_store_arguments(parser)
-        _add_journal_arguments(parser)
 
     def run(self, plan_cmd: "CommandPlan", args: argparse.Namespace) -> int:
         from briar.commands.agent import run_implement
@@ -730,3 +554,129 @@ class CommandPlan(SubcommandCommand):
             if body:
                 sections.append(f"## {name}\n\n{body}")
         return sections
+
+
+# ─── Options on Typer ──────────────────────────────────────────────
+
+DEFAULT_MAX_CARDS = 50
+DEFAULT_MAX_REPLANS = 3
+
+
+@dataclass(frozen=True)
+class PlanStoreOptions(CommandOptions):
+    """Where every plan operation reads and writes the plan. The `--store` default
+    (postgres when BRIAR_DATABASE_URL is set) is read when the command runs, as in 1.x."""
+
+    UNSET_AS = {"store": default_store_kind}
+
+    store: Optional[KnowledgeStoreChoice] = typer.Option(
+        None, "--store", help="KnowledgeStore backend used to persist the plan (default: postgres if BRIAR_DATABASE_URL set, else file)"
+    )
+    root: str = typer.Option("./knowledge", "--root", help="Local file root (only used when --store=file)")
+    company: str = typer.Option(
+        "",
+        "--company",
+        help="Company key: used by the postgres store for DSN resolution, by tracker providers for per-company credentials, "
+        "and to namespace the plan-scoped knowledge blob (`knowledge:<company>.<plan>`).",
+    )
+
+
+@dataclass(frozen=True)
+class PlanJournalOptions(PlanStoreOptions):
+    journal_store: JournalStoreChoice = typer.Option(
+        JournalStoreChoice.FILE, "--journal-store", help="JournalStore backend used to read past run decisions (default: file)."
+    )
+    journal_root: str = typer.Option("./journal", "--journal-root", help="Local journal root (only used when --journal-store=file).")
+
+
+@dataclass(frozen=True)
+class PlanBuildOptions(PlanStoreOptions):
+    ROUTE = Route(CommandPlan.name, CommandPlan.dest, BuildOp.name)
+    UNSET_AS = {"store": default_store_kind, "llm": str}
+
+    board: str = typer.Argument(..., help="Board URL (Jira board, GitHub Projects v2) or short form (jira:KEY).")
+    name: str = typer.Option("", "--name", help="Plan name. Defaults to a slug derived from the board URL.")
+    default_branch: str = typer.Option("main", "--default-branch", help="Branch each card branches from by default. The LLM selector may override per pick.")
+    max_cards: int = typer.Option(DEFAULT_MAX_CARDS, "--max-cards", help="Cap on cards pulled from the board (default: 50).")
+    with_knowledge: bool = typer.Option(
+        False,
+        "--with-knowledge",
+        help="Splice the company's knowledge blob (knowledge:<company>) and active-tickets blob into each card's synthesis context.",
+    )
+    print: bool = typer.Option(False, "--print", help="After building, print the plan markdown to stdout.")
+    dry_run: bool = typer.Option(False, "--dry-run", help="Build the plan but do NOT persist it. Implies --print.")
+    llm: Optional[LlmChoice] = typer.Option(None, "--llm", help="LLM provider. Empty = heuristics-only.")
+    model: str = typer.Option("", "--model", help="Override the LLM provider's default model.")
+
+
+@dataclass(frozen=True)
+class PlanShowOptions(PlanStoreOptions):
+    ROUTE = Route(CommandPlan.name, CommandPlan.dest, ShowOp.name)
+
+    name: str = typer.Argument(..., help="Plan name (the slug used at build time).")
+
+
+@dataclass(frozen=True)
+class PlanStatusOptions(PlanJournalOptions):
+    ROUTE = Route(CommandPlan.name, CommandPlan.dest, StatusOp.name)
+
+    name: str = typer.Argument(..., help="Plan name.")
+
+
+@dataclass(frozen=True)
+class PlanNextOptions(PlanJournalOptions):
+    ROUTE = Route(CommandPlan.name, CommandPlan.dest, NextOp.name)
+
+    name: str = typer.Argument(..., help="Plan name.")
+    llm: LlmChoice = typer.Option(..., "--llm", help="LLM provider. Required.")
+    model: str = typer.Option("", "--model", help="Override the LLM provider's default model.")
+
+
+@dataclass(frozen=True)
+class PlanAdvanceOptions(PlanStoreOptions):
+    ROUTE = Route(CommandPlan.name, CommandPlan.dest, AdvanceOp.name)
+
+    name: str = typer.Argument(..., help="Plan name.")
+    card: str = typer.Option(..., "--card", help="Card key to mark.")
+    status: PlanCardStatus = typer.Option(PlanCardStatus.DONE, "--status", help="Status to set (default: done).")
+
+
+@dataclass(frozen=True)
+class PlanListOptions(PlanStoreOptions):
+    ROUTE = Route(CommandPlan.name, CommandPlan.dest, ListOp.name)
+
+
+@dataclass(frozen=True)
+class PlanClearOptions(PlanStoreOptions):
+    ROUTE = Route(CommandPlan.name, CommandPlan.dest, ClearOp.name)
+
+    name: str = typer.Argument(..., help="Plan name.")
+    yes: bool = typer.Option(False, "--yes", help="Skip confirmation.")
+
+
+@dataclass(frozen=True)
+class PlanRunOptions(PlanJournalOptions, EnrichmentOptions):
+    """The per-card `agent implement` reuses the plan's `--root` as its file-store root
+    (one root, not two), so there is no `--knowledge` here."""
+
+    ROUTE = Route(CommandPlan.name, CommandPlan.dest, RunOp.name)
+
+    meeting_query: str = typer.Option("", "--meeting-query", help="Keyword search across recent meetings (defaults to the card key).")
+    slack_query: str = typer.Option("", "--slack-query", help="Keyword search across Slack threads (defaults to the card key).")
+    name: str = typer.Argument(..., help="Plan name (the slug used at build time).")
+    limit: int = typer.Option(0, "--limit", help="Stop after N cards (0 = unlimited).")
+    continue_on_failure: bool = typer.Option(False, "--continue-on-failure", help="On implement failure, mark card blocked and continue. Default: stop.")
+    max_replans: int = typer.Option(DEFAULT_MAX_REPLANS, "--max-replans", help="Cap on selector REPLAN actions per invocation (default: 3).")
+    owner: str = typer.Option("", "--owner", help="Repository owner (GitHub) or workspace (Bitbucket). Inferred from git if omitted.")
+    repo: str = typer.Option("", "--repo", help="Repository as `owner/repo`, or a bare name with --owner. Inferred from git if omitted.")
+    tracker_project: str = typer.Option("", "--tracker-project", help="Tracker project key passed to `agent implement`. Defaults to <owner>/<repo>.")
+    tracker: TrackerChoice = typer.Option(TrackerChoice.GITHUB_ISSUES, "--tracker", help="Tracker provider (default: github-issues).")
+    provider: ProviderChoice = typer.Option(ProviderChoice.GITHUB, "--provider", help="Repository provider (default: github).")
+    max_iter: int = typer.Option(0, "--max-iter", help="Iteration ceiling per card.")
+    git_user_name: str = typer.Option("", "--git-user-name")
+    git_user_email: str = typer.Option("", "--git-user-email")
+    keep_worktree: bool = typer.Option(False, "--keep-worktree")
+    dry_run: bool = typer.Option(False, "--dry-run", help="Pass --dry-run to every implement call and keep the plan, its notes and its run history unchanged.")
+    runbook: str = typer.Option("", "--runbook", help="Runbook YAML for this company's messages block.")
+    llm: LlmChoice = typer.Option(..., "--llm", help="LLM provider. Required.")
+    model: str = typer.Option("", "--model", help="Override the LLM provider's default model.")

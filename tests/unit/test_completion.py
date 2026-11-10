@@ -20,10 +20,9 @@ def test_introspect_captures_flags_and_subcommands(commands):
     # extract is flat with canonical flags visible, legacy ones hidden.
     assert "--repo" in specs["extract"].flags
     assert "--pr-repo" not in specs["extract"].flags  # suppressed
-    # plan is a subcommand command still on argparse (the commands on Typer
-    # have no argparse flags left for this 1.x script; it goes in spec 002 PR 6).
-    assert {"run", "advance"} <= set(specs["plan"].subcommands)
-    assert "--card" in specs["plan"].subcommands["advance"]
+    # Every other command is on Typer now, so this 1.x script sees their names
+    # and operations but no flags; Typer's own completion replaces it in spec 002 PR 6.
+    assert {flags[0] for flags in specs["plan"].subcommands.values()} == {"--help"}
 
 
 @pytest.mark.parametrize("shell", ["bash", "zsh"])

@@ -31,6 +31,16 @@ from briar.commands.context import (
 from briar.commands.doctor import DoctorOptions
 from briar.commands.init import InitOptions
 from briar.commands.journal import JournalExportOptions, JournalListOptions, JournalShowOptions
+from briar.commands.plan import (
+    PlanAdvanceOptions,
+    PlanBuildOptions,
+    PlanClearOptions,
+    PlanListOptions,
+    PlanNextOptions,
+    PlanRunOptions,
+    PlanShowOptions,
+    PlanStatusOptions,
+)
 from briar.commands.runbook import RunbookExtractOptions, RunbookServeOptions, RunbookSweepOptions
 from briar.commands.secrets import SecretsBootstrapOptions, SecretsDoctorOptions
 from briar.commands.telemetry import (
@@ -63,6 +73,14 @@ ROUTES: Sequence[Type[CommandOptions]] = (
     AuthRefreshOptions,
     AuthListOptions,
     AuthStatusOptions,
+    PlanBuildOptions,
+    PlanShowOptions,
+    PlanStatusOptions,
+    PlanNextOptions,
+    PlanAdvanceOptions,
+    PlanListOptions,
+    PlanClearOptions,
+    PlanRunOptions,
     SecretsDoctorOptions,
     SecretsBootstrapOptions,
     JournalListOptions,

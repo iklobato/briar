@@ -133,31 +133,6 @@ def normalize_owner_repo(args: argparse.Namespace) -> None:
     args.repo = repo
 
 
-def add_meeting_arguments(parser: argparse.ArgumentParser, *, query_help: str) -> None:
-    """Meeting-context enrichment flags (Fireflies + future vendors). All
-    optional — absent flags = no meeting fetch. Only `--meeting-query`'s
-    help differs per caller, so it's parameterised. The provider + sizing
-    knobs are hidden from `-h` (sensible defaults, rarely overridden) but
-    still work. Shared by `agent` and `plan run`."""
-    from briar.extract._meetings import meeting_kinds
-
-    parser.add_argument("--meeting-key", default="", help="Specific meeting ID to splice into the agent prompt")
-    parser.add_argument("--meeting-query", default="", help=query_help)
-    parser.add_argument("--meeting", default="fireflies", choices=meeting_kinds(), help=argparse.SUPPRESS)
-    parser.add_argument("--meeting-top-k", type=int, default=3, help=argparse.SUPPRESS)
-    parser.add_argument("--meeting-max-bytes", type=int, default=50_000, help=argparse.SUPPRESS)
-
-
-def add_chat_arguments(parser: argparse.ArgumentParser, *, query_help: str) -> None:
-    """Slack-context enrichment flags (read-only, via web-session creds).
-    An absent `--slack-query` means no chat fetch. Sizing knobs hidden
-    from `-h` but still work. Shared by `agent` and `plan run`."""
-    parser.add_argument("--slack-query", default="", help=query_help)
-    parser.add_argument("--chat", default="slack", help=argparse.SUPPRESS)
-    parser.add_argument("--slack-top-k", type=int, default=3, help=argparse.SUPPRESS)
-    parser.add_argument("--slack-max-bytes", type=int, default=30_000, help=argparse.SUPPRESS)
-
-
 class DeprecatedOptionAlias(argparse.Action):
     """A hidden option string that aliases a canonical flag.
 
@@ -309,8 +284,7 @@ SLACK_MAX_BYTES = 30_000
 
 @dataclass(frozen=True)
 class EnrichmentOptions(CommandOptions):
-    """Meeting and Slack context options on Typer, shared by `agent` and `plan run` (the
-    argparse twins are `add_meeting_arguments` / `add_chat_arguments`). An operation
+    """Meeting and Slack context options on Typer, shared by `agent` and `plan run`. An operation
     redefines `meeting_query` and `slack_query` with its own help. The provider and
     sizing knobs are hidden from help but still work."""
 
