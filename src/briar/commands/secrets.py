@@ -16,54 +16,25 @@ requirements and the doctor picks them up via
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar, Dict
+from typing import ClassVar, Dict, Optional
 
-from briar.commands.base import Command, add_canonical_with_alias
-from briar.credentials import CredentialStoreRegistry, make_credential_store
+import typer
+
+from briar.commands._enums import BootstrapKindChoice, CredentialStoreChoice
+from briar.commands.base import Command, CommandOptions, Route
+from briar.credentials import make_credential_store
 
 
 class CommandSecrets(Command):
     name = "secrets"
     help = "Inspect credential coverage (briar secrets doctor)."
 
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        sub = parser.add_subparsers(dest="secrets_action", required=True)
-
-        doctor = sub.add_parser("doctor", help="Audit (company, extractor) → env-var coverage")
-        doctor.add_argument(
-            "--examples",
-            type=Path,
-            default=None,
-            help="Runbook YAML directory (default: ./examples, skipped if absent)",
-        )
-        add_canonical_with_alias(
-            doctor,
-            "--cred-store",
-            "--store",
-            dest="cred_store",
-            default="envfile",
-            choices=list(CredentialStoreRegistry.kinds()),
-            help="Credential store backend (default: envfile)",
-        )
-
-        from briar.credentials._bootstraps import CredentialBootstrapRegistry
-
-        bootstrap = sub.add_parser(
-            "bootstrap",
-            help="One-off invocation of a credential bootstrap. " "Normally runs automatically at CLI startup; this subcommand is for testing.",
-        )
-        bootstrap.add_argument(
-            "--kind",
-            default="",
-            choices=list(CredentialBootstrapRegistry.kinds()),
-            help="Force one bootstrap backend. Default: auto-detect via is_available().",
-        )
-        bootstrap.add_argument(
-            "--dry-run",
-            action="store_true",
-            help="Run the remote fetch but DON'T write to os.environ. Prints the keys that " "would be set, without revealing values.",
-        )
+    OP_HELP = {
+        "doctor": "Audit (company, extractor) → env-var coverage",
+        "bootstrap": "One-off invocation of a credential bootstrap. Normally runs automatically at CLI startup; this subcommand is for testing.",
+    }
 
     _ACTIONS: ClassVar[Dict[str, str]] = {
         "doctor": "_doctor",
@@ -180,3 +151,25 @@ class CommandSecrets(Command):
                     else:
                         print(f"  ok messages.{handle} (kind={kind})")
         return 1 if any_missing else 0
+
+
+# ─── Options on Typer ──────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class SecretsDoctorOptions(CommandOptions):
+    ROUTE = Route(CommandSecrets.name, "secrets_action", "doctor")
+
+    examples: Optional[Path] = typer.Option(None, "--examples", help="Runbook YAML directory (default: ./examples, skipped if absent)")
+    cred_store: CredentialStoreChoice = typer.Option(CredentialStoreChoice.ENVFILE, "--cred-store", help="Credential store backend (default: envfile)")
+
+
+@dataclass(frozen=True)
+class SecretsBootstrapOptions(CommandOptions):
+    ROUTE = Route(CommandSecrets.name, "secrets_action", "bootstrap")
+    UNSET_AS = {"kind": ""}
+
+    kind: Optional[BootstrapKindChoice] = typer.Option(None, "--kind", help="Force one bootstrap backend. Default: auto-detect via is_available().")
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Run the remote fetch but DON'T write to os.environ. Prints the keys that would be set, without revealing values."
+    )

@@ -5,7 +5,7 @@ audit branches). THIS file asserts the EFFECT of every flag in
 ``/tmp/cli_manifest/secrets.md``:
 
   doctor:
-    * ``--store`` (choices) → the kind string reaches ``make_credential_store``;
+    * ``--cred-store`` (choices) → the kind string reaches ``make_credential_store``;
       each documented choice is accepted; an invalid one → exit 2.
     * ``--examples`` → the directory the doctor walks (a missing one is reported
       with that exact path).
@@ -35,7 +35,7 @@ _STORE_CHOICES = ["envfile"]
 _BOOTSTRAP_KINDS = ["envfile"]
 
 
-# ─── doctor --store ─────────────────────────────────────────────────────
+# ─── doctor --cred-store ────────────────────────────────────────────────
 
 
 class TestDoctorStoreFlag:
@@ -56,33 +56,21 @@ class TestDoctorStoreFlag:
         mocker.patch("briar.commands.secrets.make_credential_store", side_effect=_make)
         return captured
 
-    @pytest.mark.parametrize("store_kind", _STORE_CHOICES)
-    def test_each_store_choice_reaches_factory(self, cli, store_spy, tmp_path, store_kind) -> None:
-        # Empty examples dir → exit 0, but make_credential_store is still called.
-        result = cli("secrets", "doctor", "--examples", str(tmp_path), "--store", store_kind)
-        assert result.code == 0
-        assert store_spy["kind"] == store_kind
-
     def test_store_default_is_envfile(self, cli, store_spy, tmp_path) -> None:
         result = cli("secrets", "doctor", "--examples", str(tmp_path))
         assert result.code == 0
         assert store_spy["kind"] == "envfile"
 
     def test_invalid_store_choice_exits_2(self, cli) -> None:
-        result = cli("secrets", "doctor", "--store", "carrier-pigeon")
+        result = cli("secrets", "doctor", "--cred-store", "carrier-pigeon")
         assert result.code == 2
-        assert "invalid choice" in result.err
+        assert "Invalid value for '--cred-store'" in result.err
 
     @pytest.mark.parametrize("store_kind", _STORE_CHOICES)
     def test_cred_store_canonical_reaches_factory(self, cli, store_spy, tmp_path, store_kind) -> None:
         result = cli("secrets", "doctor", "--examples", str(tmp_path), "--cred-store", store_kind)
         assert result.code == 0
         assert store_spy["kind"] == store_kind
-
-    def test_store_alias_warns_deprecation(self, cli, store_spy, tmp_path) -> None:
-        result = cli("secrets", "doctor", "--examples", str(tmp_path), "--store", "envfile")
-        assert result.code == 0
-        assert "--store is deprecated; use --cred-store" in result.err
 
 
 # ─── doctor --examples ──────────────────────────────────────────────────
@@ -155,7 +143,7 @@ class TestBootstrapKindFlag:
     def test_invalid_kind_choice_exits_2(self, cli) -> None:
         result = cli("secrets", "bootstrap", "--kind", "not-a-backend")
         assert result.code == 2
-        assert "invalid choice" in result.err
+        assert "Invalid value for '--kind'" in result.err
 
 
 # ─── bootstrap --dry-run ────────────────────────────────────────────────
@@ -226,7 +214,7 @@ class TestSecretValuesNeverPrinted:
         writer_cls = SimpleNamespace(required_env_vars=lambda *, company: ["SLACK_ACME_WEBHOOK_URL"])
         mocker.patch.dict("briar.messaging.WRITERS", {"slack": writer_cls}, clear=False)
 
-        result = cli("secrets", "doctor", "--examples", str(tmp_path), "--store", "envfile")
+        result = cli("secrets", "doctor", "--examples", str(tmp_path), "--cred-store", "envfile")
         assert result.code == 0
         assert "ok messages.alerts (kind=slack)" in result.out
         assert "SLACK_ACME_WEBHOOK_URL" in reads

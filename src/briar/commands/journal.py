@@ -17,12 +17,17 @@ import argparse
 import json
 import logging
 import sys
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import ClassVar, Dict
 
-from briar.commands.base import Command
+import typer
+
+from briar.commands._enums import JournalStoreChoice
+from briar.commands.base import Command, CommandOptions, Route
 from briar.errors import CliError
-from briar.journal import JOURNAL_STORE_NAMES, make_journal_store
+from briar.journal import make_journal_store
 from briar.journal._render import render_markdown
 
 log = logging.getLogger(__name__)
@@ -32,39 +37,11 @@ class CommandJournal(Command):
     name = "journal"
     help = "Inspect decision-journal sessions recorded by other briar commands."
 
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        sub = parser.add_subparsers(dest="journal_action", required=True)
-
-        listing = sub.add_parser("list", help="Enumerate stored sessions (newest first).")
-        _add_store_args(listing)
-        listing.add_argument(
-            "--command",
-            default="",
-            dest="command_filter",
-            help="Filter by command prefix (e.g. `plan.`).",
-        )
-        listing.add_argument("--limit", type=int, default=50)
-
-        show = sub.add_parser("show", help="Pretty-print one session as markdown.")
-        _add_store_args(show)
-        show.add_argument("session_id")
-
-        export = sub.add_parser("export", help="Write one session to a path.")
-        _add_store_args(export)
-        export.add_argument("session_id")
-        # NOT `--format`: the global `--format` flag is extracted position-
-        # independently in `briar.cli` and a subparser `--format` default
-        # then clobbers it, making `--format json` unreachable here. `--as`
-        # sidesteps the collision (dest is explicit because `as` is a
-        # reserved word).
-        export.add_argument(
-            "--as",
-            dest="export_format",
-            choices=("markdown", "json"),
-            default="markdown",
-            help="Serialization for the exported session (default: markdown).",
-        )
-        export.add_argument("--out", default="-", help="Output path (`-` for stdout).")
+    OP_HELP = {
+        "list": "Enumerate stored sessions (newest first).",
+        "show": "Pretty-print one session as markdown.",
+        "export": "Write one session to a path.",
+    }
 
     _ACTIONS: ClassVar[Dict[str, str]] = {
         "list": "_list",
@@ -110,23 +87,49 @@ class CommandJournal(Command):
         return 0
 
 
-def _add_store_args(parser: argparse.ArgumentParser) -> None:
-    # Own dests: `.briar.toml` `store`/`root` name the knowledge store and
-    # are applied to every action whose dest is `store`/`root`.
-    parser.add_argument(
-        "--store",
-        dest="journal_store",
-        default="file",
-        choices=JOURNAL_STORE_NAMES,
-        help="Journal store backend (default: file).",
-    )
-    parser.add_argument(
-        "--root",
-        dest="journal_root",
-        default="./journal",
-        help="Root directory for the file-backed store (default: ./journal).",
-    )
-
-
 def _open_store(args: argparse.Namespace):
     return make_journal_store(args.journal_store, file_root=Path(args.journal_root))
+
+
+# ─── Options on Typer ──────────────────────────────────────────────
+
+DEFAULT_LIST_LIMIT = 50
+
+
+class ExportFormat(str, Enum):
+    MARKDOWN = "markdown"
+    JSON = "json"
+
+
+@dataclass(frozen=True)
+class JournalStoreOptions(CommandOptions):
+    """`--store` / `--root` of every journal operation. Their dests are not `store` /
+    `root`: those settings name the knowledge store, not the journal."""
+
+    journal_store: JournalStoreChoice = typer.Option(JournalStoreChoice.FILE, "--store", help="Journal store backend (default: file).")
+    journal_root: str = typer.Option("./journal", "--root", help="Root directory for the file-backed store (default: ./journal).")
+
+
+@dataclass(frozen=True)
+class JournalListOptions(JournalStoreOptions):
+    ROUTE = Route(CommandJournal.name, "journal_action", "list")
+
+    command_filter: str = typer.Option("", "--command", help="Filter by command prefix (e.g. `plan.`).")
+    limit: int = typer.Option(DEFAULT_LIST_LIMIT, "--limit")
+
+
+@dataclass(frozen=True)
+class JournalShowOptions(JournalStoreOptions):
+    ROUTE = Route(CommandJournal.name, "journal_action", "show")
+
+    session_id: str = typer.Argument(...)
+
+
+@dataclass(frozen=True)
+class JournalExportOptions(JournalStoreOptions):
+    ROUTE = Route(CommandJournal.name, "journal_action", "export")
+
+    session_id: str = typer.Argument(...)
+    # Not `--format`: that is the global output flag, read anywhere on the line.
+    export_format: ExportFormat = typer.Option(ExportFormat.MARKDOWN, "--as", help="Serialization for the exported session (default: markdown).")
+    out: str = typer.Option("-", "--out", help="Output path (`-` for stdout).")

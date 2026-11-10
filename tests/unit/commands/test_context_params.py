@@ -94,7 +94,7 @@ class TestStoreAndRootFlags:
     def test_invalid_store_choice_exit_2(self, cli) -> None:
         result = cli("context", "--store", "s3", "list")
         assert result.code == 2
-        assert "invalid choice" in result.err
+        assert "Invalid value for '--store'" in result.err
 
     @pytest.mark.parametrize("store_kind", ["file", "postgres"], ids=["file", "postgres"])
     def test_store_after_subop_reaches_factory(self, cli, ctx_seam, store_kind) -> None:
@@ -139,7 +139,7 @@ class TestPutFlags:
     def test_blob_name_positional_required(self, cli) -> None:
         result = cli("context", "put")
         assert result.code == 2
-        assert "required" in result.err or "arguments" in result.err
+        assert "Missing argument 'blob_name'" in result.err
 
     def test_content_inline_reaches_put(self, cli, ctx_seam) -> None:
         # --content text is the exact body persisted.

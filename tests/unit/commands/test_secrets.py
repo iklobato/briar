@@ -12,10 +12,13 @@ stubbed so the doctor walks a synthetic company.
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Callable
 
 import pytest
 
 from briar.credentials._bootstraps import HydrateResult
+
+USAGE_ERROR = 2
 
 # ─────────────────────────── fixtures ──────────────────────────────
 
@@ -122,10 +125,10 @@ class TestBootstrap:
         assert result.code == 0
         assert "bootstrap vault: wrote 1 env vars" in result.out
 
-    def test_invalid_kind_choice_rejected_by_argparse(self, cli) -> None:
-        result = cli("secrets", "bootstrap", "--kind", "not-a-backend")
-        assert result.code == 2  # argparse usage error
-        assert "invalid choice" in result.err
+    def test_invalid_kind_choice_is_a_usage_error(self, cli: Callable[..., SimpleNamespace]) -> None:
+        run = cli("secrets", "bootstrap", "--kind", "not-a-backend")
+        assert run.code == USAGE_ERROR
+        assert "Invalid value for '--kind'" in run.err
 
 
 # ─────────────────────────── doctor ────────────────────────────────
@@ -210,9 +213,9 @@ class TestDoctor:
         assert "broken.yaml: load failed — bad mapping" in result.out
 
     def test_invalid_store_choice_rejected(self, cli) -> None:
-        result = cli("secrets", "doctor", "--store", "carrier-pigeon")
+        result = cli("secrets", "doctor", "--cred-store", "carrier-pigeon")
         assert result.code == 2
-        assert "invalid choice" in result.err
+        assert "Invalid value for '--cred-store'" in result.err
 
 
 class TestDoctorExtractors:
@@ -291,4 +294,4 @@ class TestDispatch:
     def test_unknown_subcommand_usage_error(self, cli) -> None:
         result = cli("secrets", "frobnicate")
         assert result.code == 2
-        assert "invalid choice" in result.err
+        assert "No such command 'frobnicate'" in result.err

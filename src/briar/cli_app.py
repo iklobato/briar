@@ -18,8 +18,19 @@ import typer
 
 from briar.commands.base import Command, CommandOptions, Route
 from briar.commands.config import ConfigShowOptions
+from briar.commands.context import (
+    ContextCategoriesOptions,
+    ContextDeleteOptions,
+    ContextGetOptions,
+    ContextGroupOptions,
+    ContextListOptions,
+    ContextPutOptions,
+)
 from briar.commands.doctor import DoctorOptions
 from briar.commands.init import InitOptions
+from briar.commands.journal import JournalExportOptions, JournalListOptions, JournalShowOptions
+from briar.commands.runbook import RunbookExtractOptions, RunbookServeOptions, RunbookSweepOptions
+from briar.commands.secrets import SecretsBootstrapOptions, SecretsDoctorOptions
 from briar.commands.telemetry import (
     TelemetryErrorsOnlyOptions,
     TelemetryFullOptions,
@@ -34,6 +45,20 @@ from briar.config import apply_config_defaults
 from briar.infer import apply_inference_defaults
 
 ROUTES: Sequence[Type[CommandOptions]] = (
+    RunbookExtractOptions,
+    RunbookSweepOptions,
+    RunbookServeOptions,
+    ContextGroupOptions,
+    ContextPutOptions,
+    ContextGetOptions,
+    ContextListOptions,
+    ContextDeleteOptions,
+    ContextCategoriesOptions,
+    SecretsDoctorOptions,
+    SecretsBootstrapOptions,
+    JournalListOptions,
+    JournalShowOptions,
+    JournalExportOptions,
     VersionOptions,
     InitOptions,
     ConfigShowOptions,
@@ -137,7 +162,10 @@ class DefaultMap:
         return tree
 
     def _filled(self, options_cls: Type[CommandOptions]) -> Dict[str, str]:
-        return {field.name: self._defaults[field.name] for field in fields(options_cls) if field.name in self._defaults}
+        """An option shared with the group is filled on the group only, or the setting
+        would beat a value given on the group (`briar context --store postgres get x`)."""
+        names = [field.name for field in fields(options_cls) if field.name not in options_cls.INHERITED]
+        return {name: self._defaults[name] for name in names if name in self._defaults}
 
 
 class BriarApp:
@@ -175,13 +203,16 @@ class BriarApp:
         if not routes:
             app.command(name, help=command.help, context_settings=dict(self.PASS_THROUGH_SETTINGS), add_help_option=False)(PassThrough)
             return
-        if not routes[0].ROUTE.op:
+        operations = [options_cls for options_cls in routes if options_cls.ROUTE.op]
+        if not operations:
             app.command(name, help=command.help)(routes[0])
             return
-        group = typer.Typer(help=command.help, rich_markup_mode=None)
-        for options_cls in routes:
+        group = typer.Typer(rich_markup_mode=None)
+        for group_options in [options_cls for options_cls in routes if not options_cls.ROUTE.op]:
+            group.callback()(group_options)
+        for options_cls in operations:
             group.command(options_cls.ROUTE.op, help=command.help_for(options_cls.ROUTE.op))(options_cls)
-        app.add_typer(group, name=name)
+        app.add_typer(group, name=name, help=command.help)
 
 
 @dataclass(frozen=True)
