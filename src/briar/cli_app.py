@@ -171,6 +171,11 @@ class DefaultMap:
 class BriarApp:
     """Builds the Typer app: the global options, the commands on Typer, a pass-through for the rest.
 
+    Only the command the line names (`target`) gets its real options: Typer reads every
+    registered command's options on each run (about 1 ms per operation), so the others
+    are registered by name and help only. They cannot run: a line that names one of
+    them makes it the target.
+
     `rich_markup_mode=None` keeps help and usage errors as plain text: rich styling is
     forced on under GITHUB_ACTIONS or FORCE_COLOR even into a pipe, and it splits tokens
     like `--nope` with escape codes. Plain text also keeps rich out of `briar --help`."""
@@ -178,9 +183,10 @@ class BriarApp:
     HELP = "Local agent runner, knowledge extractor, scaffold and runbook tool."
     PASS_THROUGH_SETTINGS = {"allow_extra_args": True, "ignore_unknown_options": True, "help_option_names": []}
 
-    def __init__(self, commands: Mapping[str, Command], parsed: ParsedCommand) -> None:
+    def __init__(self, commands: Mapping[str, Command], parsed: ParsedCommand, target: str) -> None:
         self._commands = commands
         self._parsed = parsed
+        self._target = target
 
     def build(self) -> typer.Typer:
         app = typer.Typer(
@@ -199,7 +205,7 @@ class BriarApp:
 
     def _add(self, app: typer.Typer, name: str, command: Command) -> None:
         """`name` is the registry key, as in 1.x; the command's own `name` attribute is not read."""
-        routes = [options_cls for options_cls in ROUTES if options_cls.ROUTE.command == name]
+        routes = [options_cls for options_cls in ROUTES if options_cls.ROUTE.command == name] if name == self._target else []
         if not routes:
             app.command(name, help=command.help, context_settings=dict(self.PASS_THROUGH_SETTINGS), add_help_option=False)(PassThrough)
             return
@@ -240,12 +246,18 @@ class CommandLine:
     def parse(self, argv: List[str], pass_through: Callable[[], argparse.ArgumentParser], project_config: Optional[Mapping[str, object]]) -> ParseOutcome:
         """`project_config` is None for help and usage runs: no settings are read then."""
         parsed = ParsedCommand(NamespaceBuilder(self._output_format, PassThroughParser(pass_through, project_config)))
-        app = BriarApp(self._commands, parsed).build()
+        app = BriarApp(self._commands, parsed, self._target(argv)).build()
         try:
             app(argv, prog_name=self.PROG, default_map=self._default_map(project_config))
         except SystemExit as exc:
             return ParseOutcome(parsed.args, int(exc.code or 0))
         return ParseOutcome(parsed.args, 0)
+
+    def _target(self, argv: List[str]) -> str:
+        """The command the line names: its first word that is not an option or the value
+        of `--format` (`main` has already taken the other global flags out)."""
+        words = [token for index, token in enumerate(argv) if not token.startswith("-") and (index == 0 or argv[index - 1] != "--format")]
+        return words[0] if words else ""
 
     def _default_map(self, project_config: Optional[Mapping[str, object]]) -> Optional[Dict[str, Any]]:
         if project_config is None:
