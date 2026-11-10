@@ -5,8 +5,10 @@ any 2.0 PR. It says where the work is, what is done, how the code works
 now, what was found on the way, what is left and what to watch.
 
 - Scope: `docs/decisions/2026-11-10-briar-2-pipeline.md` (D1 to D36, plus
-  D29a, D29b, D32a, D34) and `docs/decisions/2026-11-10-briar-2-source-logins.md`
-  (L1 to L21). Those files decide; this file reports.
+  D29a, D29b, D32a, D34), `docs/decisions/2026-11-10-briar-2-source-logins.md`
+  (L1 to L21) and `docs/decisions/2026-11-10-briar-2-core-cleanup.md` (C1 to
+  C22, which cut 2.0 to 5 commands and change D5, D18, D21, D28, D29, D30,
+  D32a, D35). Those files decide; this file reports.
 - Facts below were checked on 2026-11-10 (UTC) with the command shown. When
   this file and the code disagree, the code wins: fix this file in the same PR.
 - The spec-kit working files (`specs/`, `.specify/`) are not committed. What
@@ -169,23 +171,30 @@ Each item was reproduced in this work; the PR named holds the evidence.
    (`major.minor.patch+1`); `pyproject.toml` on `v2` says `1.1.101`, so the
    merge would publish 1.1.102, not 2.0.0. A PyPI version can never be
    reused. Not covered by any spec yet.
-3. **Optional speed PR** (the user deferred it): import a command's option
+3. **The core cleanup spec** (C1 to C22, decided 2026-11-10): before specs
+   003, 004 and 005, cut 2.0 to `extract`, `runbook` (extract, serve), `auth`
+   (login, status), `init` and `doctor`; remove `plan`, `agent`, `context`,
+   `secrets`, `journal`, `telemetry`, `version` as commands, the Postgres
+   store, the task-scoped extractors, `messaging`, `notify`, `mcp`; move the
+   stable `extract` flags to config. The speed PR below may become moot:
+   measure after this.
+4. **Optional speed PR** (the user deferred it): import a command's option
    classes only when that command runs (about 25 ms), and lazy-import the
    heavy modules (`python -X importtime -c "import briar.cli"`:
    `briar.commands.agent` 486 ms and `briar.commands.runbook` 389 ms
    cumulative, mostly SQLAlchemy and storage).
-4. **Write the next specs** (spec-kit, from the decisions files):
+5. **Write the next specs** (spec-kit, from the decisions files):
    - spec 003: the pipeline engine (LangGraph, `briar run/resume/runs`,
      built-in pipelines, loops, checkpoints; D7 to D26, D35, D36);
    - spec 004: extractors cleaned inside with the same output, `extract`
      on Typer, the 69 extractor flags (D32, D32a);
    - spec 005: source logins (L1 to L21), after spec 002.
-5. **Site and images**: usebriar.com `/docs` and the landing page (private
+6. **Site and images**: usebriar.com `/docs` and the landing page (private
    repo `iklobato/usebriar-landing`) still describe removed features
    (pipeline R7). `docs/diagrams/which-command.svg` still shows `briar
    chat` and `mcp serve`; `docs/diagrams/under-the-hood.svg` shows `mcp
    serve`. Both come from the site, so change them there and export again.
-6. **1.x issues still open on `main`**:
+7. **1.x issues still open on `main`**:
    https://github.com/iklobato/briar/issues/76 and
    https://github.com/iklobato/briar/issues/77.
 

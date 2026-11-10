@@ -54,7 +54,7 @@ only in the private site repo.
 | `src/briar/iac/runbook/` | Runbook loader, executor, `scheduler.py` (`runbook serve`) |
 | `src/briar/credentials/` | The env-file credential store (2.0 removed AWS Secrets Manager, SSM and Vault) and `_removed_stores.py`, which stops a run whose `BRIAR_DEFAULT_STORE` names a removed one |
 | `agents/*.md` | The user manual, one file per command (linked from the README) |
-| `docs/decisions/` | The agreed 2.0 scope: `2026-11-10-briar-2-pipeline.md` (D1-D36, plus D29a, D29b, D32a) and `2026-11-10-briar-2-source-logins.md` (L1-L21). The reference for every 2.0 PR |
+| `docs/decisions/` | The agreed 2.0 scope: `2026-11-10-briar-2-pipeline.md` (D1-D36, plus D29a, D29b, D32a), `2026-11-10-briar-2-source-logins.md` (L1-L21) and `2026-11-10-briar-2-core-cleanup.md` (C1-C22: 2.0 keeps 5 commands). The reference for every 2.0 PR |
 | `docs/briar-2-status.md` | 2.0 handoff: the PR stack, what is done, how the 2.0 CLI works, findings, next steps, what to watch |
 | `docs/diagrams/`, `docs/demo/` | README images (section 9) |
 | `examples/` | Runbook YAML examples |
