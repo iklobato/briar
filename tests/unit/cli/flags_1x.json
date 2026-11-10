@@ -1,0 +1,5226 @@
+{
+ "dash_values": [
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--blob-name=-x-blob_name"
+   ],
+   "dest": "blob_name",
+   "expected": "-x-blob_name",
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "runbook",
+    "extract",
+    "x-file-1",
+    "--task=-x-task"
+   ],
+   "dest": "task",
+   "expected": "-x-task",
+   "path": [
+    "runbook",
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "put",
+    "x-blob_name-1",
+    "--root=-x-root"
+   ],
+   "dest": "root",
+   "expected": "-x-root",
+   "path": [
+    "context",
+    "put"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "get",
+    "x-blob_name-1",
+    "--root=-x-root"
+   ],
+   "dest": "root",
+   "expected": "-x-root",
+   "path": [
+    "context",
+    "get"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "list",
+    "--root=-x-root"
+   ],
+   "dest": "root",
+   "expected": "-x-root",
+   "path": [
+    "context",
+    "list"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "delete",
+    "x-blob_name-1",
+    "--root=-x-root"
+   ],
+   "dest": "root",
+   "expected": "-x-root",
+   "path": [
+    "context",
+    "delete"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "categories",
+    "--root=-x-root"
+   ],
+   "dest": "root",
+   "expected": "-x-root",
+   "path": [
+    "context",
+    "categories"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "prfix",
+    "--pr",
+    "7",
+    "--branch",
+    "x-branch-1",
+    "--company=-x-company"
+   ],
+   "dest": "company",
+   "expected": "-x-company",
+   "path": [
+    "agent",
+    "prfix"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "implement",
+    "--ticket-key",
+    "x-ticket_key-1",
+    "--company=-x-company"
+   ],
+   "dest": "company",
+   "expected": "-x-company",
+   "path": [
+    "agent",
+    "implement"
+   ]
+  },
+  {
+   "argv": [
+    "auth",
+    "login",
+    "github-device",
+    "--company=-x-company"
+   ],
+   "dest": "company",
+   "expected": "-x-company",
+   "path": [
+    "auth",
+    "login"
+   ]
+  },
+  {
+   "argv": [
+    "auth",
+    "logout",
+    "github-device",
+    "--company=-x-company"
+   ],
+   "dest": "company",
+   "expected": "-x-company",
+   "path": [
+    "auth",
+    "logout"
+   ]
+  },
+  {
+   "argv": [
+    "auth",
+    "refresh",
+    "github-device",
+    "--company=-x-company"
+   ],
+   "dest": "company",
+   "expected": "-x-company",
+   "path": [
+    "auth",
+    "refresh"
+   ]
+  },
+  {
+   "argv": [
+    "auth",
+    "list",
+    "--company=-x-company"
+   ],
+   "dest": "company",
+   "expected": "-x-company",
+   "path": [
+    "auth",
+    "list"
+   ]
+  },
+  {
+   "argv": [
+    "auth",
+    "status",
+    "github-device",
+    "--company=-x-company"
+   ],
+   "dest": "company",
+   "expected": "-x-company",
+   "path": [
+    "auth",
+    "status"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "build",
+    "x-board-1",
+    "--name=-x-name"
+   ],
+   "dest": "name",
+   "expected": "-x-name",
+   "path": [
+    "plan",
+    "build"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "show",
+    "x-name-1",
+    "--root=-x-root"
+   ],
+   "dest": "root",
+   "expected": "-x-root",
+   "path": [
+    "plan",
+    "show"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "status",
+    "x-name-1",
+    "--root=-x-root"
+   ],
+   "dest": "root",
+   "expected": "-x-root",
+   "path": [
+    "plan",
+    "status"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "next",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--model=-x-model"
+   ],
+   "dest": "model",
+   "expected": "-x-model",
+   "path": [
+    "plan",
+    "next"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "advance",
+    "--card",
+    "x-card-1",
+    "x-name-1",
+    "--root=-x-root"
+   ],
+   "dest": "root",
+   "expected": "-x-root",
+   "path": [
+    "plan",
+    "advance"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "list",
+    "--root=-x-root"
+   ],
+   "dest": "root",
+   "expected": "-x-root",
+   "path": [
+    "plan",
+    "list"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "clear",
+    "x-name-1",
+    "--root=-x-root"
+   ],
+   "dest": "root",
+   "expected": "-x-root",
+   "path": [
+    "plan",
+    "clear"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--owner=-x-owner"
+   ],
+   "dest": "owner",
+   "expected": "-x-owner",
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "journal",
+    "list",
+    "--root=-x-journal_root"
+   ],
+   "dest": "journal_root",
+   "expected": "-x-journal_root",
+   "path": [
+    "journal",
+    "list"
+   ]
+  },
+  {
+   "argv": [
+    "journal",
+    "show",
+    "x-session_id-1",
+    "--root=-x-journal_root"
+   ],
+   "dest": "journal_root",
+   "expected": "-x-journal_root",
+   "path": [
+    "journal",
+    "show"
+   ]
+  },
+  {
+   "argv": [
+    "journal",
+    "export",
+    "x-session_id-1",
+    "--root=-x-journal_root"
+   ],
+   "dest": "journal_root",
+   "expected": "-x-journal_root",
+   "path": [
+    "journal",
+    "export"
+   ]
+  },
+  {
+   "argv": [
+    "telemetry",
+    "preview",
+    "--for-command=-x-preview_command"
+   ],
+   "dest": "preview_command",
+   "expected": "-x-preview_command",
+   "path": [
+    "telemetry",
+    "preview"
+   ]
+  },
+  {
+   "argv": [
+    "init",
+    "--company=-x-company"
+   ],
+   "dest": "company",
+   "expected": "-x-company",
+   "path": [
+    "init"
+   ]
+  }
+ ],
+ "defaults": [
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1"
+   ],
+   "expected": {
+    "active_assignees_allow": [],
+    "active_assignees_block": [],
+    "active_authors_allow": [],
+    "active_authors_block": [],
+    "active_repo": [],
+    "assignees_allow": [],
+    "assignees_block": [],
+    "authors_allow": [],
+    "authors_block": [],
+    "aws_extract_profile": null,
+    "aws_extract_region": "us-east-1",
+    "aws_extract_service": [],
+    "blob_name": "",
+    "cihealth_limit": 100,
+    "cihealth_repo": [],
+    "claude_md_path": "./CLAUDE.md",
+    "cloud": "aws",
+    "company": "x-company-1",
+    "conventions_repo": [],
+    "deploy_repo": [],
+    "deps_max": 200,
+    "deps_repo": [],
+    "gov_branch": "",
+    "gov_repo": [],
+    "hotspots_max_commits": 100,
+    "hotspots_repo": [],
+    "hotspots_since_days": 30,
+    "hotspots_top_n": 10,
+    "include": [],
+    "max": null,
+    "meeting": "fireflies",
+    "meeting_attendee_allow": [],
+    "meeting_max": 25,
+    "meeting_since_days": 7,
+    "merge_claude_md": false,
+    "msg_max_commits": 200,
+    "msg_repo": [],
+    "msg_since_days": 90,
+    "nits_pr_sample": 30,
+    "nits_repo": [],
+    "nits_top_n": 15,
+    "out_json": "",
+    "pr_assignees_allow": [],
+    "pr_assignees_block": [],
+    "pr_authors_allow": [],
+    "pr_authors_block": [],
+    "pr_max": 100,
+    "pr_repo": [],
+    "prhygiene_diffstat_sample": 30,
+    "prhygiene_large_loc": 400,
+    "prhygiene_max": 100,
+    "prhygiene_repo": [],
+    "provider": "github",
+    "release_max": 100,
+    "release_repo": [],
+    "repo": [],
+    "revert_max_commits": 200,
+    "revert_repo": [],
+    "revert_since_days": 90,
+    "reviewer_pr_sample": 20,
+    "reviewer_repo": [],
+    "reviewer_top_n": 5,
+    "risk_max_commits": 200,
+    "risk_repo": [],
+    "risk_since_days": 90,
+    "risk_top_n": 10,
+    "root": "./knowledge",
+    "sample": null,
+    "scan_max": 200,
+    "scan_repo": [],
+    "scan_top_n": 10,
+    "since_days": null,
+    "stale_days": 14,
+    "stale_max": 100,
+    "stale_repo": [],
+    "storage": "file",
+    "testdisc_repo": [],
+    "testdisc_top_n": 10,
+    "ticket_archaeology_project": [],
+    "ticket_max": 100,
+    "ticket_project": [],
+    "todo_max": 200,
+    "todo_repo": [],
+    "todo_top_n": 10,
+    "top_n": null,
+    "tracker": "jira"
+   },
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "runbook",
+    "extract",
+    "x-file-1"
+   ],
+   "expected": {
+    "file": "x-file-1",
+    "task": ""
+   },
+   "path": [
+    "runbook",
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "runbook",
+    "sweep",
+    "x-directory-1"
+   ],
+   "expected": {
+    "directory": "x-directory-1"
+   },
+   "path": [
+    "runbook",
+    "sweep"
+   ]
+  },
+  {
+   "argv": [
+    "runbook",
+    "serve",
+    "x-directory-1"
+   ],
+   "expected": {
+    "directory": "x-directory-1",
+    "tick": 1.0
+   },
+   "path": [
+    "runbook",
+    "serve"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "put",
+    "x-blob_name-1"
+   ],
+   "expected": {
+    "blob_name": "x-blob_name-1",
+    "category": "",
+    "content": null,
+    "from_file": null,
+    "root": "./knowledge",
+    "store": "file"
+   },
+   "path": [
+    "context",
+    "put"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "get",
+    "x-blob_name-1"
+   ],
+   "expected": {
+    "blob_name": "x-blob_name-1",
+    "root": "./knowledge",
+    "store": "file"
+   },
+   "path": [
+    "context",
+    "get"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "list"
+   ],
+   "expected": {
+    "prefix": "",
+    "root": "./knowledge",
+    "store": "file"
+   },
+   "path": [
+    "context",
+    "list"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "delete",
+    "x-blob_name-1"
+   ],
+   "expected": {
+    "blob_name": "x-blob_name-1",
+    "root": "./knowledge",
+    "store": "file",
+    "yes": false
+   },
+   "path": [
+    "context",
+    "delete"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "categories"
+   ],
+   "expected": {
+    "root": "./knowledge",
+    "store": "file"
+   },
+   "path": [
+    "context",
+    "categories"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "prfix",
+    "--pr",
+    "7",
+    "--branch",
+    "x-branch-1"
+   ],
+   "expected": {
+    "branch": "x-branch-1",
+    "chat": "slack",
+    "company": "",
+    "dry_run": false,
+    "git_user_email": "",
+    "git_user_name": "",
+    "keep_worktree": false,
+    "knowledge": "./knowledge",
+    "max_iter": 0,
+    "meeting": "fireflies",
+    "meeting_key": "",
+    "meeting_max_bytes": 50000,
+    "meeting_query": "",
+    "meeting_top_k": 3,
+    "model": "",
+    "owner": "",
+    "pr": 7,
+    "provider": "github",
+    "repo": "",
+    "runbook": "",
+    "slack_max_bytes": 30000,
+    "slack_query": "",
+    "slack_top_k": 3,
+    "store": "file"
+   },
+   "path": [
+    "agent",
+    "prfix"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "implement",
+    "--ticket-key",
+    "x-ticket_key-1"
+   ],
+   "expected": {
+    "base_branch": "",
+    "branch_name": "",
+    "chat": "slack",
+    "company": "",
+    "dry_run": false,
+    "git_user_email": "",
+    "git_user_name": "",
+    "keep_worktree": false,
+    "knowledge": "./knowledge",
+    "max_iter": 0,
+    "meeting": "fireflies",
+    "meeting_key": "",
+    "meeting_max_bytes": 50000,
+    "meeting_query": "",
+    "meeting_top_k": 3,
+    "model": "",
+    "owner": "",
+    "provider": "github",
+    "repo": "",
+    "runbook": "",
+    "slack_max_bytes": 30000,
+    "slack_query": "",
+    "slack_top_k": 3,
+    "store": "file",
+    "ticket_key": "x-ticket_key-1",
+    "ticket_project": "",
+    "tracker": "jira"
+   },
+   "path": [
+    "agent",
+    "implement"
+   ]
+  },
+  {
+   "argv": [
+    "auth",
+    "login",
+    "github-device"
+   ],
+   "expected": {
+    "company": "",
+    "cred_store": "envfile",
+    "target": "github-device"
+   },
+   "path": [
+    "auth",
+    "login"
+   ]
+  },
+  {
+   "argv": [
+    "auth",
+    "logout",
+    "github-device"
+   ],
+   "expected": {
+    "company": "",
+    "cred_store": "envfile",
+    "target": "github-device",
+    "yes": false
+   },
+   "path": [
+    "auth",
+    "logout"
+   ]
+  },
+  {
+   "argv": [
+    "auth",
+    "refresh",
+    "github-device"
+   ],
+   "expected": {
+    "company": "",
+    "cred_store": "envfile",
+    "target": "github-device"
+   },
+   "path": [
+    "auth",
+    "refresh"
+   ]
+  },
+  {
+   "argv": [
+    "auth",
+    "list"
+   ],
+   "expected": {
+    "company": "",
+    "cred_store": "envfile"
+   },
+   "path": [
+    "auth",
+    "list"
+   ]
+  },
+  {
+   "argv": [
+    "auth",
+    "status",
+    "github-device"
+   ],
+   "expected": {
+    "company": "",
+    "cred_store": "envfile",
+    "target": "github-device"
+   },
+   "path": [
+    "auth",
+    "status"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "build",
+    "x-board-1"
+   ],
+   "expected": {
+    "board": "x-board-1",
+    "company": "",
+    "default_branch": "main",
+    "dry_run": false,
+    "llm": "",
+    "max_cards": 50,
+    "model": "",
+    "name": "",
+    "print": false,
+    "root": "./knowledge",
+    "store": "file",
+    "with_knowledge": false
+   },
+   "path": [
+    "plan",
+    "build"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "show",
+    "x-name-1"
+   ],
+   "expected": {
+    "company": "",
+    "name": "x-name-1",
+    "root": "./knowledge",
+    "store": "file"
+   },
+   "path": [
+    "plan",
+    "show"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "status",
+    "x-name-1"
+   ],
+   "expected": {
+    "company": "",
+    "journal_root": "./journal",
+    "journal_store": "file",
+    "name": "x-name-1",
+    "root": "./knowledge",
+    "store": "file"
+   },
+   "path": [
+    "plan",
+    "status"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "next",
+    "--llm",
+    "anthropic",
+    "x-name-1"
+   ],
+   "expected": {
+    "company": "",
+    "journal_root": "./journal",
+    "journal_store": "file",
+    "llm": "anthropic",
+    "model": "",
+    "name": "x-name-1",
+    "root": "./knowledge",
+    "store": "file"
+   },
+   "path": [
+    "plan",
+    "next"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "advance",
+    "--card",
+    "x-card-1",
+    "x-name-1"
+   ],
+   "expected": {
+    "card": "x-card-1",
+    "company": "",
+    "name": "x-name-1",
+    "root": "./knowledge",
+    "status": "done",
+    "store": "file"
+   },
+   "path": [
+    "plan",
+    "advance"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "list"
+   ],
+   "expected": {
+    "company": "",
+    "root": "./knowledge",
+    "store": "file"
+   },
+   "path": [
+    "plan",
+    "list"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "clear",
+    "x-name-1"
+   ],
+   "expected": {
+    "company": "",
+    "name": "x-name-1",
+    "root": "./knowledge",
+    "store": "file",
+    "yes": false
+   },
+   "path": [
+    "plan",
+    "clear"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1"
+   ],
+   "expected": {
+    "chat": "slack",
+    "company": "",
+    "continue_on_failure": false,
+    "dry_run": false,
+    "git_user_email": "",
+    "git_user_name": "",
+    "journal_root": "./journal",
+    "journal_store": "file",
+    "keep_worktree": false,
+    "limit": 0,
+    "llm": "anthropic",
+    "max_iter": 0,
+    "max_replans": 3,
+    "meeting": "fireflies",
+    "meeting_key": "",
+    "meeting_max_bytes": 50000,
+    "meeting_query": "",
+    "meeting_top_k": 3,
+    "model": "",
+    "name": "x-name-1",
+    "owner": "",
+    "provider": "github",
+    "repo": "",
+    "root": "./knowledge",
+    "runbook": "",
+    "slack_max_bytes": 30000,
+    "slack_query": "",
+    "slack_top_k": 3,
+    "store": "file",
+    "tracker": "github-issues",
+    "tracker_project": ""
+   },
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "secrets",
+    "doctor"
+   ],
+   "expected": {
+    "cred_store": "envfile",
+    "examples": null
+   },
+   "path": [
+    "secrets",
+    "doctor"
+   ]
+  },
+  {
+   "argv": [
+    "secrets",
+    "bootstrap"
+   ],
+   "expected": {
+    "dry_run": false,
+    "kind": ""
+   },
+   "path": [
+    "secrets",
+    "bootstrap"
+   ]
+  },
+  {
+   "argv": [
+    "journal",
+    "list"
+   ],
+   "expected": {
+    "command_filter": "",
+    "journal_root": "./journal",
+    "journal_store": "file",
+    "limit": 50
+   },
+   "path": [
+    "journal",
+    "list"
+   ]
+  },
+  {
+   "argv": [
+    "journal",
+    "show",
+    "x-session_id-1"
+   ],
+   "expected": {
+    "journal_root": "./journal",
+    "journal_store": "file",
+    "session_id": "x-session_id-1"
+   },
+   "path": [
+    "journal",
+    "show"
+   ]
+  },
+  {
+   "argv": [
+    "journal",
+    "export",
+    "x-session_id-1"
+   ],
+   "expected": {
+    "export_format": "markdown",
+    "journal_root": "./journal",
+    "journal_store": "file",
+    "out": "-",
+    "session_id": "x-session_id-1"
+   },
+   "path": [
+    "journal",
+    "export"
+   ]
+  },
+  {
+   "argv": [
+    "telemetry",
+    "status"
+   ],
+   "expected": {},
+   "path": [
+    "telemetry",
+    "status"
+   ]
+  },
+  {
+   "argv": [
+    "telemetry",
+    "preview"
+   ],
+   "expected": {
+    "preview_command": "(preview)"
+   },
+   "path": [
+    "telemetry",
+    "preview"
+   ]
+  },
+  {
+   "argv": [
+    "telemetry",
+    "off"
+   ],
+   "expected": {},
+   "path": [
+    "telemetry",
+    "off"
+   ]
+  },
+  {
+   "argv": [
+    "telemetry",
+    "errors-only"
+   ],
+   "expected": {},
+   "path": [
+    "telemetry",
+    "errors-only"
+   ]
+  },
+  {
+   "argv": [
+    "telemetry",
+    "full"
+   ],
+   "expected": {},
+   "path": [
+    "telemetry",
+    "full"
+   ]
+  },
+  {
+   "argv": [
+    "telemetry",
+    "reset"
+   ],
+   "expected": {},
+   "path": [
+    "telemetry",
+    "reset"
+   ]
+  },
+  {
+   "argv": [
+    "version"
+   ],
+   "expected": {},
+   "path": [
+    "version"
+   ]
+  },
+  {
+   "argv": [
+    "completion",
+    "bash"
+   ],
+   "expected": {
+    "shell": "bash"
+   },
+   "path": [
+    "completion"
+   ]
+  },
+  {
+   "argv": [
+    "init"
+   ],
+   "expected": {
+    "company": "",
+    "force": false,
+    "owner": "",
+    "path": ".briar.toml",
+    "repo": "",
+    "store": "file"
+   },
+   "path": [
+    "init"
+   ]
+  },
+  {
+   "argv": [
+    "config",
+    "show"
+   ],
+   "expected": {},
+   "path": [
+    "config",
+    "show"
+   ]
+  },
+  {
+   "argv": [
+    "doctor"
+   ],
+   "expected": {},
+   "path": [
+    "doctor"
+   ]
+  }
+ ],
+ "options": [
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--include",
+    "active-tickets",
+    "--include",
+    "active-work"
+   ],
+   "dest": "include",
+   "expected": [
+    "active-tickets",
+    "active-work"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--store",
+    "postgres"
+   ],
+   "dest": "storage",
+   "expected": "postgres",
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--blob-name",
+    "x-blob_name-1"
+   ],
+   "dest": "blob_name",
+   "expected": "x-blob_name-1",
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--root",
+    "x-root-1"
+   ],
+   "dest": "root",
+   "expected": "x-root-1",
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--out-json",
+    "x-out_json-1"
+   ],
+   "dest": "out_json",
+   "expected": "x-out_json-1",
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--merge-claude-md"
+   ],
+   "dest": "merge_claude_md",
+   "expected": true,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--claude-md-path",
+    "x-claude_md_path-1"
+   ],
+   "dest": "claude_md_path",
+   "expected": "x-claude_md_path-1",
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--repo",
+    "x-repo-1",
+    "--repo",
+    "x-repo-2"
+   ],
+   "dest": "repo",
+   "expected": [
+    "x-repo-1",
+    "x-repo-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--since-days",
+    "7"
+   ],
+   "dest": "since_days",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--max",
+    "7"
+   ],
+   "dest": "max",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--top-n",
+    "7"
+   ],
+   "dest": "top_n",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--sample",
+    "7"
+   ],
+   "dest": "sample",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--authors-allow",
+    "x-authors_allow-1",
+    "--authors-allow",
+    "x-authors_allow-2"
+   ],
+   "dest": "authors_allow",
+   "expected": [
+    "x-authors_allow-1",
+    "x-authors_allow-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--authors-block",
+    "x-authors_block-1",
+    "--authors-block",
+    "x-authors_block-2"
+   ],
+   "dest": "authors_block",
+   "expected": [
+    "x-authors_block-1",
+    "x-authors_block-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--assignees-allow",
+    "x-assignees_allow-1",
+    "--assignees-allow",
+    "x-assignees_allow-2"
+   ],
+   "dest": "assignees_allow",
+   "expected": [
+    "x-assignees_allow-1",
+    "x-assignees_allow-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--assignees-block",
+    "x-assignees_block-1",
+    "--assignees-block",
+    "x-assignees_block-2"
+   ],
+   "dest": "assignees_block",
+   "expected": [
+    "x-assignees_block-1",
+    "x-assignees_block-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--provider",
+    "bitbucket"
+   ],
+   "dest": "provider",
+   "expected": "bitbucket",
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--pr-repo",
+    "x-pr_repo-1",
+    "--pr-repo",
+    "x-pr_repo-2"
+   ],
+   "dest": "pr_repo",
+   "expected": [
+    "x-pr_repo-1",
+    "x-pr_repo-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--pr-max",
+    "7"
+   ],
+   "dest": "pr_max",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--pr-authors-allow",
+    "x-pr_authors_allow-1",
+    "--pr-authors-allow",
+    "x-pr_authors_allow-2"
+   ],
+   "dest": "pr_authors_allow",
+   "expected": [
+    "x-pr_authors_allow-1",
+    "x-pr_authors_allow-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--pr-authors-block",
+    "x-pr_authors_block-1",
+    "--pr-authors-block",
+    "x-pr_authors_block-2"
+   ],
+   "dest": "pr_authors_block",
+   "expected": [
+    "x-pr_authors_block-1",
+    "x-pr_authors_block-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--pr-assignees-allow",
+    "x-pr_assignees_allow-1",
+    "--pr-assignees-allow",
+    "x-pr_assignees_allow-2"
+   ],
+   "dest": "pr_assignees_allow",
+   "expected": [
+    "x-pr_assignees_allow-1",
+    "x-pr_assignees_allow-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--pr-assignees-block",
+    "x-pr_assignees_block-1",
+    "--pr-assignees-block",
+    "x-pr_assignees_block-2"
+   ],
+   "dest": "pr_assignees_block",
+   "expected": [
+    "x-pr_assignees_block-1",
+    "x-pr_assignees_block-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--cloud",
+    "gcp"
+   ],
+   "dest": "cloud",
+   "expected": "gcp",
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--aws-extract-profile",
+    "x-aws_extract_profile-1"
+   ],
+   "dest": "aws_extract_profile",
+   "expected": "x-aws_extract_profile-1",
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--aws-extract-region",
+    "x-aws_extract_region-1"
+   ],
+   "dest": "aws_extract_region",
+   "expected": "x-aws_extract_region-1",
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--aws-extract-service",
+    "ecs",
+    "--aws-extract-service",
+    "lambda"
+   ],
+   "dest": "aws_extract_service",
+   "expected": [
+    "ecs",
+    "lambda"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--active-repo",
+    "x-active_repo-1",
+    "--active-repo",
+    "x-active_repo-2"
+   ],
+   "dest": "active_repo",
+   "expected": [
+    "x-active_repo-1",
+    "x-active_repo-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--active-authors-allow",
+    "x-active_authors_allow-1",
+    "--active-authors-allow",
+    "x-active_authors_allow-2"
+   ],
+   "dest": "active_authors_allow",
+   "expected": [
+    "x-active_authors_allow-1",
+    "x-active_authors_allow-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--active-authors-block",
+    "x-active_authors_block-1",
+    "--active-authors-block",
+    "x-active_authors_block-2"
+   ],
+   "dest": "active_authors_block",
+   "expected": [
+    "x-active_authors_block-1",
+    "x-active_authors_block-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--active-assignees-allow",
+    "x-active_assignees_allow-1",
+    "--active-assignees-allow",
+    "x-active_assignees_allow-2"
+   ],
+   "dest": "active_assignees_allow",
+   "expected": [
+    "x-active_assignees_allow-1",
+    "x-active_assignees_allow-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--active-assignees-block",
+    "x-active_assignees_block-1",
+    "--active-assignees-block",
+    "x-active_assignees_block-2"
+   ],
+   "dest": "active_assignees_block",
+   "expected": [
+    "x-active_assignees_block-1",
+    "x-active_assignees_block-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--deploy-repo",
+    "x-deploy_repo-1",
+    "--deploy-repo",
+    "x-deploy_repo-2"
+   ],
+   "dest": "deploy_repo",
+   "expected": [
+    "x-deploy_repo-1",
+    "x-deploy_repo-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--conventions-repo",
+    "x-conventions_repo-1",
+    "--conventions-repo",
+    "x-conventions_repo-2"
+   ],
+   "dest": "conventions_repo",
+   "expected": [
+    "x-conventions_repo-1",
+    "x-conventions_repo-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--tracker",
+    "github-issues"
+   ],
+   "dest": "tracker",
+   "expected": "github-issues",
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--ticket-project",
+    "x-ticket_project-1",
+    "--ticket-project",
+    "x-ticket_project-2"
+   ],
+   "dest": "ticket_project",
+   "expected": [
+    "x-ticket_project-1",
+    "x-ticket_project-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--ticket-archaeology-project",
+    "x-ticket_archaeology_project-1",
+    "--ticket-archaeology-project",
+    "x-ticket_archaeology_project-2"
+   ],
+   "dest": "ticket_archaeology_project",
+   "expected": [
+    "x-ticket_archaeology_project-1",
+    "x-ticket_archaeology_project-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--ticket-max",
+    "7"
+   ],
+   "dest": "ticket_max",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--reviewer-repo",
+    "x-reviewer_repo-1",
+    "--reviewer-repo",
+    "x-reviewer_repo-2"
+   ],
+   "dest": "reviewer_repo",
+   "expected": [
+    "x-reviewer_repo-1",
+    "x-reviewer_repo-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--reviewer-pr-sample",
+    "7"
+   ],
+   "dest": "reviewer_pr_sample",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--reviewer-top-n",
+    "7"
+   ],
+   "dest": "reviewer_top_n",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--hotspots-repo",
+    "x-hotspots_repo-1",
+    "--hotspots-repo",
+    "x-hotspots_repo-2"
+   ],
+   "dest": "hotspots_repo",
+   "expected": [
+    "x-hotspots_repo-1",
+    "x-hotspots_repo-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--hotspots-since-days",
+    "7"
+   ],
+   "dest": "hotspots_since_days",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--hotspots-max-commits",
+    "7"
+   ],
+   "dest": "hotspots_max_commits",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--hotspots-top-n",
+    "7"
+   ],
+   "dest": "hotspots_top_n",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--meeting",
+    "fireflies"
+   ],
+   "dest": "meeting",
+   "expected": "fireflies",
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--meeting-since-days",
+    "8"
+   ],
+   "dest": "meeting_since_days",
+   "expected": 8,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--meeting-max",
+    "7"
+   ],
+   "dest": "meeting_max",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--meeting-attendee-allow",
+    "x-meeting_attendee_allow-1",
+    "--meeting-attendee-allow",
+    "x-meeting_attendee_allow-2"
+   ],
+   "dest": "meeting_attendee_allow",
+   "expected": [
+    "x-meeting_attendee_allow-1",
+    "x-meeting_attendee_allow-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--risk-repo",
+    "x-risk_repo-1",
+    "--risk-repo",
+    "x-risk_repo-2"
+   ],
+   "dest": "risk_repo",
+   "expected": [
+    "x-risk_repo-1",
+    "x-risk_repo-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--risk-since-days",
+    "7"
+   ],
+   "dest": "risk_since_days",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--risk-max-commits",
+    "7"
+   ],
+   "dest": "risk_max_commits",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--risk-top-n",
+    "7"
+   ],
+   "dest": "risk_top_n",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--nits-repo",
+    "x-nits_repo-1",
+    "--nits-repo",
+    "x-nits_repo-2"
+   ],
+   "dest": "nits_repo",
+   "expected": [
+    "x-nits_repo-1",
+    "x-nits_repo-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--nits-pr-sample",
+    "7"
+   ],
+   "dest": "nits_pr_sample",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--nits-top-n",
+    "7"
+   ],
+   "dest": "nits_top_n",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--prhygiene-repo",
+    "x-prhygiene_repo-1",
+    "--prhygiene-repo",
+    "x-prhygiene_repo-2"
+   ],
+   "dest": "prhygiene_repo",
+   "expected": [
+    "x-prhygiene_repo-1",
+    "x-prhygiene_repo-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--prhygiene-max",
+    "7"
+   ],
+   "dest": "prhygiene_max",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--prhygiene-diffstat-sample",
+    "7"
+   ],
+   "dest": "prhygiene_diffstat_sample",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--prhygiene-large-loc",
+    "7"
+   ],
+   "dest": "prhygiene_large_loc",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--cihealth-repo",
+    "x-cihealth_repo-1",
+    "--cihealth-repo",
+    "x-cihealth_repo-2"
+   ],
+   "dest": "cihealth_repo",
+   "expected": [
+    "x-cihealth_repo-1",
+    "x-cihealth_repo-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--cihealth-limit",
+    "7"
+   ],
+   "dest": "cihealth_limit",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--deps-repo",
+    "x-deps_repo-1",
+    "--deps-repo",
+    "x-deps_repo-2"
+   ],
+   "dest": "deps_repo",
+   "expected": [
+    "x-deps_repo-1",
+    "x-deps_repo-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--deps-max",
+    "7"
+   ],
+   "dest": "deps_max",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--scan-repo",
+    "x-scan_repo-1",
+    "--scan-repo",
+    "x-scan_repo-2"
+   ],
+   "dest": "scan_repo",
+   "expected": [
+    "x-scan_repo-1",
+    "x-scan_repo-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--scan-max",
+    "7"
+   ],
+   "dest": "scan_max",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--scan-top-n",
+    "7"
+   ],
+   "dest": "scan_top_n",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--gov-repo",
+    "x-gov_repo-1",
+    "--gov-repo",
+    "x-gov_repo-2"
+   ],
+   "dest": "gov_repo",
+   "expected": [
+    "x-gov_repo-1",
+    "x-gov_repo-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--gov-branch",
+    "x-gov_branch-1"
+   ],
+   "dest": "gov_branch",
+   "expected": "x-gov_branch-1",
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--revert-repo",
+    "x-revert_repo-1",
+    "--revert-repo",
+    "x-revert_repo-2"
+   ],
+   "dest": "revert_repo",
+   "expected": [
+    "x-revert_repo-1",
+    "x-revert_repo-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--revert-since-days",
+    "7"
+   ],
+   "dest": "revert_since_days",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--revert-max-commits",
+    "7"
+   ],
+   "dest": "revert_max_commits",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--stale-repo",
+    "x-stale_repo-1",
+    "--stale-repo",
+    "x-stale_repo-2"
+   ],
+   "dest": "stale_repo",
+   "expected": [
+    "x-stale_repo-1",
+    "x-stale_repo-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--stale-max",
+    "7"
+   ],
+   "dest": "stale_max",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--stale-days",
+    "7"
+   ],
+   "dest": "stale_days",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--testdisc-repo",
+    "x-testdisc_repo-1",
+    "--testdisc-repo",
+    "x-testdisc_repo-2"
+   ],
+   "dest": "testdisc_repo",
+   "expected": [
+    "x-testdisc_repo-1",
+    "x-testdisc_repo-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--testdisc-top-n",
+    "7"
+   ],
+   "dest": "testdisc_top_n",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--todo-repo",
+    "x-todo_repo-1",
+    "--todo-repo",
+    "x-todo_repo-2"
+   ],
+   "dest": "todo_repo",
+   "expected": [
+    "x-todo_repo-1",
+    "x-todo_repo-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--todo-max",
+    "7"
+   ],
+   "dest": "todo_max",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--todo-top-n",
+    "7"
+   ],
+   "dest": "todo_top_n",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--release-repo",
+    "x-release_repo-1",
+    "--release-repo",
+    "x-release_repo-2"
+   ],
+   "dest": "release_repo",
+   "expected": [
+    "x-release_repo-1",
+    "x-release_repo-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--release-max",
+    "7"
+   ],
+   "dest": "release_max",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--msg-repo",
+    "x-msg_repo-1",
+    "--msg-repo",
+    "x-msg_repo-2"
+   ],
+   "dest": "msg_repo",
+   "expected": [
+    "x-msg_repo-1",
+    "x-msg_repo-2"
+   ],
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--msg-since-days",
+    "7"
+   ],
+   "dest": "msg_since_days",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "extract",
+    "--company",
+    "x-company-1",
+    "--msg-max-commits",
+    "7"
+   ],
+   "dest": "msg_max_commits",
+   "expected": 7,
+   "path": [
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "runbook",
+    "extract",
+    "x-file-1",
+    "--task",
+    "x-task-1"
+   ],
+   "dest": "task",
+   "expected": "x-task-1",
+   "path": [
+    "runbook",
+    "extract"
+   ]
+  },
+  {
+   "argv": [
+    "runbook",
+    "serve",
+    "x-directory-1",
+    "--tick",
+    "0.5"
+   ],
+   "dest": "tick",
+   "expected": 0.5,
+   "path": [
+    "runbook",
+    "serve"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "put",
+    "x-blob_name-1",
+    "--store",
+    "postgres"
+   ],
+   "dest": "store",
+   "expected": "postgres",
+   "path": [
+    "context",
+    "put"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "put",
+    "x-blob_name-1",
+    "--root",
+    "x-root-1"
+   ],
+   "dest": "root",
+   "expected": "x-root-1",
+   "path": [
+    "context",
+    "put"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "put",
+    "x-blob_name-1",
+    "--content",
+    "x-content-1"
+   ],
+   "dest": "content",
+   "expected": "x-content-1",
+   "path": [
+    "context",
+    "put"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "put",
+    "x-blob_name-1",
+    "--from-file",
+    "x-from_file-1"
+   ],
+   "dest": "from_file",
+   "expected": "x-from_file-1",
+   "path": [
+    "context",
+    "put"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "put",
+    "x-blob_name-1",
+    "--category",
+    "x-category-1"
+   ],
+   "dest": "category",
+   "expected": "x-category-1",
+   "path": [
+    "context",
+    "put"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "put",
+    "x-blob_name-1",
+    "--store",
+    "file"
+   ],
+   "dest": "store",
+   "expected": "file",
+   "path": [
+    "context",
+    "put"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "put",
+    "x-blob_name-1",
+    "--root",
+    "x-root-1"
+   ],
+   "dest": "root",
+   "expected": "x-root-1",
+   "path": [
+    "context",
+    "put"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "get",
+    "x-blob_name-1",
+    "--store",
+    "postgres"
+   ],
+   "dest": "store",
+   "expected": "postgres",
+   "path": [
+    "context",
+    "get"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "get",
+    "x-blob_name-1",
+    "--root",
+    "x-root-1"
+   ],
+   "dest": "root",
+   "expected": "x-root-1",
+   "path": [
+    "context",
+    "get"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "get",
+    "x-blob_name-1",
+    "--store",
+    "file"
+   ],
+   "dest": "store",
+   "expected": "file",
+   "path": [
+    "context",
+    "get"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "get",
+    "x-blob_name-1",
+    "--root",
+    "x-root-1"
+   ],
+   "dest": "root",
+   "expected": "x-root-1",
+   "path": [
+    "context",
+    "get"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "list",
+    "--store",
+    "postgres"
+   ],
+   "dest": "store",
+   "expected": "postgres",
+   "path": [
+    "context",
+    "list"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "list",
+    "--root",
+    "x-root-1"
+   ],
+   "dest": "root",
+   "expected": "x-root-1",
+   "path": [
+    "context",
+    "list"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "list",
+    "--prefix",
+    "x-prefix-1"
+   ],
+   "dest": "prefix",
+   "expected": "x-prefix-1",
+   "path": [
+    "context",
+    "list"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "list",
+    "--store",
+    "file"
+   ],
+   "dest": "store",
+   "expected": "file",
+   "path": [
+    "context",
+    "list"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "list",
+    "--root",
+    "x-root-1"
+   ],
+   "dest": "root",
+   "expected": "x-root-1",
+   "path": [
+    "context",
+    "list"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "delete",
+    "x-blob_name-1",
+    "--store",
+    "postgres"
+   ],
+   "dest": "store",
+   "expected": "postgres",
+   "path": [
+    "context",
+    "delete"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "delete",
+    "x-blob_name-1",
+    "--root",
+    "x-root-1"
+   ],
+   "dest": "root",
+   "expected": "x-root-1",
+   "path": [
+    "context",
+    "delete"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "delete",
+    "x-blob_name-1",
+    "--yes"
+   ],
+   "dest": "yes",
+   "expected": true,
+   "path": [
+    "context",
+    "delete"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "delete",
+    "x-blob_name-1",
+    "--store",
+    "file"
+   ],
+   "dest": "store",
+   "expected": "file",
+   "path": [
+    "context",
+    "delete"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "delete",
+    "x-blob_name-1",
+    "--root",
+    "x-root-1"
+   ],
+   "dest": "root",
+   "expected": "x-root-1",
+   "path": [
+    "context",
+    "delete"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "categories",
+    "--store",
+    "postgres"
+   ],
+   "dest": "store",
+   "expected": "postgres",
+   "path": [
+    "context",
+    "categories"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "categories",
+    "--root",
+    "x-root-1"
+   ],
+   "dest": "root",
+   "expected": "x-root-1",
+   "path": [
+    "context",
+    "categories"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "categories",
+    "--store",
+    "file"
+   ],
+   "dest": "store",
+   "expected": "file",
+   "path": [
+    "context",
+    "categories"
+   ]
+  },
+  {
+   "argv": [
+    "context",
+    "categories",
+    "--root",
+    "x-root-1"
+   ],
+   "dest": "root",
+   "expected": "x-root-1",
+   "path": [
+    "context",
+    "categories"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "prfix",
+    "--pr",
+    "7",
+    "--branch",
+    "x-branch-1",
+    "--company",
+    "x-company-1"
+   ],
+   "dest": "company",
+   "expected": "x-company-1",
+   "path": [
+    "agent",
+    "prfix"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "prfix",
+    "--pr",
+    "7",
+    "--branch",
+    "x-branch-1",
+    "--owner",
+    "x-owner-1"
+   ],
+   "dest": "owner",
+   "expected": "x-owner-1",
+   "path": [
+    "agent",
+    "prfix"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "prfix",
+    "--pr",
+    "7",
+    "--branch",
+    "x-branch-1",
+    "--repo",
+    "x-repo-1"
+   ],
+   "dest": "repo",
+   "expected": "x-repo-1",
+   "path": [
+    "agent",
+    "prfix"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "prfix",
+    "--pr",
+    "7",
+    "--branch",
+    "x-branch-1",
+    "--provider",
+    "bitbucket"
+   ],
+   "dest": "provider",
+   "expected": "bitbucket",
+   "path": [
+    "agent",
+    "prfix"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "prfix",
+    "--pr",
+    "7",
+    "--branch",
+    "x-branch-1",
+    "--store",
+    "postgres"
+   ],
+   "dest": "store",
+   "expected": "postgres",
+   "path": [
+    "agent",
+    "prfix"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "prfix",
+    "--pr",
+    "7",
+    "--branch",
+    "x-branch-1",
+    "--root",
+    "x-knowledge-1"
+   ],
+   "dest": "knowledge",
+   "expected": "x-knowledge-1",
+   "path": [
+    "agent",
+    "prfix"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "prfix",
+    "--pr",
+    "7",
+    "--branch",
+    "x-branch-1",
+    "--model",
+    "x-model-1"
+   ],
+   "dest": "model",
+   "expected": "x-model-1",
+   "path": [
+    "agent",
+    "prfix"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "prfix",
+    "--pr",
+    "7",
+    "--branch",
+    "x-branch-1",
+    "--max-iter",
+    "7"
+   ],
+   "dest": "max_iter",
+   "expected": 7,
+   "path": [
+    "agent",
+    "prfix"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "prfix",
+    "--pr",
+    "7",
+    "--branch",
+    "x-branch-1",
+    "--git-user-name",
+    "x-git_user_name-1"
+   ],
+   "dest": "git_user_name",
+   "expected": "x-git_user_name-1",
+   "path": [
+    "agent",
+    "prfix"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "prfix",
+    "--pr",
+    "7",
+    "--branch",
+    "x-branch-1",
+    "--git-user-email",
+    "x-git_user_email-1"
+   ],
+   "dest": "git_user_email",
+   "expected": "x-git_user_email-1",
+   "path": [
+    "agent",
+    "prfix"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "prfix",
+    "--pr",
+    "7",
+    "--branch",
+    "x-branch-1",
+    "--keep-worktree"
+   ],
+   "dest": "keep_worktree",
+   "expected": true,
+   "path": [
+    "agent",
+    "prfix"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "prfix",
+    "--pr",
+    "7",
+    "--branch",
+    "x-branch-1",
+    "--dry-run"
+   ],
+   "dest": "dry_run",
+   "expected": true,
+   "path": [
+    "agent",
+    "prfix"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "prfix",
+    "--pr",
+    "7",
+    "--branch",
+    "x-branch-1",
+    "--runbook",
+    "x-runbook-1"
+   ],
+   "dest": "runbook",
+   "expected": "x-runbook-1",
+   "path": [
+    "agent",
+    "prfix"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "prfix",
+    "--pr",
+    "7",
+    "--branch",
+    "x-branch-1",
+    "--meeting-key",
+    "x-meeting_key-1"
+   ],
+   "dest": "meeting_key",
+   "expected": "x-meeting_key-1",
+   "path": [
+    "agent",
+    "prfix"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "prfix",
+    "--pr",
+    "7",
+    "--branch",
+    "x-branch-1",
+    "--meeting-query",
+    "x-meeting_query-1"
+   ],
+   "dest": "meeting_query",
+   "expected": "x-meeting_query-1",
+   "path": [
+    "agent",
+    "prfix"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "prfix",
+    "--pr",
+    "7",
+    "--branch",
+    "x-branch-1",
+    "--meeting",
+    "fireflies"
+   ],
+   "dest": "meeting",
+   "expected": "fireflies",
+   "path": [
+    "agent",
+    "prfix"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "prfix",
+    "--pr",
+    "7",
+    "--branch",
+    "x-branch-1",
+    "--meeting-top-k",
+    "7"
+   ],
+   "dest": "meeting_top_k",
+   "expected": 7,
+   "path": [
+    "agent",
+    "prfix"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "prfix",
+    "--pr",
+    "7",
+    "--branch",
+    "x-branch-1",
+    "--meeting-max-bytes",
+    "7"
+   ],
+   "dest": "meeting_max_bytes",
+   "expected": 7,
+   "path": [
+    "agent",
+    "prfix"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "prfix",
+    "--pr",
+    "7",
+    "--branch",
+    "x-branch-1",
+    "--slack-query",
+    "x-slack_query-1"
+   ],
+   "dest": "slack_query",
+   "expected": "x-slack_query-1",
+   "path": [
+    "agent",
+    "prfix"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "prfix",
+    "--pr",
+    "7",
+    "--branch",
+    "x-branch-1",
+    "--chat",
+    "x-chat-1"
+   ],
+   "dest": "chat",
+   "expected": "x-chat-1",
+   "path": [
+    "agent",
+    "prfix"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "prfix",
+    "--pr",
+    "7",
+    "--branch",
+    "x-branch-1",
+    "--slack-top-k",
+    "7"
+   ],
+   "dest": "slack_top_k",
+   "expected": 7,
+   "path": [
+    "agent",
+    "prfix"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "prfix",
+    "--pr",
+    "7",
+    "--branch",
+    "x-branch-1",
+    "--slack-max-bytes",
+    "7"
+   ],
+   "dest": "slack_max_bytes",
+   "expected": 7,
+   "path": [
+    "agent",
+    "prfix"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "implement",
+    "--ticket-key",
+    "x-ticket_key-1",
+    "--company",
+    "x-company-1"
+   ],
+   "dest": "company",
+   "expected": "x-company-1",
+   "path": [
+    "agent",
+    "implement"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "implement",
+    "--ticket-key",
+    "x-ticket_key-1",
+    "--owner",
+    "x-owner-1"
+   ],
+   "dest": "owner",
+   "expected": "x-owner-1",
+   "path": [
+    "agent",
+    "implement"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "implement",
+    "--ticket-key",
+    "x-ticket_key-1",
+    "--repo",
+    "x-repo-1"
+   ],
+   "dest": "repo",
+   "expected": "x-repo-1",
+   "path": [
+    "agent",
+    "implement"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "implement",
+    "--ticket-key",
+    "x-ticket_key-1",
+    "--provider",
+    "bitbucket"
+   ],
+   "dest": "provider",
+   "expected": "bitbucket",
+   "path": [
+    "agent",
+    "implement"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "implement",
+    "--ticket-key",
+    "x-ticket_key-1",
+    "--store",
+    "postgres"
+   ],
+   "dest": "store",
+   "expected": "postgres",
+   "path": [
+    "agent",
+    "implement"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "implement",
+    "--ticket-key",
+    "x-ticket_key-1",
+    "--root",
+    "x-knowledge-1"
+   ],
+   "dest": "knowledge",
+   "expected": "x-knowledge-1",
+   "path": [
+    "agent",
+    "implement"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "implement",
+    "--ticket-key",
+    "x-ticket_key-1",
+    "--model",
+    "x-model-1"
+   ],
+   "dest": "model",
+   "expected": "x-model-1",
+   "path": [
+    "agent",
+    "implement"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "implement",
+    "--ticket-key",
+    "x-ticket_key-1",
+    "--max-iter",
+    "7"
+   ],
+   "dest": "max_iter",
+   "expected": 7,
+   "path": [
+    "agent",
+    "implement"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "implement",
+    "--ticket-key",
+    "x-ticket_key-1",
+    "--git-user-name",
+    "x-git_user_name-1"
+   ],
+   "dest": "git_user_name",
+   "expected": "x-git_user_name-1",
+   "path": [
+    "agent",
+    "implement"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "implement",
+    "--ticket-key",
+    "x-ticket_key-1",
+    "--git-user-email",
+    "x-git_user_email-1"
+   ],
+   "dest": "git_user_email",
+   "expected": "x-git_user_email-1",
+   "path": [
+    "agent",
+    "implement"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "implement",
+    "--ticket-key",
+    "x-ticket_key-1",
+    "--keep-worktree"
+   ],
+   "dest": "keep_worktree",
+   "expected": true,
+   "path": [
+    "agent",
+    "implement"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "implement",
+    "--ticket-key",
+    "x-ticket_key-1",
+    "--ticket-project",
+    "x-ticket_project-1"
+   ],
+   "dest": "ticket_project",
+   "expected": "x-ticket_project-1",
+   "path": [
+    "agent",
+    "implement"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "implement",
+    "--ticket-key",
+    "x-ticket_key-1",
+    "--tracker",
+    "github-issues"
+   ],
+   "dest": "tracker",
+   "expected": "github-issues",
+   "path": [
+    "agent",
+    "implement"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "implement",
+    "--ticket-key",
+    "x-ticket_key-1",
+    "--branch-name",
+    "x-branch_name-1"
+   ],
+   "dest": "branch_name",
+   "expected": "x-branch_name-1",
+   "path": [
+    "agent",
+    "implement"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "implement",
+    "--ticket-key",
+    "x-ticket_key-1",
+    "--base-branch",
+    "x-base_branch-1"
+   ],
+   "dest": "base_branch",
+   "expected": "x-base_branch-1",
+   "path": [
+    "agent",
+    "implement"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "implement",
+    "--ticket-key",
+    "x-ticket_key-1",
+    "--dry-run"
+   ],
+   "dest": "dry_run",
+   "expected": true,
+   "path": [
+    "agent",
+    "implement"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "implement",
+    "--ticket-key",
+    "x-ticket_key-1",
+    "--runbook",
+    "x-runbook-1"
+   ],
+   "dest": "runbook",
+   "expected": "x-runbook-1",
+   "path": [
+    "agent",
+    "implement"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "implement",
+    "--ticket-key",
+    "x-ticket_key-1",
+    "--meeting-key",
+    "x-meeting_key-1"
+   ],
+   "dest": "meeting_key",
+   "expected": "x-meeting_key-1",
+   "path": [
+    "agent",
+    "implement"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "implement",
+    "--ticket-key",
+    "x-ticket_key-1",
+    "--meeting-query",
+    "x-meeting_query-1"
+   ],
+   "dest": "meeting_query",
+   "expected": "x-meeting_query-1",
+   "path": [
+    "agent",
+    "implement"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "implement",
+    "--ticket-key",
+    "x-ticket_key-1",
+    "--meeting",
+    "fireflies"
+   ],
+   "dest": "meeting",
+   "expected": "fireflies",
+   "path": [
+    "agent",
+    "implement"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "implement",
+    "--ticket-key",
+    "x-ticket_key-1",
+    "--meeting-top-k",
+    "7"
+   ],
+   "dest": "meeting_top_k",
+   "expected": 7,
+   "path": [
+    "agent",
+    "implement"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "implement",
+    "--ticket-key",
+    "x-ticket_key-1",
+    "--meeting-max-bytes",
+    "7"
+   ],
+   "dest": "meeting_max_bytes",
+   "expected": 7,
+   "path": [
+    "agent",
+    "implement"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "implement",
+    "--ticket-key",
+    "x-ticket_key-1",
+    "--slack-query",
+    "x-slack_query-1"
+   ],
+   "dest": "slack_query",
+   "expected": "x-slack_query-1",
+   "path": [
+    "agent",
+    "implement"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "implement",
+    "--ticket-key",
+    "x-ticket_key-1",
+    "--chat",
+    "x-chat-1"
+   ],
+   "dest": "chat",
+   "expected": "x-chat-1",
+   "path": [
+    "agent",
+    "implement"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "implement",
+    "--ticket-key",
+    "x-ticket_key-1",
+    "--slack-top-k",
+    "7"
+   ],
+   "dest": "slack_top_k",
+   "expected": 7,
+   "path": [
+    "agent",
+    "implement"
+   ]
+  },
+  {
+   "argv": [
+    "agent",
+    "implement",
+    "--ticket-key",
+    "x-ticket_key-1",
+    "--slack-max-bytes",
+    "7"
+   ],
+   "dest": "slack_max_bytes",
+   "expected": 7,
+   "path": [
+    "agent",
+    "implement"
+   ]
+  },
+  {
+   "argv": [
+    "auth",
+    "login",
+    "github-device",
+    "--company",
+    "x-company-1"
+   ],
+   "dest": "company",
+   "expected": "x-company-1",
+   "path": [
+    "auth",
+    "login"
+   ]
+  },
+  {
+   "argv": [
+    "auth",
+    "login",
+    "github-device",
+    "--cred-store",
+    "envfile"
+   ],
+   "dest": "cred_store",
+   "expected": "envfile",
+   "path": [
+    "auth",
+    "login"
+   ]
+  },
+  {
+   "argv": [
+    "auth",
+    "logout",
+    "github-device",
+    "--company",
+    "x-company-1"
+   ],
+   "dest": "company",
+   "expected": "x-company-1",
+   "path": [
+    "auth",
+    "logout"
+   ]
+  },
+  {
+   "argv": [
+    "auth",
+    "logout",
+    "github-device",
+    "--cred-store",
+    "envfile"
+   ],
+   "dest": "cred_store",
+   "expected": "envfile",
+   "path": [
+    "auth",
+    "logout"
+   ]
+  },
+  {
+   "argv": [
+    "auth",
+    "logout",
+    "github-device",
+    "--yes"
+   ],
+   "dest": "yes",
+   "expected": true,
+   "path": [
+    "auth",
+    "logout"
+   ]
+  },
+  {
+   "argv": [
+    "auth",
+    "refresh",
+    "github-device",
+    "--company",
+    "x-company-1"
+   ],
+   "dest": "company",
+   "expected": "x-company-1",
+   "path": [
+    "auth",
+    "refresh"
+   ]
+  },
+  {
+   "argv": [
+    "auth",
+    "refresh",
+    "github-device",
+    "--cred-store",
+    "envfile"
+   ],
+   "dest": "cred_store",
+   "expected": "envfile",
+   "path": [
+    "auth",
+    "refresh"
+   ]
+  },
+  {
+   "argv": [
+    "auth",
+    "list",
+    "--cred-store",
+    "envfile"
+   ],
+   "dest": "cred_store",
+   "expected": "envfile",
+   "path": [
+    "auth",
+    "list"
+   ]
+  },
+  {
+   "argv": [
+    "auth",
+    "list",
+    "--company",
+    "x-company-1"
+   ],
+   "dest": "company",
+   "expected": "x-company-1",
+   "path": [
+    "auth",
+    "list"
+   ]
+  },
+  {
+   "argv": [
+    "auth",
+    "status",
+    "github-device",
+    "--company",
+    "x-company-1"
+   ],
+   "dest": "company",
+   "expected": "x-company-1",
+   "path": [
+    "auth",
+    "status"
+   ]
+  },
+  {
+   "argv": [
+    "auth",
+    "status",
+    "github-device",
+    "--cred-store",
+    "envfile"
+   ],
+   "dest": "cred_store",
+   "expected": "envfile",
+   "path": [
+    "auth",
+    "status"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "build",
+    "x-board-1",
+    "--name",
+    "x-name-1"
+   ],
+   "dest": "name",
+   "expected": "x-name-1",
+   "path": [
+    "plan",
+    "build"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "build",
+    "x-board-1",
+    "--default-branch",
+    "x-default_branch-1"
+   ],
+   "dest": "default_branch",
+   "expected": "x-default_branch-1",
+   "path": [
+    "plan",
+    "build"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "build",
+    "x-board-1",
+    "--max-cards",
+    "7"
+   ],
+   "dest": "max_cards",
+   "expected": 7,
+   "path": [
+    "plan",
+    "build"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "build",
+    "x-board-1",
+    "--with-knowledge"
+   ],
+   "dest": "with_knowledge",
+   "expected": true,
+   "path": [
+    "plan",
+    "build"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "build",
+    "x-board-1",
+    "--print"
+   ],
+   "dest": "print",
+   "expected": true,
+   "path": [
+    "plan",
+    "build"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "build",
+    "x-board-1",
+    "--dry-run"
+   ],
+   "dest": "dry_run",
+   "expected": true,
+   "path": [
+    "plan",
+    "build"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "build",
+    "x-board-1",
+    "--llm",
+    "anthropic"
+   ],
+   "dest": "llm",
+   "expected": "anthropic",
+   "path": [
+    "plan",
+    "build"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "build",
+    "x-board-1",
+    "--model",
+    "x-model-1"
+   ],
+   "dest": "model",
+   "expected": "x-model-1",
+   "path": [
+    "plan",
+    "build"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "build",
+    "x-board-1",
+    "--store",
+    "postgres"
+   ],
+   "dest": "store",
+   "expected": "postgres",
+   "path": [
+    "plan",
+    "build"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "build",
+    "x-board-1",
+    "--root",
+    "x-root-1"
+   ],
+   "dest": "root",
+   "expected": "x-root-1",
+   "path": [
+    "plan",
+    "build"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "build",
+    "x-board-1",
+    "--company",
+    "x-company-1"
+   ],
+   "dest": "company",
+   "expected": "x-company-1",
+   "path": [
+    "plan",
+    "build"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "show",
+    "x-name-1",
+    "--store",
+    "postgres"
+   ],
+   "dest": "store",
+   "expected": "postgres",
+   "path": [
+    "plan",
+    "show"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "show",
+    "x-name-1",
+    "--root",
+    "x-root-1"
+   ],
+   "dest": "root",
+   "expected": "x-root-1",
+   "path": [
+    "plan",
+    "show"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "show",
+    "x-name-1",
+    "--company",
+    "x-company-1"
+   ],
+   "dest": "company",
+   "expected": "x-company-1",
+   "path": [
+    "plan",
+    "show"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "status",
+    "x-name-1",
+    "--store",
+    "postgres"
+   ],
+   "dest": "store",
+   "expected": "postgres",
+   "path": [
+    "plan",
+    "status"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "status",
+    "x-name-1",
+    "--root",
+    "x-root-1"
+   ],
+   "dest": "root",
+   "expected": "x-root-1",
+   "path": [
+    "plan",
+    "status"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "status",
+    "x-name-1",
+    "--company",
+    "x-company-1"
+   ],
+   "dest": "company",
+   "expected": "x-company-1",
+   "path": [
+    "plan",
+    "status"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "status",
+    "x-name-1",
+    "--journal-store",
+    "file"
+   ],
+   "dest": "journal_store",
+   "expected": "file",
+   "path": [
+    "plan",
+    "status"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "status",
+    "x-name-1",
+    "--journal-root",
+    "x-journal_root-1"
+   ],
+   "dest": "journal_root",
+   "expected": "x-journal_root-1",
+   "path": [
+    "plan",
+    "status"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "next",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--model",
+    "x-model-1"
+   ],
+   "dest": "model",
+   "expected": "x-model-1",
+   "path": [
+    "plan",
+    "next"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "next",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--store",
+    "postgres"
+   ],
+   "dest": "store",
+   "expected": "postgres",
+   "path": [
+    "plan",
+    "next"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "next",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--root",
+    "x-root-1"
+   ],
+   "dest": "root",
+   "expected": "x-root-1",
+   "path": [
+    "plan",
+    "next"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "next",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--company",
+    "x-company-1"
+   ],
+   "dest": "company",
+   "expected": "x-company-1",
+   "path": [
+    "plan",
+    "next"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "next",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--journal-store",
+    "file"
+   ],
+   "dest": "journal_store",
+   "expected": "file",
+   "path": [
+    "plan",
+    "next"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "next",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--journal-root",
+    "x-journal_root-1"
+   ],
+   "dest": "journal_root",
+   "expected": "x-journal_root-1",
+   "path": [
+    "plan",
+    "next"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "advance",
+    "--card",
+    "x-card-1",
+    "x-name-1",
+    "--status",
+    "pending"
+   ],
+   "dest": "status",
+   "expected": "pending",
+   "path": [
+    "plan",
+    "advance"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "advance",
+    "--card",
+    "x-card-1",
+    "x-name-1",
+    "--store",
+    "postgres"
+   ],
+   "dest": "store",
+   "expected": "postgres",
+   "path": [
+    "plan",
+    "advance"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "advance",
+    "--card",
+    "x-card-1",
+    "x-name-1",
+    "--root",
+    "x-root-1"
+   ],
+   "dest": "root",
+   "expected": "x-root-1",
+   "path": [
+    "plan",
+    "advance"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "advance",
+    "--card",
+    "x-card-1",
+    "x-name-1",
+    "--company",
+    "x-company-1"
+   ],
+   "dest": "company",
+   "expected": "x-company-1",
+   "path": [
+    "plan",
+    "advance"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "list",
+    "--store",
+    "postgres"
+   ],
+   "dest": "store",
+   "expected": "postgres",
+   "path": [
+    "plan",
+    "list"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "list",
+    "--root",
+    "x-root-1"
+   ],
+   "dest": "root",
+   "expected": "x-root-1",
+   "path": [
+    "plan",
+    "list"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "list",
+    "--company",
+    "x-company-1"
+   ],
+   "dest": "company",
+   "expected": "x-company-1",
+   "path": [
+    "plan",
+    "list"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "clear",
+    "x-name-1",
+    "--yes"
+   ],
+   "dest": "yes",
+   "expected": true,
+   "path": [
+    "plan",
+    "clear"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "clear",
+    "x-name-1",
+    "--store",
+    "postgres"
+   ],
+   "dest": "store",
+   "expected": "postgres",
+   "path": [
+    "plan",
+    "clear"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "clear",
+    "x-name-1",
+    "--root",
+    "x-root-1"
+   ],
+   "dest": "root",
+   "expected": "x-root-1",
+   "path": [
+    "plan",
+    "clear"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "clear",
+    "x-name-1",
+    "--company",
+    "x-company-1"
+   ],
+   "dest": "company",
+   "expected": "x-company-1",
+   "path": [
+    "plan",
+    "clear"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--limit",
+    "7"
+   ],
+   "dest": "limit",
+   "expected": 7,
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--continue-on-failure"
+   ],
+   "dest": "continue_on_failure",
+   "expected": true,
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--max-replans",
+    "7"
+   ],
+   "dest": "max_replans",
+   "expected": 7,
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--owner",
+    "x-owner-1"
+   ],
+   "dest": "owner",
+   "expected": "x-owner-1",
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--repo",
+    "x-repo-1"
+   ],
+   "dest": "repo",
+   "expected": "x-repo-1",
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--tracker-project",
+    "x-tracker_project-1"
+   ],
+   "dest": "tracker_project",
+   "expected": "x-tracker_project-1",
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--tracker",
+    "bitbucket-issues"
+   ],
+   "dest": "tracker",
+   "expected": "bitbucket-issues",
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--provider",
+    "bitbucket"
+   ],
+   "dest": "provider",
+   "expected": "bitbucket",
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--max-iter",
+    "7"
+   ],
+   "dest": "max_iter",
+   "expected": 7,
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--git-user-name",
+    "x-git_user_name-1"
+   ],
+   "dest": "git_user_name",
+   "expected": "x-git_user_name-1",
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--git-user-email",
+    "x-git_user_email-1"
+   ],
+   "dest": "git_user_email",
+   "expected": "x-git_user_email-1",
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--keep-worktree"
+   ],
+   "dest": "keep_worktree",
+   "expected": true,
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--dry-run"
+   ],
+   "dest": "dry_run",
+   "expected": true,
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--runbook",
+    "x-runbook-1"
+   ],
+   "dest": "runbook",
+   "expected": "x-runbook-1",
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--meeting-key",
+    "x-meeting_key-1"
+   ],
+   "dest": "meeting_key",
+   "expected": "x-meeting_key-1",
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--meeting-query",
+    "x-meeting_query-1"
+   ],
+   "dest": "meeting_query",
+   "expected": "x-meeting_query-1",
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--meeting",
+    "fireflies"
+   ],
+   "dest": "meeting",
+   "expected": "fireflies",
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--meeting-top-k",
+    "7"
+   ],
+   "dest": "meeting_top_k",
+   "expected": 7,
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--meeting-max-bytes",
+    "7"
+   ],
+   "dest": "meeting_max_bytes",
+   "expected": 7,
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--slack-query",
+    "x-slack_query-1"
+   ],
+   "dest": "slack_query",
+   "expected": "x-slack_query-1",
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--chat",
+    "x-chat-1"
+   ],
+   "dest": "chat",
+   "expected": "x-chat-1",
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--slack-top-k",
+    "7"
+   ],
+   "dest": "slack_top_k",
+   "expected": 7,
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--slack-max-bytes",
+    "7"
+   ],
+   "dest": "slack_max_bytes",
+   "expected": 7,
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--model",
+    "x-model-1"
+   ],
+   "dest": "model",
+   "expected": "x-model-1",
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--store",
+    "postgres"
+   ],
+   "dest": "store",
+   "expected": "postgres",
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--root",
+    "x-root-1"
+   ],
+   "dest": "root",
+   "expected": "x-root-1",
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--company",
+    "x-company-1"
+   ],
+   "dest": "company",
+   "expected": "x-company-1",
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--journal-store",
+    "file"
+   ],
+   "dest": "journal_store",
+   "expected": "file",
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "plan",
+    "run",
+    "--llm",
+    "anthropic",
+    "x-name-1",
+    "--journal-root",
+    "x-journal_root-1"
+   ],
+   "dest": "journal_root",
+   "expected": "x-journal_root-1",
+   "path": [
+    "plan",
+    "run"
+   ]
+  },
+  {
+   "argv": [
+    "secrets",
+    "doctor",
+    "--examples",
+    "x-examples-1"
+   ],
+   "dest": "examples",
+   "expected": {
+    "path": "x-examples-1"
+   },
+   "path": [
+    "secrets",
+    "doctor"
+   ]
+  },
+  {
+   "argv": [
+    "secrets",
+    "doctor",
+    "--cred-store",
+    "envfile"
+   ],
+   "dest": "cred_store",
+   "expected": "envfile",
+   "path": [
+    "secrets",
+    "doctor"
+   ]
+  },
+  {
+   "argv": [
+    "secrets",
+    "bootstrap",
+    "--kind",
+    "envfile"
+   ],
+   "dest": "kind",
+   "expected": "envfile",
+   "path": [
+    "secrets",
+    "bootstrap"
+   ]
+  },
+  {
+   "argv": [
+    "secrets",
+    "bootstrap",
+    "--dry-run"
+   ],
+   "dest": "dry_run",
+   "expected": true,
+   "path": [
+    "secrets",
+    "bootstrap"
+   ]
+  },
+  {
+   "argv": [
+    "journal",
+    "list",
+    "--store",
+    "file"
+   ],
+   "dest": "journal_store",
+   "expected": "file",
+   "path": [
+    "journal",
+    "list"
+   ]
+  },
+  {
+   "argv": [
+    "journal",
+    "list",
+    "--root",
+    "x-journal_root-1"
+   ],
+   "dest": "journal_root",
+   "expected": "x-journal_root-1",
+   "path": [
+    "journal",
+    "list"
+   ]
+  },
+  {
+   "argv": [
+    "journal",
+    "list",
+    "--command",
+    "x-command_filter-1"
+   ],
+   "dest": "command_filter",
+   "expected": "x-command_filter-1",
+   "path": [
+    "journal",
+    "list"
+   ]
+  },
+  {
+   "argv": [
+    "journal",
+    "list",
+    "--limit",
+    "7"
+   ],
+   "dest": "limit",
+   "expected": 7,
+   "path": [
+    "journal",
+    "list"
+   ]
+  },
+  {
+   "argv": [
+    "journal",
+    "show",
+    "x-session_id-1",
+    "--store",
+    "file"
+   ],
+   "dest": "journal_store",
+   "expected": "file",
+   "path": [
+    "journal",
+    "show"
+   ]
+  },
+  {
+   "argv": [
+    "journal",
+    "show",
+    "x-session_id-1",
+    "--root",
+    "x-journal_root-1"
+   ],
+   "dest": "journal_root",
+   "expected": "x-journal_root-1",
+   "path": [
+    "journal",
+    "show"
+   ]
+  },
+  {
+   "argv": [
+    "journal",
+    "export",
+    "x-session_id-1",
+    "--store",
+    "file"
+   ],
+   "dest": "journal_store",
+   "expected": "file",
+   "path": [
+    "journal",
+    "export"
+   ]
+  },
+  {
+   "argv": [
+    "journal",
+    "export",
+    "x-session_id-1",
+    "--root",
+    "x-journal_root-1"
+   ],
+   "dest": "journal_root",
+   "expected": "x-journal_root-1",
+   "path": [
+    "journal",
+    "export"
+   ]
+  },
+  {
+   "argv": [
+    "journal",
+    "export",
+    "x-session_id-1",
+    "--as",
+    "json"
+   ],
+   "dest": "export_format",
+   "expected": "json",
+   "path": [
+    "journal",
+    "export"
+   ]
+  },
+  {
+   "argv": [
+    "journal",
+    "export",
+    "x-session_id-1",
+    "--out",
+    "x-out-1"
+   ],
+   "dest": "out",
+   "expected": "x-out-1",
+   "path": [
+    "journal",
+    "export"
+   ]
+  },
+  {
+   "argv": [
+    "telemetry",
+    "preview",
+    "--for-command",
+    "x-preview_command-1"
+   ],
+   "dest": "preview_command",
+   "expected": "x-preview_command-1",
+   "path": [
+    "telemetry",
+    "preview"
+   ]
+  },
+  {
+   "argv": [
+    "init",
+    "--company",
+    "x-company-1"
+   ],
+   "dest": "company",
+   "expected": "x-company-1",
+   "path": [
+    "init"
+   ]
+  },
+  {
+   "argv": [
+    "init",
+    "--store",
+    "postgres"
+   ],
+   "dest": "store",
+   "expected": "postgres",
+   "path": [
+    "init"
+   ]
+  },
+  {
+   "argv": [
+    "init",
+    "--owner",
+    "x-owner-1"
+   ],
+   "dest": "owner",
+   "expected": "x-owner-1",
+   "path": [
+    "init"
+   ]
+  },
+  {
+   "argv": [
+    "init",
+    "--repo",
+    "x-repo-1"
+   ],
+   "dest": "repo",
+   "expected": "x-repo-1",
+   "path": [
+    "init"
+   ]
+  },
+  {
+   "argv": [
+    "init",
+    "--path",
+    "x-path-1"
+   ],
+   "dest": "path",
+   "expected": "x-path-1",
+   "path": [
+    "init"
+   ]
+  },
+  {
+   "argv": [
+    "init",
+    "--force"
+   ],
+   "dest": "force",
+   "expected": true,
+   "path": [
+    "init"
+   ]
+  }
+ ]
+}
