@@ -158,6 +158,7 @@ commands = ["<test command>", "<lint command>"]
 - R10. 1.x bug found by reading the code, not by running it: `agent/runner.py` wraps tool results in `{"role": "user", "content": [...]}`, while `openai_llm.py:86` returns `{"role": "tool", ...}` items, and Gemini and Bedrock return whole messages. Multi-turn tool use on those three providers probably sends invalid messages. 2.0 deletes this code; whether to fix it in 1.x is not decided.
 - R11. Apprise (D29) changes the config format of the runbook `messages:` block and of `BRIAR_NOTIFY_SINKS`. This is allowed by D1, but needs migration notes.
 - R12. The selector (D19) has a known 1.x bug (it trusts the plan notes over the card status), and with D20 it must now pick several independent cards at once.
+- R13 (found 2026-11-10 while building spec 002). `release.yml` bumps only the patch number on every push to `main`, and `pyproject.toml` on `v2` says `1.1.101`, so merging `v2` (D27) would publish 1.1.102, not 2.0.0. How the 2.0 release is cut is not decided and is in no spec yet.
 
 ## Left for the spec (not decided here)
 

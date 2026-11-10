@@ -25,23 +25,24 @@ user's machine and does two things:
 No server, no account. There was a SaaS version; it is archived and lives
 only in the private site repo.
 
-## 2. Quick facts (checked 2026-10-29)
+## 2. Quick facts (checked 2026-11-10)
 
 | Thing | Value |
 |---|---|
-| Latest version | 1.1.100 (PyPI, Docker Hub `iklob1/briar:1.1.100`, GitHub Release `v1.1.100` = latest) |
-| Python | 3.10, 3.11, 3.12 (CI runs all three) |
-| Release trigger | every push to `main`, except `chore(release):` commits |
+| Latest version | 1.1.101 (PyPI and GitHub Release `v1.1.101` = latest) |
+| Python | 3.10, 3.11, 3.12 (CI unit jobs); the integration job runs on whatever `uv` picks (3.14 in CI) |
+| Release trigger | every push to `main`, except `chore(release):` commits; it bumps the patch only |
+| 2.0 | in progress on branch `v2` (still equal to `main`); 11 stacked PRs open, #79 to #89. Status and handoff: `docs/briar-2-status.md` |
 | MCP registry | `io.github.iklobato/briar`, latest 1.1.94; stays there, 2.0 has no MCP server |
 | Open issues | #76, #77 (section 8) |
-| Open PRs | none |
-| Stars / forks | 2 / 0 |
+| Open PRs | #79 to #89, all into `v2`, CI green, not reviewed |
+| Stars / forks | 3 / 0 |
 
 ## 3. Repo layout
 
 | Path | What is there |
 |---|---|
-| `src/briar/cli.py` | Entry point `main()`: global flags (`--format`, `-v`, `--version` anywhere), startup work, then runs the parsed command with exit codes 0/1/2/130 |
+| `src/briar/cli.py` | Entry point `main()`: global flags (`--format`, `-v`, `--version` anywhere), startup work (skipped for help, completion and `--version`), then runs the parsed command with exit codes 0/1/2/130. On `main` (1.x) it still builds the whole argparse parser |
 | `src/briar/cli_app.py` | The Typer app (2.0, spec 002). Each command declares its options as a `CommandOptions` dataclass in its own module; only `extract` still goes through `PassThrough` to its argparse parser (until spec 004), and `config.py` keeps the argparse shim it needs |
 | `src/briar/settings.py` | Where a setting comes from: env > `.briar.toml` / `[tool.briar]` > git origin > default; feeds `config show` and the Typer default map |
 | `src/briar/commands/` | One module per top-level command (`extract`, `agent`, `plan`, `runbook`, `context`, `auth`, ...) |
@@ -53,16 +54,21 @@ only in the private site repo.
 | `src/briar/iac/runbook/` | Runbook loader, executor, `scheduler.py` (`runbook serve`) |
 | `src/briar/credentials/` | The env-file credential store (2.0 removed AWS Secrets Manager, SSM and Vault) and `_removed_stores.py`, which stops a run whose `BRIAR_DEFAULT_STORE` names a removed one |
 | `agents/*.md` | The user manual, one file per command (linked from the README) |
-| `docs/decisions/` | The agreed 2.0 scope (D1-D36), the reference for every 2.0 PR |
+| `docs/decisions/` | The agreed 2.0 scope: `2026-11-10-briar-2-pipeline.md` (D1-D36, plus D29a, D29b, D32a) and `2026-11-10-briar-2-source-logins.md` (L1-L21). The reference for every 2.0 PR |
+| `docs/briar-2-status.md` | 2.0 handoff: the PR stack, what is done, how the 2.0 CLI works, findings, next steps, what to watch |
 | `docs/diagrams/`, `docs/demo/` | README images (section 9) |
 | `examples/` | Runbook YAML examples |
 
 ## 4. How to work in this repo
 
-- **Branch from `briar/main`.** In the maintainer's local checkout the
-  remote is named `briar`, not `origin`, and the checked-out branch is an
-  old feature branch. Always `git fetch briar` and branch from
+- **Branch from `briar/main`** for 1.x work. In the maintainer's local
+  checkout the remote is named `briar`, not `origin`, and the checked-out
+  branch is an old feature branch. Always `git fetch briar` and branch from
   `briar/main`.
+- **2.0 work goes to `v2`, not `main`** (decision D27). The open 2.0 PRs are
+  stacked: branch a new 2.0 PR from the top of the stack (now
+  `cli/06-removals-docs`, PR #89) and target `v2`. Read
+  `docs/briar-2-status.md` first.
 - **A merge to `main` is a public release.** `.github/workflows/release.yml`
   runs the unit tests (`uv run pytest -n auto -m "not integration"`),
   bumps the patch version, builds, pushes the tag, uploads to PyPI, pushes
@@ -79,9 +85,10 @@ only in the private site repo.
   new test to `main`. Some old tests pinned wrong behavior; a fix must
   update them too. `CONTRIBUTING.md` lists the test gotchas (hermetic
   `cli` fixture, `-p no:tldr`, `-p no:randomly`).
-- **Lint.** black and ruff (line length 100). The repo is not clean
-  repo-wide under ruff and mypy; keep your changed files clean and compare
-  counts before and after.
+- **Lint.** black (line length 160, from `pyproject.toml`) and ruff (its
+  default rules; no `[tool.ruff]` section). The repo is not clean repo-wide
+  under black, ruff and mypy (73 mypy errors on 2026-11-10); keep your
+  changed files clean and compare counts before and after.
 - **Fake secrets in docs must look fake.** GitGuardian blocks PRs on
   realistic ones (`ghp_...` with a real-looking body, `sk-ant-api03-...`,
   `postgresql://user:pass@`). Use `<placeholder>` or `sk-ant-...`.
@@ -132,8 +139,10 @@ only in the private site repo.
   serve` call `daemon_logging()` and always print INFO progress;
   `BRIAR_LOG_LEVEL=WARNING` does not quiet them.
 - **`briar init`** reads `git remote get-url origin` for owner and repo.
-  Settings resolve as flag > env var > `.briar.toml` > default
-  (`briar config show` prints the source of each).
+  Settings resolve as flag > env var > `.briar.toml` (or `[tool.briar]` in
+  `pyproject.toml`) > git origin (owner and repo) > default; only one config
+  file is read, never a merge (`briar config show` prints the source of
+  each). Pinned by `tests/unit/cli/test_settings_precedence.py` on `v2`.
 - **`context` commands** default to the file store even when
   `BRIAR_DATABASE_URL` is set; `BRIAR_STORE=postgres` switches them.
 - **`briar journal`** records only `plan run` sessions, not standalone
@@ -181,9 +190,19 @@ Full detail per version is in `CHANGELOG.md`. In short:
   README diagrams copied from usebriar.com (1.1.99); README rewritten for
   newcomers with badges, glossary and "Learn briar in 3 examples" with
   GIFs (1.1.100).
+- **2.0, on `v2`, unreleased (2026-11-10)**: spec 001 cleanup (PRs #79 to
+  #83: scaffold, dashboard, chat, MCP server, default MCP servers, remote
+  credential stores removed; telemetry opt-in) and spec 002 (PRs #84 to #89:
+  every command but `extract` parsed by Typer with the same namespace in
+  `run()`, the 1.x aliases and `briar completion` removed, Typer completion
+  added). Details and numbers: `docs/briar-2-status.md`.
 
 ## 7. Next steps (in order)
 
+0. **2.0**: review and merge PRs #79 to #89 into `v2` in order; decide how
+   2.0 is released before `v2` merges to `main` (the workflow would publish
+   1.1.102); then specs 003, 004, 005. Order and detail:
+   `docs/briar-2-status.md` section 5.
 1. Fix #77 (small): treat GitHub's `404 no analysis found` as "no data"
    without a traceback; keep other errors logged. Then check the same
    `@swallow_errors` pattern for other expected 404s (for example a
@@ -197,6 +216,10 @@ Full detail per version is in `CHANGELOG.md`. In short:
 5. The MCP registry stays at 1.1.94; 2.0 has no MCP server.
 
 ## 8. What is still open
+
+**2.0**: see `docs/briar-2-status.md` section 6 (extract still on argparse,
+startup about 60 ms slower than 1.x, site docs and two README diagrams still
+show removed commands, release mechanics for 2.0 not decided).
 
 **Filed issues (2026-10-29, both reproduced on 1.1.99, acceptance
 criteria in each):**
@@ -235,6 +258,9 @@ that writes data.
 
 ## 9. What to watch
 
+- **2.0 stack and release**: `docs/briar-2-status.md` section 7 (stacked PRs,
+  the release that a `v2` to `main` merge triggers, the integration job on
+  Python 3.14, Typer upgrades, the 1.x CLI contract file).
 - **Release runs.** A random test failure has blocked a release before
   (telemetry banner, fixed in 1.1.80; one other failure on 2026-06-25,
   cause not checked). After every merge, check that the run is green and
