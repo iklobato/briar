@@ -85,12 +85,12 @@ class TestSmokeVersionAndHelp:
         result = _run(tmp_path, "--help")
         assert result.returncode == 0, result.stderr
         # The help text enumerates the command surface.
-        for command in ("scaffold", "context", "telemetry", "journal", "runbook", "secrets"):
+        for command in ("context", "telemetry", "journal", "runbook", "secrets"):
             assert command in result.stdout
 
     @pytest.mark.parametrize(
         "command",
-        ["scaffold", "context", "telemetry", "journal", "runbook", "secrets", "dashboard", "version"],
+        ["context", "telemetry", "journal", "runbook", "secrets", "dashboard", "version"],
         ids=lambda c: f"help-{c}",
     )
     def test_per_command_help_exit_0(self, tmp_path, command) -> None:
@@ -113,45 +113,6 @@ class TestSmokeTelemetryStatus:
 
 
 class TestSmokeScaffold:
-    def test_scaffold_implementation_to_stdout_emits_valid_json(self, tmp_path) -> None:
-        result = _run(
-            tmp_path,
-            "scaffold",
-            "implementation",
-            "--prefix",
-            "smoke",
-            "--source",
-            "github",
-            "--owner",
-            "alice",
-            "--repo",
-            "widgets",
-            "--out",
-            "-",
-        )
-        assert result.returncode == 0, result.stderr
-        bundle = json.loads(result.stdout)
-        # The flags flowed through the real composer.
-        assert bundle["version"] == 1
-        assert bundle["agents"][0]["key"] == "smoke-engineer"
-        assert bundle["sources"][0]["config"]["owner"] == "alice"
-        assert bundle["sources"][0]["config"]["repo"] == "alice/widgets"
-
-    def test_scaffold_missing_prefix_exit_2(self, tmp_path) -> None:
-        result = _run(
-            tmp_path,
-            "scaffold",
-            "implementation",
-            "--source",
-            "github",
-            "--owner",
-            "o",
-            "--repo",
-            "r",
-        )
-        # --prefix is required -> argparse usage error.
-        assert result.returncode == 2
-        assert "prefix" in result.stderr
 
     def test_unknown_command_exit_2(self, tmp_path) -> None:
         result = _run(tmp_path, "frobnicate")

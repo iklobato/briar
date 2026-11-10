@@ -7,8 +7,8 @@ Three subcommands, table-driven dispatch (same pattern as
   show     pretty-print one session as markdown
   export   write one session to a path (markdown or JSON)
 
-Recording is internal — instrumented call-sites (e.g. the scaffold
-composer) emit events via `briar.journal.record(...)`. The CLI surface
+Recording is internal — instrumented call-sites (e.g. `plan run`)
+emit events via `briar.journal.record(...)`. The CLI surface
 exposes the *read* side."""
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ class CommandJournal(Command):
             "--command",
             default="",
             dest="command_filter",
-            help="Filter by command prefix (e.g. `scaffold.`).",
+            help="Filter by command prefix (e.g. `plan.`).",
         )
         listing.add_argument("--limit", type=int, default=50)
 

@@ -30,12 +30,11 @@ They match briar-cli 1.1.75.
 | [runbook.md](runbook.md) | `briar runbook extract`, `sweep`, `serve`: run extractors from YAML, once or on a schedule. |
 | [agent.md](agent.md) | `briar agent implement`, `briar agent prfix`: an AI agent that opens a draft PR for a ticket, or fixes review comments on a PR. |
 | [plan.md](plan.md) | `briar plan build`, `show`, `status`, `next`, `advance`, `run`, `list`, `clear`: turn a board into a plan and run it card by card. |
-| [scaffold.md](scaffold.md) | `briar scaffold implementation`, `briar scaffold pr-fixes`: write a JSON config bundle for an agent workflow. |
 | [context.md](context.md) | `briar context put`, `get`, `list`, `delete`, `categories`: read and write knowledge blobs. |
 | [dashboard.md](dashboard.md) | `briar dashboard`: a read-only status page. |
 | [auth.md](auth.md) | `briar auth login`, `logout`, `refresh`, `list`, `status`: save and manage credentials. |
 | [creds.md](creds.md) | `briar secrets doctor`, `briar secrets bootstrap`: find missing credentials. |
-| [journal.md](journal.md) | `briar journal list`, `show`, `export`: read the decisions that `plan run` and `scaffold` recorded. |
+| [journal.md](journal.md) | `briar journal list`, `show`, `export`: read the decisions that `plan run` recorded. |
 | [mcp.md](mcp.md) | `briar mcp serve`, `briar chat`: serve briar as MCP tools, or use them from a chat in your terminal. |
 | [telemetry.md](telemetry.md) | `briar telemetry status`, `preview`, `off`, `errors-only`, `full`, `reset`: control what usage data is sent. |
 
@@ -114,8 +113,8 @@ It lists what each runbook still needs. See [creds.md](creds.md) and
 
 ## The journal
 
-`briar plan run` and `briar scaffold` record each decision they make in
-a journal session under `./journal/`. Other commands do not write one.
+`briar plan run` records each decision it makes in a journal session
+under `./journal/`. Other commands do not write one.
 Read them with `briar journal list`, `show` and `export`. Sessions are
 append-only. Set `BRIAR_JOURNAL=off` to turn the journal off. See
 [journal.md](journal.md).

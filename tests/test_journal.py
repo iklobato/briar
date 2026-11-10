@@ -6,27 +6,21 @@ Covers the four seams:
 - Sink (FileSink) — markdown publish
 - Journal façade — record routing, store-on-close, sink fan-out,
   null-object default when no journal is installed
-
-Plus one integration test: the scaffold composer, run end-to-end with
-an installed journal, records the expected decisions.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
-from briar.iac import TEMPLATES
 from briar.journal import (
     DecisionEvent,
     Journal,
     JOURNAL_STORE_NAMES,
     Session,
-    active_journal,
     make_journal_store,
     record,
     session,
@@ -162,7 +156,7 @@ class FileStoreTests(unittest.TestCase):
         # Same regression contract as FileSink: building the store
         # must not mkdir until something is actually written.
         nonexistent = self.tmp / "no-such-dir"
-        store = FileJournalStore(nonexistent)
+        FileJournalStore(nonexistent)
         self.assertFalse(nonexistent.exists())
 
 
@@ -250,33 +244,6 @@ class JournalFacadeTests(unittest.TestCase):
         self.assertEqual(len(refs), 1)
         self.assertEqual(refs[0].command, "cmd")
         self.assertEqual(refs[0].decision_count, 1)
-
-
-class ComposerInstrumentationTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.tmp = Path(tempfile.mkdtemp())
-        self.store = FileJournalStore(self.tmp)
-        self.journal = Journal(self.store, sinks=[])
-        set_active_journal(self.journal)
-
-    def tearDown(self) -> None:
-        set_active_journal(None)
-        shutil.rmtree(self.tmp, ignore_errors=True)
-
-    def test_scaffold_implementation_records_four_resolutions(self) -> None:
-        tmpl = TEMPLATES["implementation"]
-        with session(command="scaffold.implementation", target="test"):
-            tmpl.build(_ns())
-        refs = self.store.list()
-        self.assertEqual(len(refs), 1)
-        s = self.store.get(refs[0].session_id)
-        assert s is not None
-        choices = [d.choice for d in s.decisions]
-        self.assertIn("scaffold.sources", choices)
-        self.assertIn("scaffold.archetype", choices)
-        self.assertIn("scaffold.shape", choices)
-        self.assertIn("scaffold.trigger", choices)
-        self.assertIn("scaffold.tools.filtered", choices)
 
 
 if __name__ == "__main__":

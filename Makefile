@@ -50,7 +50,7 @@ check: pytest
 
 smoke:
 	@$(BRIAR) --help >/dev/null && echo "  ok top-level"
-	@for c in extract runbook scaffold context dashboard agent \
+	@for c in extract runbook context dashboard agent \
 	          auth plan secrets journal telemetry version \
 	          init config doctor completion; do \
 	    $(BRIAR) "$$c" --help >/dev/null 2>&1 && echo "  ok $$c" \

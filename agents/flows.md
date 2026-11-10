@@ -255,30 +255,7 @@ You get one PR section that covers all three repos, and one ticket
 section for both Jira projects. Only PRs by `alice` or `bob` are kept.
 The author filters apply to `pr-archaeology` and `active-work` only.
 
-## Flow 9: Make a config bundle for another system
-
-`briar scaffold` writes a JSON bundle that another system (a webhook
-handler, a CI job) can use to run an agent.
-
-```bash
-# Jira ticket -> plan -> human approval -> implement, started by a GitHub webhook
-briar scaffold implementation --prefix acme \
-    --source jira --jira-project ACME \
-    --archetype engineer --shape plan-approve-act \
-    --trigger-kind github_webhook \
-    --owner acme-co --repo acme-app \
-    --out acme-impl.json
-
-# A PR fixer that runs every hour, with no approval step
-briar scaffold pr-fixes --prefix acme \
-    --owner acme-co --repo acme-app \
-    --out acme-prfix.json
-```
-
-You get two JSON files. `jq . acme-impl.json` shows the archetype,
-shape, trigger and source you chose. See [scaffold.md](scaffold.md).
-
-## Flow 10: See what happened
+## Flow 9: See what happened
 
 ```bash
 # Server status once, as text (good for CI)
@@ -298,11 +275,10 @@ briar journal export 3f9a1c2b7d4e --as json --out q3-run.json
 ```
 
 The journal holds each selector decision with its reason, and each card
-start, success and failure. Only `plan run` and `scaffold` write journal
-sessions. A plain `agent implement` or `agent prfix` does not. Its
+start, success and failure. Only `plan run` writes journal sessions. A plain `agent implement` or `agent prfix` does not. Its
 record is the PR and the log printed with `-v`.
 
-## Flow 11: Manage knowledge blobs by hand
+## Flow 10: Manage knowledge blobs by hand
 
 The store holds plain markdown blobs by name. You can add your own.
 
@@ -340,4 +316,4 @@ A common order for a new team:
 2. Flow 6 to keep that snapshot fresh on a server.
 3. Flow 2 for one ticket, then Flow 4 for a whole board.
 4. Flow 3 whenever a reviewer comments on one of those PRs.
-5. Flow 10 to check what ran and why.
+5. Flow 9 to check what ran and why.

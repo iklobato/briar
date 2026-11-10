@@ -296,8 +296,8 @@ A runbook with an `mcp:` block on an install without the `mcp` extra fails
 with an error telling you to run `pip install 'briar-cli[mcp]'`.
 | `130` | You pressed Ctrl-C. |
 
-`briar agent` does not write a journal session. Only `plan run` and
-`scaffold` do (see [journal.md](journal.md)).
+`briar agent` does not write a journal session. Only `plan run` does
+(see [journal.md](journal.md)).
 
 ## Good to know
 

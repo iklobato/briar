@@ -1151,13 +1151,6 @@ class JiraAuthStrategyTests(unittest.TestCase):
             clear=False,
         )
 
-    def test_registry_lists_both_kinds(self) -> None:
-        from briar.extract._trackers._jira_auth import jira_auth_kinds
-
-        kinds = jira_auth_kinds()
-        self.assertIn("token", kinds)
-        self.assertIn("session", kinds)
-
     def test_token_strategy_required_env_vars(self) -> None:
         from briar.extract._trackers._jira_auth import JiraTokenAuth
 
@@ -2599,19 +2592,6 @@ class Phase3ErrorHandlingTests(unittest.TestCase):
         a.data["x"] = 1
         self.assertEqual(b.data, {}, "mutating one empty_section() must not leak to others")
 
-    def test_scaffold_raises_config_error_not_system_exit(self) -> None:
-        """Library code shouldn't raise SystemExit — that traps callers
-        like the dashboard collectors or programmatic test harnesses."""
-        from briar.errors import CliError, ConfigError
-        from briar.iac.scaffold.sources.github import SourceGithub
-
-        ns = argparse.Namespace(owner=None, repo=None)
-        with self.assertRaises(ConfigError):
-            SourceGithub().build_source(ns, key_prefix="test")
-        # And ConfigError is-a CliError so the CLI layer catches it.
-        with self.assertRaises(CliError):
-            SourceGithub().build_source(ns, key_prefix="test")
-
     def test_known_matchers_cover_every_credenv_entry(self) -> None:
         """Adding a new credential to CredEnv must auto-propagate to
         envfile.list() — the previous hand-maintained tuple drifted
@@ -2746,23 +2726,6 @@ class Phase5DispatchEliminationTests(unittest.TestCase):
         self.assertIn("known:", str(ctx.exception))
         # Factory dict exposed for introspection (callers can list options)
         self.assertEqual(set(_SINK_FACTORIES), {"noop", "sentry", "file"})
-
-    def test_config_file_section_uses_derived_valid_set(self) -> None:
-        """iac/config_file.py:section used to rebuild a 7-entry closure
-        dict on every call. Now derived from ConfigSpec.model_fields
-        and validated against a ClassVar set."""
-        from briar.errors import ConfigError
-        from briar.iac.config_file import ConfigFile
-        from briar.iac.models import ConfigSpec
-
-        # The derived set matches ConfigSpec exactly
-        self.assertEqual(ConfigFile._VALID_SECTIONS, frozenset(ConfigSpec.model_fields.keys()))
-        # Unknown section raises ConfigError
-        cf = ConfigFile(ConfigSpec())
-        with self.assertRaises(ConfigError):
-            cf.section("not_a_section")
-        # Known section returns a list (empty for a fresh spec)
-        self.assertEqual(cf.section("agents"), [])
 
     def test_aws_gatherer_data_key_drives_dispatch(self) -> None:
         """Each AwsServiceGatherer subclass declares its own data_key —
@@ -3137,36 +3100,6 @@ class Phase9SpeculativeGeneralityCollapseTests(unittest.TestCase):
         # The shim is gone — confirm migration is complete
         self.assertFalse(hasattr(pagination, "Payload"))
 
-    def test_workflow_shape_is_dataclass_not_abc(self) -> None:
-        """3 one-method ABC subclasses → 1 frozen dataclass holding
-        the per-shape graph-builder callable."""
-        import dataclasses
-
-        from briar.iac.scaffold.shapes import WORKFLOW_SHAPES, WorkflowShape
-
-        self.assertTrue(dataclasses.is_dataclass(WorkflowShape))
-        for name, shape in WORKFLOW_SHAPES.items():
-            with self.subTest(name=name):
-                self.assertIsInstance(shape, WorkflowShape)
-                self.assertTrue(callable(shape.build_graph))
-                # The graph builder still works
-                graph = shape.build_graph("agent-key-1")
-                self.assertIn("entry", graph)
-                self.assertIn("nodes", graph)
-
-    def test_shapes_package_collapsed_to_one_file(self) -> None:
-        """The per-shape sub-modules (one_shot.py / triage.py /
-        plan_approve_act.py / base.py) are deleted — the package
-        is now just __init__.py."""
-        with self.assertRaises(ModuleNotFoundError):
-            import briar.iac.scaffold.shapes.base  # noqa: F401
-        with self.assertRaises(ModuleNotFoundError):
-            import briar.iac.scaffold.shapes.one_shot  # noqa: F401
-        with self.assertRaises(ModuleNotFoundError):
-            import briar.iac.scaffold.shapes.plan_approve_act  # noqa: F401
-        with self.assertRaises(ModuleNotFoundError):
-            import briar.iac.scaffold.shapes.triage  # noqa: F401
-
     def test_cloud_provider_base_no_services_kwarg(self) -> None:
         """Base CloudProvider.list_subsections doesn't accept the
         AWS-specific `services=` kwarg (ISP). AwsCloudProvider has it;
@@ -3509,70 +3442,6 @@ class Phase12FollowupTests(unittest.TestCase):
         self.assertEqual(DEFAULT_MEETING_TOP_K, 3)
         self.assertEqual(DEFAULT_MEETING_MAX_BYTES, 50_000)
 
-    def test_scaffold_source_auth_helper_uses_classvars(self) -> None:
-        """The hoisted SourceTemplate._auth pulls per-source values
-        from auth_secret_arg + default_provider_for_oauth ClassVars."""
-        from briar.iac.scaffold.sources.bitbucket import SourceBitbucket
-        from briar.iac.scaffold.sources.github import SourceGithub
-
-        self.assertEqual(SourceGithub.auth_secret_arg, "github_secret_id")
-        self.assertEqual(SourceBitbucket.auth_secret_arg, "bitbucket_secret_id")
-
-        # OAuth path uses default_provider_for_oauth
-        gh = SourceGithub()
-        ns = argparse.Namespace(auth_mode="oauth")
-        out = gh._auth(ns)
-        self.assertEqual(out["credential_binding"]["provider"], "github")
-
-        bb = SourceBitbucket()
-        out = bb._auth(ns)
-        self.assertEqual(out["credential_binding"]["provider"], "bitbucket")
-
-    def test_scaffold_source_auth_pat_requires_secret_per_source(self) -> None:
-        """PAT mode without the per-source secret-id raises a ConfigError
-        that names the right --{kind}-secret-id flag."""
-        from briar.errors import ConfigError
-        from briar.iac.scaffold.sources.bitbucket import SourceBitbucket
-        from briar.iac.scaffold.sources.github import SourceGithub
-
-        ns = argparse.Namespace(auth_mode="pat", github_secret_id=None, bitbucket_secret_id=None)
-        with self.assertRaises(ConfigError) as ctx:
-            SourceGithub()._auth(ns)
-        self.assertIn("--github-secret-id", str(ctx.exception))
-        with self.assertRaises(ConfigError) as ctx:
-            SourceBitbucket()._auth(ns)
-        self.assertIn("--bitbucket-secret-id", str(ctx.exception))
-
-    def test_scaffold_source_user_filters_prefix_by_kind(self) -> None:
-        """Hoisted _user_filters reads `{kind}_authors_allow` etc. so a
-        new source-template that just sets `kind = "linear"` gets the
-        right argparse-attr lookups for free."""
-        from briar.iac.scaffold.sources.bitbucket import SourceBitbucket
-        from briar.iac.scaffold.sources.github import SourceGithub
-
-        gh_ns = argparse.Namespace(
-            github_authors_allow=["a"],
-            github_authors_block=["b"],
-            github_assignees_allow=["c"],
-            github_assignees_block=["d"],
-        )
-        self.assertEqual(
-            SourceGithub()._user_filters(gh_ns),
-            {
-                "authors_allow": ["a"],
-                "authors_block": ["b"],
-                "assignees_allow": ["c"],
-                "assignees_block": ["d"],
-            },
-        )
-        bb_ns = argparse.Namespace(
-            bitbucket_authors_allow=["x"],
-            bitbucket_authors_block=[],
-            bitbucket_assignees_allow=[],
-            bitbucket_assignees_block=[],
-        )
-        self.assertEqual(SourceBitbucket()._user_filters(bb_ns)["authors_allow"], ["x"])
-
 
 class Phase13StructuralFollowupTests(unittest.TestCase):
     """Regression tests for Phase 13 — language_detectors flatten,
@@ -3600,20 +3469,6 @@ class Phase13StructuralFollowupTests(unittest.TestCase):
                 self.assertTrue(callable(d.detect))
                 # Missing-manifest path returns {} for every detector
                 self.assertEqual(d.detect("o/r", lambda r, p: ""), {})
-
-    def test_scaffold_resolver_and_args_classes_gone(self) -> None:
-        """`ScaffoldResolver` + `ScaffoldArgs` were static-only
-        namespace classes; Phase 13 demoted them to module functions
-        (`target_for`, `add_common_arguments`, …)."""
-        import briar.iac.scaffold._composer as composer
-
-        self.assertFalse(hasattr(composer, "ScaffoldResolver"))
-        self.assertFalse(hasattr(composer, "ScaffoldArgs"))
-        # The functions exist at module level
-        self.assertTrue(callable(composer.target_for))
-        self.assertTrue(callable(composer.add_common_arguments))
-        self.assertTrue(callable(composer.attach_source_arguments))
-        self.assertTrue(callable(composer.attach_trigger_arguments))
 
     def test_cloud_timeout_gap_documented(self) -> None:
         """Azure and GCP cloud providers carry an explicit TODO
@@ -3826,15 +3681,9 @@ class Phase14BackedExtractorHelpersTests(unittest.TestCase):
 
 class JiraAuthModuleFunctionsTests(unittest.TestCase):
     """Phase 14 follow-up — JiraAuthRegistry namespace class demoted to
-    module-level `jira_auth_kinds` / `make_jira_auth` / `autodetect_jira_auth`.
+    module-level `make_jira_auth` / `autodetect_jira_auth`.
     Regression: callers that imported `JiraAuthRegistry` must fail to
     import (catches stale doc + comment references)."""
-
-    def test_jira_auth_kinds_returns_both_strategies(self) -> None:
-        from briar.extract._trackers._jira_auth import jira_auth_kinds
-
-        kinds = jira_auth_kinds()
-        self.assertEqual(set(kinds), {"token", "session"})
 
     def test_make_jira_auth_returns_strategy_instance(self) -> None:
         from briar.extract._trackers._jira_auth import JiraSessionAuth, JiraTokenAuth, make_jira_auth

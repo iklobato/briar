@@ -63,55 +63,6 @@ class ApplyUserFilterObjsTests(unittest.TestCase):
         self.assertEqual(ns.pr_assignees_allow, [])
 
 
-# ---------------------------------------------------------------------------
-# Source template — does the GitHub source emit the filters?
-# ---------------------------------------------------------------------------
-
-
-class SourceGithubFiltersTests(unittest.TestCase):
-    def test_filters_appear_in_source_config(self) -> None:
-        from briar.iac.scaffold.sources.github import SourceGithub
-
-        ns = argparse.Namespace(
-            owner="alice",
-            repo="widgets",
-            auth_mode="pat",
-            github_secret_id="some-uuid",
-            github_authors_allow=["alice", "bob"],
-            github_authors_block=["dependabot[bot]"],
-            github_assignees_allow=[],
-            github_assignees_block=["bot"],
-        )
-        src = SourceGithub().build_source(ns, key_prefix="t")
-        self.assertEqual(src["config"]["authors_allow"], ["alice", "bob"])
-        self.assertEqual(src["config"]["authors_block"], ["dependabot[bot]"])
-        self.assertNotIn("assignees_allow", src["config"])  # empty omitted
-        self.assertEqual(src["config"]["assignees_block"], ["bot"])
-
-    def test_no_filters_emits_clean_config(self) -> None:
-        from briar.iac.scaffold.sources.github import SourceGithub
-
-        ns = argparse.Namespace(
-            owner="alice",
-            repo="widgets",
-            auth_mode="pat",
-            github_secret_id="x",
-            github_authors_allow=[],
-            github_authors_block=[],
-            github_assignees_allow=[],
-            github_assignees_block=[],
-        )
-        src = SourceGithub().build_source(ns, key_prefix="t")
-        # No user-filter keys at all when everything is empty.
-        for k in (
-            "authors_allow",
-            "authors_block",
-            "assignees_allow",
-            "assignees_block",
-        ):
-            self.assertNotIn(k, src["config"])
-
-
 # The "runbook YAML schema" + "runbook executor flatten" tests were
 # removed in the API-removal cut — both poked at fields (RunbookEntry,
 # SourceEntry, _apply_github_source) that no longer exist now that the
