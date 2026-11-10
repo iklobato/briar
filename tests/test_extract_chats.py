@@ -282,24 +282,6 @@ class SlackContextExtractorTests(unittest.TestCase):
 
 
 class AgentSlackWiringTests(unittest.TestCase):
-    def test_implement_op_registers_slack_flags(self) -> None:
-        from briar.commands.agent import ImplementOp
-
-        parser = argparse.ArgumentParser()
-        ImplementOp().add_arguments(parser)
-        flags = {a.dest for a in parser._actions}
-        for expected in ("chat", "slack_query", "slack_top_k", "slack_max_bytes"):
-            self.assertIn(expected, flags)
-
-    def test_prfix_op_registers_slack_flags(self) -> None:
-        from briar.commands.agent import PrfixOp
-
-        parser = argparse.ArgumentParser()
-        PrfixOp().add_arguments(parser)
-        flags = {a.dest for a in parser._actions}
-        for expected in ("chat", "slack_query", "slack_top_k", "slack_max_bytes"):
-            self.assertIn(expected, flags)
-
     def test_fetch_slack_context_empty_when_no_query(self) -> None:
         from briar.commands.agent import CommandAgent
 

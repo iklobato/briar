@@ -25,14 +25,17 @@ from __future__ import annotations
 
 import argparse
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import ClassVar, Dict, List
 
+import typer
+
 from briar.auth import AcquirerRegistry, CredentialExpired, Credentials, TerminalPromptIO
 from briar.auth._acquirer import DestinationPolicy
-from briar.commands._enums import ExitCode
-from briar.commands.base import Command, add_canonical_with_alias, confirm
-from briar.credentials import CredentialStoreRegistry, make_credential_store
+from briar.commands._enums import CredentialStoreChoice, ExitCode
+from briar.commands.base import Command, CommandOptions, RegistryChoice, Route, confirm
+from briar.credentials import make_credential_store
 from briar.errors import CliError
 
 log = logging.getLogger(__name__)
@@ -42,58 +45,20 @@ class CommandAuth(Command):
     name = "auth"
     help = "Acquire + persist credentials interactively (login / logout / list / status / refresh)."
 
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        sub = parser.add_subparsers(dest="auth_action", required=True)
-
-        targets = list(AcquirerRegistry.kinds())
-        store_kinds = list(CredentialStoreRegistry.kinds())
-        default_store = _resolve_default_store(store_kinds)
-
-        login = sub.add_parser(
-            "login",
-            help=(
-                "Log into a target. Positional `target` is the thing you're authenticating to: "
-                "a password manager bootstraps a connection; "
-                "a vendor (github-pat / aws-sso / jira-session) acquires credentials and stores them."
-            ),
-        )
-        login.add_argument("target", choices=targets, help="What to log into. See `briar auth login -h` for the registry.")
-        login.add_argument("--company", default="", help="Per-company namespace (required for vendor targets).")
-        _add_cred_store_argument(
-            login,
-            default_store=default_store,
-            store_kinds=store_kinds,
-            help=(
-                "Where to persist acquired credentials. Only `envfile` since 2.0 "
-                "(the remote stores were removed)."
-            ),
-        )
-
-        logout = sub.add_parser("logout", help="Delete the credentials a target's login would have written.")
-        logout.add_argument("target", choices=targets)
-        logout.add_argument("--company", default="")
-        _add_cred_store_argument(logout, default_store=default_store, store_kinds=store_kinds)
-        logout.add_argument("--yes", action="store_true", help="Skip confirmation prompt.")
-
-        refresh = sub.add_parser(
-            "refresh",
-            help=(
-                "Renew keys without a new login. No target supports it yet: every target exits 2 "
-                "and prints the `briar auth login` command to run instead."
-            ),
-        )
-        refresh.add_argument("target", choices=targets)
-        refresh.add_argument("--company", default="")
-        _add_cred_store_argument(refresh, default_store=default_store, store_kinds=store_kinds)
-
-        listing = sub.add_parser("list", help="Show which credential env-vars are populated (names only, no values).")
-        _add_cred_store_argument(listing, default_store=default_store, store_kinds=store_kinds)
-        listing.add_argument("--company", default="", help="Filter to one company (matches the company token in env-var names).")
-
-        status = sub.add_parser("status", help="Show one target × company bundle's coverage (names + set/missing).")
-        status.add_argument("target", choices=targets)
-        status.add_argument("--company", default="")
-        _add_cred_store_argument(status, default_store=default_store, store_kinds=store_kinds)
+    OP_HELP = {
+        "login": (
+            "Log into a target. Positional `target` is the thing you're authenticating to: "
+            "a password manager bootstraps a connection; "
+            "a vendor (github-pat / aws-sso / jira-session) acquires credentials and stores them."
+        ),
+        "logout": "Delete the credentials a target's login would have written.",
+        "refresh": (
+            "Renew keys without a new login. No target supports it yet: every target exits 2 "
+            "and prints the `briar auth login` command to run instead."
+        ),
+        "list": "Show which credential env-vars are populated (names only, no values).",
+        "status": "Show one target × company bundle's coverage (names + set/missing).",
+    }
 
     _ACTIONS: ClassVar[Dict[str, str]] = {
         "login": "_login",
@@ -222,42 +187,6 @@ class CommandAuth(Command):
         return 1 if any_missing else 0
 
 
-def _add_cred_store_argument(
-    parser: argparse.ArgumentParser,
-    *,
-    default_store: str,
-    store_kinds: List[str],
-    help: str = "Credential store backend. Only `envfile` since 2.0 (the remote stores were removed).",
-) -> None:
-    """Register the credential-store flag on a subparser.
-
-    Canonical name is ``--cred-store`` (distinct from the knowledge
-    ``--store`` every other command uses); ``--store`` stays as a hidden
-    deprecated alias so existing scripts keep working. Both write the
-    ``cred_store`` dest."""
-    add_canonical_with_alias(
-        parser,
-        "--cred-store",
-        "--store",
-        dest="cred_store",
-        default=default_store,
-        choices=store_kinds,
-        help=help,
-    )
-
-
-def _resolve_default_store(known_kinds: List[str]) -> str:
-    """Default destination for ``--cred-store``. Priority:
-    1. ``$BRIAR_DEFAULT_STORE`` if it names a registered store
-    2. ``envfile`` (always present, requires no setup)"""
-    import os
-
-    env = (os.environ.get("BRIAR_DEFAULT_STORE", "") or "").strip()
-    if env and env in known_kinds:
-        return env
-    return "envfile"
-
-
 def _effective_store_kind(acquirer, *, requested: str) -> str:
     """Honour the acquirer's destination policy. Bootstrap acquirers
     (e.g. a future Vault VAULT_ADDR/TOKEN) MUST
@@ -308,3 +237,56 @@ def _persist_and_report(creds: Credentials, *, store, store_kind: str) -> int:
         # pre-fold contract.
         return int(ExitCode.GENERAL_ERROR)
     return int(ExitCode.OK)
+
+
+# ─── Options on Typer ──────────────────────────────────────────────
+
+CRED_STORE_HELP = "Credential store backend. Only `envfile` since 2.0 (the remote stores were removed)."
+TARGET_HELP = "What to log into: " + ", ".join(AcquirerRegistry.kinds()) + "."  # read once, for help only
+
+
+@dataclass(frozen=True)
+class AuthLoginOptions(CommandOptions):
+    ROUTE = Route(CommandAuth.name, "auth_action", "login")
+
+    target: str = typer.Argument(..., metavar="TARGET", callback=RegistryChoice(AcquirerRegistry).check, help=TARGET_HELP)
+    company: str = typer.Option("", "--company", help="Per-company namespace (required for vendor targets).")
+    cred_store: CredentialStoreChoice = typer.Option(
+        CredentialStoreChoice.ENVFILE, "--cred-store", help="Where to persist acquired credentials. Only `envfile` since 2.0 (the remote stores were removed)."
+    )
+
+
+@dataclass(frozen=True)
+class AuthLogoutOptions(CommandOptions):
+    ROUTE = Route(CommandAuth.name, "auth_action", "logout")
+
+    target: str = typer.Argument(..., metavar="TARGET", callback=RegistryChoice(AcquirerRegistry).check, help=TARGET_HELP)
+    company: str = typer.Option("", "--company")
+    cred_store: CredentialStoreChoice = typer.Option(CredentialStoreChoice.ENVFILE, "--cred-store", help=CRED_STORE_HELP)
+    yes: bool = typer.Option(False, "--yes", help="Skip confirmation prompt.")
+
+
+@dataclass(frozen=True)
+class AuthRefreshOptions(CommandOptions):
+    ROUTE = Route(CommandAuth.name, "auth_action", "refresh")
+
+    target: str = typer.Argument(..., metavar="TARGET", callback=RegistryChoice(AcquirerRegistry).check, help=TARGET_HELP)
+    company: str = typer.Option("", "--company")
+    cred_store: CredentialStoreChoice = typer.Option(CredentialStoreChoice.ENVFILE, "--cred-store", help=CRED_STORE_HELP)
+
+
+@dataclass(frozen=True)
+class AuthListOptions(CommandOptions):
+    ROUTE = Route(CommandAuth.name, "auth_action", "list")
+
+    cred_store: CredentialStoreChoice = typer.Option(CredentialStoreChoice.ENVFILE, "--cred-store", help=CRED_STORE_HELP)
+    company: str = typer.Option("", "--company", help="Filter to one company (matches the company token in env-var names).")
+
+
+@dataclass(frozen=True)
+class AuthStatusOptions(CommandOptions):
+    ROUTE = Route(CommandAuth.name, "auth_action", "status")
+
+    target: str = typer.Argument(..., metavar="TARGET", callback=RegistryChoice(AcquirerRegistry).check, help=TARGET_HELP)
+    company: str = typer.Option("", "--company")
+    cred_store: CredentialStoreChoice = typer.Option(CredentialStoreChoice.ENVFILE, "--cred-store", help=CRED_STORE_HELP)

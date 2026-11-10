@@ -26,7 +26,7 @@ used wherever the clone path is irrelevant so no GitPython call fires.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List
 
 import pytest
 
@@ -220,19 +220,11 @@ class TestCommonConfigFlags:
         cli(*_impl())
         assert str(seam.rec["make_store"].file_root) == "knowledge"
 
-    def test_knowledge_override_reaches_make_store_file_root(self, cli, seam) -> None:
-        cli(*_impl("--knowledge", "/tmp/kb-root"))
-        assert str(seam.rec["make_store"].file_root) == "/tmp/kb-root"
-
-    def test_root_is_canonical_alias_for_knowledge(self, cli, seam) -> None:
-        # `--root` is the canonical name (every other command uses it);
-        # it writes the same dest the engine reads as the file-store root.
+    def test_root_sets_the_file_store_root(self, cli: Callable[..., SimpleNamespace], seam: SimpleNamespace) -> None:
+        # `--root` (the name every command uses) writes the 1.x dest `knowledge`,
+        # which the engine reads as the file-store root.
         cli(*_impl("--root", "/tmp/root-kb"))
         assert str(seam.rec["make_store"].file_root) == "/tmp/root-kb"
-
-    def test_knowledge_alias_warns_deprecation(self, cli, seam) -> None:
-        result = cli(*_impl("--knowledge", "/tmp/kb-root"))
-        assert "--knowledge is deprecated; use --root" in result.err
 
     @pytest.mark.parametrize("argv_factory", [_impl, _prfix], ids=["implement", "prfix"])
     def test_model_default_is_empty_string(self, cli, seam, argv_factory) -> None:
@@ -533,7 +525,7 @@ class TestInvalidChoiceFlags:
     def test_invalid_choice_exits_2_before_setup(self, cli, seam, argv) -> None:
         result = cli(*argv)
         assert result.code == 2
-        assert "invalid choice" in result.err
+        assert "Invalid value for" in result.err
         # Store/provider setup precedes the clone; neither may have run.
         assert seam.rec["make_store"] is None
         assert seam.rec["make_provider"] is None

@@ -223,7 +223,7 @@ The agent reads up to 5 Slack threads that match "alice login".
 | `--repo` | Repo as `owner/repo`, or a bare name with `--owner`. The `owner/repo` form wins over `--owner`. | From `.briar.toml` `[repo]`, else the git `origin` remote. | `--repo acme-co/acme-app` |
 | `--provider` | Code host: `github` or `bitbucket`. | `github`, or `provider` under `[repo]` in `.briar.toml`. | `--provider bitbucket` |
 | `--store` | Knowledge store to read blobs from: `file` or `postgres`. | `postgres` if `BRIAR_DATABASE_URL` is set, else `file`. `BRIAR_STORE` or `store` in `.briar.toml` change it. | `--store postgres` |
-| `--root` | Folder of the file store. Ignored for Postgres. `--knowledge` still works as an old name for this. It prints a note. | `./knowledge`, or `root` in `.briar.toml`. | `--root ./kb` |
+| `--root` | Folder of the file store. Ignored for Postgres. The 1.x name `--knowledge` was removed in 2.0. | `./knowledge`, or `root` in `.briar.toml`. | `--root ./kb` |
 | `--model` | Claude model name to use. | `claude-sonnet-4-5`, or `model` under `[agent]` in `.briar.toml`. | `--model claude-sonnet-4-6` |
 | `--max-iter` | Most turns (calls to Claude) before the run stops with an error. | `30` (`0` also means 30). | `--max-iter 50` |
 | `--git-user-name` | `user.name` for commits in the worktree. | The runbook's `git_identity.name`, then your `git config user.name` (skipped when `CI` is set). | `--git-user-name "Acme Bot"` |

@@ -16,6 +16,8 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol, Seque
 
 import typer
 
+from briar.commands.agent import AgentImplementOptions, AgentPrfixOptions
+from briar.commands.auth import AuthListOptions, AuthLoginOptions, AuthLogoutOptions, AuthRefreshOptions, AuthStatusOptions
 from briar.commands.base import Command, CommandOptions, Route
 from briar.commands.config import ConfigShowOptions
 from briar.commands.context import (
@@ -54,6 +56,13 @@ ROUTES: Sequence[Type[CommandOptions]] = (
     ContextListOptions,
     ContextDeleteOptions,
     ContextCategoriesOptions,
+    AgentPrfixOptions,
+    AgentImplementOptions,
+    AuthLoginOptions,
+    AuthLogoutOptions,
+    AuthRefreshOptions,
+    AuthListOptions,
+    AuthStatusOptions,
     SecretsDoctorOptions,
     SecretsBootstrapOptions,
     JournalListOptions,
@@ -165,7 +174,8 @@ class DefaultMap:
         """An option shared with the group is filled on the group only, or the setting
         would beat a value given on the group (`briar context --store postgres get x`)."""
         names = [field.name for field in fields(options_cls) if field.name not in options_cls.INHERITED]
-        return {name: self._defaults[name] for name in names if name in self._defaults}
+        settings = {name: options_cls.SETTING_NAMES.get(name, name) for name in names}
+        return {name: self._defaults[setting] for name, setting in settings.items() if setting in self._defaults}
 
 
 class BriarApp:

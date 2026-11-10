@@ -109,7 +109,7 @@ You get short-lived AWS keys for `acme`. briar also prints when they expire.
 |---|---|---|---|
 | `target` (positional) | The service and login style. One of the targets in the table above. Required. | none | `jira-token` |
 | `--company` | Your company name. briar puts it in the key names. Required for every target except the two GitHub ones. | `$BRIAR_COMPANY`, else `company` in `.briar.toml`, else empty. | `--company acme` |
-| `--cred-store` | Where to save the keys. Only `envfile` since 2.0. `--store` still works as an old name for this flag, but prints a note. | `envfile` | `--cred-store envfile` |
+| `--cred-store` | Where to save the keys. Only `envfile` since 2.0. The 1.x name `--store` was removed in 2.0. | `envfile` | `--cred-store envfile` |
 
 ### Good to know
 
@@ -163,7 +163,7 @@ You get `auth-logout: removed 4/4 entries from store=envfile` when all four keys
 |---|---|---|---|
 | `target` (positional) | The target whose keys to delete. Required. | none | `linear-api-key` |
 | `--company` | The company whose keys to delete. | `$BRIAR_COMPANY`, else `.briar.toml`, else empty. | `--company acme` |
-| `--cred-store` | The store to delete from (only `envfile`). `--store` still works as an old name. | `envfile` | `--cred-store envfile` |
+| `--cred-store` | The store to delete from (only `envfile`). The 1.x name `--store` was removed in 2.0. | `envfile` | `--cred-store envfile` |
 | `--yes` | Skip the `proceed?` question. | off | `--yes` |
 
 ### Good to know
@@ -202,7 +202,7 @@ You get the message `credential expired: aws-sso: refresh not implemented yet`, 
 |---|---|---|---|
 | `target` (positional) | The target to renew. Required. | none | `aws-sso` |
 | `--company` | The company whose keys to renew. | `$BRIAR_COMPANY`, else `.briar.toml`, else empty. | `--company acme` |
-| `--cred-store` | The store to read and write (only `envfile`). `--store` still works as an old name. | `envfile` | `--cred-store envfile` |
+| `--cred-store` | The store to read and write (only `envfile`). The 1.x name `--store` was removed in 2.0. | `envfile` | `--cred-store envfile` |
 
 ## `briar auth list`
 
@@ -245,7 +245,7 @@ You get the full list with no company filter.
 | Parameter | What it means | Default | Example |
 |---|---|---|---|
 | `--company` | Only show names that contain this company (as `_ACME_`). | `$BRIAR_COMPANY`, else `.briar.toml`, else empty (no filter). | `--company acme` |
-| `--cred-store` | The store to list (only `envfile`). `--store` still works as an old name. | `envfile` | `--cred-store envfile` |
+| `--cred-store` | The store to list (only `envfile`). The 1.x name `--store` was removed in 2.0. | `envfile` | `--cred-store envfile` |
 
 ### Good to know
 
@@ -287,7 +287,7 @@ You get one line for `GITHUB_TOKEN`.
 |---|---|---|---|
 | `target` (positional) | The target to check. Required. | none | `fireflies` |
 | `--company` | The company to check. | `$BRIAR_COMPANY`, else `.briar.toml`, else empty. | `--company acme` |
-| `--cred-store` | The store to read from (only `envfile`). `--store` still works as an old name. | `envfile` | `--cred-store envfile` |
+| `--cred-store` | The store to read from (only `envfile`). The 1.x name `--store` was removed in 2.0. | `envfile` | `--cred-store envfile` |
 
 ### Good to know
 

@@ -14,16 +14,17 @@ import os
 import shutil
 import subprocess
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
+
+import typer
 
 from briar._registry import build_registry
 from briar.agent.runner import AgentRunConfig, AgentRunner
-from briar.commands._enums import ExitCode
-from briar.commands.base import Subcommand, SubcommandCommand, add_canonical_with_alias, add_chat_arguments, add_meeting_arguments, normalize_owner_repo
+from briar.commands._enums import ExitCode, KnowledgeStoreChoice, ProviderChoice, TrackerChoice
+from briar.commands.base import EnrichmentOptions, Route, Subcommand, SubcommandCommand, normalize_owner_repo
 from briar.errors import CliError
-from briar.extract._providers import RepositoryProviderRegistry
-from briar.extract._trackers import TrackerRegistry
 from briar.storage import default_store_kind
 
 log = logging.getLogger(__name__)
@@ -38,57 +39,6 @@ log = logging.getLogger(__name__)
 
 class AgentOp(Subcommand):
     """One `briar agent` subcommand (`prfix`, `implement`, …)."""
-
-
-def _add_common_agent_arguments(parser: argparse.ArgumentParser) -> None:
-    """Flags shared verbatim by every agent op (target, store, model,
-    git identity, worktree). Op-specific flags (`--pr`/`--branch` vs
-    `--ticket-*`) and flags whose help text differs per op (`--dry-run`,
-    `--runbook`) stay in the op's own `add_arguments`."""
-    # `--company` is not `required=True`: like every other command it
-    # resolves through the config chain (.briar.toml / BRIAR_COMPANY /
-    # git), and `_prepare_agent_workdir` raises a clear CliError when it
-    # ends up empty. Hard-requiring it here would reject a valid config.
-    parser.add_argument("--company", default="", help="Company key — must match a runbook YAML (or set company= in .briar.toml)")
-    # `--repo` accepts the full `owner/repo` slug (the form `extract` uses)
-    # OR a bare repo name paired with `--owner`. Neither is argparse-required:
-    # both are inferred from the git `origin` remote in a checkout, and
-    # `_normalize_target` validates + splits an `owner/repo` slug, raising a
-    # clear CliError when the target can't be resolved.
-    parser.add_argument("--owner", default="", help="Repository owner (GitHub) or workspace (Bitbucket). Inferred from git if omitted.")
-    parser.add_argument("--repo", default="", help="Repository as `owner/repo`, or a bare name with --owner. Inferred from git if omitted.")
-    parser.add_argument("--provider", default="github", choices=RepositoryProviderRegistry.kinds(), help="Repository provider (default: github).")
-    parser.add_argument(
-        "--store",
-        default=default_store_kind(),
-        choices=["file", "postgres"],
-        help="KnowledgeStore backend (default: postgres if BRIAR_DATABASE_URL set, else file)",
-    )
-    # `--root` is the name every other command uses for the file-store
-    # root; `--knowledge` is the legacy spelling, kept (hidden) as a
-    # deprecated alias.
-    add_canonical_with_alias(
-        parser,
-        "--root",
-        "--knowledge",
-        dest="knowledge",
-        metavar="ROOT",
-        default="./knowledge",
-        help="File-store root (ignored for postgres)",
-    )
-    parser.add_argument("--model", default="", help="Override Anthropic model (defaults to AgentRunner.DEFAULT_MODEL)")
-    parser.add_argument("--max-iter", type=int, default=0, help="Iteration ceiling (defaults to AgentRunner.DEFAULT_MAX_ITERATIONS)")
-    parser.add_argument(
-        "--git-user-name",
-        default="",
-        help="git config user.name on the worktree. Falls back to the runbook's git_identity.name, then your local git config (outside CI).",
-    )
-    parser.add_argument(
-        "--git-user-email",
-        default="",
-        help="git config user.email on the worktree. Falls back to the runbook's git_identity.email, then your local git config (outside CI).",
-    )
-    parser.add_argument("--keep-worktree", action="store_true", help="Leave the worktree in /tmp after the run for inspection")
 
 
 def _resolve_ticket_project(*, tracker: str, ticket_key: str, owner: str, repo: str) -> str:
@@ -106,34 +56,6 @@ class PrfixOp(AgentOp):
     name = "prfix"
     help = "Address open review comments on a PR (pr-fixer archetype)."
 
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        _add_common_agent_arguments(parser)
-        parser.add_argument("--pr", type=int, required=True, help="PR number to address")
-        parser.add_argument("--branch", required=True, help="PR head branch name")
-        parser.add_argument(
-            "--dry-run",
-            action="store_true",
-            help="Build + print the system prompt + user message + tool list, skip the LLM call. "
-            "Validates the JIT context wiring (pr-review-context) without spending tokens.",
-        )
-        parser.add_argument(
-            "--runbook",
-            default="",
-            help="Optional runbook YAML to read this company's `messages:` block from. "
-            "When set, the agent gets a `send_message` tool bound to the configured channels "
-            "instead of having to shell out via `gh` / `curl`.",
-        )
-        add_meeting_arguments(
-            parser,
-            query_help="Keyword search across recent meetings. When omitted, defaults to the PR's owner/repo#pr — "
-            "set explicitly to override (e.g. the reviewer's name or a topic).",
-        )
-        add_chat_arguments(
-            parser,
-            query_help="Keyword search across Slack. When omitted, defaults to the PR's owner/repo#pr — "
-            "set explicitly to override (e.g. the reviewer's name or a topic).",
-        )
-
     def run(self, agent_cmd: "CommandAgent", args: argparse.Namespace) -> int:
         return agent_cmd._run_prfix(args)
 
@@ -141,47 +63,6 @@ class PrfixOp(AgentOp):
 class ImplementOp(AgentOp):
     name = "implement"
     help = "Implement one ticket end-to-end (engineer archetype). Clones default branch, fetches ticket-context, runs the agent."
-
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        _add_common_agent_arguments(parser)
-        parser.add_argument(
-            "--ticket-project",
-            default="",
-            help="Tracker project key (Jira: PROJ; Linear team: ENG; GH/BB Issues: owner/repo). "
-            "Derived from the ticket key (Jira/Linear) or owner/repo (GH/BB) when omitted.",
-        )
-        parser.add_argument("--ticket-key", required=True, help="Ticket identifier (Jira: PROJ-123; GH/BB: #42; Linear: ENG-7)")
-        parser.add_argument("--tracker", default="jira", choices=TrackerRegistry.kinds(), help="Tracker provider for the ticket (default: jira).")
-        parser.add_argument(
-            "--branch-name",
-            default="",
-            help="Feature branch the agent creates and pushes (default: chore/<ticket-key>).",
-        )
-        parser.add_argument(
-            "--base-branch",
-            default="",
-            help="Branch to clone and open the PR against, e.g. the branch of a card this one stacks on " "(default: the repo's default branch).",
-        )
-        parser.add_argument(
-            "--dry-run",
-            action="store_true",
-            help="Build + print the system prompt + user message + tool list, skip the LLM call. "
-            "Validates the JIT context wiring (ticket-context) without spending tokens.",
-        )
-        parser.add_argument(
-            "--runbook",
-            default="",
-            help="Optional runbook YAML to read this company's `messages:` block from.",
-        )
-        add_meeting_arguments(
-            parser,
-            query_help="Keyword search across recent meetings. When omitted, defaults to the ticket key — "
-            "set explicitly to override (e.g. a topic or feature name).",
-        )
-        add_chat_arguments(
-            parser,
-            query_help="Keyword search across Slack. When omitted, defaults to the ticket key — " "set explicitly to override (e.g. a topic or feature name).",
-        )
 
     def run(self, agent_cmd: "CommandAgent", args: argparse.Namespace) -> int:
         return agent_cmd._run_implement(args)
@@ -894,3 +775,99 @@ class CommandAgent(SubcommandCommand):
             shutil.rmtree(path)
         except OSError:
             log.exception("worktree cleanup failed: %s", path)
+
+
+# ─── Options on Typer ──────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class AgentTargetOptions(EnrichmentOptions):
+    """Options shared by every agent operation: target, store, model, git identity, worktree.
+    `--company`, `--owner` and `--repo` are not required here: they also come from
+    `.briar.toml`, env and git, and the run stops with a clear error when one is empty."""
+
+    UNSET_AS = {"store": default_store_kind}
+    SETTING_NAMES = {"knowledge": "root"}
+
+    company: str = typer.Option("", "--company", help="Company key: must match a runbook YAML (or set company= in .briar.toml)")
+    owner: str = typer.Option("", "--owner", help="Repository owner (GitHub) or workspace (Bitbucket). Inferred from git if omitted.")
+    repo: str = typer.Option("", "--repo", help="Repository as `owner/repo`, or a bare name with --owner. Inferred from git if omitted.")
+    provider: ProviderChoice = typer.Option(ProviderChoice.GITHUB, "--provider", help="Repository provider (default: github).")
+    store: Optional[KnowledgeStoreChoice] = typer.Option(
+        None, "--store", help="KnowledgeStore backend (default: postgres if BRIAR_DATABASE_URL set, else file)"
+    )
+    knowledge: str = typer.Option("./knowledge", "--root", metavar="ROOT", help="File-store root (ignored for postgres)")
+    model: str = typer.Option("", "--model", help="Override Anthropic model (defaults to AgentRunner.DEFAULT_MODEL)")
+    max_iter: int = typer.Option(0, "--max-iter", help="Iteration ceiling (defaults to AgentRunner.DEFAULT_MAX_ITERATIONS)")
+    git_user_name: str = typer.Option(
+        "",
+        "--git-user-name",
+        help="git config user.name on the worktree. Falls back to the runbook's git_identity.name, then your local git config (outside CI).",
+    )
+    git_user_email: str = typer.Option(
+        "",
+        "--git-user-email",
+        help="git config user.email on the worktree. Falls back to the runbook's git_identity.email, then your local git config (outside CI).",
+    )
+    keep_worktree: bool = typer.Option(False, "--keep-worktree", help="Leave the worktree in /tmp after the run for inspection")
+
+
+@dataclass(frozen=True)
+class AgentPrfixOptions(AgentTargetOptions):
+    ROUTE = Route(CommandAgent.name, CommandAgent.dest, PrfixOp.name)
+
+    meeting_query: str = typer.Option(
+        "",
+        "--meeting-query",
+        help="Keyword search across recent meetings. When omitted, defaults to the PR's owner/repo#pr; set explicitly to override (e.g. the reviewer's name or a topic).",
+    )
+    slack_query: str = typer.Option(
+        "",
+        "--slack-query",
+        help="Keyword search across Slack. When omitted, defaults to the PR's owner/repo#pr; set explicitly to override (e.g. the reviewer's name or a topic).",
+    )
+    pr: int = typer.Option(..., "--pr", help="PR number to address")
+    branch: str = typer.Option(..., "--branch", help="PR head branch name")
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Build + print the system prompt + user message + tool list, skip the LLM call. Validates the JIT context wiring (pr-review-context) without spending tokens.",
+    )
+    runbook: str = typer.Option(
+        "",
+        "--runbook",
+        help="Optional runbook YAML to read this company's `messages:` block from. When set, the agent gets a `send_message` tool bound to the configured channels instead of having to shell out via `gh` / `curl`.",
+    )
+
+
+@dataclass(frozen=True)
+class AgentImplementOptions(AgentTargetOptions):
+    ROUTE = Route(CommandAgent.name, CommandAgent.dest, ImplementOp.name)
+
+    meeting_query: str = typer.Option(
+        "",
+        "--meeting-query",
+        help="Keyword search across recent meetings. When omitted, defaults to the ticket key; set explicitly to override (e.g. a topic or feature name).",
+    )
+    slack_query: str = typer.Option(
+        "",
+        "--slack-query",
+        help="Keyword search across Slack. When omitted, defaults to the ticket key; set explicitly to override (e.g. a topic or feature name).",
+    )
+    ticket_project: str = typer.Option(
+        "",
+        "--ticket-project",
+        help="Tracker project key (Jira: PROJ; Linear team: ENG; GH/BB Issues: owner/repo). Derived from the ticket key (Jira/Linear) or owner/repo (GH/BB) when omitted.",
+    )
+    ticket_key: str = typer.Option(..., "--ticket-key", help="Ticket identifier (Jira: PROJ-123; GH/BB: #42; Linear: ENG-7)")
+    tracker: TrackerChoice = typer.Option(TrackerChoice.JIRA, "--tracker", help="Tracker provider for the ticket (default: jira).")
+    branch_name: str = typer.Option("", "--branch-name", help="Feature branch the agent creates and pushes (default: chore/<ticket-key>).")
+    base_branch: str = typer.Option(
+        "", "--base-branch", help="Branch to clone and open the PR against, e.g. the branch of a card this one stacks on (default: the repo's default branch)."
+    )
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Build + print the system prompt + user message + tool list, skip the LLM call. Validates the JIT context wiring (ticket-context) without spending tokens.",
+    )
+    runbook: str = typer.Option("", "--runbook", help="Optional runbook YAML to read this company's `messages:` block from.")

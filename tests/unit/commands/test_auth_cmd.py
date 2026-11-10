@@ -93,7 +93,7 @@ def install(mocker):
 class TestLogin:
     def test_login_persists_value_to_store_exit_0(self, cli, install) -> None:
         store, _ = install()
-        result = cli("auth", "login", "github-pat", "--company", "acme", "--store", "envfile")
+        result = cli("auth", "login", "github-pat", "--company", "acme", "--cred-store", "envfile")
         assert result.code == 0
         # The VALUE reached the store...
         assert store.writes == [("GITHUB_ACME_TOKEN", _SECRET_PLACEHOLDER)]
@@ -105,7 +105,7 @@ class TestLogin:
     def test_login_write_failure_exit_1_and_reports_reason(self, cli, install) -> None:
         store, _ = install()
         store.fail_writes = {"GITHUB_ACME_TOKEN"}
-        result = cli("auth", "login", "github-pat", "--company", "acme", "--store", "envfile")
+        result = cli("auth", "login", "github-pat", "--company", "acme", "--cred-store", "envfile")
         assert result.code == 1
         assert "persisted 0/1 entries" in result.out
         assert "FAIL  GITHUB_ACME_TOKEN" in result.out
@@ -115,7 +115,7 @@ class TestLogin:
     def test_login_prints_expiry_when_present(self, cli, install) -> None:
         expires = datetime.now(tz=timezone.utc) + timedelta(days=30)
         store, _ = install(acquirer=_FakeAcquirer(expires=expires))
-        result = cli("auth", "login", "github-pat", "--company", "acme", "--store", "envfile")
+        result = cli("auth", "login", "github-pat", "--company", "acme", "--cred-store", "envfile")
         assert result.code == 0
         assert f"expires: {expires.isoformat()}" in result.out
         # "+N.N days from now" — positive sign for a future expiry.
@@ -124,7 +124,7 @@ class TestLogin:
 
     def test_login_acquire_raises_credential_expired_exit_2(self, cli, install) -> None:
         store, _ = install(acquirer=_FakeAcquirer(acquire_exc=CredentialExpired("token lapsed")))
-        result = cli("auth", "login", "github-pat", "--company", "acme", "--store", "envfile")
+        result = cli("auth", "login", "github-pat", "--company", "acme", "--cred-store", "envfile")
         assert result.code == 2
         assert "credential expired: token lapsed" in result.out
         assert store.writes == []
@@ -137,7 +137,7 @@ class TestRefresh:
     def test_refresh_persists_new_bundle_exit_0(self, cli, install) -> None:
         new_value = "REFRESHED-TOKEN-PLACEHOLDER-not-a-secret"
         store, _ = install(acquirer=_FakeAcquirer(entries={"GITHUB_ACME_TOKEN": new_value}))
-        result = cli("auth", "refresh", "github-pat", "--company", "acme", "--store", "envfile")
+        result = cli("auth", "refresh", "github-pat", "--company", "acme", "--cred-store", "envfile")
         assert result.code == 0
         assert store.writes == [("GITHUB_ACME_TOKEN", new_value)]
         assert "persisted 1/1 entries" in result.out
@@ -148,13 +148,13 @@ class TestRefresh:
         store, acquirer = install()
         store.values["GITHUB_ACME_TOKEN"] = "OLD-TOKEN-PLACEHOLDER-not-a-secret"
         spy = mocker.spy(acquirer, "refresh")
-        result = cli("auth", "refresh", "github-pat", "--company", "acme", "--store", "envfile")
+        result = cli("auth", "refresh", "github-pat", "--company", "acme", "--cred-store", "envfile")
         assert result.code == 0
         existing = spy.call_args.kwargs["existing"]
         assert existing.entries == {"GITHUB_ACME_TOKEN": "OLD-TOKEN-PLACEHOLDER-not-a-secret"}
 
     def test_refresh_unsupported_raises_credential_expired_exit_2(self, cli, install) -> None:
         store, _ = install(acquirer=_FakeAcquirer(refresh_exc=CredentialExpired("paste-based; cannot refresh")))
-        result = cli("auth", "refresh", "github-pat", "--store", "envfile")
+        result = cli("auth", "refresh", "github-pat", "--cred-store", "envfile")
         assert result.code == 2
         assert "credential expired: paste-based; cannot refresh" in result.out
