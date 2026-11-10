@@ -24,7 +24,7 @@ They match briar-cli 1.1.75.
 | File | Commands |
 |---|---|
 | [flows.md](flows.md) | Recipes that chain several commands into one result. Start here for "how do I...". |
-| [setup.md](setup.md) | `briar init`, `briar config show`, `briar doctor`, `briar completion`: set up a project and check it. |
+| [setup.md](setup.md) | `briar init`, `briar config show`, `briar doctor`, shell completion: set up a project and check it. |
 | [version.md](version.md) | `briar version`: print the installed version. |
 | [extract.md](extract.md) | `briar extract`: read your tools into a knowledge blob (23 extractors). |
 | [runbook.md](runbook.md) | `briar runbook extract`, `sweep`, `serve`: run extractors from YAML, once or on a schedule. |

@@ -28,8 +28,14 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`.
 ### Removed
 
 - The 1.x names `--store` on `briar secrets doctor` and `briar auth` (use
-  `--cred-store`) and `--knowledge` on `briar agent` (use `--root`). They
-  are now unknown options (exit 2).
+  `--cred-store`), `--knowledge` on `briar agent` (use `--root`) and
+  `--storage` on `briar extract` (use `--store`). They are now unknown
+  options (exit 2).
+- `briar completion bash|zsh` and its script templates. Use
+  `briar --install-completion`, or `briar --show-completion` to print the
+  script. The new completion also completes the values of fixed-choice
+  flags; `briar extract` completes as a command name only, until it leaves
+  argparse.
 - `briar scaffold implementation` and `briar scaffold pr-fixes`, with the
   scaffold templates, sources, triggers and workflow shapes behind them.
   Their JSON was for the archived web UI; nothing in briar read it. The

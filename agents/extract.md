@@ -242,7 +242,7 @@ briar extract --company acme --include meeting-digest --since-days 14 --meeting-
 |---|---|---|---|
 | `--company` | Company name. It names the blob and picks per-company credentials like `JIRA_ACME_TOKEN`. Required, unless `BRIAR_COMPANY` or `company` in `.briar.toml` sets it. | None. | `--company acme` |
 | `--include` | Run only this extractor. Repeat it to run several. Since 1.1.82 the other sections already in the blob are kept; only the sections of the extractors that ran are replaced (one that ran and found nothing loses its old section; one that is not set up keeps it). | All 23. Ones that are not set up are skipped. | `--include stale-prs` |
-| `--store` | Where to save the blob: `file` or `postgres`. `--storage` still works as an old name. It prints a note. | `postgres` if `BRIAR_DATABASE_URL` is set, else `file`. `BRIAR_STORE` or `store` in `.briar.toml` change it. | `--store postgres` |
+| `--store` | Where to save the blob: `file` or `postgres`. The 1.x name `--storage` was removed in 2.0. | `postgres` if `BRIAR_DATABASE_URL` is set, else `file`. `BRIAR_STORE` or `store` in `.briar.toml` change it. | `--store postgres` |
 | `--blob-name` | Name to save the blob under. | `knowledge:<company>`. | `--blob-name knowledge:acme.old` |
 | `--root` | Folder for the file store. The blob goes to `<root>/knowledge/<company>.md`. Ignored for Postgres. | `./knowledge` | `--root ./kb` |
 | `--out-json` | Also write all sections as JSON to this path. JSON keeps the full detail that the markdown leaves out. | Empty (no JSON). | `--out-json ./acme.json` |

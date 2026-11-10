@@ -1,6 +1,6 @@
 """Command registry — Strategy + Factory composition.
 
-Top-level commands: agent · auth · completion · config · context · doctor ·
+Top-level commands: agent · auth · config · context · doctor ·
 extract · init · journal · plan · runbook · secrets · telemetry · version.
 """
 
@@ -11,7 +11,6 @@ from typing import Dict, List, Type
 from briar.commands.agent import CommandAgent
 from briar.commands.auth import CommandAuth
 from briar.commands.base import Command, confirm
-from briar.commands.completion import CommandCompletion
 from briar.commands.config import CommandConfig
 from briar.commands.context import ContextCommand
 from briar.commands.doctor import CommandDoctor
@@ -40,7 +39,6 @@ class CommandRegistry:
         CommandJournal,
         CommandTelemetry,
         CommandVersion,
-        CommandCompletion,
         CommandInit,
         CommandConfig,
         CommandDoctor,

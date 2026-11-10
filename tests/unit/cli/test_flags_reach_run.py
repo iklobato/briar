@@ -10,7 +10,7 @@ the first commands left argparse and it had no full 1.x parser to read.
 
 Not covered here on purpose: the global flags (`test_global_flags.py`), the
 deprecated aliases and `--advanced-help` (removed by spec 002 / spec 004).
-Spec 002 PR 6 deletes the `completion` entries from the file with the command.
+The `completion` entries went with the command in spec 002 PR 6.
 """
 
 from __future__ import annotations

@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
 
-from briar.commands.base import Command, add_canonical_with_alias
+from briar.commands.base import Command
 from briar.errors import CliError
 from briar.extract import EXTRACTORS
 from briar.extract.base import ExtractedSection
@@ -53,13 +53,10 @@ class CommandExtract(Command):
             choices=sorted(EXTRACTORS.keys()),
             help="Which extractor(s) to run (repeatable; default: all available). Sections of other extractors already in the blob are kept.",
         )
-        # `--store` is the name every other command uses; `--storage` is
-        # the legacy spelling, kept (hidden) as a deprecated alias so
-        # existing scripts keep working but `-h` shows only `--store`.
-        add_canonical_with_alias(
-            parser,
+        # The dest stays `storage` (the 1.x name `run()` reads); the 1.x
+        # alias `--storage` was removed in 2.0.
+        parser.add_argument(
             "--store",
-            "--storage",
             dest="storage",
             default=default_store_kind(),
             choices=list(KNOWLEDGE_STORE_NAMES),
