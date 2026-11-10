@@ -176,8 +176,16 @@ Each item was reproduced in this work; the PR named holds the evidence.
    (login, status), `init` and `doctor`; remove `plan`, `agent`, `context`,
    `secrets`, `journal`, `telemetry`, `version` as commands, the Postgres
    store, the task-scoped extractors, `messaging`, `notify`, `mcp`; move the
-   stable `extract` flags to config. The speed PR below may become moot:
-   measure after this.
+   stable `extract` flags to config. Planned (spec-kit, not committed) as 5
+   stacked PRs on top of #90: (1) `plan`, `agent` and the code only they use,
+   personas moved to `src/briar/prompts/*.md` first; (2) `context`,
+   `secrets`, `journal`, `telemetry`, `version`, `messaging`, `notify`,
+   `--format table|json`, `-v` only; (3) file store only; (4) `extract`
+   with three flags and the rest from `[extract]` / `[extract.<name>]`;
+   (5) `auth`, `runbook`, `doctor`/`init` trims, docs and the success checks.
+   A 1.x key that left (`store`, runbook `messages:`/`mcp:`, an unknown
+   `[extract]` key) stops the run with exit 1; `auth status` with no target
+   lists every login. The speed PR below may become moot: measure after this.
 4. **Optional speed PR** (the user deferred it): import a command's option
    classes only when that command runs (about 25 ms), and lazy-import the
    heavy modules (`python -X importtime -c "import briar.cli"`:
