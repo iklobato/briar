@@ -7,8 +7,11 @@ Why a wrapper instead of letting call sites talk to sentry_sdk directly:
    - Auto-collected `argv` exposes ticket keys, repo names — we strip it.
    - Local-variable frames in tracebacks include credentials in scope —
      `include_local_variables=False`.
-2. All scrubbing decisions live in `_scrubber.py`. The SDK never sees
-   raw values; it only sees the post-scrub `TelemetryEvent`.
+2. The SDK never sees raw values; it only sees the post-scrub
+   `TelemetryEvent` (`_scrubber.py`: allow-listed names, secret and path
+   regexes on values). The event's fields travel as Sentry `extra`, so the
+   SDK's own `EventScrubber` filters any secret-named key on top. It does
+   not look at tags, which is why nothing is sent as a tag.
 3. Replacing Sentry later (PostHog, self-hosted OTel) is one new file
    in `_sinks/` + one registry entry, not a codebase-wide refactor."""
 
@@ -44,6 +47,7 @@ class SentrySink(TelemetrySink):
             return False
         try:
             import sentry_sdk
+            from sentry_sdk.scrubber import EventScrubber
 
             sentry_sdk.init(
                 dsn=self._dsn,
@@ -75,6 +79,9 @@ class SentrySink(TelemetrySink):
                 # `client.close(timeout=...)` we call from `flush()`.
                 before_send=self._before_send,
                 before_breadcrumb=lambda *_, **__: None,  # drop ALL breadcrumbs
+                # Filters secret-named keys (password, token, auth, ...) in
+                # `extra`, nested dicts included, behind briar's allow-list.
+                event_scrubber=EventScrubber(recursive=True),
             )
             self._initialised = True
             return True
@@ -86,12 +93,12 @@ class SentrySink(TelemetrySink):
 
     @staticmethod
     def _before_send(event, hint):  # noqa: ARG004 — Sentry SDK contract
-        """Final defence: strip request / extra / user keys the SDK may
-        have populated despite our config. Returning None drops the
-        event entirely."""
+        """Final defence: strip request / user / host keys the SDK may
+        have populated despite our config. `extra` stays: it carries the
+        scrubbed event fields. Returning None drops the event entirely."""
         if not event:
             return None
-        for key in ("request", "user", "server_name", "modules", "extra"):
+        for key in ("request", "user", "server_name", "modules"):
             event.pop(key, None)
         # Sentry SDK adds `breadcrumbs` even with the noop callback;
         # strip them anyway.
@@ -105,17 +112,15 @@ class SentrySink(TelemetrySink):
             import sentry_sdk
 
             with sentry_sdk.isolation_scope() as scope:
-                for tag_name, tag_value in event.tags.items():
-                    scope.set_tag(tag_name, tag_value)
+                for field_name, field_value in event.tags.items():
+                    scope.set_extra(field_name, field_value)
                 if event.kind == "error":
-                    # The error MESSAGE body bypasses our `before_send`
-                    # strip — only tags/extras/etc. on the event get
-                    # scrubbed there. Send the exception class name as
-                    # the message and put the (already-scrubbed) message
-                    # text into a tag, which IS run through the scrub
-                    # pipeline before the SDK serialises.
-                    scope.set_tag("error_type", event.error_type or "")
-                    scope.set_tag("error_message", event.error_message or "")
+                    # The event MESSAGE is not scrubbed by the SDK. Send
+                    # only the exception class name there and put the
+                    # (already-scrubbed) message text in `extra`, where
+                    # the EventScrubber also runs.
+                    scope.set_extra("error_type", event.error_type or "")
+                    scope.set_extra("error_message", event.error_message or "")
                     sentry_sdk.capture_message(
                         f"briar.error: {event.error_type or 'Unknown'}",
                         level="error",
