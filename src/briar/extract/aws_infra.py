@@ -59,8 +59,7 @@ class ExtractAwsInfra(CloudBackedExtractor):
         overrides `list_subsections` to use the native gatherer
         registry, every other cloud inherits the generic walker.
 
-        Removed in this commit: the `if cloud_kind == "aws"` branch
-        that used to live here. See ARCHITECTURE.md finding #4."""
+        There is no `if cloud_kind == "aws"` branch here on purpose."""
         cloud = self._cloud(args)
         try:
             identity = cloud.caller_identity()

@@ -1,7 +1,6 @@
 """Closed enumerations for the plan subsystem.
 
-Per ARCHITECTURE_MAP.md §21: enums for closed domain sets, registries
-for open plug-in spaces. Plan card lifecycle states are intrinsically
+Enums for closed domain sets, registries for open plug-in spaces. Plan card lifecycle states are intrinsically
 a fixed set; previously documented as a comment in `_models.py:39` and
 dispatched on by string equality. As an enum, typos fail loud at the
 boundary (PlanCardStatus("In_Progress") raises) and renames are one

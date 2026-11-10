@@ -7,8 +7,7 @@ write the resulting knowledge blob. Optional fields use empty defaults
 The two name-validation field validators (`_validate_extractor_name`,
 `_validate_store_name`) check against the runtime registries rather
 than a hardcoded `Literal[...]` — adding a new extractor / store
-backend doesn't require a schema edit. See ARCHITECTURE.md finding
-#5 + #6."""
+backend doesn't require a schema edit."""
 
 from __future__ import annotations
 

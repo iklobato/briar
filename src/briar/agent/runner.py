@@ -54,8 +54,8 @@ class AgentRunResult:
 class AgentRunConfig:
     """Everything AgentRunner needs except its LLM.
 
-    Per ARCHITECTURE_MAP.md §17 step 2 + §21: replaces 13 keyword-only
-    constructor parameters with a single value object. Frozen so once
+    Replaces 13 keyword-only constructor parameters with a single value
+    object. Frozen so once
     constructed the config is immutable; tests build one and reuse it.
 
     `oauth_token` is gone — the Anthropic adapter reads its OAuth/API

@@ -1,7 +1,6 @@
 """Closed enumerations for the CLI command surface.
 
-Per ARCHITECTURE_MAP.md §21: enums for closed domain sets, registries
-for open plug-in spaces. Exit codes are intrinsically a finite set
+Enums for closed domain sets, registries for open plug-in spaces. Exit codes are intrinsically a finite set
 fixed by the CLI contract — they belong in an enum.
 """
 from __future__ import annotations
