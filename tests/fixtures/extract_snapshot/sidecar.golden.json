@@ -1,0 +1,31 @@
+{
+  "company": "acme",
+  "generated_at": "2026-11-10T12:00:00+00:00",
+  "sections": [
+    {
+      "title": "PR archaeology \u2014 1 repo(s)",
+      "body": "new prs",
+      "data": {
+        "repos": 1
+      },
+      "subsections": [
+        {
+          "title": "acme/widgets",
+          "body": "- #1 fix login",
+          "data": {},
+          "subsections": []
+        }
+      ]
+    },
+    {
+      "title": "Code hotspots",
+      "body": "- src/app.py",
+      "data": {
+        "files": [
+          "src/app.py"
+        ]
+      },
+      "subsections": []
+    }
+  ]
+}
