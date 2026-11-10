@@ -15,21 +15,30 @@ Jira Cloud REST v3 doc shapes (payloads modelled on these, not invented):
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Callable
 
 import pytest
+
+from briar.config import load_project_config
 
 pytestmark = pytest.mark.integration
 
 
-def _run(cli, tmp_root, *flags):
-    return cli(
-        "extract",
-        "--company",
-        "acme",
-        *flags,
-        "--root",
-        str(tmp_root / "knowledge"),
-    )
+@pytest.fixture(autouse=True)
+def project_in_tmp_root(cli: Callable[..., SimpleNamespace], tmp_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Runs after `cli`, which stubs the project config reader: puts the real one back and
+    runs in `tmp_root`, so `root` defaults to `tmp_root/knowledge` and a `.briar.toml`
+    written there is read (decision C12: extractor values live in `[extract]`)."""
+    monkeypatch.setattr("briar.config.load_project_config", load_project_config)
+    monkeypatch.chdir(tmp_root)
+
+
+def _run(cli: Callable[..., SimpleNamespace], include: str, project: str) -> SimpleNamespace:
+    """The Jira project key goes in `[extract.<include>] projects` (decision E4), in the cwd."""
+    Path(".briar.toml").write_text(f'[extract.{include}]\nprojects = ["{project}"]\n')
+    return cli("extract", "--company", "acme", "--include", include)
 
 
 def _disk_blob(tmp_root) -> str:
@@ -99,7 +108,7 @@ def test_extract_active_tickets_real_jira(cli, jira_at, tmp_root) -> None:
         },
     )
 
-    result = _run(cli, tmp_root, "--include", "active-tickets", "--ticket-project", "ENG")
+    result = _run(cli, "active-tickets", "ENG")
 
     assert result.code == 0, result.err
     posts = _search_posts(jira_at.received)
@@ -171,7 +180,7 @@ def test_extract_ticket_archaeology_real_jira(cli, jira_at, tmp_root) -> None:
         },
     )
 
-    result = _run(cli, tmp_root, "--include", "ticket-archaeology", "--ticket-archaeology-project", "OPS")
+    result = _run(cli, "ticket-archaeology", "OPS")
 
     assert result.code == 0, result.err
     posts = _search_posts(jira_at.received)
@@ -198,7 +207,7 @@ def test_extract_active_tickets_jira_empty_yields_nonzero(cli, jira_at, tmp_root
     # the run exits non-zero ("nothing extracted") instead of writing a blob.
     jira_at.add("POST", "/rest/api/3/search/jql", {"issues": [], "total": 0})
 
-    result = _run(cli, tmp_root, "--include", "ticket-archaeology", "--ticket-archaeology-project", "OPS")
+    result = _run(cli, "ticket-archaeology", "OPS")
 
     assert result.code != 0
     assert _search_posts(jira_at.received), "jira should still have been queried"
@@ -212,7 +221,7 @@ def test_extract_active_tickets_jira_401_is_swallowed_to_empty(cli, jira_at, tmp
     # error is swallowed: no HTTPError traceback reaches the user (stderr empty).
     jira_at.add("POST", "/rest/api/3/search/jql", {"errorMessages": ["Unauthorized"], "errors": {}}, status=401)
 
-    result = _run(cli, tmp_root, "--include", "active-tickets", "--ticket-project", "ENG")
+    result = _run(cli, "active-tickets", "ENG")
 
     assert result.code == 0, result.err
     # The 401 must NOT surface as an uncaught crash: no traceback reaches the

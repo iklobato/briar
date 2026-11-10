@@ -6,14 +6,13 @@ import argparse
 
 import pytest
 from briar.extract import EXTRACTORS
-from briar.extract.canonical import _concept_for_dest, apply_canonical, register_canonical_flags
+from briar.extract.canonical import _concept_for_dest, apply_canonical
 
 
 def _seed_namespace(extractor) -> argparse.Namespace:
-    """Namespace with the extractor's private defaults AND the canonical
-    flag defaults, mirroring how `briar extract` parses both onto one ns."""
+    """Namespace with the extractor's private defaults, as `briar extract` and the
+    runbook build it; a test sets the canonical value it needs (`ns.repo = [...]`)."""
     parser = argparse.ArgumentParser(add_help=False)
-    register_canonical_flags(parser)
     extractor.add_arguments(parser)
     return parser.parse_args([])
 
@@ -144,29 +143,31 @@ class TestRepoFlagReplacesConfigDefault:
     remote. Up to 1.1.90 argparse appended to that default, so
     `briar extract --repo other/x` also mined the config repo."""
 
+    COMPANY = ("--company", "acme")
+
     @staticmethod
     def _parser(default):
         import argparse
 
+        from briar.commands.extract import CommandExtract
         from briar.config import apply_config_defaults
-        from briar.extract.canonical import register_canonical_flags
 
         parser = argparse.ArgumentParser()
-        register_canonical_flags(parser)
+        CommandExtract().add_arguments(parser)
         apply_config_defaults(parser, default)
         return parser
 
     def test_explicit_repo_replaces_config_repo(self) -> None:
         parser = self._parser({"repo": {"owner": "acme", "repo": "api"}})
 
-        assert parser.parse_args(["--repo", "other/x"]).repo == ["other/x"]
+        assert parser.parse_args([*self.COMPANY, "--repo", "other/x"]).repo == ["other/x"]
 
     def test_repeated_repo_still_collects_every_value(self) -> None:
         parser = self._parser({"repo": {"owner": "acme", "repo": "api"}})
 
-        assert parser.parse_args(["--repo", "a/b", "--repo", "c/d"]).repo == ["a/b", "c/d"]
+        assert parser.parse_args([*self.COMPANY, "--repo", "a/b", "--repo", "c/d"]).repo == ["a/b", "c/d"]
 
     def test_no_flag_keeps_config_repo(self) -> None:
         parser = self._parser({"repo": {"owner": "acme", "repo": "api"}})
 
-        assert parser.parse_args([]).repo == ["acme/api"]
+        assert parser.parse_args([*self.COMPANY]).repo == ["acme/api"]

@@ -24,10 +24,24 @@ GitHub REST doc shapes (payloads modelled on these, not invented from memory):
 from __future__ import annotations
 
 import base64
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Callable
 
 import pytest
 
+from briar.config import load_project_config
+
 pytestmark = pytest.mark.integration
+
+
+@pytest.fixture(autouse=True)
+def project_in_tmp_root(cli: Callable[..., SimpleNamespace], tmp_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Runs after `cli`, which stubs the project config reader: puts the real one back and
+    runs in `tmp_root`, so `root` defaults to `tmp_root/knowledge` and a `.briar.toml`
+    written there is read (decision C12: extractor values live in `[extract]`)."""
+    monkeypatch.setattr("briar.config.load_project_config", load_project_config)
+    monkeypatch.chdir(tmp_root)
 
 
 # GitHub's /rate_limit body — PyGithub's get_rate_limit() parses this. The facade
@@ -41,14 +55,7 @@ _RATE_LIMIT = {
 
 
 def _run(cli, tmp_root, *flags):
-    return cli(
-        "extract",
-        "--company",
-        "acme",
-        *flags,
-        "--root",
-        str(tmp_root / "knowledge"),
-    )
+    return cli("extract", "--company", "acme", *flags)
 
 
 def _disk_blob(tmp_root) -> str:
@@ -95,7 +102,7 @@ def test_extract_active_work_real_github(cli, github_at, tmp_root) -> None:
         ],
     )
 
-    result = _run(cli, tmp_root, "--include", "active-work", "--active-repo", "acme/app")
+    result = _run(cli, tmp_root, "--include", "active-work", "--repo", "acme/app")
 
     assert result.code == 0, result.err
     # Real client hit the documented list-pulls endpoint with state=open.
@@ -140,7 +147,7 @@ def test_extract_code_hotspots_real_github(cli, github_at, tmp_root) -> None:
         {"sha": "sha2bbb", "files": [{"filename": "src/auth.py"}, {"filename": "tests/test_auth.py"}]},
     )
 
-    result = _run(cli, tmp_root, "--include", "code-hotspots", "--hotspots-repo", "acme/app")
+    result = _run(cli, tmp_root, "--include", "code-hotspots", "--repo", "acme/app")
 
     assert result.code == 0, result.err
     # Real client listed commits AND fetched each commit's detail.
@@ -187,7 +194,7 @@ def test_extract_github_deployments_real_github(cli, github_at, tmp_root) -> Non
         },
     )
 
-    result = _run(cli, tmp_root, "--include", "github-deployments", "--deploy-repo", "acme/app")
+    result = _run(cli, tmp_root, "--include", "github-deployments", "--repo", "acme/app")
 
     assert result.code == 0, result.err
     paths = _paths(github_at.received)
@@ -259,7 +266,7 @@ def test_extract_reviewer_profile_real_github(cli, github_at, tmp_root) -> None:
     github_at.add("GET", "/repos/acme/app/issues/21/comments", [])
     github_at.add("GET", "/repos/acme/app/pulls/21/reviews", [])
 
-    result = _run(cli, tmp_root, "--include", "reviewer-profile", "--reviewer-repo", "acme/app")
+    result = _run(cli, tmp_root, "--include", "reviewer-profile", "--repo", "acme/app")
 
     assert result.code == 0, result.err
     paths = _paths(github_at.received)
@@ -294,7 +301,7 @@ def test_extract_codebase_conventions_real_github(cli, github_at, tmp_root) -> N
     github_at.add("GET", "/repos/acme/app/contents/package.json", {"message": "Not Found"}, status=404)
     github_at.add("GET", "/repos/acme/app/contents/go.mod", {"message": "Not Found"}, status=404)
 
-    result = _run(cli, tmp_root, "--include", "codebase-conventions", "--conventions-repo", "acme/app")
+    result = _run(cli, tmp_root, "--include", "codebase-conventions", "--repo", "acme/app")
 
     assert result.code == 0, result.err
     paths = _paths(github_at.received)
@@ -323,7 +330,7 @@ def test_extract_active_work_github_500_yields_empty(cli, github_at, tmp_root) -
     github_at.add("GET", "/rate_limit", _RATE_LIMIT)
     github_at.add("GET", "/repos/acme/app/pulls", {"message": "Server Error"}, status=500)
 
-    result = _run(cli, tmp_root, "--include", "active-work", "--active-repo", "acme/app")
+    result = _run(cli, tmp_root, "--include", "active-work", "--repo", "acme/app")
 
     assert result.code != 0
     # The real client really attempted the documented endpoint before failing.

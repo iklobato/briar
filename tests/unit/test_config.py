@@ -75,13 +75,6 @@ def test_env_overrides_config(monkeypatch):
     assert args.company == "from-env"  # env beats config
 
 
-def test_repo_section_feeds_provider() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--provider", default="github")
-    apply_config_defaults(parser, {"repo": {"owner": "acme-co", "repo": "app", "provider": "bitbucket"}})
-    assert parser.parse_args([]).provider == "bitbucket"
-
-
 def test_unrelated_dest_untouched():
     parser = argparse.ArgumentParser()
     parser.add_argument("--unrelated", default="keep")

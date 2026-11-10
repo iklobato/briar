@@ -7,9 +7,24 @@ GitHub REST shapes: https://docs.github.com/en/rest/pulls/pulls#list-pull-reques
 
 from __future__ import annotations
 
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Callable
+
 import pytest
 
+from briar.config import load_project_config
+
 pytestmark = pytest.mark.integration
+
+
+@pytest.fixture(autouse=True)
+def project_in_tmp_root(cli: Callable[..., SimpleNamespace], tmp_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Runs after `cli`, which stubs the project config reader: puts the real one back and
+    runs in `tmp_root`, so `root` defaults to `tmp_root/knowledge` and a `.briar.toml`
+    written there is read (decision C12: extractor values live in `[extract]`)."""
+    monkeypatch.setattr("briar.config.load_project_config", load_project_config)
+    monkeypatch.chdir(tmp_root)
 
 
 def test_extract_pr_archaeology_real_github(cli, github_at, tmp_root) -> None:
@@ -39,10 +54,8 @@ def test_extract_pr_archaeology_real_github(cli, github_at, tmp_root) -> None:
         "acme",
         "--include",
         "pr-archaeology",
-        "--pr-repo",
+        "--repo",
         "acme/app",
-        "--root",
-        str(tmp_root / "knowledge"),
     )
 
     assert result.code == 0, result.err

@@ -40,20 +40,6 @@ class KnowledgeComposer:
         return "\n".join(out)
 
     @classmethod
-    def json(
-        cls,
-        *,
-        company: str,
-        sections: List[ExtractedSection],
-    ) -> str:
-        payload: Dict[str, Any] = {
-            "company": company,
-            "generated_at": datetime.now(timezone.utc).isoformat(),
-            "sections": [cls._section_to_dict(s) for s in sections],
-        }
-        return json.dumps(payload, indent=2, default=str)
-
-    @classmethod
     def inventory(
         cls,
         *,
@@ -62,8 +48,7 @@ class KnowledgeComposer:
     ) -> str:
         """Stable structured-inventory JSON for a section bundle.
 
-        Unlike `json()`, this OMITS the volatile `generated_at`
-        timestamp and sorts keys, so the output is byte-stable when the
+        It has no volatile `generated_at` timestamp and sorts keys, so the output is byte-stable when the
         underlying resources are unchanged. That lets `put_if_changed`
         dedup it: the inventory blob is rewritten only when the estate
         actually drifts, not on every run."""
@@ -145,6 +130,5 @@ class KnowledgeComposer:
         }
 
 
-# Back-compat aliases.
+# Back-compat alias.
 render_markdown = KnowledgeComposer.markdown
-render_json = KnowledgeComposer.json

@@ -29,13 +29,26 @@ AWS API response shapes are moto's faithful emulations of the boto3 contract:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, Callable
 
 import boto3
 import pytest
+
+from briar.config import load_project_config
 from moto import mock_aws
 
 pytestmark = pytest.mark.integration
+
+
+@pytest.fixture(autouse=True)
+def project_in_tmp_root(cli: Callable[..., SimpleNamespace], tmp_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Runs after `cli`, which stubs the project config reader: puts the real one back and
+    runs in `tmp_root`, so `root` defaults to `tmp_root/knowledge` and a `.briar.toml`
+    written there is read (decision C12: extractor values live in `[extract]`)."""
+    monkeypatch.setattr("briar.config.load_project_config", load_project_config)
+    monkeypatch.chdir(tmp_root)
+
 
 # moto's fixed account for an unauthenticated/placeholder caller; it appears in
 # the rendered section title via the real sts get_caller_identity() probe.
@@ -138,6 +151,7 @@ def test_extract_aws_infra_happy_path_real(cli, tmp_root, monkeypatch) -> None:
         _seed_rds(session, region, ident="primary", engine="postgres", version="15.4", klass="db.t3.medium", storage=100, multi_az=True)
         _seed_sqs(session, region, name="orders")
         session.client("logs", region_name=region).create_log_group(logGroupName="/aws/lambda/ingest")
+        (tmp_root / ".briar.toml").write_text(f'[extract.aws-infra]\nregion = "{region}"\n')
 
         result = cli(
             "extract",
@@ -145,10 +159,6 @@ def test_extract_aws_infra_happy_path_real(cli, tmp_root, monkeypatch) -> None:
             "acme",
             "--include",
             "aws-infra",
-            "--aws-extract-region",
-            region,
-            "--root",
-            str(root),
         )
 
     assert result.code == 0, result.err
@@ -195,6 +205,7 @@ def test_extract_aws_infra_service_filter_real(cli, tmp_root, monkeypatch) -> No
         session = boto3.Session(region_name=region)
         _seed_rds(session, region, ident="primary", engine="postgres", version="15.4", klass="db.t3.medium", storage=100, multi_az=False)
         _seed_sqs(session, region, name="orders")
+        (tmp_root / ".briar.toml").write_text('[extract.aws-infra]\nservices = ["rds"]\n')
 
         result = cli(
             "extract",
@@ -202,10 +213,6 @@ def test_extract_aws_infra_service_filter_real(cli, tmp_root, monkeypatch) -> No
             "acme",
             "--include",
             "aws-infra",
-            "--aws-extract-service",
-            "rds",
-            "--root",
-            str(root),
         )
 
     assert result.code == 0, result.err
@@ -238,8 +245,6 @@ def test_extract_aws_infra_empty_real(cli, tmp_root, monkeypatch) -> None:
             "acme",
             "--include",
             "aws-infra",
-            "--root",
-            str(root),
         )
 
     assert result.code == 0, result.err
@@ -282,8 +287,6 @@ def test_extract_aws_infra_unreachable_real(cli, tmp_root, monkeypatch) -> None:
         "acme",
         "--include",
         "aws-infra",
-        "--root",
-        str(root),
     )
 
     assert result.code == 0, result.err

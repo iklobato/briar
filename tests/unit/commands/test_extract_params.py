@@ -1,12 +1,16 @@
-"""`briar extract` — parametric per-flag EFFECT assertions.
+"""`briar extract`: parametric per-option EFFECT assertions.
 
-Companion to ``test_extract.py`` (which covers the failure modes +
-include/storage/json wiring). This file pins EVERY flag in
-``/tmp/cli_manifest/extract.md`` to an observable effect:
+Companion to ``test_extract.py`` (which covers the failure modes and the
+blob writing). This file pins EVERY extractor option to an observable
+effect. The tests still name each option by its 1.x flag; since 2.0
+(decision C12) `FlagsAsConfig` writes it into `.briar.toml` under its short
+name (decisions E1 to E8 of docs/decisions/2026-11-10-briar-2-extract-config.md)
+and the command runs with only `--company`, `--include` and `--repo`, so
+every test proves the config path:
 
-* source-selection flags (``--provider`` / ``--tracker`` / ``--cloud`` /
-  ``--meeting``) → assert the factory was invoked with that kind, and
-  that an invalid choice exits 2.
+* source-selection options (``provider`` / ``tracker`` / ``cloud`` /
+  ``meeting``) → assert the factory was invoked with that kind, and
+  that an invalid choice exits 1 naming the key.
 * gather/repo/project flags (``--pr-repo`` / ``--active-repo`` / …) →
   assert the slug reaches the provider verb call.
 * numeric caps (``--pr-max`` / ``--ticket-max`` / ``--reviewer-pr-sample``
@@ -18,9 +22,8 @@ include/storage/json wiring). This file pins EVERY flag in
 * AWS knobs (``--aws-extract-region`` / ``--aws-extract-profile`` /
   ``--aws-extract-service``) → assert they reach ``make_cloud`` /
   ``list_subsections``.
-* meta flags (``--company`` / ``--include`` /
-  ``--blob-name`` / ``--root`` / ``--out-json``) → assert title, file
-  path, and json sidecar.
+* meta (``--company`` / ``--include`` / ``root``) → assert title and file
+  path.
 
 The four provider factories are mocked at the lazy-import seam
 (``briar.extract._providers.make_provider`` etc.); the extractor itself
@@ -30,15 +33,20 @@ assertion FAIL. No network, no SDKs imported at module scope.
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Callable
+from typing import Callable, Dict, List, Sequence, Tuple
 from unittest.mock import MagicMock
 
 import pytest
 
+from briar.commands.extract import ExtractorKeys
+from briar.config import load_project_config
+from briar.extract import EXTRACTORS
 from briar.extract._meeting import Meeting
+from briar.extract.canonical import SHARED_CONCEPTS
 from briar.extract._provider import CiRun, Commit, Deployment, Environment, PullRequest, ReviewComment
 from briar.extract._tracker import Ticket
 
@@ -203,20 +211,77 @@ def seam(mocker):
     )
 
 
-def _run(cli, tmp_root, include, *extra, company="acme", out_json=None):
-    argv = [
-        "extract",
-        "--company",
-        company,
-        "--include",
-        include,
-        "--root",
-        str(tmp_root / "knowledge"),
-        *extra,
-    ]
-    if out_json is not None:
-        argv += ["--out-json", str(out_json)]
-    return cli(*argv)
+class FlagsAsConfig:
+    """Moves 1.x `briar extract` flags to where 2.0 reads them (E1 to E8): a repo list
+    stays on the command line as `--repo`, a shared concept goes in `[extract]`, every
+    other option goes in `[extract.<name>]` under its short name."""
+
+    FLAG_AND_VALUE = 2
+    INT_CONCEPTS = ("since_days", "max", "top_n", "sample")
+    SHARED = "extract"
+
+    def __init__(self, include: str, flags: Sequence[str]) -> None:
+        self._include = include
+        self._flags = flags
+
+    def command_line(self) -> List[str]:
+        return [token for dest, setting in self._pairs() if self._is_repo(dest) for token in ("--repo", setting)]
+
+    def toml(self) -> str:
+        entries = self._entries()
+        lines = [f"[{self.SHARED}]", *self._lines(entries, self.SHARED), f"[{self.SHARED}.{self._include}]", *self._lines(entries, self._include)]
+        return "\n".join(lines) + "\n"
+
+    def _keys(self) -> ExtractorKeys:
+        return ExtractorKeys(EXTRACTORS[self._include])
+
+    def _pairs(self) -> List[Tuple[str, str]]:
+        starts = range(0, len(self._flags), self.FLAG_AND_VALUE)
+        return [(self._flags[start].removeprefix("--").replace("-", "_"), self._flags[start + 1]) for start in starts]
+
+    def _is_repo(self, dest: str) -> bool:
+        return dest == ExtractorKeys.REPO or (dest in self._keys().dests() and not self._keys().short_name(dest))
+
+    def _entries(self) -> Dict[Tuple[str, str], List[object]]:
+        entries: Dict[Tuple[str, str], List[object]] = {}
+        for dest, setting in self._pairs():
+            if not self._is_repo(dest):
+                entries.setdefault(self._where(dest), []).append(self._typed(dest, setting))
+        return entries
+
+    def _where(self, dest: str) -> Tuple[str, str]:
+        if dest in SHARED_CONCEPTS:
+            return (self.SHARED, dest)
+        return (self._include, self._keys().short_name(dest))
+
+    def _typed(self, dest: str, setting: str) -> object:
+        if dest in self.INT_CONCEPTS:
+            return int(setting)
+        option = self._keys().dests().get(dest)
+        return option.type(setting) if option is not None and option.type else setting
+
+    def _many(self, table: str, key: str) -> bool:
+        if table == self.SHARED:
+            return key not in self.INT_CONCEPTS
+        return isinstance(self._keys().options()[key], argparse._AppendAction)
+
+    def _lines(self, entries: Dict[Tuple[str, str], List[object]], table: str) -> List[str]:
+        chosen = {key: settings for (where, key), settings in entries.items() if where == table}
+        return [f"{key} = {json.dumps(settings if self._many(table, key) else settings[-1])}" for key, settings in chosen.items()]
+
+
+@pytest.fixture(autouse=True)
+def project_in_tmp_root(cli: Callable[..., SimpleNamespace], tmp_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every run happens in `tmp_root` with the real project config reader. Asks for `cli`
+    so it runs after it: `cli` stubs the reader."""
+    monkeypatch.chdir(tmp_root)
+    monkeypatch.setattr("briar.config.load_project_config", load_project_config)
+
+
+def _run(cli: Callable[..., SimpleNamespace], tmp_root: Path, include: str, *extra: str, company: str = "acme") -> SimpleNamespace:
+    config = FlagsAsConfig(include, extra)
+    (tmp_root / ".briar.toml").write_text(config.toml())
+    return cli("extract", "--company", company, "--include", include, *config.command_line())
 
 
 def _blob_text(tmp_root, company="acme") -> str:
@@ -229,7 +294,7 @@ def _blob_text(tmp_root, company="acme") -> str:
 
 class TestMetaFlags:
     def test_company_required_omission_exits_2(self, cli, tmp_root) -> None:
-        result = cli("extract", "--root", str(tmp_root / "knowledge"))
+        result = cli("extract")
         assert result.code == 2
         assert "company" in result.err.lower()
 
@@ -243,9 +308,16 @@ class TestMetaFlags:
 
     def test_store_flag_is_gone_exits_2(self, cli: Callable[..., SimpleNamespace], tmp_root: Path, seam: SimpleNamespace) -> None:
         # 2.0 has one knowledge store (decision C11), so `--store` left.
-        run = _run(cli, tmp_root, "pr-archaeology", "--pr-repo", "o/r", "--store", "file")
+        run = cli("extract", "--company", "acme", "--include", "pr-archaeology", "--store", "file")
         assert run.code == self.USAGE_ERROR
         assert "unrecognized arguments: --store" in run.err
+
+    @pytest.mark.parametrize("flag", ["--pr-repo", "--pr-max", "--root", "--out-json", "--blob-name", "--provider"])
+    def test_flag_moved_to_config_exits_2(self, cli: Callable[..., SimpleNamespace], seam: SimpleNamespace, flag: str) -> None:
+        # Decisions C12, C13, E13: only --company, --include and --repo are left.
+        run = cli("extract", "--company", "acme", "--include", "pr-archaeology", flag, "x")
+        assert run.code == self.USAGE_ERROR
+        assert f"unrecognized arguments: {flag}" in run.err
 
     def test_include_invalid_choice_exits_2(self, cli, tmp_root, seam) -> None:
         result = cli(
@@ -254,48 +326,16 @@ class TestMetaFlags:
             "acme",
             "--include",
             "not-a-real-extractor",
-            "--root",
-            str(tmp_root / "knowledge"),
         )
         assert result.code == 2
         assert "invalid choice" in result.err
 
-    def test_blob_name_overrides_default_path(self, cli, tmp_root, seam) -> None:
-        result = _run(cli, tmp_root, "pr-archaeology", "--pr-repo", "o/r", "--blob-name", "custom:name")
-        assert result.code == 0
-        assert (tmp_root / "knowledge" / "custom" / "name.md").exists()
-        # default path must NOT be used when blob-name is given
-        assert not (tmp_root / "knowledge" / "knowledge" / "acme.md").exists()
-
-    def test_root_controls_write_location(self, cli, tmp_root, seam) -> None:
+    def test_root_setting_controls_write_location(self, cli: Callable[..., SimpleNamespace], tmp_root: Path, seam: SimpleNamespace) -> None:
         alt = tmp_root / "alt-root"
-        result = cli(
-            "extract",
-            "--company",
-            "acme",
-            "--include",
-            "pr-archaeology",
-            "--pr-repo",
-            "o/r",
-            "--root",
-            str(alt),
-        )
-        assert result.code == 0
+        (tmp_root / ".briar.toml").write_text(f"root = {json.dumps(str(alt))}\n")
+        run = cli("extract", "--company", "acme", "--include", "pr-archaeology", "--repo", "o/r")
+        assert run.code == 0, run.err
         assert (alt / "knowledge" / "acme.md").exists()
-
-    def test_out_json_writes_sidecar_with_company(self, cli, tmp_root, seam) -> None:
-        out = tmp_root / "side" / "acme.json"
-        result = _run(cli, tmp_root, "pr-archaeology", "--pr-repo", "o/r", out_json=out)
-        assert result.code == 0
-        assert out.exists()
-        payload = json.loads(out.read_text())
-        assert payload["company"] == "acme"
-
-    def test_out_json_omitted_writes_no_sidecar(self, cli, tmp_root, seam) -> None:
-        result = _run(cli, tmp_root, "pr-archaeology", "--pr-repo", "o/r")
-        assert result.code == 0
-        # only the markdown blob exists; no stray .json under the root
-        assert list((tmp_root / "knowledge").rglob("*.json")) == []
 
 
 # ─── source-selection: --provider / --tracker / --cloud / --meeting ───
@@ -313,10 +353,10 @@ class TestProviderChoice:
         assert result.code == 0
         assert seam.make_provider.call_args.args[0] == "github"
 
-    def test_provider_invalid_choice_exits_2(self, cli, tmp_root, seam) -> None:
-        result = _run(cli, tmp_root, "pr-archaeology", "--pr-repo", "o/r", "--provider", "gitlab")
-        assert result.code == 2
-        assert "invalid choice" in result.err
+    def test_provider_invalid_choice_exits_1(self, cli: Callable[..., SimpleNamespace], tmp_root: Path, seam: SimpleNamespace) -> None:
+        run = _run(cli, tmp_root, "pr-archaeology", "--pr-repo", "o/r", "--provider", "gitlab")
+        assert run.code == 1
+        assert "is not one of" in run.err
 
 
 class TestTrackerChoice:
@@ -335,10 +375,10 @@ class TestTrackerChoice:
         assert result.code == 0
         assert seam.make_tracker.call_args.args[0] == "jira"
 
-    def test_tracker_invalid_choice_exits_2(self, cli, tmp_root, seam) -> None:
-        result = _run(cli, tmp_root, "active-tickets", "--ticket-project", "PROJ", "--tracker", "trello")
-        assert result.code == 2
-        assert "invalid choice" in result.err
+    def test_tracker_invalid_choice_exits_1(self, cli: Callable[..., SimpleNamespace], tmp_root: Path, seam: SimpleNamespace) -> None:
+        run = _run(cli, tmp_root, "active-tickets", "--ticket-project", "PROJ", "--tracker", "trello")
+        assert run.code == 1
+        assert "is not one of" in run.err
 
 
 class TestCloudChoice:
@@ -357,10 +397,10 @@ class TestCloudChoice:
         assert result.code == 0
         assert seam.make_cloud.call_args.args[0] == "aws"
 
-    def test_cloud_invalid_choice_exits_2(self, cli, tmp_root, seam) -> None:
-        result = _run(cli, tmp_root, "aws-infra", "--cloud", "oracle")
-        assert result.code == 2
-        assert "invalid choice" in result.err
+    def test_cloud_invalid_choice_exits_1(self, cli: Callable[..., SimpleNamespace], tmp_root: Path, seam: SimpleNamespace) -> None:
+        run = _run(cli, tmp_root, "aws-infra", "--cloud", "oracle")
+        assert run.code == 1
+        assert "is not one of" in run.err
 
 
 class TestMeetingChoice:
@@ -369,10 +409,10 @@ class TestMeetingChoice:
         assert result.code == 0
         assert seam.make_meeting.call_args.args[0] == "fireflies"
 
-    def test_meeting_invalid_choice_exits_2(self, cli, tmp_root, seam) -> None:
-        result = _run(cli, tmp_root, "meeting-digest", "--meeting", "otter")
-        assert result.code == 2
-        assert "invalid choice" in result.err
+    def test_meeting_invalid_choice_exits_1(self, cli: Callable[..., SimpleNamespace], tmp_root: Path, seam: SimpleNamespace) -> None:
+        run = _run(cli, tmp_root, "meeting-digest", "--meeting", "otter")
+        assert run.code == 1
+        assert "is not one of" in run.err
 
 
 # ─── pr-archaeology: --pr-repo / --pr-max / pr-* filters ──────────────
@@ -533,10 +573,10 @@ class TestAwsInfraFlags:
         # empty list → services=None (gather all)
         seam.cloud.list_subsections.assert_called_once_with(services=None)
 
-    def test_aws_extract_service_invalid_choice_exits_2(self, cli, tmp_root, seam) -> None:
-        result = _run(cli, tmp_root, "aws-infra", "--aws-extract-service", "dynamodb")
-        assert result.code == 2
-        assert "invalid choice" in result.err
+    def test_aws_extract_service_invalid_choice_exits_1(self, cli: Callable[..., SimpleNamespace], tmp_root: Path, seam: SimpleNamespace) -> None:
+        run = _run(cli, tmp_root, "aws-infra", "--aws-extract-service", "dynamodb")
+        assert run.code == 1
+        assert "is not one of" in run.err
 
 
 # ─── active-tickets / ticket-archaeology ──────────────────────────────

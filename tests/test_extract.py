@@ -12,7 +12,7 @@ from unittest import mock
 from briar.extract import EXTRACTORS
 from briar.extract.aws_services import AWS_SERVICE_GATHERERS
 from briar.extract.base import ExtractedSection
-from briar.extract.composer import render_json, render_markdown
+from briar.extract.composer import render_markdown
 from briar.extract.language_detectors import LANGUAGE_DETECTORS
 
 
@@ -52,17 +52,6 @@ class ComposerTests(unittest.TestCase):
         self.assertIn("# Briar knowledge base — acme", md)
         self.assertIn("## One", md)
         self.assertIn("### Sub", md)
-
-    def test_json_carries_structure(self) -> None:
-        import json
-
-        out = render_json(
-            company="acme",
-            sections=[ExtractedSection(title="One", body="hi", data={"k": 1})],
-        )
-        d = json.loads(out)
-        self.assertEqual(d["company"], "acme")
-        self.assertEqual(d["sections"][0]["data"], {"k": 1})
 
 
 class ExtractPrArchaeologyTests(unittest.TestCase):

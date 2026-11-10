@@ -29,11 +29,9 @@ def test_inventory_is_byte_stable_across_calls() -> None:
     assert a == b
 
 
-def test_inventory_omits_timestamp_unlike_json() -> None:
+def test_inventory_omits_timestamp() -> None:
     inv = KnowledgeComposer.inventory(company="acme", sections=_sections())
     assert "generated_at" not in inv
-    # json() (the human/programmatic variant) DOES stamp time — contrast.
-    assert "generated_at" in KnowledgeComposer.json(company="acme", sections=_sections())
 
 
 def test_inventory_preserves_full_data_payload() -> None:
