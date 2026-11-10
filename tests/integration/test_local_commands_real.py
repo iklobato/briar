@@ -130,7 +130,7 @@ class TestSecretsEnvfileStoreReal:
 
 class TestTelemetryRealConfigFile:
     def _state_path(self, tmp_path: Path) -> Path:
-        return tmp_path / "xdg" / "briar" / "telemetry.json"
+        return tmp_path / "xdg" / "briar" / "telemetry.v2.json"
 
     def test_off_writes_off_tier_to_disk(self, cli, tmp_path) -> None:
         # `off` must explicitly be the chosen tier (not BRIAR_TELEMETRY=off

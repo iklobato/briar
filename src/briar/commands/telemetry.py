@@ -6,11 +6,11 @@ Sub-ops (Strategy + Registry, same shape as `briar agent` / `briar plan`):
                      where the configuration came from.
   * `preview`      — render the exact JSON event a typical command run
                      would emit. The event is NEVER sent.
-  * `off`          — disable telemetry entirely. Persists to
-                     ~/.config/briar/telemetry.json so the choice survives.
+  * `off`          — disable telemetry entirely (the default). Persists to
+                     ~/.config/briar/telemetry.v2.json so the choice survives.
   * `errors-only`  — opt into Sentry crash reports only; usage analytics
                      stay off.
-  * `full`         — opt into errors + usage analytics (the default).
+  * `full`         — opt into errors + usage analytics.
   * `reset`        — regenerate the install_id (rotates the anonymous
                      identity that pairs your events together).
 
@@ -91,14 +91,14 @@ class _SetTierOp(TelemetryOp):
     tier: TelemetryTier = TelemetryTier.FULL
 
     def run(self, command, args: argparse.Namespace) -> int:
-        save_tier(self.tier, banner_shown=True)
+        save_tier(self.tier)
         render({"tier": self.tier.value, "state_path": str(state_path())}, args.format)
         return ExitCode.OK
 
 
 class OffOp(_SetTierOp):
     name = "off"
-    help = "Disable telemetry entirely. Persists to the config file."
+    help = "Disable telemetry entirely (the default tier). Persists to the config file."
     tier = TelemetryTier.OFF
 
 
@@ -110,7 +110,7 @@ class ErrorsOnlyOp(_SetTierOp):
 
 class FullOp(_SetTierOp):
     name = "full"
-    help = "Opt into errors + usage analytics (the default tier)."
+    help = "Opt into errors + usage analytics."
     tier = TelemetryTier.FULL
 
 

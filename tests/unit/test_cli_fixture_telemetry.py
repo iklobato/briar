@@ -1,10 +1,8 @@
 """The `cli` fixture must keep telemetry out of tests.
 
-Without this, the first in-process `main()` on a machine with no
-`~/.config/briar/telemetry.json` (every fresh CI runner) prints the
-first-run banner to stderr, so whichever exact-stderr test runs first in
-an xdist worker fails, and tests run with the real Sentry DSN at the
-default `full` tier.
+On a fresh home (every CI runner) a run must print nothing about
+telemetry, send nothing (the 2.0 default tier is off) and write nothing
+under the real `~/.config`.
 """
 
 from __future__ import annotations

@@ -82,15 +82,11 @@ def _handler_for(api: _MockApi):
 
 @pytest.fixture(autouse=True)
 def _quiet_telemetry(tmp_path_factory, monkeypatch):
-    """Point telemetry at a fresh per-test config dir with the consent banner
-    already marked shown and the tier off, so the CLI's one-time first-run
-    notice never lands on stderr (it would otherwise pollute stderr assertions
-    on whichever test ran first — flaky under randomized ordering). Tests that
-    manage their own XDG_CONFIG_HOME override this in their body."""
-    cfg = tmp_path_factory.mktemp("xdg")
-    (cfg / "briar").mkdir()
-    (cfg / "briar" / "telemetry.json").write_text(json.dumps({"tier": "off", "banner_shown": True}))
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(cfg))
+    """Point telemetry at a fresh, empty per-test config dir so no test reads
+    or writes the real home; with nothing saved the tier is the 2.0 default,
+    off. Tests that manage their own XDG_CONFIG_HOME override this in their
+    body."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path_factory.mktemp("xdg")))
 
 
 @pytest.fixture

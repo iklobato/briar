@@ -36,7 +36,7 @@ def xdg_home(monkeypatch, tmp_path):
 
 
 def _state(xdg_home) -> dict:
-    return json.loads((xdg_home / "telemetry.json").read_text())
+    return json.loads((xdg_home / "telemetry.v2.json").read_text())
 
 
 # ─── set-tier action subcommands (parametrized) ─────────────────────────
@@ -60,19 +60,6 @@ class TestSetTierActions:
         assert _state(xdg_home)["tier"] == tier.value
         # And the printed confirmation echoes that tier.
         assert tier.value in result.out
-
-    @pytest.mark.parametrize(
-        "action, tier",
-        [
-            ("off", TelemetryTier.OFF),
-            ("errors-only", TelemetryTier.ERRORS_ONLY),
-            ("full", TelemetryTier.FULL),
-        ],
-        ids=["off", "errors-only", "full"],
-    )
-    def test_action_marks_banner_shown(self, cli, xdg_home, action, tier) -> None:
-        cli("telemetry", action)
-        assert _state(xdg_home)["banner_shown"] is True
 
 
 # ─── status action ──────────────────────────────────────────────────────
@@ -143,9 +130,7 @@ class TestPreviewForCommandFlag:
         assert json.loads(result.out)["command"] == label
 
     def test_preview_does_not_persist_a_tier(self, cli, xdg_home, mocker) -> None:
-        # preview is read-only — it must not call save_tier. (The CLI startup
-        # banner may write telemetry.json, so we assert the op's own behaviour
-        # at the save_tier seam rather than file (non)existence.)
+        # preview is read-only — it must not call save_tier.
         save = mocker.patch("briar.commands.telemetry.save_tier")
         result = cli("telemetry", "preview")
         assert result.code == 0

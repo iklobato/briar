@@ -241,14 +241,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         # protects every call site from "is journaling active" guards).
         _install_default_journal(log)
 
-        # Install telemetry — opt-out via BRIAR_TELEMETRY / DO_NOT_TRACK.
-        # Default is `full` (errors + usage); no PII / no values / no
-        # prompts ever leave the machine. See `briar.telemetry`.
+        # Install telemetry — opt-in: the default tier is `off` until the
+        # user runs `briar telemetry errors-only|full` (or sets
+        # BRIAR_TELEMETRY). No PII / no values / no prompts ever leave the
+        # machine. See `briar.telemetry`.
         try:
             from briar import telemetry
 
             telemetry.install()
-            telemetry.banner_if_needed()
         except Exception:  # noqa: BLE001 — telemetry NEVER blocks the CLI
             log.debug("telemetry: install failed", exc_info=True)
 

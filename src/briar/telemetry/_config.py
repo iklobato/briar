@@ -1,11 +1,13 @@
-"""Telemetry configuration — resolution, install-id, banner state.
+"""Telemetry configuration — resolution and install-id.
 
 Precedence (highest first):
 1. `DO_NOT_TRACK=1` env var — industry standard, wins over everything.
 2. `BRIAR_TELEMETRY` env var — `off`, `errors-only`, `full`.
-3. Persisted config at `<XDG_CONFIG_HOME>/briar/telemetry.json` — set by
-   `briar telemetry off / errors-only / full`.
-4. Default: `full` (errors + usage).
+3. Persisted config at `<XDG_CONFIG_HOME>/briar/telemetry.v2.json` — set by
+   `briar telemetry off / errors-only / full`. The 1.x file
+   `telemetry.json` is never read: 1.x saved `full` for everyone who saw
+   its first-run banner, so it holds no real choice.
+4. Default: `off`. Telemetry is opt-in since 2.0.
 
 The install_id is a stable random UUID generated on first run, stored at
 `<XDG_CONFIG_HOME>/briar/install_id`. It NEVER includes hostname,
@@ -61,7 +63,6 @@ class TelemetryConfig:
     tier: TelemetryTier
     install_id: str
     dsn: str = ""
-    banner_shown: bool = False
     source: str = ""  # "env" / "do-not-track" / "config-file" / "default"
 
     @property
@@ -93,23 +94,18 @@ def resolve(env: Optional[dict] = None) -> TelemetryConfig:
     if saved is not None:
         tier_str = saved.get("tier") or ""
         try:
-            return _build_config(
-                TelemetryTier(tier_str),
-                source="config-file",
-                banner_shown=bool(saved.get("banner_shown")),
-            )
+            return _build_config(TelemetryTier(tier_str), source="config-file")
         except ValueError:
             log.warning("telemetry: saved tier %r invalid; falling back to default", tier_str)
 
-    return _build_config(TelemetryTier.FULL, source="default")
+    return _build_config(TelemetryTier.OFF, source="default")
 
 
-def _build_config(tier: TelemetryTier, *, source: str, banner_shown: bool = False) -> TelemetryConfig:
+def _build_config(tier: TelemetryTier, *, source: str) -> TelemetryConfig:
     return TelemetryConfig(
         tier=tier,
         install_id=_load_or_create_install_id(),
         dsn=os.environ.get("BRIAR_SENTRY_DSN") or _DEFAULT_DSN,
-        banner_shown=banner_shown,
         source=source,
     )
 
@@ -117,8 +113,13 @@ def _build_config(tier: TelemetryTier, *, source: str, banner_shown: bool = Fals
 # ─── persistence ────────────────────────────────────────────────────
 
 
+# 2.0 name. 1.x wrote `telemetry.json`, which stays on disk unread (a user
+# who goes back to 1.x keeps their 1.x state).
+_STATE_FILE_NAME = "telemetry.v2.json"
+
+
 def _telemetry_state_path() -> Path:
-    return _config_dir() / "telemetry.json"
+    return _config_dir() / _STATE_FILE_NAME
 
 
 def _install_id_path() -> Path:
@@ -182,24 +183,17 @@ def _read_saved_config() -> Optional[dict]:
         return None
 
 
-def save_tier(tier: TelemetryTier, *, banner_shown: bool = True) -> Path:
+def save_tier(tier: TelemetryTier) -> Path:
     """Write the chosen tier to the on-disk state file. Called by the
-    `briar telemetry` subcommand and by the first-run banner."""
+    `briar telemetry` subcommand."""
     path = _telemetry_state_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"tier": tier.value, "banner_shown": banner_shown}
-    path.write_text(json.dumps(payload, indent=2))
+    path.write_text(json.dumps({"tier": tier.value}, indent=2))
     try:
         path.chmod(0o600)
     except OSError:
         pass
     return path
-
-
-def mark_banner_shown() -> None:
-    """Persist that the first-run banner has been displayed. Idempotent."""
-    cfg = resolve()
-    save_tier(cfg.tier, banner_shown=True)
 
 
 def reset_install_id() -> str:

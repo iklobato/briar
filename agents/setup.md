@@ -359,7 +359,7 @@ Before any command runs (but not for `-h` or `--version`), briar:
 
 1. Loads `secrets.env` into the environment (see [auth.md](auth.md)).
 2. Sets up the decision journal (see [journal.md](journal.md)).
-3. Sets up telemetry and shows the first-run notice once (see [telemetry.md](telemetry.md)).
+3. Sets up telemetry, which is off unless you turned it on (see [telemetry.md](telemetry.md)).
 4. Reads `.briar.toml` and your git remote for default values.
 
 After a command ends, briar may print a "new version available" note on

@@ -481,10 +481,12 @@ helps other people find it.
 
 ## Telemetry
 
-briar sends error reports and usage counts by default. No prompts, file
-contents, ticket keys, repo names, paths or secret values leave your
-machine. Turn it off with `briar telemetry off`, `BRIAR_TELEMETRY=off`
-or `DO_NOT_TRACK=1`.
+briar sends nothing by default. To help fix bugs, turn on error reports
+with `briar telemetry errors-only`, or error reports and usage counts
+with `briar telemetry full`. Even then, no prompts, file contents, ticket
+keys, repo names, paths or secret values leave your machine. 1.x sent by
+default; 2.0 ignores the choice 1.x saved, so turn it on again if you
+want it.
 
 ## License
 

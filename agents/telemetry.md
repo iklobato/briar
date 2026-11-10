@@ -1,16 +1,17 @@
 # `briar telemetry`
 
-briar sends anonymous usage data and error reports to Sentry (an error
-tracking service), to help fix bugs. `briar telemetry` shows what is
-sent and lets you turn it down or off.
+briar can send anonymous usage data and error reports to Sentry (an
+error tracking service), to help fix bugs. Since 2.0 it sends **nothing**
+until you turn it on. `briar telemetry` shows what would be sent and lets
+you turn it on, down or off.
 
 There are three **tiers** (levels):
 
 | Tier | What is sent |
 |---|---|
-| `full` (default) | One usage event per command run, and error reports. |
+| `off` (default) | Nothing. |
 | `errors-only` | Error reports only. |
-| `off` | Nothing. |
+| `full` | One usage event per command run, and error reports. |
 
 It has six subcommands:
 
@@ -64,20 +65,27 @@ Before anything is sent, briar cleans every field:
 - Absolute file paths inside a value become `<path>`.
 - Values longer than 1024 characters are cut and end with `...<truncated>`.
 
+The fields reach Sentry as the event's "extra" data, where the Sentry
+library filters them once more: a field whose name is a secret word
+(such as `password` or `token`) is sent as `[Filtered]`.
+
 ## How briar picks the tier
 
 briar checks these in order. The first one that is set wins.
 
 1. `DO_NOT_TRACK=1` in the environment: telemetry is `off`.
 2. `BRIAR_TELEMETRY=off`, `errors-only` or `full` in the environment.
-3. The saved choice in `$XDG_CONFIG_HOME/briar/telemetry.json` (usually
-   `~/.config/briar/telemetry.json`). The `off`, `errors-only` and
-   `full` subcommands write this file.
-4. The default: `full`.
+3. The saved choice in `$XDG_CONFIG_HOME/briar/telemetry.v2.json`
+   (usually `~/.config/briar/telemetry.v2.json`). The `off`,
+   `errors-only` and `full` subcommands write this file.
+4. The default: `off`.
 
-The first time briar runs, it prints a short notice about telemetry to
-stderr, then saves that it did. The notice does not show when you set
-`DO_NOT_TRACK` or `BRIAR_TELEMETRY`.
+briar prints no notice about telemetry.
+
+Coming from 1.x: 1.x saved its choice in `telemetry.json` and set it to
+`full` for everyone who saw its first-run notice. 2.0 does not read that
+file, so telemetry is `off` until you run `briar telemetry errors-only`
+or `full` again. The old file stays on disk for 1.x.
 
 ## `briar telemetry status`
 
@@ -159,37 +167,37 @@ You get the same JSON with `command` set to `plan`.
 
 ### What they do
 
-Each one saves a tier in `telemetry.json`. They print the new tier and
-the file path as JSON.
+Each one saves a tier in `telemetry.v2.json`. They print the new tier
+and the file path as JSON.
 
 ### Use it when
 
-- You do not want briar to send anything: `off`.
 - You only want to help with crashes: `errors-only`.
-- You want to go back to the default: `full`.
+- You want to help with crashes and usage: `full`.
+- You want to stop sending again: `off` (the default).
 
 ### Examples
-
-```bash
-# Turn telemetry off for good on this machine.
-briar telemetry off
-```
-
-You get `{"tier": "off", "state_path": "..."}`.
 
 ```bash
 # Send error reports only.
 briar telemetry errors-only
 ```
 
-You get `{"tier": "errors-only", ...}`.
+You get `{"tier": "errors-only", "state_path": "..."}`.
 
 ```bash
-# Back to the default.
+# Send usage events and error reports.
 briar telemetry full
 ```
 
 You get `{"tier": "full", ...}`.
+
+```bash
+# Back to the default: send nothing.
+briar telemetry off
+```
+
+You get `{"tier": "off", ...}`.
 
 To turn it off for one run only, set an env var instead:
 
@@ -256,14 +264,12 @@ use a tier or `DO_NOT_TRACK=1` to stop sending.
 ## Good to know
 
 - The telemetry files live in `$XDG_CONFIG_HOME/briar/` (usually
-  `~/.config/briar/`): `telemetry.json` holds the tier, `install_id`
+  `~/.config/briar/`): `telemetry.v2.json` holds the tier, `install_id`
   holds the raw ID. Both have mode `0600`.
-- To start over, delete those two files. The notice shows again on the
-  next run. Do not delete the whole folder: it can also hold your
-  `secrets.env`.
-- If the notice shows on every run, briar cannot write `telemetry.json`
-  (for example, a read-only home folder). Set `BRIAR_TELEMETRY` in your
-  shell instead.
+- To start over, delete those two files; the tier goes back to `off`. Do
+  not delete the whole folder: it can also hold your `secrets.env`.
+- If briar cannot write `telemetry.v2.json` (for example, a read-only
+  home folder), set `BRIAR_TELEMETRY` in your shell instead.
 - If `status` says `dsn_configured: true` but nothing reaches Sentry,
   your network may block it.
 - `DO_NOT_TRACK=1` and `BRIAR_TELEMETRY=off` also turn off the daily
