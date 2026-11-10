@@ -1,9 +1,8 @@
 """Project config — `.briar.toml` (or `[tool.briar]` in pyproject.toml).
 
 Most flags repeat the same stable values on every invocation: the
-company, the store backend, the repo owner/slug, the agent model, the
-git identity. This module lets a project declare them once so the
-day-to-day command stops carrying them.
+company, the store backend, the repo owner/slug. This module lets a
+project declare them once so the day-to-day command stops carrying them.
 
 Resolution precedence, highest first:
 
@@ -26,11 +25,6 @@ live under `[tool.briar]`):
     owner    = "acme-co"
     repo     = "acme-app"
     provider = "github"
-
-    [agent]
-    model          = "claude-sonnet-4-6"
-    git_user_name  = "acme-bot"
-    git_user_email = "bot@acme.com"
 """
 
 from __future__ import annotations

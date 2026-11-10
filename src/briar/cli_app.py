@@ -16,7 +16,6 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol, Seque
 
 import typer
 
-from briar.commands.agent import AgentImplementOptions, AgentPrfixOptions
 from briar.commands.auth import AuthListOptions, AuthLoginOptions, AuthLogoutOptions, AuthRefreshOptions, AuthStatusOptions
 from briar.commands.base import Command, CommandOptions, Route
 from briar.commands.config import ConfigShowOptions
@@ -31,16 +30,6 @@ from briar.commands.context import (
 from briar.commands.doctor import DoctorOptions
 from briar.commands.init import InitOptions
 from briar.commands.journal import JournalExportOptions, JournalListOptions, JournalShowOptions
-from briar.commands.plan import (
-    PlanAdvanceOptions,
-    PlanBuildOptions,
-    PlanClearOptions,
-    PlanListOptions,
-    PlanNextOptions,
-    PlanRunOptions,
-    PlanShowOptions,
-    PlanStatusOptions,
-)
 from briar.commands.runbook import RunbookExtractOptions, RunbookServeOptions, RunbookSweepOptions
 from briar.commands.secrets import SecretsBootstrapOptions, SecretsDoctorOptions
 from briar.commands.telemetry import (
@@ -66,21 +55,11 @@ ROUTES: Sequence[Type[CommandOptions]] = (
     ContextListOptions,
     ContextDeleteOptions,
     ContextCategoriesOptions,
-    AgentPrfixOptions,
-    AgentImplementOptions,
     AuthLoginOptions,
     AuthLogoutOptions,
     AuthRefreshOptions,
     AuthListOptions,
     AuthStatusOptions,
-    PlanBuildOptions,
-    PlanShowOptions,
-    PlanStatusOptions,
-    PlanNextOptions,
-    PlanAdvanceOptions,
-    PlanListOptions,
-    PlanClearOptions,
-    PlanRunOptions,
     SecretsDoctorOptions,
     SecretsBootstrapOptions,
     JournalListOptions,
@@ -192,8 +171,7 @@ class DefaultMap:
         """An option shared with the group is filled on the group only, or the setting
         would beat a value given on the group (`briar context --store postgres get x`)."""
         names = [field.name for field in fields(options_cls) if field.name not in options_cls.INHERITED]
-        settings = {name: options_cls.SETTING_NAMES.get(name, name) for name in names}
-        return {name: self._defaults[setting] for name, setting in settings.items() if setting in self._defaults}
+        return {name: self._defaults[name] for name in names if name in self._defaults}
 
 
 class BriarApp:
@@ -208,7 +186,7 @@ class BriarApp:
     forced on under GITHUB_ACTIONS or FORCE_COLOR even into a pipe, and it splits tokens
     like `--nope` with escape codes. Plain text also keeps rich out of `briar --help`."""
 
-    HELP = "Local agent runner, knowledge extractor, scaffold and runbook tool."
+    HELP = "Local knowledge extractor and runbook tool."
     EVERY_COMMAND = "*"
     PASS_THROUGH_SETTINGS = {"allow_extra_args": True, "ignore_unknown_options": True, "help_option_names": []}
 

@@ -493,14 +493,6 @@ class TestPrCreationRecipeRunsUnderTheBashTool:
             exec(compile(self._script(recipe), "briar-open-pr.py", "exec"), {})
         return sent
 
-    def test_recipe_never_uses_curl_and_runs_an_allowed_command(self) -> None:
-        from briar.agent.tools import BashTool
-
-        recipe = _provider().pr_creation_recipe(owner="o", repo="r", branch="feat/x")
-
-        assert "curl" not in recipe.lower()
-        BashTool._validate("python3 .git/briar-open-pr.py")
-
     def test_workspace_token_uses_bearer_and_targets_the_base(self) -> None:
         recipe = _provider().pr_creation_recipe(owner="o", repo="r", branch="feat/x", base="feat/a")
 
@@ -522,12 +514,6 @@ class TestPrCreationRecipeRunsUnderTheBashTool:
 
         assert sent["auth"] == "Basic " + base64.b64encode(b"alice:pw").decode()
         assert "destination" not in sent["body"]
-
-
-def test_bash_tool_description_does_not_offer_curl() -> None:
-    from briar.agent.tools import BashTool
-
-    assert "curl" not in BashTool.description
 
 
 def _pipeline(n: int, result: str, *, state: str = "COMPLETED", pattern: str = "main") -> SimpleNamespace:

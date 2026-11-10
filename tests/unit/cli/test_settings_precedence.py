@@ -20,7 +20,7 @@ import pytest
 
 from briar.config import load_project_config
 
-RECORDED_COMMAND = ("agent", "implement", "--ticket-key", "T-1")
+RECORDED_COMMAND = ("init",)
 USAGE_ERROR = 2
 
 
@@ -85,7 +85,6 @@ class SettingTable:
         Setting("store", "BRIAR_STORE", "", None, "postgres", "file", "file"),
         Setting("owner", None, "repo", 0, "won-owner", "lost-owner", ""),
         Setting("repo", None, "repo", 1, "won-repo", "lost-repo", ""),
-        Setting("model", None, "agent", None, "won-model", "lost-model", ""),
     )
 
     def cases(self) -> List[PrecedenceCase]:

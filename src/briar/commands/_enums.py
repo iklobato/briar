@@ -56,34 +56,3 @@ class BootstrapKindChoice(str, Enum):
 
     ENVFILE = "envfile"
 
-
-class ProviderChoice(str, Enum):
-    """`--provider` choices; a test keeps them equal to `RepositoryProviderRegistry.kinds()`."""
-
-    GITHUB = "github"
-    BITBUCKET = "bitbucket"
-
-
-class TrackerChoice(str, Enum):
-    """`--tracker` choices; a test keeps them equal to `TrackerRegistry.kinds()`."""
-
-    JIRA = "jira"
-    GITHUB_ISSUES = "github-issues"
-    BITBUCKET_ISSUES = "bitbucket-issues"
-    LINEAR = "linear"
-
-
-class MeetingChoice(str, Enum):
-    """`--meeting` choices; a test keeps them equal to `briar.extract._meetings.meeting_kinds()`."""
-
-    FIREFLIES = "fireflies"
-
-
-
-class LlmChoice(str, Enum):
-    """`--llm` choices; a test keeps them equal to `LLMRegistry.kinds()`."""
-
-    ANTHROPIC = "anthropic"
-    OPENAI = "openai"
-    GEMINI = "gemini"
-    BEDROCK = "bedrock"

@@ -6,17 +6,16 @@
 #   docker run --rm iklob1/briar version
 FROM python:3.11-slim
 
-# Install the wheel CI just built, WITH the `mcp` extra so agents can use the
-# MCP servers a runbook's `mcp:` block names. The glob resolves to the single
-# versioned wheel in dist/; `[mcp]` pulls the extra from PyPI. (The MCP
-# registry entry points at the 1.x images; 2.0 has no `briar mcp serve`.)
+# Install the wheel CI just built. The glob resolves to the single versioned
+# wheel in dist/. (The MCP registry entry points at the 1.x images; 2.0 has no
+# `briar mcp serve` and no `mcp` extra.)
 COPY dist/ /tmp/dist/
-RUN whl="$(ls /tmp/dist/*.whl)" && pip install --no-cache-dir "${whl}[mcp]" && rm -rf /tmp/dist
+RUN whl="$(ls /tmp/dist/*.whl)" && pip install --no-cache-dir "${whl}" && rm -rf /tmp/dist
 
-# `briar agent` and `plan run` clone, commit and push with git and open or
-# read PRs with gh; without them every agent run fails inside the image.
-# After cloning, briar strips the token from `origin`, so pushes to GitHub
-# authenticate through gh, which reads GITHUB_TOKEN from the environment.
+# git: briar reads owner/repo from the mounted repo's `origin`. gh: the
+# pipelines of briar 2.0 (spec 003) clone, push and open PRs through it,
+# and GitHub logins read `gh auth token` (spec 005). gh reads GITHUB_TOKEN
+# from the environment.
 #
 # safe.directory '*': the repo you mount at /work belongs to your host user,
 # which on Linux is rarely the image's uid 1000, and git then refuses it

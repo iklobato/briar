@@ -9,6 +9,7 @@ exit code and the token are the contract.
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable, List, Tuple
 
@@ -87,8 +88,22 @@ class TestExitCodes:
         assert "interrupted" in run.err.splitlines()
 
 
+class TestRemovedRunbookBlocks:
+    """Only the 1.x agent read these blocks (spec 006, FR-006a): a runbook that still has one stops."""
+
+    @pytest.mark.parametrize("block", ["mcp", "git_identity"])
+    def test_runbook_with_a_removed_block_is_one_naming_it(self, cli: Callable[..., SimpleNamespace], tmp_path: Path, block: str) -> None:
+        runbook = tmp_path / "runbook.yaml"
+        runbook.write_text(f"version: 1\ncompanies:\n  acme:\n    {block}: {{}}\n")
+
+        run = cli("runbook", "extract", str(runbook))
+
+        assert run.code == CLI_ERROR
+        assert f"`{block}` was removed in briar 2.0" in run.err
+
+
 class TestHelpDoesNoIo:
-    @pytest.mark.parametrize("argv", [("--help",), ("-h",), ("context", "--help"), ("context", "put", "-h"), ("plan", "run", "--help")], ids=" ".join)
+    @pytest.mark.parametrize("argv", [("--help",), ("-h",), ("context", "--help"), ("context", "put", "-h"), ("runbook", "extract", "--help")], ids=" ".join)
     def test_help_exits_zero_without_startup_io(self, cli: Callable[..., SimpleNamespace], tripwire: Tripwire, argv: Tuple[str, ...]) -> None:
         run = cli(*argv)
 

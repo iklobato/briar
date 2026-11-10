@@ -205,11 +205,12 @@ class TestExtractKeepsOtherSections:
 
     @staticmethod
     def _sections(root) -> dict:
-        from briar.iac.scaffold._knowledge import KnowledgeSplicer
+        from briar.extract import EXTRACTORS
+        from briar.extract.composer import KnowledgeComposer
         from briar.storage import make_store
 
-        splicer = KnowledgeSplicer.from_store(make_store("file", file_root=root), "acme")
-        return {n: splicer.section(n) for n in ("pr-archaeology", "reviewer-profile", "code-hotspots")}
+        found = KnowledgeComposer.split_sections(make_store("file", file_root=root).get("knowledge:acme") or "")
+        return {n: found.get(EXTRACTORS[n].heading, "") for n in ("pr-archaeology", "reviewer-profile", "code-hotspots")}
 
     @staticmethod
     def _run(cli, root, *include: str):

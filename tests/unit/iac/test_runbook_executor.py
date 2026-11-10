@@ -14,9 +14,11 @@ stop-vs-continue, or a dropped error branch makes these fail.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pytest
+from pytest_mock import MockerFixture
 
 from briar.errors import ConfigError
 from briar.extract.base import ExtractedSection
@@ -654,10 +656,10 @@ class TestNotifyFailure:
         assert any("raised" in r.message for r in caplog_briar.records)
 
 
-class TestDefaultKnowledgeBlobReachesAgents:
+class TestDefaultKnowledgeBlob:
     """A company with no `knowledge.name` writes `knowledge:<company>`, the
-    name the coding agents read (`KnowledgeSplicer`). Up to 1.1.85 the
-    default was the path `./knowledge/<company>.md`, which no agent read."""
+    blob `briar extract` writes. Up to 1.1.85 the default was the path
+    `./knowledge/<company>.md`, which no reader looked at."""
 
     def test_default_binding_is_the_knowledge_blob(self) -> None:
         binding = RunbookExtractor._binding_for(CompanyEntry(), "acme")
@@ -665,10 +667,10 @@ class TestDefaultKnowledgeBlobReachesAgents:
         assert binding.store == "file"
         assert binding.name == "knowledge:acme"
 
-    def test_runbook_without_knowledge_name_feeds_the_agent(self, mocker, tmp_path, monkeypatch) -> None:
+    def test_runbook_without_knowledge_name_writes_the_company_blob(self, mocker: MockerFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import briar.extract as extract_mod
         from briar.extract import EXTRACTORS
-        from briar.iac.scaffold._knowledge import KnowledgeSplicer
+        from briar.extract.composer import KnowledgeComposer
         from briar.storage import make_store
 
         monkeypatch.chdir(tmp_path)
@@ -678,8 +680,8 @@ class TestDefaultKnowledgeBlobReachesAgents:
 
         RunbookExtractor.extract(_runbook({"acme": CompanyEntry(schedules=[_schedule(names=["pr-archaeology"])])}))
 
-        splicer = KnowledgeSplicer.from_store(make_store("file", file_root=tmp_path / "knowledge"), "acme")
-        assert "merged PR patterns" in splicer.section("pr-archaeology")
+        blob = make_store("file", file_root=tmp_path / "knowledge").get("knowledge:acme") or ""
+        assert "merged PR patterns" in KnowledgeComposer.split_sections(blob)[heading]
 
     def test_explicit_knowledge_file_is_kept(self) -> None:
         binding = RunbookExtractor._binding_for(CompanyEntry(knowledge_file="./kb/acme.md"), "acme")

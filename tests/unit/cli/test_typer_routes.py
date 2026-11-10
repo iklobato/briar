@@ -16,19 +16,11 @@ from briar.commands._enums import (
     CredentialStoreChoice,
     JournalStoreChoice,
     KnowledgeStoreChoice,
-    LlmChoice,
-    MeetingChoice,
     OutputFormat,
-    ProviderChoice,
-    TrackerChoice,
 )
-from briar.agent._llms import LLMRegistry
 from briar.config import load_project_config
 from briar.credentials import CredentialStoreRegistry
 from briar.credentials._bootstraps import CredentialBootstrapRegistry
-from briar.extract._meetings import meeting_kinds
-from briar.extract._providers import RepositoryProviderRegistry
-from briar.extract._trackers import TrackerRegistry
 from briar.formatting import FORMATTERS
 from briar.journal import JOURNAL_STORE_NAMES
 from briar.storage import KNOWLEDGE_STORE_NAMES
@@ -36,7 +28,6 @@ from briar.storage import KNOWLEDGE_STORE_NAMES
 from .conftest import Tripwire
 
 USAGE_ERROR = 2
-IMPLEMENT = ("agent", "implement", "--ticket-key", "T-1")
 ALIAS_POSITION = -2  # each removed-alias line ends with the alias and its value
 
 
@@ -87,18 +78,6 @@ class TestChoicesMatchTheRegistries:
 
     def test_bootstrap_kinds_are_the_bootstraps(self) -> None:
         assert [choice.value for choice in BootstrapKindChoice] == list(CredentialBootstrapRegistry.kinds())
-
-    def test_provider_choices_are_the_providers(self) -> None:
-        assert [choice.value for choice in ProviderChoice] == list(RepositoryProviderRegistry.kinds())
-
-    def test_tracker_choices_are_the_trackers(self) -> None:
-        assert [choice.value for choice in TrackerChoice] == list(TrackerRegistry.kinds())
-
-    def test_meeting_choices_are_the_meeting_sources(self) -> None:
-        assert [choice.value for choice in MeetingChoice] == list(meeting_kinds())
-
-    def test_llm_choices_are_the_llm_providers(self) -> None:
-        assert [choice.value for choice in LlmChoice] == list(LLMRegistry.kinds())
 
 
 class TestSettingsFillTyperOptions:
@@ -168,49 +147,13 @@ class TestGroupOptions:
         assert (recorded_run["args"].store, recorded_run["args"].root) == ("postgres", "kb")
 
 
-class TestAgentDefaults:
-    def test_root_setting_fills_the_agent_file_store_root(
-        self, cli: Callable[..., SimpleNamespace], project: Project, recorded_run: Dict[str, argparse.Namespace]
-    ) -> None:
-        """`agent --root` has the 1.x dest `knowledge`; the `root` setting still fills it."""
-        project.write('root = "kb"\n')
-
-        run = cli(*IMPLEMENT)
-
-        assert run.code == 0, run.err
-        assert recorded_run["args"].knowledge == "kb"
-
-    @pytest.mark.parametrize("url_and_store", [("", "file"), ("postgres://db.invalid/briar", "postgres")], ids=["no url", "url"])
-    def test_store_default_follows_the_database_url(
-        self, cli: Callable[..., SimpleNamespace], recorded_run: Dict[str, argparse.Namespace], url_and_store: Tuple[str, str]
-    ) -> None:
-        """Read when the command runs, as 1.x did, so an env file loaded at startup counts."""
-        database_url, store = url_and_store
-
-        run = cli(*IMPLEMENT, env={"BRIAR_DATABASE_URL": database_url})
-
-        assert run.code == 0, run.err
-        assert recorded_run["args"].store == store
-
-
-class TestPlanDefaults:
-    def test_settings_fill_plan_run(self, cli: Callable[..., SimpleNamespace], project: Project, recorded_run: Dict[str, argparse.Namespace]) -> None:
-        project.write('company = "acme"\nroot = "kb"\ntracker = "jira"\n[agent]\nmodel = "m-1"\n')
-
-        run = cli("plan", "run", "p", "--llm", "anthropic")
-
-        assert run.code == 0, run.err
-        args = recorded_run["args"]
-        assert (args.company, args.root, args.tracker, args.model) == ("acme", "kb", "jira", "m-1")
-
-
 class TestRemovedAliases:
     """The 1.x hidden aliases (D29a)."""
 
     @pytest.mark.parametrize(
         "argv",
-        [("secrets", "doctor", "--store", "envfile"), ("auth", "list", "--store", "envfile"), IMPLEMENT + ("--knowledge", "kb")],
-        ids=["secrets --store", "auth --store", "agent --knowledge"],
+        [("secrets", "doctor", "--store", "envfile"), ("auth", "list", "--store", "envfile")],
+        ids=["secrets --store", "auth --store"],
     )
     def test_alias_is_an_unknown_option(self, cli: Callable[..., SimpleNamespace], recorded_run: Dict[str, argparse.Namespace], argv: Tuple[str, ...]) -> None:
         alias = argv[ALIAS_POSITION]
@@ -231,9 +174,9 @@ class TestRemovedAliases:
 
 
 class TestCommandList:
-    EXPECTED = {"extract", "runbook", "context", "agent", "auth", "plan", "secrets", "journal", "telemetry", "version", "init", "config", "doctor"}
+    EXPECTED = {"extract", "runbook", "context", "auth", "secrets", "journal", "telemetry", "version", "init", "config", "doctor"}
 
-    def test_help_lists_the_13_commands(self, cli: Callable[..., SimpleNamespace]) -> None:
+    def test_help_lists_the_11_commands(self, cli: Callable[..., SimpleNamespace]) -> None:
         listed = cli("--help").out.split("Commands:")[1].split()
 
         assert {word for word in listed if word in self.EXPECTED | {"completion"}} == self.EXPECTED
@@ -256,7 +199,7 @@ class TestShellCompletion:
 
     def test_tab_completes_the_options_of_a_command(self, cli: Callable[..., SimpleNamespace], tripwire: Tripwire) -> None:
         """A TAB press runs briar with no arguments and the words in the environment."""
-        run = cli(env={"_BRIAR_COMPLETE": "complete_bash", "COMP_WORDS": "briar agent implement --tic", "COMP_CWORD": "3"})
+        run = cli(env={"_BRIAR_COMPLETE": "complete_bash", "COMP_WORDS": "briar runbook extract --", "COMP_CWORD": "3"})
 
         assert (run.code, tripwire.calls) == (0, [])
-        assert run.out.split() == ["--ticket-project", "--ticket-key"]
+        assert run.out.split() == ["--task", "--help"]

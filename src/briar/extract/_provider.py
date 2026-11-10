@@ -232,7 +232,10 @@ class RepositoryProvider(ABC):
         their `KnowledgeExtractor.is_available()` on this — a missing
         token short-circuits the extractor instead of hitting a 401."""
 
-    # ---- clone + auth seam (used by `briar agent`) -----------------------
+    # ---- clone + auth seam (kept for the spec 003 pipeline) --------------
+    #
+    # `briar agent` was the only caller and is gone (spec 006); the
+    # pipeline's engineer stage clones and opens the PR through these.
     #
     # Was the `RepoCloner` ABC before unification. All four methods are
     # cheap pure-string returns — no I/O — so they're safe to call from
@@ -290,12 +293,12 @@ class RepositoryProvider(ABC):
         """Return the most-recent CI / pipeline runs. Empty default."""
         return []
 
-    # ---- task-scoped verbs (used by FetchPrReviewContext) ----------------
+    # ---- per-PR verbs (kept for the spec 003 pr-review built-in) ----------
     #
     # Three concrete-default-empty verbs that providers override to deliver
     # the rich per-PR context an agent needs to fix a review or pass CI.
-    # The scheduled extractors don't use these — they're for
-    # `briar agent` invocations where the operator passed --pr <N>.
+    # Their 1.x caller, the `pr-review-context` extractor, is gone (spec
+    # 006); `pr-hygiene` still uses `get_pull`.
 
     def get_pull(self, repo: str, number: int) -> "PullRequest":
         """Fetch one PR by number with full detail. Default returns the

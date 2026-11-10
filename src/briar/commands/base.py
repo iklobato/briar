@@ -17,8 +17,7 @@ from typing import Callable, ClassVar, Dict, Iterable, Mapping, Protocol, Tuple
 
 import typer
 
-from briar.commands._enums import ExitCode, MeetingChoice
-from briar.errors import CliError
+from briar.commands._enums import ExitCode
 
 log = logging.getLogger(__name__)
 
@@ -79,8 +78,6 @@ class CommandOptions:
     UNSET_AS: ClassVar[Mapping[str, Callable[[], object]]] = {}
     # Options the operation shares with its group; see `InheritingOptions`.
     INHERITED: ClassVar[Tuple[str, ...]] = ()
-    # Option name to setting name, where they differ (1.x `agent --root` has dest `knowledge`).
-    SETTING_NAMES: ClassVar[Mapping[str, str]] = {}
 
     def namespace(self, source: NamespaceSource) -> argparse.Namespace:
         return source.from_options(self.ROUTE, self.values())
@@ -113,23 +110,6 @@ class InheritingOptions(CommandOptions):
             if named.get(name) is None:
                 named[name] = self._plain(name, group.get(name))
         return named
-
-
-def normalize_owner_repo(args: argparse.Namespace) -> None:
-    """Resolve `args.owner` + `args.repo` into a bare owner/repo pair, in place.
-
-    Accepts either the `owner/repo` slug on `--repo` (the form `extract`
-    uses) or a bare repo name paired with `--owner`; the slug wins when
-    both are present. Raises CliError when neither resolves (and git
-    inference found no origin). Shared by `agent` and `plan run`."""
-    repo = (args.repo or "").strip()
-    owner = (args.owner or "").strip()
-    if "/" in repo:
-        owner, _, repo = repo.partition("/")
-    if not owner or not repo:
-        raise CliError("repository target is required: pass --repo owner/repo (or --owner + --repo), or run inside a git checkout")
-    args.owner = owner
-    args.repo = repo
 
 
 class Command(ABC):
@@ -228,26 +208,3 @@ class SubcommandCommand(Command):
             log.error("unknown %s: %s (known: %s)", self.op_noun, getattr(args, self.dest, None), known)
             return ExitCode.USAGE_ERROR
         return op.run(self, args)
-
-
-MEETING_TOP_K = 3
-MEETING_MAX_BYTES = 50_000
-SLACK_TOP_K = 3
-SLACK_MAX_BYTES = 30_000
-
-
-@dataclass(frozen=True)
-class EnrichmentOptions(CommandOptions):
-    """Meeting and Slack context options on Typer, shared by `agent` and `plan run`. An operation
-    redefines `meeting_query` and `slack_query` with its own help. The provider and
-    sizing knobs are hidden from help but still work."""
-
-    meeting_key: str = typer.Option("", "--meeting-key", help="Specific meeting ID to splice into the agent prompt")
-    meeting_query: str = typer.Option("", "--meeting-query", help="Keyword search across recent meetings.")
-    meeting: MeetingChoice = typer.Option(MeetingChoice.FIREFLIES, "--meeting", hidden=True)
-    meeting_top_k: int = typer.Option(MEETING_TOP_K, "--meeting-top-k", hidden=True)
-    meeting_max_bytes: int = typer.Option(MEETING_MAX_BYTES, "--meeting-max-bytes", hidden=True)
-    slack_query: str = typer.Option("", "--slack-query", help="Keyword search across Slack.")
-    chat: str = typer.Option("slack", "--chat", hidden=True)
-    slack_top_k: int = typer.Option(SLACK_TOP_K, "--slack-top-k", hidden=True)
-    slack_max_bytes: int = typer.Option(SLACK_MAX_BYTES, "--slack-max-bytes", hidden=True)
