@@ -313,19 +313,19 @@ class TestRunScheduleEmptyAndFailures:
         registry = _FakeRegistry(fake=_FakeExtractor())
 
         def _boom_make_store(kind, *, file_root, binding):  # noqa: ANN001
-            raise RuntimeError("postgres down")
+            raise RuntimeError("disk full")
 
         RunbookExtractor._run_schedule(
             company_name="acme",
             schedule=_schedule(),
-            binding=KnowledgeBinding(store="postgres", name="acme.md"),
+            binding=KnowledgeBinding(store="file", name="acme.md"),
             registry=registry,
             composer=_FakeComposer,
             make_store=_boom_make_store,
             rows=rows,
             company="acme",
         )
-        assert rows[0].status.startswith("failed (store open raised: postgres")
+        assert rows[0].status.startswith("failed (store open raised: file")
 
     def test_put_if_changed_failure_records_failure_row(self) -> None:
         rows: List[ExtractRow] = []
@@ -498,9 +498,9 @@ class TestExtractOrchestration:
 
 class TestBindingResolution:
     def test_knowledge_name_takes_precedence(self) -> None:
-        company = CompanyEntry(knowledge=KnowledgeBinding(store="postgres", name="kb.md"), knowledge_file="ignored.md")
+        company = CompanyEntry(knowledge=KnowledgeBinding(name="kb.md", root="kb"), knowledge_file="ignored.md")
         binding = RunbookExtractor._binding_for(company, "acme")
-        assert binding.store == "postgres"
+        assert binding.root == "kb"
         assert binding.name == "kb.md"
 
     def test_falls_back_to_knowledge_file(self) -> None:
@@ -550,9 +550,6 @@ class TestRunbookLoader:
         # Bypass extractor-name validation (the registry isn't the unit
         # under test) by validating against a construct-friendly doc.
         mocker.patch("briar.extract.EXTRACTORS", _FakeRegistry(fake=_FakeExtractor()))
-        from briar.storage import KnowledgeStoreRegistry
-
-        mocker.patch.object(KnowledgeStoreRegistry, "names", staticmethod(lambda: ["file", "postgres"]))
         path = tmp_path / "rb.yaml"
         path.write_text("version: 1\ncompanies:\n  acme:\n    extract:\n      - name: fake\n")
         model = RunbookLoader.load(path)

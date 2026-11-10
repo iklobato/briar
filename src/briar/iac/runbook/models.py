@@ -4,10 +4,9 @@ A runbook declares which extractors to run per company and where to
 write the resulting knowledge blob. Optional fields use empty defaults
 (`""`, `[]`, sentinel empty model) instead of `Optional[X] = None`.
 
-The two name-validation field validators (`_validate_extractor_name`,
-`_validate_store_name`) check against the runtime registries rather
-than a hardcoded `Literal[...]` — adding a new extractor / store
-backend doesn't require a schema edit."""
+`_validate_extractor_name` checks against the runtime registry rather
+than a hardcoded `Literal[...]`, so adding a new extractor doesn't
+require a schema edit."""
 
 from __future__ import annotations
 
@@ -63,24 +62,19 @@ class KnowledgeBinding(BaseModel):
     store: Literal["file", "postgres"] = "file"
     name: str = ""
     root: str = ""
-    # Backend-specific config (mirrors MessageBinding.config). Each store's
-    # `from_binding` decides which keys it understands. Today: `postgres`
-    # reads `dsn_env` (an env-var NAME holding the DSN — never the DSN
-    # itself, which stays out of version control).
+    # Backend-specific config. Today the only key is `inventory` (also write
+    # the JSON inventory blob).
     config: Dict[str, str] = Field(default_factory=dict)
+
+    # C11: `postgres` stays in the Literal only so a 1.x runbook gets this
+    # message instead of a bare "input should be 'file'".
+    REMOVED_STORES: ClassVar[Tuple[str, ...]] = ("postgres",)
 
     @field_validator("store")
     @classmethod
-    def _validate_store_name(cls, value: str) -> str:
-        """Belt-and-suspenders sanity check against the live
-        `KnowledgeStoreRegistry`. The Literal annotation catches typos
-        at parse time; this validator catches drift if a backend is
-        ever removed from the registry while still allowed by Literal."""
-        from briar.storage import KnowledgeStoreRegistry
-
-        kinds = KnowledgeStoreRegistry.names()
-        if value not in kinds:
-            raise ValueError(f"unknown knowledge store {value!r}; known: {', '.join(sorted(kinds))}")
+    def _reject_removed_store(cls, value: str) -> str:
+        if value in cls.REMOVED_STORES:
+            raise PydanticCustomError("removed_store", "`store: {store}` was removed in briar 2.0; use `store: file` or delete the line", {"store": value})
         return value
 
 

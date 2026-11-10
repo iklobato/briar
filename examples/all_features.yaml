@@ -9,7 +9,7 @@
 #              The "everything is mainstream" baseline.
 #
 #   bitspark   Bitbucket Cloud + Linear + AWS (us-west-2)
-#              Postgres storage.
+#              File storage.
 #              Demonstrates the full vendor swap at every layer.
 #
 #   datacore   GitHub repos + Bitbucket Issues (legacy) + GCP
@@ -17,7 +17,7 @@
 #              alternative cloud + hybrid tracker scenario.
 #
 #   fintech    Bitbucket Cloud + GitHub Issues + Azure
-#              Postgres storage. Shows that any (repo, tracker, cloud)
+#              File storage. Shows that any (repo, tracker, cloud)
 #              triple is valid — the abstractions are orthogonal.
 #
 # Together these four cover:
@@ -26,7 +26,6 @@
 #   Tracker providers  ✓ jira (acme)             ✓ linear (bitspark)
 #                      ✓ bitbucket-issues (datacore)  ✓ github-issues (fintech)
 #   Cloud providers    ✓ aws (acme, bitspark)    ✓ gcp (datacore)  ✓ azure (fintech)
-#   Storage backends   ✓ file (acme, datacore)   ✓ postgres (bitspark, fintech)
 #   Cadence patterns   ✓ minute / hourly / 4-hourly / daily / weekly
 #   User filters       ✓ author allow / block, assignee allow / block
 #   Per-task fanout    ✓ one extractor per task, multiple extractors per task
@@ -58,9 +57,6 @@ companies:
   #   JIRA_ACME_URL                      https://acme.atlassian.net
   #   JIRA_ACME_EMAIL                    bot user
   #   JIRA_ACME_TOKEN                    Atlassian API token
-  #   TELEGRAM_BOT_TOKEN                 workspace-wide
-  #   TELEGRAM_ACME_CHAT_ID              per-company channel
-  #   SLACK_ACME_WEBHOOK_URL             per-company webhook
   # ---------------------------------------------------------------------------
   acme:
     knowledge:
@@ -70,8 +66,7 @@ companies:
       # (./knowledge/acme.inventory.json, category `inventory`) holding the
       # full structured `data` each extractor produced — e.g. every tagged
       # AWS resource from the `tagging-inventory` gatherer. Byte-stable, so
-      # the postgres history table becomes an estate change log. Off by
-      # default; inspect with `briar context list --prefix inventory:`.
+      # it is rewritten only when the estate changes. Off by default.
       # config:
       #   inventory: "true"
 
@@ -302,8 +297,6 @@ companies:
   # Demonstrates the full vendor swap: pr-archaeology against Bitbucket
   # via app-password basic auth; ticket-archaeology against Linear via
   # GraphQL; AWS is in us-west-2 (different region from acme).
-  # Knowledge goes to Postgres so multiple readers (scheduler + agents)
-  # share one source of truth without file-lock contention.
   #
   # Required env vars:
   #   BITBUCKET_BITSPARK_USERNAME       machine user (or `x-token-auth` for workspace token)
@@ -314,23 +307,11 @@ companies:
   #   AWS_BITSPARK_SESSION_TOKEN
   #   AWS_BITSPARK_REGION               us-west-2
   #   LINEAR_BITSPARK_TOKEN             Linear API key (NO Bearer prefix)
-  #   BRIAR_DATABASE_URL                workspace-wide Postgres DSN
-  #   TELEGRAM_BOT_TOKEN                shared with other companies
-  #   TELEGRAM_BITSPARK_CHAT_ID         per-tenant Telegram channel
-  #   SLACK_BITSPARK_WEBHOOK_URL        per-tenant Slack webhook
   # ---------------------------------------------------------------------------
   bitspark:
     knowledge:
-      store: postgres
-      name: knowledge:bitspark         # blob name in the briar_knowledge table
-      config:
-        # Per-company DSN override. Resolution at extract time:
-        #   1. config.dsn_env (this line) → ${BRIAR_BITSPARK_KB_PG}
-        #   2. BRIAR_{COMPANY}_DATABASE_URL (auto) → ${BRIAR_BITSPARK_DATABASE_URL}
-        #   3. BRIAR_DATABASE_URL (global fallback) → ${BRIAR_DATABASE_URL}
-        # Use this explicit form when you don't want bitspark to share
-        # the global DSN with another company.
-        dsn_env: BRIAR_BITSPARK_KB_PG
+      store: file
+      name: knowledge:bitspark
 
     schedules:
 
@@ -403,8 +384,6 @@ companies:
   #   BITBUCKET_DATACORE_APP_PASSWORD
   #   BITBUCKET_DATACORE_WORKSPACE
   #   GOOGLE_APPLICATION_CREDENTIALS          path to SA JSON for GCP ADC
-  #   TELEGRAM_BOT_TOKEN
-  #   TELEGRAM_DATACORE_CHAT_ID
   #
   # Install: `pip install briar-cli[gcp]` for the google-cloud-* SDKs.
   # ---------------------------------------------------------------------------
@@ -484,13 +463,12 @@ companies:
   #   AZURE_CLIENT_ID                        Service principal app ID (workspace-wide)
   #   AZURE_TENANT_ID                        AAD tenant
   #   AZURE_CLIENT_SECRET                    Service principal password
-  #   BRIAR_DATABASE_URL                     shared Postgres DSN
   #
   # Install: `pip install briar-cli[azure]` for azure-mgmt-* SDKs.
   # ---------------------------------------------------------------------------
   fintech:
     knowledge:
-      store: postgres
+      store: file
       name: knowledge:fintech
 
     schedules:

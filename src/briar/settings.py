@@ -14,9 +14,11 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Mapping, Optional, Protocol, Sequence, Tuple
+from typing import ClassVar, Dict, List, Mapping, Optional, Protocol, Sequence, Tuple
 
 from pydantic import BaseModel, ConfigDict
+
+from briar.errors import CliError
 
 UNSET_VALUE = "(unset)"
 UNSET_SOURCE = "-"
@@ -120,7 +122,6 @@ class BriarSettings(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     company: Optional[str] = None
-    store: Optional[str] = None
     root: Optional[str] = None
     tracker: Optional[str] = None
     repo: RepoSettings = RepoSettings()
@@ -131,7 +132,6 @@ class SettingsResolver:
 
     KEYS = (
         SettingKey("company", env="BRIAR_COMPANY"),
-        SettingKey("store", env="BRIAR_STORE"),
         SettingKey("root"),
         SettingKey("tracker"),
         SettingKey("owner", "repo"),
@@ -173,3 +173,21 @@ class SettingsResolver:
             if value is not None:
                 return ResolvedSetting(key, str(value), layer.label(key))
         return ResolvedSetting(key, None, UNSET_SOURCE)
+
+
+class RemovedSettingGuard:
+    """Stops a run whose project config still sets a key briar 2.0 removed (FR-006a),
+    instead of ignoring a value the user thinks is in force."""
+
+    # C11: the file store is the only knowledge store, so `store` has nothing to pick.
+    REMOVED_KEYS: ClassVar[Tuple[str, ...]] = ("store",)
+
+    def __init__(self, project_config: Mapping[str, object], config_path: Optional[Path]) -> None:
+        self._project_config = project_config
+        self._config_path = config_path
+
+    def check(self) -> None:
+        removed = [key for key in self.REMOVED_KEYS if key in self._project_config]
+        if removed:
+            where = self._config_path or "the project config"
+            raise CliError(f"`{', '.join(removed)}` in {where} was removed in briar 2.0 (the file store is the only one); delete it")

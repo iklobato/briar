@@ -457,92 +457,8 @@ class NewExtractorTests(unittest.TestCase):
 
 
 class StoreBindingResolutionTests(unittest.TestCase):
-    """`KnowledgeStore.from_binding` is the construction path. Postgres
-    walks three sources in priority order: explicit config.dsn_env →
-    BRIAR_{COMPANY}_DATABASE_URL → BRIAR_DATABASE_URL.
-
-    These tests pin that contract — regressing the order would silently
-    point a company's writes at the wrong database, which is a quietly
-    catastrophic failure mode."""
-
-    @staticmethod
-    def _clean_env():
-        return mock.patch.dict(
-            os.environ,
-            {
-                "BRIAR_DATABASE_URL": "",
-                "BRIAR_ACME_DATABASE_URL": "",
-                "PROD_KB_PG": "",
-            },
-            clear=False,
-        )
-
-    def test_config_dsn_env_wins(self) -> None:
-        from briar.storage import StoreBinding
-        from briar.storage.postgres import StorePostgres
-
-        env = {
-            "PROD_KB_PG": "postgres://from-config/db",
-            "BRIAR_ACME_DATABASE_URL": "postgres://from-per-company/db",
-            "BRIAR_DATABASE_URL": "postgres://from-global/db",
-        }
-        with mock.patch.dict(os.environ, env, clear=False):
-            binding = StoreBinding(store="postgres", company="acme", config={"dsn_env": "PROD_KB_PG"})
-            store = StorePostgres.from_binding(binding)
-            self.assertEqual(store._dsn, "postgres://from-config/db")
-
-    def test_per_company_env_wins_over_global(self) -> None:
-        from briar.storage import StoreBinding
-        from briar.storage.postgres import StorePostgres
-
-        env = {
-            "BRIAR_ACME_DATABASE_URL": "postgres://from-per-company/db",
-            "BRIAR_DATABASE_URL": "postgres://from-global/db",
-        }
-        with mock.patch.dict(os.environ, env, clear=False):
-            binding = StoreBinding(store="postgres", company="acme")
-            store = StorePostgres.from_binding(binding)
-            self.assertEqual(store._dsn, "postgres://from-per-company/db")
-
-    def test_company_key_with_hyphen_normalises_to_underscore(self) -> None:
-        """`widget-co` (hyphen) → BRIAR_WIDGET_CO_DATABASE_URL —
-        same normalisation as every other CredEnv.for_company."""
-        from briar.storage import StoreBinding
-        from briar.storage.postgres import StorePostgres
-
-        env = {"BRIAR_WIDGET_CO_DATABASE_URL": "postgres://hyphenated/db"}
-        with mock.patch.dict(os.environ, env, clear=False):
-            binding = StoreBinding(store="postgres", company="widget-co")
-            store = StorePostgres.from_binding(binding)
-            self.assertEqual(store._dsn, "postgres://hyphenated/db")
-
-    def test_falls_back_to_global_dsn(self) -> None:
-        from briar.storage import StoreBinding
-        from briar.storage.postgres import StorePostgres
-
-        # No company, no config — only the global is set.
-        env = {"BRIAR_DATABASE_URL": "postgres://from-global/db", "BRIAR_ACME_DATABASE_URL": ""}
-        with mock.patch.dict(os.environ, env, clear=False):
-            binding = StoreBinding(store="postgres", company="acme")
-            store = StorePostgres.from_binding(binding)
-            self.assertEqual(store._dsn, "postgres://from-global/db")
-
-    def test_no_dsn_anywhere_raises_clierror_naming_keys_tried(self) -> None:
-        from briar.errors import CliError
-        from briar.storage import StoreBinding
-        from briar.storage.postgres import StorePostgres
-
-        env = {"BRIAR_DATABASE_URL": "", "BRIAR_ACME_DATABASE_URL": "", "PROD_KB_PG": ""}
-        with mock.patch.dict(os.environ, env, clear=False):
-            binding = StoreBinding(store="postgres", company="acme", config={"dsn_env": "PROD_KB_PG"})
-            with self.assertRaises(CliError) as cm:
-                StorePostgres.from_binding(binding)
-            # All three keys named in the order tried — operator can see
-            # exactly what to set.
-            msg = str(cm.exception)
-            self.assertIn("PROD_KB_PG", msg)
-            self.assertIn("BRIAR_ACME_DATABASE_URL", msg)
-            self.assertIn("BRIAR_DATABASE_URL", msg)
+    """`KnowledgeStore.from_binding` is the construction path; the file
+    store is the only backend since 2.0."""
 
     def test_file_store_honours_binding_root(self) -> None:
         import tempfile
@@ -588,8 +504,8 @@ class StoreBindingResolutionTests(unittest.TestCase):
         """YAML schema must accept the new `config:` block."""
         from briar.iac.runbook.models import KnowledgeBinding
 
-        b = KnowledgeBinding(store="postgres", name="knowledge:acme", config={"dsn_env": "PROD_KB_PG"})
-        self.assertEqual(b.config["dsn_env"], "PROD_KB_PG")
+        b = KnowledgeBinding(store="file", name="knowledge:acme", config={"inventory": "true"})
+        self.assertEqual(b.config["inventory"], "true")
 
 
 class JiraAuthStrategyTests(unittest.TestCase):
@@ -1794,11 +1710,10 @@ class Phase3ErrorHandlingTests(unittest.TestCase):
             self.assertTrue(matches(sample), f"CredEnv.{member.name} sample {sample!r} unmatched")
 
     def test_list_excludes_briar_config_vars(self) -> None:
-        """The shared `BRIAR_` namespace holds both credentials
-        (`BRIAR_DATABASE_URL`) and config (`BRIAR_SECRETS_FILE`,
-        `BRIAR_NOTIFY_SINKS`). A bare-prefix match would leak the config
-        vars into `secrets list` / `auth list`; full-template matching
-        keeps them out while still listing the real DSN creds."""
+        """Config vars (`BRIAR_SECRETS_FILE`, `AWS_PROFILE`) share prefixes
+        with credentials. A bare-prefix match would leak them into
+        `auth list`; full-template matching keeps them out while still
+        listing the real per-company creds."""
         from unittest import mock
 
         from briar.credentials.envfile import EnvFileStore
@@ -1807,8 +1722,8 @@ class Phase3ErrorHandlingTests(unittest.TestCase):
             "BRIAR_SECRETS_FILE": "/etc/briar/secrets.env",  # config — must NOT list
             "BRIAR_NOTIFY_SINKS": "telegram,slack",  # config — must NOT list
             "BRIAR_VERBOSE": "1",  # config — must NOT list
-            "BRIAR_DATABASE_URL": "postgres://x",  # credential — must list
-            "BRIAR_ACME_DATABASE_URL": "postgres://y",  # per-company cred — must list
+            "AWS_PROFILE": "dev",  # not a briar credential: must NOT list
+            "AWS_ACME_REGION": "us-east-1",  # per-company cred: must list
             "GITHUB_TOKEN": "ghp_x",  # credential — must list
         }
         with mock.patch.dict("os.environ", env, clear=True):
@@ -1816,8 +1731,8 @@ class Phase3ErrorHandlingTests(unittest.TestCase):
         self.assertNotIn("BRIAR_SECRETS_FILE", names)
         self.assertNotIn("BRIAR_NOTIFY_SINKS", names)
         self.assertNotIn("BRIAR_VERBOSE", names)
-        self.assertIn("BRIAR_DATABASE_URL", names)
-        self.assertIn("BRIAR_ACME_DATABASE_URL", names)
+        self.assertNotIn("AWS_PROFILE", names)
+        self.assertIn("AWS_ACME_REGION", names)
         self.assertIn("GITHUB_TOKEN", names)
 
 
@@ -1948,10 +1863,10 @@ class Phase6PrimitiveObsessionTests(unittest.TestCase):
 
         from briar.iac.runbook.models import KnowledgeBinding
 
-        # Valid stores parse
+        # The file store parses; the removed postgres store and typos are rejected
         KnowledgeBinding(store="file")
-        KnowledgeBinding(store="postgres")
-        # Unknown store rejected
+        with self.assertRaisesRegex(ValidationError, "store: postgres` was removed in briar 2.0"):
+            KnowledgeBinding(store="postgres")
         with self.assertRaises(ValidationError):
             KnowledgeBinding(store="redis")
 

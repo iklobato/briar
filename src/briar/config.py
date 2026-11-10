@@ -1,7 +1,7 @@
 """Project config — `.briar.toml` (or `[tool.briar]` in pyproject.toml).
 
 Most flags repeat the same stable values on every invocation: the
-company, the store backend, the repo owner/slug. This module lets a
+company, the knowledge root, the repo owner/slug. This module lets a
 project declare them once so the day-to-day command stops carrying them.
 
 Resolution precedence, highest first:
@@ -17,7 +17,6 @@ Config layout (`.briar.toml` keys are top-level; in pyproject.toml they
 live under `[tool.briar]`):
 
     company = "acme"
-    store   = "postgres"
     root    = "./knowledge"
     tracker = "jira"
 
@@ -63,12 +62,9 @@ class _ConfigSpec:
 
 # The `briar extract` options a project config / env may satisfy: the only
 # command still on argparse (until spec 004). The commands on Typer get their
-# settings from `briar.settings`. `storage` is extract's dest for `--store`.
-# The knowledge store env var is BRIAR_STORE, not BRIAR_DEFAULT_STORE: that
-# one named the credential store in 1.x.
+# settings from `briar.settings`.
 _CONFIG_SPECS: Tuple[_ConfigSpec, ...] = (
     _ConfigSpec("company", "BRIAR_COMPANY", "", "company"),
-    _ConfigSpec("storage", "BRIAR_STORE", "", "store"),
     _ConfigSpec("root", None, "", "root"),
     _ConfigSpec("tracker", None, "", "tracker"),
     _ConfigSpec("provider", None, "repo", "provider"),

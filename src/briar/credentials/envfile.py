@@ -61,12 +61,10 @@ def _validate_value(value: str) -> None:
 # from ``list()`` even though it exists in CredEnv).
 #
 # We match the FULL anchored template, NOT a bare prefix. A prefix match
-# (``startswith``) over-matches the shared ``BRIAR_`` namespace:
-# ``BRIAR_{c}_DATABASE_URL`` yields prefix ``BRIAR_``, which would sweep
-# every config var (``BRIAR_SECRETS_FILE``, ``BRIAR_TELEMETRY``, ...) into
-# ``list()`` as if it were a credential. Matching
-# ``^BRIAR_[A-Z0-9_]+_DATABASE_URL$`` keeps the DSN creds and leaves the
-# config vars out.
+# (``startswith``) over-matches a shared namespace: ``AWS_{c}_REGION``
+# yields prefix ``AWS_``, which would sweep unrelated vars such as
+# ``AWS_PROFILE`` into ``list()`` as if they were briar credentials.
+# Matching ``^AWS_[A-Z0-9_]+_REGION$`` keeps only the per-company name.
 
 
 def _matcher_for(template: str) -> "re.Pattern[str]":

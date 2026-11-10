@@ -258,8 +258,8 @@ class RunbookExtractor:
     ) -> None:
         """Translate a ``store.put_if_changed`` outcome into the
         operator-visible ExtractRow + log line. Compare-and-set skip
-        path leaves ``updated_at`` and history rows untouched — saves
-        Postgres traffic, history bloat, and downstream LLM tokens."""
+        path leaves the file and its ``updated_at`` untouched, so readers
+        see no change and spend no tokens on it."""
         elapsed_ms = int((time.perf_counter() - wall_start) * 1000)
         if not outcome.wrote:
             log.info(
@@ -302,8 +302,7 @@ class RunbookExtractor:
             return company.knowledge
         if company.knowledge_file:
             return KnowledgeBinding(store="file", name=company.knowledge_file)
-        # Same name as `briar extract`: the coding agents read every blob
-        # whose name starts with `knowledge:<company>`.
+        # Same name `briar extract` writes.
         return KnowledgeBinding(store="file", name=f"knowledge:{company_name}")
 
     @staticmethod

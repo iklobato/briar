@@ -84,7 +84,7 @@ class KnowledgeStore(ABC):
         that miss are omitted from the result (callers use `.get(name, "")`).
 
         Default implementation just calls `get()` per-name. Backends that
-        can do this in one round-trip (Postgres uses `WHERE blob_name = ANY(%s)`)
+        can do this in one round-trip (a database would use one query)
         should override — that's the point of having this on the ABC, it lets
         callers (KnowledgeSplicer, plan context) be
         backend-agnostic while still avoiding the N+1 connection pattern."""
@@ -108,7 +108,7 @@ class KnowledgeStore(ABC):
         """Hex MD5 of the stored content, or `""` when the blob is missing.
 
         Default implementation reads the full content and hashes it. Backends
-        that can compute the digest server-side (e.g. Postgres `md5(content)`)
+        that can compute the digest server-side (e.g. a database `md5(content)`)
         should override for efficiency. The skipping caller uses this to avoid
         rewriting unchanged blobs — comparing fingerprints is cheap, comparing
         full content is not."""
@@ -124,7 +124,7 @@ class KnowledgeStore(ABC):
 
         Returns a structured result so callers can branch on `wrote` vs
         `skipped` without parsing log lines. Backends that can do the
-        compare-and-set server-side (postgres) should override this for
+        compare-and-set server-side (a database) should override this for
         a single round-trip; the default implementation reads the
         fingerprint and conditionally calls `put`, costing whatever the
         backend's overhead is per call.

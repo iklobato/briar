@@ -1,11 +1,7 @@
 """KnowledgeStore — pluggable backends.
 
-Two backends today:
-- `file`     — local markdown files at `./knowledge/...` (laptop dev)
-- `postgres` — DO managed Postgres (production droplet); DSN resolved
-               by `StorePostgres.from_binding` from (in order):
-               binding.config.dsn_env → BRIAR_{COMPANY}_DATABASE_URL →
-               BRIAR_DATABASE_URL
+One backend since 2.0 (decision C11): `file`, local markdown files at
+`./knowledge/...`. The 1.x `postgres` backend was removed.
 
 Adding a new backend is one file in this package + one entry in
 `KnowledgeStoreRegistry.STORES` — the new class implements
@@ -16,24 +12,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List, Optional, Type
 
-from briar.env_vars import CredEnv
 from briar.errors import CliError
 from briar.storage.base import KnowledgeRef, KnowledgeStore, StoreBinding
 from briar.storage.file import StoreFile
-from briar.storage.postgres import StorePostgres
 
 _DEFAULT_FILE_ROOT = Path("./knowledge")
-
-
-def default_store_kind() -> str:
-    """Built-in default knowledge-store backend: `postgres` when a
-    database URL is configured, else the local `file` store.
-
-    Mirrors the rule the scaffold composer already uses, so a laptop
-    with no `BRIAR_DATABASE_URL` defaults to local files instead of
-    failing on a postgres connection. CLI flags / env / project config
-    still override this (it is only the lowest-precedence default)."""
-    return "postgres" if CredEnv.BRIAR_DATABASE_URL.read() else "file"
 
 
 class KnowledgeStoreRegistry:
@@ -44,7 +27,7 @@ class KnowledgeStoreRegistry:
     (etc.) is one ``STORES`` entry + one ``from_binding`` implementation
     — no edits here."""
 
-    STORES: Dict[str, Type[KnowledgeStore]] = {"file": StoreFile, "postgres": StorePostgres}
+    STORES: Dict[str, Type[KnowledgeStore]] = {"file": StoreFile}
 
     @classmethod
     def names(cls) -> List[str]:
@@ -60,8 +43,7 @@ class KnowledgeStoreRegistry:
     ) -> KnowledgeStore:
         """Open a store. CLI-only callers pass `name` (+ optional
         `file_root`) and let the registry synthesize a binding; runbook
-        executors pass a fully-populated ``binding`` so per-company DSN
-        resolution runs."""
+        executors pass a fully-populated ``binding``."""
         store_cls = cls.STORES.get(name)
         if store_cls is None:
             raise CliError(f"unknown knowledge store {name!r}; known: {', '.join(cls.names())}")
@@ -70,7 +52,6 @@ class KnowledgeStoreRegistry:
 
 
 # Module-level surface kept stable.
-KNOWLEDGE_STORE_NAMES = tuple(KnowledgeStoreRegistry.names())
 make_store = KnowledgeStoreRegistry.build
 
 
@@ -78,8 +59,6 @@ __all__ = [
     "KnowledgeStore",
     "KnowledgeRef",
     "KnowledgeStoreRegistry",
-    "KNOWLEDGE_STORE_NAMES",
     "StoreBinding",
     "make_store",
-    "default_store_kind",
 ]

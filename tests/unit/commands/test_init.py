@@ -12,7 +12,7 @@ from briar.errors import CliError
 
 
 def _args(**over):
-    base = dict(company="", store="file", owner="", repo="", path=".briar.toml", force=False)
+    base = dict(company="", owner="", repo="", path=".briar.toml", force=False)
     base.update(over)
     return argparse.Namespace(**base)
 
@@ -21,11 +21,11 @@ def test_init_writes_config_inferring_repo(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(init_mod, "_TEMPLATE", "briar.init_templates")
     monkeypatch.setattr("briar.infer.git_remote_slug", lambda cwd=None: ("acme-co", "widgets"))
-    code = CommandInit().run(_args(company="acme", store="postgres"))
+    code = CommandInit().run(_args(company="acme"))
     assert code == 0
     written = (tmp_path / ".briar.toml").read_text()
     assert 'company = "acme"' in written
-    assert 'store   = "postgres"' in written
+    assert "store" not in written  # 2.0 has one knowledge store; the key is an error now
     assert 'owner = "acme-co"' in written
     assert 'repo  = "widgets"' in written
 

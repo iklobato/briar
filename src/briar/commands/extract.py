@@ -16,7 +16,7 @@ from briar.extract.base import ExtractedSection
 from briar.extract.canonical import AdvancedHelpAction, apply_canonical, hide_canonicalised_flags, register_canonical_flags
 from briar.extract.claude_md import ClaudeMdMerger
 from briar.extract.composer import KnowledgeComposer, render_json, render_markdown
-from briar.storage import KNOWLEDGE_STORE_NAMES, KnowledgeRef, default_store_kind, make_store
+from briar.storage import KnowledgeRef, make_store
 
 _CLAUDE_MD_DETAIL_ROOT = Path(".briar/knowledge")
 
@@ -53,17 +53,8 @@ class CommandExtract(Command):
             choices=sorted(EXTRACTORS.keys()),
             help="Which extractor(s) to run (repeatable; default: all available). Sections of other extractors already in the blob are kept.",
         )
-        # The dest stays `storage` (the 1.x name `run()` reads); the 1.x
-        # alias `--storage` was removed in 2.0.
-        parser.add_argument(
-            "--store",
-            dest="storage",
-            default=default_store_kind(),
-            choices=list(KNOWLEDGE_STORE_NAMES),
-            help="Where to write the result (default: postgres if BRIAR_DATABASE_URL set, else file)",
-        )
         parser.add_argument("--blob-name", default="", help="Storage blob name (default: knowledge:<company>)")
-        parser.add_argument("--root", default="./knowledge", help="Local file root (only used when --store=file)")
+        parser.add_argument("--root", default="./knowledge", help="Local file root of the knowledge store")
         parser.add_argument("--out-json", default="", help="Parallel JSON output path (empty = skip)")
         parser.add_argument(
             "--merge-claude-md",
@@ -118,7 +109,7 @@ class CommandExtract(Command):
             raise CliError("nothing extracted — every enabled extractor returned empty")
 
         ref = self._write_blob(args, sections, refreshed)
-        _status(f"\nwrote blob '{ref.name}' " f"({ref.byte_count} bytes, {len(sections)} sections) " f"via store={args.storage}")
+        _status(f"\nwrote blob '{ref.name}' " f"({ref.byte_count} bytes, {len(sections)} sections) " f"under {args.root}")
 
         if args.out_json:
             json_path = Path(args.out_json)
@@ -137,7 +128,7 @@ class CommandExtract(Command):
         `refreshed` holds the headings of the extractors that ran, with or
         without data: their old sections are replaced (or dropped when
         empty). Sections of every other extractor stay."""
-        store = make_store(args.storage, file_root=Path(args.root))
+        store = make_store("file", file_root=Path(args.root))
         blob_name = args.blob_name or f"knowledge:{args.company}"
         merged = KnowledgeComposer.merge_markdown(
             company=args.company,
@@ -151,10 +142,9 @@ class CommandExtract(Command):
         """Write the full bundle to a local detail file and splice a
         short pointer index into CLAUDE.md.
 
-        The detail file is always written to the local filesystem (under
-        the cwd) regardless of ``--storage``: the on-demand reference in
-        CLAUDE.md only resolves for a session running from the project
-        root, so a postgres-backed run still needs the local copy here."""
+        The detail file is always written under the cwd, whatever
+        ``--root`` is: the on-demand reference in CLAUDE.md only resolves
+        for a session running from the project root."""
         detail_path = _CLAUDE_MD_DETAIL_ROOT / f"{_company_slug(args.company)}.md"
         detail_path.parent.mkdir(parents=True, exist_ok=True)
         detail_path.write_text(render_markdown(company=args.company, sections=sections))

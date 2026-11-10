@@ -191,7 +191,6 @@
     "stale_days": 14,
     "stale_max": 100,
     "stale_repo": [],
-    "storage": "file",
     "testdisc_repo": [],
     "testdisc_top_n": 10,
     "ticket_archaeology_project": [],
@@ -339,8 +338,7 @@
     "force": false,
     "owner": "",
     "path": ".briar.toml",
-    "repo": "",
-    "store": "file"
+    "repo": ""
    },
    "path": [
     "init"
@@ -383,20 +381,6 @@
     "active-tickets",
     "active-work"
    ],
-   "path": [
-    "extract"
-   ]
-  },
-  {
-   "argv": [
-    "extract",
-    "--company",
-    "x-company-1",
-    "--store",
-    "postgres"
-   ],
-   "dest": "storage",
-   "expected": "postgres",
    "path": [
     "extract"
    ]
@@ -1942,18 +1926,6 @@
    ],
    "dest": "company",
    "expected": "x-company-1",
-   "path": [
-    "init"
-   ]
-  },
-  {
-   "argv": [
-    "init",
-    "--store",
-    "postgres"
-   ],
-   "dest": "store",
-   "expected": "postgres",
    "path": [
     "init"
    ]

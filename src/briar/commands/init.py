@@ -13,7 +13,6 @@ from pathlib import Path
 
 import typer
 
-from briar.commands._enums import KnowledgeStoreChoice
 from briar.commands.base import Command, CommandOptions, Route
 from briar.errors import CliError
 
@@ -29,7 +28,7 @@ class CommandInit(Command):
         if path.exists() and not args.force:
             raise CliError(f"{path} already exists — pass --force to overwrite")
         owner, repo = self._resolve_repo(args.owner, args.repo)
-        content = self._render(company=args.company, store=args.store, owner=owner, repo=repo)
+        content = self._render(company=args.company, owner=owner, repo=repo)
         path.write_text(content)
         print(f"wrote {path}", file=sys.stderr)
         print(content, end="")
@@ -48,9 +47,9 @@ class CommandInit(Command):
         return owner or slug[0], repo or slug[1]
 
     @staticmethod
-    def _render(*, company: str, store: str, owner: str, repo: str) -> str:
+    def _render(*, company: str, owner: str, repo: str) -> str:
         template = files(_TEMPLATE).joinpath("briar_toml.tmpl").read_text(encoding="utf-8")
-        markers = {"COMPANY": company, "STORE": store, "OWNER": owner, "REPO": repo}
+        markers = {"COMPANY": company, "OWNER": owner, "REPO": repo}
         for key, value in markers.items():
             template = template.replace(f"@@{key}@@", value)
         return template
@@ -61,7 +60,6 @@ class InitOptions(CommandOptions):
     ROUTE = Route(CommandInit.name)
 
     company: str = typer.Option("", "--company", help="Company key to write into the config")
-    store: KnowledgeStoreChoice = typer.Option(KnowledgeStoreChoice.FILE, "--store", help="Default knowledge store backend (default: file)")
     owner: str = typer.Option("", "--owner", help="Repo owner (default: inferred from git origin)")
     repo: str = typer.Option("", "--repo", help="Repo name (default: inferred from git origin)")
     path: str = typer.Option(".briar.toml", "--path", help="Output path (default: ./.briar.toml)")

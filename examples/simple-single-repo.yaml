@@ -2,8 +2,8 @@
 #
 # Smallest end-to-end runbook: a single GitHub repo, three scheduled
 # tasks (daily heavy extract, 12-hourly codebase + deploy refresh,
-# 4-hourly active-work for the prfix loop). Knowledge lands in
-# Postgres so the scheduler and the agents share state.
+# 4-hourly active-work). Knowledge lands in the file store under
+# ./knowledge/.
 #
 # Adapt by:
 #   - Changing `companies.acme` to your company key.
@@ -16,7 +16,7 @@ version: 1
 companies:
   acme:
     knowledge:
-      store: postgres
+      store: file
       name: knowledge:acme
 
     schedules:

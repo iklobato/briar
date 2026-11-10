@@ -14,10 +14,10 @@ def _write(tmp_path, name, body):
 
 
 def test_find_and_load_dedicated_briar_toml(tmp_path):
-    _write(tmp_path, ".briar.toml", 'company = "acme"\nstore = "postgres"\n')
+    _write(tmp_path, ".briar.toml", 'company = "acme"\nroot = "kb"\n')
     found = find_config_file(tmp_path)
     assert found is not None and found.name == ".briar.toml"
-    assert load_project_config(tmp_path) == {"company": "acme", "store": "postgres"}
+    assert load_project_config(tmp_path) == {"company": "acme", "root": "kb"}
 
 
 def test_load_pyproject_tool_briar_section(tmp_path):
@@ -47,7 +47,7 @@ def _parser_with_required_company():
     """Shaped like `briar extract`, the only command whose parser this shim still fills."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--company", required=True)
-    parser.add_argument("--store", dest="storage", default="file")
+    parser.add_argument("--root", default="./knowledge")
     return parser
 
 
@@ -61,28 +61,18 @@ def test_config_satisfies_required_flag():
 
 def test_cli_flag_overrides_config():
     parser = _parser_with_required_company()
-    apply_config_defaults(parser, {"company": "acme", "store": "postgres"})
-    args = parser.parse_args(["--company", "other", "--store", "file"])
+    apply_config_defaults(parser, {"company": "acme", "root": "config-kb"})
+    args = parser.parse_args(["--company", "other", "--root", "flag-kb"])
     assert args.company == "other"
-    assert args.storage == "file"
+    assert args.root == "flag-kb"
 
 
 def test_env_overrides_config(monkeypatch):
-    monkeypatch.setenv("BRIAR_STORE", "postgres")
+    monkeypatch.setenv("BRIAR_COMPANY", "from-env")
     parser = _parser_with_required_company()
-    apply_config_defaults(parser, {"company": "acme", "store": "file"})
+    apply_config_defaults(parser, {"company": "acme"})
     args = parser.parse_args([])
-    assert args.storage == "postgres"  # env beats config
-
-
-def test_credential_store_env_does_not_set_knowledge_store(monkeypatch):
-    # BRIAR_DEFAULT_STORE is the `auth --cred-store` default. Read as the
-    # knowledge store it made extract fail with "unknown knowledge store 'vault'".
-    monkeypatch.delenv("BRIAR_STORE", raising=False)
-    monkeypatch.setenv("BRIAR_DEFAULT_STORE", "vault")
-    parser = _parser_with_required_company()
-    apply_config_defaults(parser, {"company": "acme", "store": "file"})
-    assert parser.parse_args([]).storage == "file"
+    assert args.company == "from-env"  # env beats config
 
 
 def test_repo_section_feeds_provider() -> None:

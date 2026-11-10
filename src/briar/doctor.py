@@ -2,7 +2,7 @@
 
 Lightweight and offline: inspects the Python/briar version, project config,
 git inference, and the presence of the credentials the common flows need.
-No network, no store connection — just "is this machine set up to run
+No network, no store read: just "is this machine set up to run
 briar?". Each check is a `Check`; the command renders them and exits
 non-zero if any is a hard ``fail``.
 """
@@ -67,26 +67,12 @@ def _github_check() -> Check:
     return Check("github token", WARN, "GITHUB_TOKEN not set: the GitHub extractors need it")
 
 
-def _store_check() -> Check:
-    from briar.config import load_project_config
-    from briar.settings import SettingsResolver
-
-    store = SettingsResolver.from_project(load_project_config()).settings().store
-    if store != "postgres":
-        return Check("store", OK, store or "file (default)")
-    has_dsn = _env_present("BRIAR_DATABASE_URL") or any(k.startswith("BRIAR_") and k.endswith("_DATABASE_URL") for k in os.environ)
-    if has_dsn:
-        return Check("store", OK, "postgres (DSN set)")
-    return Check("store", FAIL, "store=postgres but no BRIAR_DATABASE_URL — set the DSN")
-
-
 _CHECKS = (
     _python_check,
     _version_check,
     _config_check,
     _git_check,
     _github_check,
-    _store_check,
 )
 
 

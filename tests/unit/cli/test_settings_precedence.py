@@ -21,6 +21,7 @@ import pytest
 from briar.config import load_project_config
 
 RECORDED_COMMAND = ("init",)
+CLI_ERROR = 1
 USAGE_ERROR = 2
 
 
@@ -82,7 +83,6 @@ class SettingTable:
 
     SETTINGS = (
         Setting("company", "BRIAR_COMPANY", "", None, "won-company", "lost-company", ""),
-        Setting("store", "BRIAR_STORE", "", None, "postgres", "file", "file"),
         Setting("owner", None, "repo", 0, "won-owner", "lost-owner", ""),
         Setting("repo", None, "repo", 1, "won-repo", "lost-repo", ""),
     )
@@ -207,12 +207,12 @@ class TestPrecedence:
     def test_briar_toml_hides_pyproject_in_the_same_directory(self, project: Project) -> None:
         """One file is read, never a merge: a key only in pyproject.toml is ignored."""
         project.write(".briar.toml", 'company = "from-briar-toml"\n')
-        project.write("pyproject.toml", '[tool.briar]\nstore = "postgres"\n')
+        project.write("pyproject.toml", '[tool.briar.repo]\nowner = "from-pyproject"\n')
 
         run = project.invoke_briar(RECORDED_COMMAND)
 
         assert run.code == 0, run.err
-        assert (project.recorded("company"), project.recorded("store")) == ("from-briar-toml", "file")
+        assert (project.recorded("company"), project.recorded("owner")) == ("from-briar-toml", "")
 
     def test_nearest_config_file_wins_over_one_further_up(self, project: Project) -> None:
         project.write(".briar.toml", 'company = "from-parent"\n')
@@ -261,3 +261,18 @@ class TestConfigShow:
         row = self._row(real_project, setting.dest)
 
         assert (row["value"], row["source"]) == ("(unset)", "-")
+
+
+class TestRemovedSettings:
+    """`store` left with the Postgres store (decision C11): a config file that still sets it stops."""
+
+    @pytest.mark.parametrize(
+        ("relative", "text"), [(".briar.toml", 'store = "file"\n'), ("pyproject.toml", '[tool.briar]\nstore = "file"\n')], ids=[".briar.toml", "pyproject.toml"]
+    )
+    def test_store_key_stops_the_run_naming_it(self, real_project: Project, relative: str, text: str) -> None:
+        real_project.write(relative, text)
+
+        run = real_project.invoke_briar(("config", "show"))
+
+        assert run.code == CLI_ERROR
+        assert "error: `store` in " in run.err and f"{relative} was removed in briar 2.0" in run.err

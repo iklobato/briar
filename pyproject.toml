@@ -32,8 +32,6 @@ dependencies = [
     "boto3>=1.34,<2",      # AWS extractor (lazy-imported by aws_infra only)
     "schedule>=1.2,<2",    # in-process scheduler (replaces cron)
     "pytz",                # `schedule`'s tz support for `at("HH:MM", tz)`
-    "psycopg[binary]>=3.1,<4",  # postgres KnowledgeStore backend (lazy-imported)
-    "SQLAlchemy>=2.0,<3", # ORM + pooled Engine for the postgres KnowledgeStore
     "PyGithub>=2.5,<3",    # GitHub API — backs the GithubProvider adapter
     "atlassian-python-api>=3.41,<4",  # Bitbucket Cloud — backs the BitbucketProvider adapter
     "sentry-sdk>=2.0,<3", # error + performance telemetry; on by default, opt-out via `briar telemetry off`
@@ -130,7 +128,6 @@ markers = [
     "unit: fast unit test",
     "integration: cross-module / external-IO contract",
     "slow: takes >1s",
-    "needs_pg: requires BRIAR_TEST_PG_DSN",
     "needs_aws_creds: requires real AWS credentials",
     "registry: parametrized registry-shape contract",
     "boundary: external-IO adapter; mocks httpx/subprocess/SDK",

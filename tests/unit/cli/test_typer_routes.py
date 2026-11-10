@@ -13,13 +13,11 @@ import pytest
 
 from briar.commands._enums import (
     CredentialStoreChoice,
-    KnowledgeStoreChoice,
     OutputFormat,
 )
 from briar.config import load_project_config
 from briar.credentials import CredentialStoreRegistry
 from briar.formatting import FORMATTERS
-from briar.storage import KNOWLEDGE_STORE_NAMES
 
 from .conftest import Tripwire
 
@@ -63,22 +61,19 @@ class TestChoicesMatchTheRegistries:
     def test_output_formats_are_the_formatters(self) -> None:
         assert [choice.value for choice in OutputFormat] == list(FORMATTERS)
 
-    def test_store_choices_are_the_knowledge_stores(self) -> None:
-        assert [choice.value for choice in KnowledgeStoreChoice] == list(KNOWLEDGE_STORE_NAMES)
-
     def test_cred_store_choices_are_the_credential_stores(self) -> None:
         assert [choice.value for choice in CredentialStoreChoice] == list(CredentialStoreRegistry.kinds())
 
 
 class TestSettingsFillTyperOptions:
     def test_config_file_fills_init(self, cli: Callable[..., SimpleNamespace], project: Project, recorded_run: Dict[str, argparse.Namespace]) -> None:
-        project.write('company = "acme"\nstore = "postgres"\n[repo]\nowner = "acme-co"\nrepo = "app"\n')
+        project.write('company = "acme"\n[repo]\nowner = "acme-co"\nrepo = "app"\n')
 
         run = cli("init")
 
         assert run.code == 0, run.err
         args = recorded_run["args"]
-        assert (args.company, args.store, args.owner, args.repo) == ("acme", "postgres", "acme-co", "app")
+        assert (args.company, args.owner, args.repo) == ("acme", "acme-co", "app")
 
     def test_flag_beats_the_config_file(self, cli: Callable[..., SimpleNamespace], project: Project, recorded_run: Dict[str, argparse.Namespace]) -> None:
         project.write('company = "from-file"\n')

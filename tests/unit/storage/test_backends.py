@@ -1,8 +1,8 @@
 """KnowledgeStore parity contract — exercised against every backend.
 
 The `store` fixture in tests/conftest.py is parametrized over backends
-(`file` default, `postgres` opt-in via BRIAR_TEST_PG_DSN env var). Each
-test must pass on every backend — that's the contract."""
+(only `file` since 2.0). Each test must pass on every backend: that's
+the contract."""
 
 from __future__ import annotations
 

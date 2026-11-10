@@ -30,9 +30,9 @@ def layers() -> Layers:
 
 class TestResolved:
     def test_env_beats_the_config_file(self, layers: Layers) -> None:
-        rows = layers.rows(layers.resolver({"BRIAR_STORE": "postgres"}, {"store": "file"}, None))
+        rows = layers.rows(layers.resolver({"BRIAR_COMPANY": "from-env"}, {"company": "from-file"}, None))
 
-        assert rows["store"] == ("postgres", "env (BRIAR_STORE)")
+        assert rows["company"] == ("from-env", "env (BRIAR_COMPANY)")
 
     def test_empty_env_var_counts_as_unset(self, layers: Layers) -> None:
         rows = layers.rows(layers.resolver({"BRIAR_COMPANY": ""}, {"company": "acme"}, None))
@@ -67,6 +67,6 @@ class TestDefaultsAndSettings:
         assert resolver.defaults() == {"company": "acme", "root": "kb", "owner": "o", "repo": "r"}
 
     def test_settings_are_typed_by_table(self, layers: Layers) -> None:
-        settings = layers.resolver({}, {"store": "postgres", "repo": {"provider": "bitbucket"}}, ("o", "r")).settings()
+        settings = layers.resolver({}, {"tracker": "linear", "repo": {"provider": "bitbucket"}}, ("o", "r")).settings()
 
-        assert (settings.store, settings.repo.owner, settings.repo.provider, settings.root) == ("postgres", "o", "bitbucket", None)
+        assert (settings.tracker, settings.repo.owner, settings.repo.provider, settings.root) == ("linear", "o", "bitbucket", None)

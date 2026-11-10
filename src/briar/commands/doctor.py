@@ -1,6 +1,6 @@
 """`briar doctor` — offline environment health check.
 
-Prints a status line per check (python, config, git, credentials, store)
+Prints a status line per check (python, config, git, credentials)
 and exits non-zero only on a hard failure, so it is CI-usable."""
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from briar.commands.base import Command, CommandOptions, Route
 
 class CommandDoctor(Command):
     name = "doctor"
-    help = "Check the local environment (config, git, credentials, store)."
+    help = "Check the local environment (config, git, credentials)."
 
     def run(self, args: argparse.Namespace) -> int:
         from briar.doctor import FAIL, run_checks, worst_status

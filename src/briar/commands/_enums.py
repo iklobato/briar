@@ -29,13 +29,6 @@ class OutputFormat(str, Enum):
     JSON = "json"
 
 
-class KnowledgeStoreChoice(str, Enum):
-    """`--store` choices on Typer; a test keeps them equal to `briar.storage.KNOWLEDGE_STORE_NAMES`."""
-
-    FILE = "file"
-    POSTGRES = "postgres"
-
-
 class CredentialStoreChoice(str, Enum):
     """`--cred-store` choices; a test keeps them equal to `CredentialStoreRegistry.kinds()`."""
 

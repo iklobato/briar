@@ -46,8 +46,6 @@ def _run(cli, tmp_root, *flags):
         "--company",
         "acme",
         *flags,
-        "--store",
-        "file",
         "--root",
         str(tmp_root / "knowledge"),
     )
