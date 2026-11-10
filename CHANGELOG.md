@@ -5,6 +5,32 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [2.0.0] - Unreleased
+
+Work for 2.0 lands on the `v2` branch and ships as one release. The scope
+is in `docs/decisions/2026-11-10-briar-2-pipeline.md`.
+
+### Removed
+
+- `briar scaffold implementation` and `briar scaffold pr-fixes`, with the
+  scaffold templates, sources, triggers and workflow shapes behind them.
+  Their JSON was for the archived web UI; nothing in briar read it. The
+  agent archetypes and rules they used stay (the agents still read them).
+  `briar scaffold` is still in 1.x: `pip install 'briar-cli<2'`.
+- The unused config-file loader (`briar.iac.config_file`, `briar.iac.models`)
+  and two unused symbols: `ApiError` and `jira_auth_kinds`.
+- The design docs from the archived SaaS at the repo root
+  (`ARCHITECTURE.md`, `ARCHITECTURE_DEEP.md`, `ARCHITECTURE_MAP.md`,
+  `IMPLEMENTATION_PLAN.md`, `REFACTORING.md`, `FEATURES.md`,
+  `DEPLOY_EC2.md`). Git history keeps them.
+
+### Tests
+
+- `briar extract` output is pinned byte for byte (blob, JSON sidecar,
+  `CLAUDE.md` index and detail file) against files in
+  `tests/fixtures/extract_snapshot/`, so the 2.0 refactors cannot change
+  it by accident. Regenerate on purpose with `UPDATE_GOLDEN=1`.
+
 ## [1.1.101] - 2026-10-29
 
 ### Docs
