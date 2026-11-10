@@ -10,12 +10,8 @@ import pytest
 
 from briar.auth import AcquirerRegistry
 from briar.credentials import STORES
-from briar.credentials._bootstraps import CredentialBootstrapRegistry
 from briar.extract import EXTRACTORS
 from briar.formatting import FORMATTERS
-from briar.journal.sinks import JOURNAL_SINKS
-from briar.messaging import WRITERS
-from briar.notify import SINKS
 
 
 # (registry, name_attribute) — passed in so the test knows which attr to read.
@@ -23,10 +19,7 @@ _REGISTRIES = [
     pytest.param(EXTRACTORS, "name", id="EXTRACTORS"),
     pytest.param(STORES, "kind", id="STORES"),
     pytest.param(ACQUIRERS_AS_REGISTRY := AcquirerRegistry, "kind", id="ACQUIRERS"),
-    pytest.param(WRITERS, "kind", id="WRITERS"),
-    pytest.param(SINKS, "kind", id="SINKS"),
     pytest.param(FORMATTERS, "name", id="FORMATTERS"),
-    pytest.param(JOURNAL_SINKS, "name", id="JOURNAL_SINKS"),
 ]
 
 
@@ -56,10 +49,7 @@ class TestRegistryContract:
     @pytest.mark.parametrize("registry,name_attr", [
         (EXTRACTORS, "name"),
         (STORES, "kind"),
-        (WRITERS, "kind"),
-        (SINKS, "kind"),
         (FORMATTERS, "name"),
-        (JOURNAL_SINKS, "name"),
     ])
     def test_no_duplicate_names(self, registry, name_attr) -> None:
         keys = _kinds(registry)
@@ -68,8 +58,6 @@ class TestRegistryContract:
     @pytest.mark.parametrize("registry,name_attr", [
         (EXTRACTORS, "name"),
         (STORES, "kind"),
-        (WRITERS, "kind"),
-        (SINKS, "kind"),
         (FORMATTERS, "name"),
     ])
     def test_every_name_nonempty(self, registry, name_attr) -> None:
@@ -80,10 +68,7 @@ class TestRegistryContract:
     @pytest.mark.parametrize("registry,name_attr", [
         (EXTRACTORS, "name"),
         (STORES, "kind"),
-        (WRITERS, "kind"),
-        (SINKS, "kind"),
         (FORMATTERS, "name"),
-        (JOURNAL_SINKS, "name"),
     ])
     def test_each_entry_value_class_attr_matches_key(self, registry, name_attr) -> None:
         for key, value in registry.items():
@@ -133,29 +118,6 @@ class TestExtractorRegistry:
         ns = parser.parse_args([])
         result = ext.is_available(ns)
         assert isinstance(result, bool)
-
-
-class TestWriterRegistry:
-    @pytest.mark.parametrize("kind", list(WRITERS.keys()))
-    def test_writer_is_available_returns_bool(self, kind: str) -> None:
-        cls = WRITERS[kind]
-        writer = cls(company="acme", config={})
-        assert isinstance(writer.is_available(), bool)
-
-    @pytest.mark.parametrize("kind", list(WRITERS.keys()))
-    def test_writer_required_env_vars_returns_list_of_str(self, kind: str) -> None:
-        cls = WRITERS[kind]
-        names = cls.required_env_vars(company="acme")
-        assert isinstance(names, list)
-        assert all(isinstance(n, str) for n in names)
-
-
-class TestSinkRegistry:
-    @pytest.mark.parametrize("kind", list(SINKS.keys()))
-    def test_sink_is_available_returns_bool(self, kind: str) -> None:
-        cls = SINKS[kind]
-        sink = cls(company="acme")
-        assert isinstance(sink.is_available(), bool)
 
 
 class TestFormatterMatrix:

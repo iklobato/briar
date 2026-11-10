@@ -129,59 +129,6 @@ class CloudRegistryTests(unittest.TestCase):
             self.assertIn("briar-cli[gcp]", str(ctx.exception))
 
 
-class NotificationRegistryTests(unittest.TestCase):
-    def test_all_kinds_registered(self) -> None:
-        from briar.notify import NotificationRegistry
-
-        kinds = NotificationRegistry.kinds()
-        for expected in ("telegram", "slack", "email", "pagerduty"):
-            self.assertIn(expected, kinds)
-
-    def test_telegram_unavailable_without_token(self) -> None:
-        from briar.notify import make_sink
-
-        with mock.patch.dict("os.environ", {}, clear=True):
-            sink = make_sink("telegram", company="acme")
-            self.assertFalse(sink.is_available())
-
-    def test_telegram_send_returns_false_when_not_configured(self) -> None:
-        from briar.notify import make_sink
-
-        with mock.patch.dict("os.environ", {}, clear=True):
-            sink = make_sink("telegram", company="acme")
-            self.assertFalse(sink.send(title="t", body="b"))
-
-    def test_slack_send_posts_to_webhook(self) -> None:
-        from briar.notify import make_sink
-
-        with mock.patch.dict("os.environ", {"SLACK_ACME_WEBHOOK_URL": "https://hooks.slack.com/x"}):
-            sink = make_sink("slack", company="acme")
-            self.assertTrue(sink.is_available())
-            mock_resp = mock.MagicMock()
-            mock_resp.read.return_value = b"ok"
-            mock_resp.__enter__ = lambda s: s
-            mock_resp.__exit__ = lambda s, *a: None
-            with mock.patch("urllib.request.urlopen", return_value=mock_resp) as urlopen:
-                ok = sink.send(title="x", body="y")
-            self.assertTrue(ok)
-            self.assertEqual(urlopen.call_count, 1)
-
-    def test_pagerduty_send_posts_to_events_api(self) -> None:
-        from briar.notify import make_sink
-
-        with mock.patch.dict("os.environ", {"PAGERDUTY_ACME_ROUTING_KEY": "rk_xxx"}):
-            sink = make_sink("pagerduty", company="acme")
-            self.assertTrue(sink.is_available())
-            mock_resp = mock.MagicMock()
-            mock_resp.read.return_value = b'{"status": "success"}'
-            mock_resp.__enter__ = lambda s: s
-            mock_resp.__exit__ = lambda s, *a: None
-            with mock.patch("urllib.request.urlopen", return_value=mock_resp) as urlopen:
-                ok = sink.send(title="x", body="y")
-            self.assertTrue(ok)
-            self.assertEqual(urlopen.call_count, 1)
-
-
 class CredentialStoreTests(unittest.TestCase):
     def test_only_the_envfile_store_is_registered(self) -> None:
         # 2.0 removed the AWS Secrets Manager, SSM and Vault stores.
@@ -219,121 +166,6 @@ class CredentialStoreTests(unittest.TestCase):
         with mock.patch.dict("os.environ", {"GITHUB_TOKEN": "ghp_xxx"}, clear=False):
             expected = hashlib.blake2b(b"ghp_xxx", key=_fingerprint_salt(), digest_size=16).hexdigest()
             self.assertEqual(store.fingerprint("GITHUB_TOKEN"), expected)
-
-
-class ExecutorNotificationTests(unittest.TestCase):
-    """`_notify_failure` dispatches to every sink listed in
-    ``$BRIAR_NOTIFY_SINKS``. The dispatch must NOT raise — a broken
-    sink can't crash the scheduler."""
-
-    def test_notify_failure_dispatches_to_telegram_when_configured(self) -> None:
-        from briar.iac.runbook.executor import _notify_failure
-
-        fake_sink = mock.MagicMock()
-        fake_sink.is_available.return_value = True
-        fake_sink.send.return_value = True
-
-        with mock.patch.dict("os.environ", {"BRIAR_NOTIFY_SINKS": "telegram"}):
-            with mock.patch("briar.notify.make_sink", return_value=fake_sink):
-                _notify_failure("acme", "extractors", "stuff broke", "trace")
-
-        self.assertEqual(fake_sink.send.call_count, 1)
-        kwargs = fake_sink.send.call_args.kwargs
-        self.assertIn("acme", kwargs["title"])
-        self.assertIn("stuff broke", kwargs["body"])
-
-    def test_notify_failure_silent_when_no_sinks_configured(self) -> None:
-        from briar.iac.runbook.executor import _notify_failure
-
-        with mock.patch.dict("os.environ", {}, clear=True):
-            with mock.patch("briar.notify.make_sink") as make_sink:
-                _notify_failure("acme", "extractors", "stuff broke", "trace")
-                self.assertEqual(make_sink.call_count, 0)
-
-    def test_notify_failure_swallows_sink_exceptions(self) -> None:
-        from briar.iac.runbook.executor import _notify_failure
-
-        fake_sink = mock.MagicMock()
-        fake_sink.is_available.return_value = True
-        fake_sink.send.side_effect = RuntimeError("network down")
-
-        with mock.patch.dict("os.environ", {"BRIAR_NOTIFY_SINKS": "telegram"}):
-            with mock.patch("briar.notify.make_sink", return_value=fake_sink):
-                # MUST NOT raise — scheduler stays alive on sink failure
-                _notify_failure("acme", "extractors", "x", "y")
-
-
-class MessageWriterRegistryTests(unittest.TestCase):
-    """The 6 message writers register correctly + the runbook
-    `messages:` block validates against the live WRITERS registry +
-    SendMessageTool dispatches via the registry."""
-
-    def test_all_writers_registered(self) -> None:
-        from briar.messaging import WRITERS
-
-        for kind in (
-            "jira-comment",
-            "jira-transition",
-            "slack-channel",
-            "telegram-chat",
-            "github-pr-comment",
-            "bitbucket-pr-comment",
-        ):
-            self.assertIn(kind, WRITERS)
-
-    def test_make_writer_unknown_kind_raises(self) -> None:
-        from briar.errors import CliError
-        from briar.messaging import make_writer
-
-        with self.assertRaises(CliError):
-            make_writer("discord-channel", company="acme")
-
-    def test_message_binding_pydantic_validates_against_registry(self) -> None:
-        from pydantic import ValidationError
-
-        from briar.iac.runbook.models import MessageBinding
-
-        MessageBinding(kind="jira-comment")
-        with self.assertRaises((ValidationError, ValueError)):
-            MessageBinding(kind="discord-channel")
-
-    def test_company_entry_accepts_messages_block(self) -> None:
-        """Per-company runbook can declare named writer bindings."""
-        from briar.iac.runbook.models import CompanyEntry
-
-        c = CompanyEntry.model_validate(
-            {
-                "knowledge": {"store": "file", "name": "./knowledge/acme.md"},
-                "messages": {
-                    "ticket_comment": {"kind": "jira-comment"},
-                    "ops_chat": {"kind": "slack-channel"},
-                },
-            }
-        )
-        self.assertEqual(set(c.messages.keys()), {"ticket_comment", "ops_chat"})
-        self.assertEqual(c.messages["ticket_comment"].kind, "jira-comment")
-
-    def test_github_pr_comment_target_parsing(self) -> None:
-        # _parse_target was deduplicated to messaging._writer.parse_pr_target
-        # (Phase 7). Same contract, single implementation.
-        from briar.messaging._writer import parse_pr_target
-
-        # `#`-form
-        self.assertEqual(parse_pr_target("acme/app#42", {}), ("acme/app", 42))
-        # extras form
-        self.assertEqual(parse_pr_target("acme/app", {"pr": 7}), ("acme/app", 7))
-        # Garbage
-        self.assertEqual(parse_pr_target("nonsense", {}), ("", 0))
-
-    def test_jira_writers_required_env_vars(self) -> None:
-        from briar.messaging.jira_comment import JiraCommentWriter
-        from briar.messaging.jira_transition import JiraTransitionWriter
-
-        for cls in (JiraCommentWriter, JiraTransitionWriter):
-            names = cls.required_env_vars(company="acme")
-            self.assertIn("JIRA_ACME_URL", names)
-            self.assertIn("JIRA_ACME_EMAIL", names)
-            self.assertIn("JIRA_ACME_TOKEN", names)
 
 
 class ProviderRequiredEnvVarsTests(unittest.TestCase):
@@ -1992,12 +1824,6 @@ class Phase3ErrorHandlingTests(unittest.TestCase):
 class Phase4PythonStyleHygieneTests(unittest.TestCase):
     """Regression tests for Phase 4 mechanical-style hygiene fixes."""
 
-    def test_telemetryop_is_abstract(self) -> None:
-        from briar.commands.telemetry import TelemetryOp
-
-        with self.assertRaises(TypeError):
-            TelemetryOp()  # noqa: F841
-
     def test_credenv_for_company_rejects_empty_on_templated(self) -> None:
         """Empty company on a templated var used to produce 'AWS__ACCESS_KEY_ID'
         (double underscore) which never matched any operator-set env."""
@@ -2181,46 +2007,6 @@ class Phase7DeduplicationTests(unittest.TestCase):
         self.assertIs(ExtractPrArchaeology._hours_between, hours_between)
         self.assertIs(ExtractTicketArchaeology._hours_between, hours_between)
 
-    def test_parse_pr_target_moved_to_writer_module(self) -> None:
-        """Both PR-comment writers used to define _parse_target
-        verbatim. Now one helper in messaging/_writer.py."""
-        from briar.messaging._writer import parse_pr_target
-
-        self.assertEqual(parse_pr_target("owner/repo#123", {}), ("owner/repo", 123))
-        self.assertEqual(parse_pr_target("owner/repo", {"pr": 5}), ("owner/repo", 5))
-        self.assertEqual(parse_pr_target("garbage#notnumber", {}), ("", 0))
-        self.assertEqual(parse_pr_target("", {}), ("", 0))
-
-    def test_jira_creds_from_env(self) -> None:
-        """Two Jira writers used to duplicate the URL/email/token read."""
-        from briar.messaging._jira_creds import JiraCreds
-
-        env = {
-            "JIRA_ACME_URL": "https://acme.atlassian.net",
-            "JIRA_ACME_EMAIL": "a@b.com",
-            "JIRA_ACME_TOKEN": "tok",
-        }
-        with mock.patch.dict(os.environ, env, clear=False):
-            creds = JiraCreds.from_env("acme")
-        self.assertEqual(creds.url, "https://acme.atlassian.net")
-        self.assertEqual(creds.email, "a@b.com")
-        self.assertEqual(creds.token, "tok")
-        self.assertTrue(creds.is_complete())
-
-    def test_jira_creds_from_empty_company(self) -> None:
-        from briar.messaging._jira_creds import JiraCreds
-
-        creds = JiraCreds.from_env("")
-        self.assertEqual((creds.url, creds.email, creds.token), ("", "", ""))
-        self.assertFalse(creds.is_complete())
-        self.assertEqual(JiraCreds.required_env_vars(""), [])
-
-    def test_jira_creds_required_env_vars(self) -> None:
-        from briar.messaging._jira_creds import JiraCreds
-
-        names = JiraCreds.required_env_vars("acme")
-        self.assertEqual(sorted(names), ["JIRA_ACME_EMAIL", "JIRA_ACME_TOKEN", "JIRA_ACME_URL"])
-
     def test_secrets_path_single_source_of_truth(self) -> None:
         """envfile store + envfile bootstrap used to inline the same
         resolution chain. Now both import from credentials/_paths."""
@@ -2302,22 +2088,21 @@ class Phase8GodClassSplitsTests(unittest.TestCase):
         self.assertEqual({e.name for e in ExitCode}, {"OK", "GENERAL_ERROR", "USAGE_ERROR"})
 
     def test_failure_ctx_records_through_one_object(self) -> None:
-        """_FailureCtx bundles the 4 constant per-schedule fields so
+        """_FailureCtx bundles the 3 constant per-schedule fields so
         the failure path is `failure.record(reason=, blob_name=, exc=)`
         — replaces a 7-arg call duplicated 3 times in the original."""
         from briar.iac.runbook.executor import ExtractRow, _FailureCtx
 
         rows: list = []
-        ctx = _FailureCtx(company_name="Acme Inc", company="acme", task="extractors", rows=rows)
-        # Patch the colocated notify helper so we don't hit any real sink.
-        with mock.patch("briar.iac.runbook.executor._notify_failure") as notify:
+        ctx = _FailureCtx(company_name="Acme Inc", task="extractors", rows=rows)
+        with self.assertLogs("briar.iac.runbook.executor", level="ERROR") as logs:
             ctx.record(reason="collect_sections raised", blob_name="knowledge:acme", exc=RuntimeError("boom"))
         self.assertEqual(len(rows), 1)
         self.assertIsInstance(rows[0], ExtractRow)
         self.assertEqual(rows[0].company, "Acme Inc")
         self.assertEqual(rows[0].task, "extractors")
         self.assertIn("collect_sections raised", rows[0].status)
-        notify.assert_called_once_with("acme", "extractors", "collect_sections raised", "boom")
+        self.assertIn("schedule-failed: collect_sections raised: boom", logs.output[0])
 
     def test_open_store_and_record_outcome_split_out(self) -> None:
         """Confirm the new helpers exist and are static (no self-state)."""
@@ -2487,17 +2272,6 @@ class Phase10PolishTests(unittest.TestCase):
         self.assertEqual(p_with.company, "acme")
         self.assertEqual(p_empty.company, "")
 
-    def test_telemetry_preview_event_has_outcome_field(self) -> None:
-        """Cleanup of redundant `tags.setdefault("outcome","preview")`
-        next to hardcoded `outcome="preview"` — the field-level value
-        still lands correctly."""
-        from briar.telemetry import preview_next_event
-
-        event = preview_next_event(command="extract")
-        self.assertEqual(event.outcome, "preview")
-        self.assertEqual(event.duration_ms, 0)
-        self.assertEqual(event.command, "extract")
-
 
 class Phase11FollowupTests(unittest.TestCase):
     """Regression tests for Phase 11 — bugs surfaced by the re-audit
@@ -2607,32 +2381,6 @@ class Phase11FollowupTests(unittest.TestCase):
                     store.write("TEST_NULL", "value\x00trunc")
 
     # ── [AI] prefix on additional writers ────────────────────────────
-
-    def test_slack_writer_applies_ai_prefix(self) -> None:
-        """CLAUDE.md mandates [AI] prefix on operator-impersonated
-        messages on ANY channel. Slack was missing it."""
-        import inspect
-
-        from briar.messaging.slack_channel import SlackChannelWriter
-
-        src = inspect.getsource(SlackChannelWriter.send)
-        self.assertIn("with_ai_prefix", src)
-
-    def test_telegram_writer_applies_ai_prefix(self) -> None:
-        import inspect
-
-        from briar.messaging.telegram_chat import TelegramChatWriter
-
-        src = inspect.getsource(TelegramChatWriter.send)
-        self.assertIn("with_ai_prefix", src)
-
-    def test_jira_transition_writer_applies_ai_prefix(self) -> None:
-        import inspect
-
-        from briar.messaging.jira_transition import JiraTransitionWriter
-
-        src = inspect.getsource(JiraTransitionWriter.send)
-        self.assertIn("with_ai_prefix", src)
 
     # ── Shim cleanup ─────────────────────────────────────────────────
 
@@ -2784,7 +2532,6 @@ class Phase13DemotionsTests(unittest.TestCase):
         self.assertTrue(callable(cli.main))
         self.assertTrue(callable(cli._extract_global_flags))
         self.assertTrue(callable(cli._build_parser))
-        self.assertTrue(callable(cli._install_default_journal))
 
 
 class Phase14StructuralCleanupTests(unittest.TestCase):

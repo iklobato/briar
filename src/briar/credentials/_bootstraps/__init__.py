@@ -18,12 +18,11 @@ envfile; 1.x also loaded the remote store named by
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Tuple, Type
+from typing import Dict, List, Type
 
 from briar._registry import build_registry
 from briar.credentials._bootstrap import CredentialBootstrap, HydrateResult
 from briar.credentials._bootstraps.envfile import EnvFileBootstrap
-from briar.errors import CliError
 
 
 log = logging.getLogger(__name__)
@@ -34,25 +33,6 @@ BOOTSTRAPS: Dict[str, Type[CredentialBootstrap]] = build_registry(
     kind="credential bootstrap",
     name_attr="kind",
 )
-
-
-class CredentialBootstrapRegistry:
-    """Factory + introspection. Static."""
-
-    @classmethod
-    def kinds(cls) -> Tuple[str, ...]:
-        return tuple(BOOTSTRAPS.keys())
-
-    @classmethod
-    def make(cls, kind: str) -> CredentialBootstrap:
-        bs_cls = BOOTSTRAPS.get(kind)
-        if bs_cls is None:
-            known = ", ".join(sorted(BOOTSTRAPS.keys()))
-            raise CliError(f"unknown credential bootstrap {kind!r}; known: {known}")
-        return bs_cls()
-
-
-make_bootstrap = CredentialBootstrapRegistry.make
 
 
 def auto_bootstrap(*, dry_run: bool = False) -> List[HydrateResult]:
@@ -87,8 +67,6 @@ def auto_bootstrap(*, dry_run: bool = False) -> List[HydrateResult]:
 __all__ = [
     "BOOTSTRAPS",
     "CredentialBootstrap",
-    "CredentialBootstrapRegistry",
     "HydrateResult",
     "auto_bootstrap",
-    "make_bootstrap",
 ]

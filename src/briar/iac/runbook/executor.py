@@ -27,52 +27,22 @@ _DEFAULT_TASK = "extractors"
 _DEFAULT_EVERY = "day at 03:17"
 
 
-def _notify_failure(company: str, task: str, reason: str, detail: str) -> None:
-    """Dispatch a failure notification to every sink listed in
-    ``$BRIAR_NOTIFY_SINKS`` (comma-separated). Silent no-op when the
-    env var is empty. Sinks are fire-and-forget — a sink failure is
-    logged but never propagates."""
-    from briar.env_vars import CredEnv
-    from briar.notify import make_sink
-
-    raw = CredEnv.BRIAR_NOTIFY_SINKS.read()
-    if not raw:
-        return
-    title = f"briar: {company or '?'} / {task or '?'} failed"
-    body = f"{reason}\n\n{detail[:1500]}"
-    for kind in (k.strip() for k in raw.split(",") if k.strip()):
-        try:
-            sink = make_sink(kind, company=company)
-        except Exception:  # noqa: BLE001
-            log.exception("notify-failure: unknown sink kind=%s — skipping", kind)
-            continue
-        if not sink.is_available():
-            log.debug("notify-failure: sink=%s not available (no creds) — skipping", kind)
-            continue
-        try:
-            ok = sink.send(title=title, body=body)
-            log.info("notify-failure: sink=%s ok=%s", kind, ok)
-        except Exception:  # noqa: BLE001
-            log.exception("notify-failure: sink=%s raised", kind)
-
-
 @dataclass
 class _FailureCtx:
-    """Per-schedule failure context. The four "where am I in the loop"
-    fields (company_name / company / task / rows) are constant across
+    """Per-schedule failure context. The three "where am I in the loop"
+    fields (company_name / task / rows) are constant across
     every failure point in `_run_schedule`; bundle them into one object
     so `.record(reason=, blob_name=, exc=)` is the only thing call
     sites need to vary. Replaces a 7-arg `_record_failure` call shape
     duplicated three times in the schedule body."""
 
     company_name: str
-    company: str
     task: str
     rows: List["ExtractRow"]
 
     def record(self, *, reason: str, blob_name: str, exc: Exception) -> None:
-        log.exception("schedule-failed: %s", reason)
-        _notify_failure(self.company, self.task, reason, str(exc))
+        # This log is the only failure signal until spec 003 adds Apprise (C20, K4).
+        log.exception("schedule-failed: %s: %s", reason, exc)
         self.rows.append(ExtractRow(self.company_name, self.task, f"failed ({reason} — see traceback)", blob_name))
 
 
@@ -208,10 +178,10 @@ class RunbookExtractor:
           2. Open the knowledge store
           3. Compose-and-write (compare-and-set)
         Each phase routes failure through ``failure.record`` so the
-        log + notify + row shape stays consistent."""
+        log + row shape stays consistent."""
         wall_start = time.perf_counter()
         log.info("schedule-start: every=%r extract_count=%d", schedule.every, len(schedule.extract))
-        failure = _FailureCtx(company_name=company_name, company=company, task=schedule.task, rows=rows)
+        failure = _FailureCtx(company_name=company_name, task=schedule.task, rows=rows)
 
         try:
             sections = cls._collect_sections(schedule.extract, registry, company=company)
@@ -357,7 +327,7 @@ class RunbookExtractor:
         knowledge blob. ``knowledge:acme`` → ``inventory:acme``; a path
         like ``acme.md`` → ``acme.inventory.json``. The distinct
         ``inventory`` category keeps it out of the agent's knowledge
-        splice and groups it for `briar context list --prefix inventory:`."""
+        splice and groups it under the `inventory:` prefix."""
         if "/" in blob_name or blob_name.endswith(".md"):
             stem = blob_name[:-3] if blob_name.endswith(".md") else blob_name
             return f"{stem}.inventory.json"

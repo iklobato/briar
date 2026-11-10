@@ -5,11 +5,11 @@
 # Four companies, each exhausting a different slice of the matrix:
 #
 #   acme       GitHub repos + Jira tracker + AWS cloud
-#              File storage. All 5 GitHub-side message writers wired.
+#              File storage.
 #              The "everything is mainstream" baseline.
 #
 #   bitspark   Bitbucket Cloud + Linear + AWS (us-west-2)
-#              Postgres storage. Bitbucket PR-comment + Slack + Telegram.
+#              Postgres storage.
 #              Demonstrates the full vendor swap at every layer.
 #
 #   datacore   GitHub repos + Bitbucket Issues (legacy) + GCP
@@ -27,7 +27,6 @@
 #                      ✓ bitbucket-issues (datacore)  ✓ github-issues (fintech)
 #   Cloud providers    ✓ aws (acme, bitspark)    ✓ gcp (datacore)  ✓ azure (fintech)
 #   Storage backends   ✓ file (acme, datacore)   ✓ postgres (bitspark, fintech)
-#   Message writers    ✓ all 6 across the four companies
 #   Cadence patterns   ✓ minute / hourly / 4-hourly / daily / weekly
 #   User filters       ✓ author allow / block, assignee allow / block
 #   Per-task fanout    ✓ one extractor per task, multiple extractors per task
@@ -36,23 +35,21 @@
 #   briar runbook extract examples/all_features.yaml                 # run every schedule
 #   briar runbook extract examples/all_features.yaml --task prfix    # one task across all
 #   briar runbook serve examples/                                    # 24/7 scheduler
-#   briar secrets doctor --examples examples/all_features.yaml       # credential audit
 #
 # Required env vars (per-company secrets.env):
-#   See ARCHITECTURE.md + IMPLEMENTATION_PLAN.md. Run `briar secrets doctor`
-#   for an exhaustive coverage report — it walks each (extractor × provider)
-#   AND each (messages × writer) pair and tells you what's missing.
+#   Each company block below lists the ones it needs. `briar auth login
+#   <target> --company <name>` saves one.
 
 version: 1
 companies:
 
   # ===========================================================================
-  # acme — GitHub + Jira + AWS, every GitHub-side writer
+  # acme: GitHub + Jira + AWS
   # ===========================================================================
   # The mainstream stack. Useful as the "what does it look like with
   # nothing exotic" baseline.
   #
-  # Required env vars (rendered by `briar secrets doctor`):
+  # Required env vars:
   #   GITHUB_TOKEN                       workspace-wide PAT
   #   AWS_ACME_ACCESS_KEY_ID             per-company STS triplet
   #   AWS_ACME_SECRET_ACCESS_KEY
@@ -77,26 +74,6 @@ companies:
       # default; inspect with `briar context list --prefix inventory:`.
       # config:
       #   inventory: "true"
-
-    # Outbound message channels. The agent's `send_message` tool resolves
-    # these handles at run time. Adding a channel = one line here + the
-    # corresponding env vars in /etc/briar/secrets.env. Doctor verifies.
-    messages:
-      # Jira write paths — distinct verbs, same auth
-      ticket_comment:
-        kind: jira-comment
-      ticket_transition:
-        kind: jira-transition
-        config:
-          status: "In Review"           # default when extras.status not passed
-      # GitHub write path
-      pr_reply:
-        kind: github-pr-comment
-      # Operator-facing channels
-      ops_chat:
-        kind: slack-channel
-      escalation:
-        kind: telegram-chat
 
     schedules:
 
@@ -277,10 +254,8 @@ companies:
           #   • Otherwise auto-detect: session wins when either session-
           #     token env var is set; else falls back to token auth.
           #
-          # The same auth applies to BOTH the active-tickets /
-          # ticket-archaeology extractors AND the jira-comment /
-          # jira-transition message writers — one credential set, both
-          # paths.
+          # The same auth applies to the active-tickets and
+          # ticket-archaeology extractors.
           - name: active-tickets
             args:
               tracker: jira
@@ -356,22 +331,6 @@ companies:
         # Use this explicit form when you don't want bitspark to share
         # the global DSN with another company.
         dsn_env: BRIAR_BITSPARK_KB_PG
-
-    messages:
-      # Bitbucket write path (top-level OR inline review reply)
-      pr_reply:
-        kind: bitbucket-pr-comment
-      # Per-binding env override: this binding reads the engineering
-      # channel URL from a non-default env var. Useful when one company
-      # has multiple Slack channels (general, engineering, security).
-      engineering_chat:
-        kind: slack-channel
-        config:
-          webhook_env: SLACK_BITSPARK_ENGINEERING_WEBHOOK
-      ops_chat:                          # default convention: SLACK_BITSPARK_WEBHOOK_URL
-        kind: slack-channel
-      escalation:
-        kind: telegram-chat
 
     schedules:
 
@@ -455,16 +414,6 @@ companies:
       name: ./knowledge/datacore/main.md   # custom path
       root: ./knowledge                    # explicit root (default would be ./knowledge)
 
-    messages:
-      # Bitbucket-Issues doesn't have a separate writer; comments on
-      # Bitbucket Issues go through the same `bitbucket-pr-comment`
-      # writer pointed at an issue URL — OR add a `bitbucket-issue-comment`
-      # writer if needed (future).
-      pr_reply:
-        kind: github-pr-comment
-      ops_chat:
-        kind: telegram-chat
-
     schedules:
 
       # One consolidated daily task — small org, low cadence is fine.
@@ -536,10 +485,6 @@ companies:
   #   AZURE_TENANT_ID                        AAD tenant
   #   AZURE_CLIENT_SECRET                    Service principal password
   #   BRIAR_DATABASE_URL                     shared Postgres DSN
-  #   JIRA_FINTECH_URL                       still here even though tickets
-  #   JIRA_FINTECH_EMAIL                     are on GH Issues — fintech also
-  #   JIRA_FINTECH_TOKEN                     uses jira-comment writer for
-  #                                          cross-posting compliance notes
   #
   # Install: `pip install briar-cli[azure]` for azure-mgmt-* SDKs.
   # ---------------------------------------------------------------------------
@@ -547,17 +492,6 @@ companies:
     knowledge:
       store: postgres
       name: knowledge:fintech
-
-    messages:
-      # Heterogeneous: code reviews on Bitbucket PR, but compliance
-      # comments cross-posted to a Jira "audit" project. Two writers,
-      # two destinations.
-      pr_reply:
-        kind: bitbucket-pr-comment
-      compliance_log:
-        kind: jira-comment
-      ops_chat:
-        kind: slack-channel
 
     schedules:
 
@@ -645,10 +579,4 @@ companies:
 # All providers are pluggable. To add GitLab (repo + tracker), add one
 # file to extract/_providers/ + one to extract/_trackers/ + register
 # in the tuple; runbooks reference `provider: gitlab` / `tracker:
-# gitlab-issues` immediately. Same for new clouds, new writers.
-#
-# `briar secrets doctor --examples examples/all_features.yaml` is the
-# fastest way to know what's missing per company. It walks every
-# (extractor × provider) pair AND every (messages × writer) pair, hits
-# the configured `CredentialStore` (default: envfile), and prints the
-# `X MISSING:` / `ok` rows without ever logging the values.
+# gitlab-issues` immediately. Same for new clouds.

@@ -12,17 +12,13 @@ from typing import Callable, Dict, Optional, Tuple
 import pytest
 
 from briar.commands._enums import (
-    BootstrapKindChoice,
     CredentialStoreChoice,
-    JournalStoreChoice,
     KnowledgeStoreChoice,
     OutputFormat,
 )
 from briar.config import load_project_config
 from briar.credentials import CredentialStoreRegistry
-from briar.credentials._bootstraps import CredentialBootstrapRegistry
 from briar.formatting import FORMATTERS
-from briar.journal import JOURNAL_STORE_NAMES
 from briar.storage import KNOWLEDGE_STORE_NAMES
 
 from .conftest import Tripwire
@@ -70,14 +66,8 @@ class TestChoicesMatchTheRegistries:
     def test_store_choices_are_the_knowledge_stores(self) -> None:
         assert [choice.value for choice in KnowledgeStoreChoice] == list(KNOWLEDGE_STORE_NAMES)
 
-    def test_journal_store_choices_are_the_journal_stores(self) -> None:
-        assert [choice.value for choice in JournalStoreChoice] == list(JOURNAL_STORE_NAMES)
-
     def test_cred_store_choices_are_the_credential_stores(self) -> None:
         assert [choice.value for choice in CredentialStoreChoice] == list(CredentialStoreRegistry.kinds())
-
-    def test_bootstrap_kinds_are_the_bootstraps(self) -> None:
-        assert [choice.value for choice in BootstrapKindChoice] == list(CredentialBootstrapRegistry.kinds())
 
 
 class TestSettingsFillTyperOptions:
@@ -115,45 +105,13 @@ class TestSettingsFillTyperOptions:
         assert (recorded_run["args"].owner, recorded_run["args"].repo) == ("git-owner", "git-repo")
 
 
-class TestGroupOptions:
-    """`--store` / `--root` of `briar context` work before the operation, as in 1.x."""
-
-    def test_group_flag_reaches_the_operation(self, cli: Callable[..., SimpleNamespace], recorded_run: Dict[str, argparse.Namespace]) -> None:
-        run = cli("context", "--store", "postgres", "--root", "r", "get", "x")
-
-        assert run.code == 0, run.err
-        assert (recorded_run["args"].store, recorded_run["args"].root) == ("postgres", "r")
-
-    def test_operation_flag_beats_the_group_flag(self, cli: Callable[..., SimpleNamespace], recorded_run: Dict[str, argparse.Namespace]) -> None:
-        run = cli("context", "--store", "file", "get", "x", "--store", "postgres")
-
-        assert run.code == 0, run.err
-        assert recorded_run["args"].store == "postgres"
-
-    def test_group_flag_beats_the_setting(self, cli: Callable[..., SimpleNamespace], project: Project, recorded_run: Dict[str, argparse.Namespace]) -> None:
-        project.write('store = "file"\n')
-
-        run = cli("context", "--store", "postgres", "list")
-
-        assert run.code == 0, run.err
-        assert recorded_run["args"].store == "postgres"
-
-    def test_setting_fills_the_operation(self, cli: Callable[..., SimpleNamespace], project: Project, recorded_run: Dict[str, argparse.Namespace]) -> None:
-        project.write('store = "postgres"\nroot = "kb"\n')
-
-        run = cli("context", "list")
-
-        assert run.code == 0, run.err
-        assert (recorded_run["args"].store, recorded_run["args"].root) == ("postgres", "kb")
-
-
 class TestRemovedAliases:
     """The 1.x hidden aliases (D29a)."""
 
     @pytest.mark.parametrize(
         "argv",
-        [("secrets", "doctor", "--store", "envfile"), ("auth", "list", "--store", "envfile")],
-        ids=["secrets --store", "auth --store"],
+        [("auth", "list", "--store", "envfile")],
+        ids=["auth --store"],
     )
     def test_alias_is_an_unknown_option(self, cli: Callable[..., SimpleNamespace], recorded_run: Dict[str, argparse.Namespace], argv: Tuple[str, ...]) -> None:
         alias = argv[ALIAS_POSITION]
@@ -174,9 +132,9 @@ class TestRemovedAliases:
 
 
 class TestCommandList:
-    EXPECTED = {"extract", "runbook", "context", "auth", "secrets", "journal", "telemetry", "version", "init", "config", "doctor"}
+    EXPECTED = {"extract", "runbook", "auth", "init", "config", "doctor"}
 
-    def test_help_lists_the_11_commands(self, cli: Callable[..., SimpleNamespace]) -> None:
+    def test_help_lists_the_6_commands(self, cli: Callable[..., SimpleNamespace]) -> None:
         listed = cli("--help").out.split("Commands:")[1].split()
 
         assert {word for word in listed if word in self.EXPECTED | {"completion"}} == self.EXPECTED

@@ -19,8 +19,8 @@ from briar.telemetry._sinks.noop import NoOpSink
 from briar.telemetry._sinks.sentry import SentrySink
 
 
-# Sentinel instances retained for the name → class introspection path
-# used by `briar telemetry status`. Real instances are constructed via
+# Sentinel instances retained for the name → class introspection path.
+# Real instances are constructed via
 # the factory dict below — the old elif chain duplicated this mapping.
 TELEMETRY_SINKS: Dict[str, TelemetrySink] = build_registry(
     (NoOpSink(), FileSink(Path("/dev/null")), SentrySink(dsn="", release="")),

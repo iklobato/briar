@@ -11,7 +11,7 @@ Four verbs:
   ``None`` distinguishes "not set" from "set to empty string" — auth
   failures should raise, not return ``None``, so callers can fail closed.
 - ``list()``: enumerate names of all credentials known to the store
-  (used by ``briar secrets doctor`` to report set/missing).
+  (a credential coverage check reports set/missing from it).
 - ``fingerprint(name)``: keyed BLAKE2b digest of the stored value (for
   rotation detection without exposing plaintext).
 - ``expires_at(name)``: parse expiration for time-bound creds (AWS STS

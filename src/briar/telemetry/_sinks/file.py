@@ -1,7 +1,7 @@
 """File sink — append-only JSON lines for local debugging.
 
-Useful for `briar telemetry preview` (peek at exactly what would have
-been sent) and for opt-in self-inspection. Never used in production;
+Useful to peek at exactly what would have been sent, and for opt-in
+self-inspection. Never used in production;
 default sinks are `sentry` (when DSN configured) or `noop`."""
 
 from __future__ import annotations

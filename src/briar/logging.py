@@ -21,29 +21,18 @@ _FORMAT = "%(asctime)s [%(levelname)-7s] %(name)s: %(message)s"
 _DATEFMT = "%Y-%m-%dT%H:%M:%SZ"
 
 
-_LEVEL_NAMES = {
-    "DEBUG": logging.DEBUG,
-    "INFO": logging.INFO,
-    "WARNING": logging.WARNING,
-    "ERROR": logging.ERROR,
-}
-
-
 def _resolve_level(verbose: bool) -> int:
-    """Effective log level. `--verbose`/`BRIAR_VERBOSE` → DEBUG; else an
-    explicit `BRIAR_LOG_LEVEL` (DEBUG/INFO/WARNING/ERROR) if set; else
-    WARNING. Quiet-by-default keeps one-shot commands from spewing
-    operational INFO at users — daemons opt back in via `daemon_logging()`
-    or `BRIAR_LOG_LEVEL=INFO`."""
-    if verbose or env_verbose():
-        return logging.DEBUG
-    explicit = os.environ.get("BRIAR_LOG_LEVEL", "").strip().upper()
-    return _LEVEL_NAMES.get(explicit, logging.WARNING)
+    """Effective log level: `-v`/`--verbose` gives DEBUG, else WARNING.
+    Quiet-by-default keeps one-shot commands from spewing operational
+    INFO at users; daemons opt back in via `daemon_logging()`. 2.0 reads
+    no log-level env var (decision C18: `BRIAR_VERBOSE` and
+    `BRIAR_LOG_LEVEL` left)."""
+    return logging.DEBUG if verbose else logging.WARNING
 
 
 def configure(verbose: bool = False) -> None:
     """Configure root logger. WARNING by default (quiet); `--verbose` →
-    DEBUG; `BRIAR_LOG_LEVEL` overrides the default.
+    DEBUG.
 
     Logs go to STDERR so stdout stays a clean machine-readable channel
     for piping (`--format json | jq …`).
@@ -97,9 +86,3 @@ def daemon_logging() -> None:
 
 def _lib_debug_enabled() -> bool:
     return os.environ.get("BRIAR_LIB_DEBUG", "").strip().lower() in {"1", "true", "yes"}
-
-
-def env_verbose() -> bool:
-    """`BRIAR_VERBOSE=1` flips DEBUG for daemonised invocations where
-    no `--verbose` flag is being passed (the `runbook serve` unit)."""
-    return os.environ.get("BRIAR_VERBOSE", "").strip().lower() in {"1", "true", "yes"}

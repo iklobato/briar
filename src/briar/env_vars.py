@@ -61,15 +61,6 @@ class CredEnv(str, Enum):
     # DSN string into version-controlled YAML.
     BRIAR_DATABASE_URL_FOR_COMPANY = "BRIAR_{c}_DATABASE_URL"
 
-    # Notification sinks — see notify/.
-    TELEGRAM_BOT_TOKEN = "TELEGRAM_BOT_TOKEN"
-    TELEGRAM_CHAT_ID = "TELEGRAM_{c}_CHAT_ID"
-    SLACK_WEBHOOK_URL = "SLACK_{c}_WEBHOOK_URL"
-    # Comma-separated list of sink kinds the scheduler should dispatch
-    # extract-failure notifications to (e.g. "telegram,slack"). Empty
-    # disables notifications entirely.
-    BRIAR_NOTIFY_SINKS = "BRIAR_NOTIFY_SINKS"
-
     def for_company(self, company: str) -> str:
         if "{c}" in self.value and not company:
             # Empty company on a templated var used to silently produce
