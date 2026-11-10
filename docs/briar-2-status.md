@@ -30,8 +30,8 @@ now, what was found on the way, what is left and what to watch.
   PRs under it until those merge. Merge them **in order, #79 first, as
   merge commits**.
 - CI runs on every PR into `main` or `v2` (`.github/workflows/tests.yml`).
-  All 11 PRs had green CI on their last commit. Nobody has reviewed them
-  (the maintainer is the only reviewer).
+  PRs #79 to #90 had green CI on their last commit. Nobody has reviewed
+  them (the maintainer is the only reviewer).
 
 | PR | Branch | What it does |
 |---|---|---|
@@ -46,6 +46,8 @@ now, what was found on the way, what is left and what to watch.
 | https://github.com/iklobato/briar/pull/87 | `cli/04-typer-auth-agent` | Moves `auth`, `agent`; removes `--knowledge` (agent) and `--store` (auth) |
 | https://github.com/iklobato/briar/pull/88 | `cli/05-typer-plan` | Moves `plan` |
 | https://github.com/iklobato/briar/pull/89 | `cli/06-removals-docs` | Removes `extract --storage`, `briar completion` and its templates; Typer completion; docs; the spec 002 success checks |
+| https://github.com/iklobato/briar/pull/90 | `docs/v2-status` | This file, the four 2026-11-10 decision files, the CLAUDE.md and CONTRIBUTING updates (docs only) |
+| https://github.com/iklobato/briar/pull/91 | `core/01-remove-plan-agent` | Spec 006 part 1: removes `plan`, `agent` and the code only they used; moves the personas and rules to `src/briar/prompts/` |
 
 ## 2. What is done
 
@@ -84,6 +86,57 @@ now, what was found on the way, what is left and what to watch.
   integration"` 2994 passed, 2 skipped; `pytest -m integration` 93 passed;
   `make smoke` ok for all 13 commands; mypy 73 errors; 25,969 lines in `src`.
 
+### Spec 006: core cleanup, part 1 of 5 (PR #91)
+
+- Moved first, in its own commit (`73b4dff`): the 1.x persona text
+  (engineer, pr-fixer, CI fixer, conflict resolver) and the 8 shared rules
+  to `src/briar/prompts/` (`roles/engineer.md`, `tasks/*.md`, `rules/*.md`),
+  for the spec 003 pipeline (C21, A1). The triager persona was not moved
+  (no 2.0 role takes it). Nothing reads these files at run time yet;
+  `tests/unit/test_prompts.py` checks they ship.
+- Removed: the `agent` and `plan` commands; the packages `agent/` (loop,
+  tools, LLM providers), `plan/` (board readers, selector, store), `mcp/`
+  (the client behind a runbook `mcp:` block), `iac/scaffold/` (archetypes,
+  knowledge splicer); the task-scoped extractors and `extract/_chat.py`,
+  `extract/_chats/`; the dependencies `anthropic` and `GitPython`; the
+  `mcp`, `openai`, `gemini` extras; the `[agent]` settings (`model`,
+  `git_user_name`, `git_user_email`); the `llm key` check of `doctor`; the
+  LLM and Slack session env names in `env_vars.py`.
+- A runbook company with `mcp:` or `git_identity:` now fails to load with
+  exit 1 and the message `` `mcp` was removed in briar 2.0; delete it from
+  the runbook `` (`CompanyEntry.REMOVED_KEYS`, test in
+  `tests/unit/cli/test_exit_codes.py`).
+- Kept on purpose for spec 003: the providers' clone and PR seam
+  (`resolve_token`, `clone_url`, `authed_clone_url`, `pr_creation_recipe`)
+  and their per-PR verbs (`get_pull`, `list_pr_comments`, ...); `briar
+  agent` and `pr-review-context` were their only callers, but the pipeline
+  clones, opens PRs and reviews them.
+- Numbers on the branch (2026-11-10): `src` 25,969 lines to 18,423
+  (`find src -name '*.py' | xargs cat | wc -l`); `briar --help` lists 11
+  commands; mypy 73 errors to 39; `pytest -n auto -m "not integration"`
+  2136 passed; `pytest -m integration` 78 passed; `make smoke` ok for all
+  11. Startup, CPU median of 7 against the 1.x code on the same machine:
+  `import briar.cli` 736 ms (1.x) vs 741 ms (822 ms before this PR);
+  `main(['--help'])` 39 ms vs 17 ms.
+
+#### Where the deleted code is (FR-013)
+
+Spec 003 reuses some of it. Every path below is in commit `73b4dff` (the
+parent of the delete commit in PR #91, with the spec 002 changes) and,
+as 1.x shipped it, in tag `v1.1.101`. Read one with
+`git show 73b4dff:<path>`; list a folder with
+`git ls-tree -r --name-only 73b4dff <folder>`.
+
+| What | Paths | Reused by |
+|---|---|---|
+| Plan selector (LLM picks the next card) | `src/briar/plan/_selector.py` | spec 003 `board` pipeline |
+| Board readers (Jira board, GitHub Projects) | `src/briar/plan/_board.py`, `src/briar/plan/_boards/` | spec 003 `board` pipeline |
+| Bash allowlist and forbidden tokens | `src/briar/agent/tools.py` | spec 003 agent tools (A12) |
+| Agent loop and LLM providers | `src/briar/agent/runner.py`, `src/briar/agent/_llms/` | spec 003 (LangGraph replaces the loop) |
+| MCP client manager | `src/briar/mcp/_manager.py` (and the rest of `src/briar/mcp/`) | not planned |
+| Task-scoped extractors | `src/briar/extract/{ticket_context,pr_review_context,meeting_context,slack_context}.py`, `src/briar/extract/_chat.py`, `src/briar/extract/_chats/` | spec 003 context (P1, P3) |
+| Archetypes and knowledge splicer | `src/briar/iac/scaffold/` | already moved to `src/briar/prompts/` |
+
 ## 3. How the command line works now
 
 ```
@@ -110,16 +163,13 @@ briar.cli.main(argv)
   dataclass like a function. This keeps every function within the
   maintainer's code rules (at most 3 parameters).
   - `UNSET_AS`: a None default turned into the 1.x value at run time
-    (`agent`/`plan` `--store` reads `BRIAR_DATABASE_URL` when the command
-    runs; `secrets bootstrap --kind` and `plan build --llm` keep `""`).
+    (`secrets bootstrap --kind` keeps `""`).
   - `InheritingOptions`: `context --store x get y` and `context get y --store x`
     both work; a setting fills only the group, so it never beats a group flag.
-  - `SETTING_NAMES`: `agent --root` keeps its 1.x dest `knowledge`, filled by the `root` setting.
   - `RegistryChoice`: `auth` targets are checked against the registry when
     the command runs (tests add fake targets). Other choices are `str`
     Enums in `commands/_enums.py`, each with a test that keeps it equal to
     its registry (`tests/unit/cli/test_typer_routes.py`).
-  - `EnrichmentOptions`: the meeting and Slack options shared by `agent` and `plan run`.
 - **`settings.py`**: env (`BRIAR_COMPANY`, `BRIAR_STORE`, empty counts as
   unset) > project config file > git `origin` (owner, repo) > the option's
   default. One file is read, never a merge: the nearest `.briar.toml`, or
@@ -159,8 +209,8 @@ Each item was reproduced in this work; the PR named holds the evidence.
 - **1.x quirks the tests now pin**: `--format` with no value exits 1, not 2
   (the pre-parse raises before argparse runs); `args.verbose` is always
   False in `run()` because the pre-parse removes `-v`, so `plan run`'s
-  `impl.verbose = getattr(args, "verbose", False)` never turns on (not
-  fixed).
+  `impl.verbose = getattr(args, "verbose", False)` never turned on (`plan`
+  is gone since spec 006).
 - **Startup** (CPU time, median of 7, busy machine, against the 1.x code):
   `import briar.cli` 734 ms (1.x) vs 804 ms; `main(['version'])` after
   import 45 ms vs 37 ms. About 60 ms slower overall: Typer and the option
@@ -168,7 +218,7 @@ Each item was reproduced in this work; the PR named holds the evidence.
 
 ## 5. Next steps, in order
 
-1. **Review and merge #79 to #89 into `v2`**, in order, as merge commits.
+1. **Review and merge #79 to #91 into `v2`**, in order, as merge commits.
    Re-check `gh pr checks <n>` before each merge; after the last one, check
    that the `v2` CI run is green.
 2. **Decide how 2.0 is released before `v2` merges to `main`.**
@@ -183,19 +233,22 @@ Each item was reproduced in this work; the PR named holds the evidence.
    store, the task-scoped extractors, `messaging`, `notify`, `mcp`; move the
    stable `extract` flags to config. Planned (spec-kit, not committed) as 5
    stacked PRs on top of #90: (1) `plan`, `agent` and the code only they use,
-   personas moved to `src/briar/prompts/*.md` first; (2) `context`,
+   personas moved to `src/briar/prompts/*.md` first (done: PR #91, section
+   2); (2) `context`,
    `secrets`, `journal`, `telemetry`, `version`, `messaging`, `notify`,
    `--format table|json`, `-v` only; (3) file store only; (4) `extract`
    with three flags and the rest from `[extract]` / `[extract.<name>]`;
    (5) `auth`, `runbook`, `doctor`/`init` trims, docs and the success checks.
    A 1.x key that left (`store`, runbook `messages:`/`mcp:`, an unknown
    `[extract]` key) stops the run with exit 1; `auth status` with no target
-   lists every login. The speed PR below may become moot: measure after this.
+   lists every login. The speed PR below may become moot: after part 1,
+   `import briar.cli` is within 5 ms of 1.x (section 2).
 4. **Optional speed PR** (the user deferred it): import a command's option
    classes only when that command runs (about 25 ms), and lazy-import the
-   heavy modules (`python -X importtime -c "import briar.cli"`:
-   `briar.commands.agent` 486 ms and `briar.commands.runbook` 389 ms
-   cumulative, mostly SQLAlchemy and storage).
+   heavy modules (before spec 006, `python -X importtime -c "import
+   briar.cli"` showed `briar.commands.agent` 486 ms, now gone, and
+   `briar.commands.runbook` 389 ms cumulative, mostly SQLAlchemy and
+   storage, which part 3 removes).
 5. **Write the next specs** (spec-kit, from the decisions files):
    - spec 003: the pipeline engine (LangGraph, `briar run/resume/runs`,
      built-in pipelines `ticket`, `board`, `pr-review`, loops, checkpoints;
@@ -208,8 +261,11 @@ Each item was reproduced in this work; the PR named holds the evidence.
 6. **Site and images**: usebriar.com `/docs` and the landing page (private
    repo `iklobato/usebriar-landing`) still describe removed features
    (pipeline R7). `docs/diagrams/which-command.svg` still shows `briar
-   chat` and `mcp serve`; `docs/diagrams/under-the-hood.svg` shows `mcp
-   serve`. Both come from the site, so change them there and export again.
+   chat`, `mcp serve`, `agent` and `plan`; `docs/diagrams/under-the-hood.svg`
+   shows `mcp serve` and agents. Both come from the site, so change them
+   there and export again. `agent-run.svg`, `review.svg`, `board.svg` and
+   the demo GIFs `03-agent-ticket.gif`, `04-agent-review.gif` are no longer
+   in the README; the site may still load them from `main`.
 7. **1.x issues still open on `main`**:
    https://github.com/iklobato/briar/issues/76 and
    https://github.com/iklobato/briar/issues/77.
@@ -219,8 +275,10 @@ Each item was reproduced in this work; the PR named holds the evidence.
 - `extract` is still argparse: its flags do not tab-complete (1.x
   completed them), `--advanced-help` and the legacy per-extractor flags
   stay until spec 004.
-- Startup is about 60 ms slower than 1.x (section 4); the plan's goal was
-  "no slower".
+- Startup: spec 002 left it about 60 ms slower than 1.x (section 4); spec
+  006 part 1 brought `import briar.cli` back to within 5 ms (section 2).
+- The README overview (the top sections) still describes `agent` and
+  `plan`; spec 006 part 5 rewrites it.
 - Unit tests in `tests/unit/test_http_retry.py` and `tests/test_abstractions.py`
   still leak their own `HTTPError` objects on Python 3.14. CI does not run
   unit tests on 3.14, so nothing fails today.

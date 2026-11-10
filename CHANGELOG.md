@@ -68,6 +68,22 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`.
   (`ARCHITECTURE.md`, `ARCHITECTURE_DEEP.md`, `ARCHITECTURE_MAP.md`,
   `IMPLEMENTATION_PLAN.md`, `REFACTORING.md`, `FEATURES.md`,
   `DEPLOY_EC2.md`). Git history keeps them.
+- `briar agent` (`implement`, `prfix`) and `briar plan`
+  (every subcommand), with the code only they used: the agent loop and its
+  tools, the LLM providers (Anthropic, Bedrock, OpenAI, Gemini), the plan
+  selector and board readers, the MCP client behind a runbook's `mcp:`
+  block, the agent archetypes, and the four task-scoped extractors
+  (`ticket-context`, `pr-review-context`, `meeting-context`,
+  `slack-context`). The 2.0 ticket pipeline replaces them. The persona and
+  rule text moved to `briar/prompts/*.md` for it. Both commands are still
+  in 1.x: `pip install 'briar-cli<2'`.
+- The dependencies `anthropic` and `GitPython`, and the `mcp`, `openai` and
+  `gemini` extras. `[all]` is now `gcp` and `azure`.
+- A runbook's `mcp:` and `git_identity:` blocks (only `briar agent` read
+  them). A runbook that still has one stops with exit code 1 and names the
+  block.
+- The `[agent]` table of `.briar.toml` (`model`, `git_user_name`,
+  `git_user_email`) and the `llm key` check of `briar doctor`.
 
 ### Tests
 

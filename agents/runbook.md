@@ -82,8 +82,8 @@ This file gives you three tasks. Once a day, at 03:17 UTC, the
 | `extract[].name` | The extractor name, such as `pr-archaeology`. A wrong name stops the file from loading. |
 | `extract[].args` | Settings for that extractor. The same names as its `briar extract` flags, with `_` in place of `-`. The short shared names work too: `repo`, `since_days`, `max`, `top_n`, `sample`, `authors_allow`, `authors_block`, `assignees_allow`, `assignees_block`. |
 | `extract` (on the company) | Older form: a plain list of extractors with no `schedules`. briar treats it as a task named `extractors` that runs `"day at 03:17"`. |
-| `messages` | Named channels that an agent's `send_message` tool may post to. Only used when you run `briar agent` with `--runbook`. |
-| `mcp`, `git_identity` | Settings read by `briar agent` (see [agent.md](agent.md)). The runbook commands ignore them. |
+| `messages` | Named message channels. `briar agent` posted to them; it is gone in briar 2.0. `briar secrets doctor` still checks their credentials. |
+| `mcp`, `git_identity` | Removed in briar 2.0 (only `briar agent` read them). A runbook that still has one stops with exit code 1 and names the key: delete the block. |
 
 ### Where each task writes
 

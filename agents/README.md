@@ -28,12 +28,10 @@ They match briar-cli 1.1.75.
 | [version.md](version.md) | `briar version`: print the installed version. |
 | [extract.md](extract.md) | `briar extract`: read your tools into a knowledge blob (23 extractors). |
 | [runbook.md](runbook.md) | `briar runbook extract`, `sweep`, `serve`: run extractors from YAML, once or on a schedule. |
-| [agent.md](agent.md) | `briar agent implement`, `briar agent prfix`: an AI agent that opens a draft PR for a ticket, or fixes review comments on a PR. |
-| [plan.md](plan.md) | `briar plan build`, `show`, `status`, `next`, `advance`, `run`, `list`, `clear`: turn a board into a plan and run it card by card. |
 | [context.md](context.md) | `briar context put`, `get`, `list`, `delete`, `categories`: read and write knowledge blobs. |
 | [auth.md](auth.md) | `briar auth login`, `logout`, `refresh`, `list`, `status`: save and manage credentials. |
 | [creds.md](creds.md) | `briar secrets doctor`, `briar secrets bootstrap`: find missing credentials. |
-| [journal.md](journal.md) | `briar journal list`, `show`, `export`: read the decisions that `plan run` recorded. |
+| [journal.md](journal.md) | `briar journal list`, `show`, `export`: read the decision sessions earlier briar versions recorded. |
 | [telemetry.md](telemetry.md) | `briar telemetry status`, `preview`, `off`, `errors-only`, `full`, `reset`: control what usage data is sent. |
 
 ## Flags that work on every command
@@ -51,7 +49,7 @@ You can put these anywhere on the command line.
 | Code | Meaning |
 |---|---|
 | `0` | It worked. |
-| `1` | It ran and failed. Examples: missing credentials, a service error, an agent run that failed, `plan run` stopped on a blocked card, or you said no to a prompt. |
+| `1` | It ran and failed. Examples: missing credentials, a service error, a runbook with a block briar 2.0 removed, or you said no to a prompt. |
 | `2` | Bad flags. Also used when a command crashes with an unexpected error. |
 | `130` | You pressed Ctrl-C. |
 
@@ -78,18 +76,16 @@ briar saves knowledge as named markdown blobs in a store.
 | `--store` | Where blobs live | Default for |
 |---|---|---|
 | `file` | `./knowledge/<prefix>/<rest>.md`, so `knowledge:acme` is `./knowledge/knowledge/acme.md`. Change the folder with `--root`. | Every command when `BRIAR_DATABASE_URL` is not set. `context` even when it is set. |
-| `postgres` | The database in `BRIAR_DATABASE_URL`. A runbook can pick another one per company. | `extract`, `agent` and `plan` when `BRIAR_DATABASE_URL` is set. |
+| `postgres` | The database in `BRIAR_DATABASE_URL`. A runbook can pick another one per company. | `extract` when `BRIAR_DATABASE_URL` is set. |
 
 `BRIAR_STORE=postgres`, or `store = "postgres"` in `.briar.toml`, makes
 every command use Postgres.
 
 | Blob name | Written by | Read by |
 |---|---|---|
-| `knowledge:acme` | `briar extract`, `briar runbook` | The agent (only the sections it uses), the plan selector, `plan build --with-knowledge`. |
-| `knowledge:acme.q3` | `briar plan build`, then `plan run` after each card | The plan selector. |
+| `knowledge:acme` | `briar extract`, `briar runbook` | You, and any agent you point at it. |
 | `inventory:acme` | `briar runbook`, when its `knowledge:` block has `config: {inventory: "true"}` | You (JSON with every resource). |
-| `plan:q3` | `briar plan build`, `advance`, `run` | Every `briar plan` subcommand. |
-| Any other name, like `memory:reviewer-alice` | `briar context put` | You. The agent never reads it. |
+| Any other name, like `memory:reviewer-alice` | `briar context put` | You. |
 
 ## Credentials
 
@@ -103,7 +99,7 @@ loads one secrets file, the first that exists:
 A variable already set in your shell wins over the file.
 `briar auth login` writes to this file. Most variables carry the company
 name in upper case, like `JIRA_ACME_TOKEN` for company `acme`.
-`GITHUB_TOKEN` and the LLM keys have no company part.
+`GITHUB_TOKEN` has no company part.
 
 When a command fails for lack of credentials, run `briar secrets doctor`.
 It lists what each runbook still needs. See [creds.md](creds.md) and
@@ -111,19 +107,17 @@ It lists what each runbook still needs. See [creds.md](creds.md) and
 
 ## The journal
 
-`briar plan run` records each decision it makes in a journal session
-under `./journal/`. Other commands do not write one.
-Read them with `briar journal list`, `show` and `export`. Sessions are
-append-only. Set `BRIAR_JOURNAL=off` to turn the journal off. See
-[journal.md](journal.md).
+In 1.x, `briar plan run` recorded each decision it made in a journal
+session under `./journal/`. briar 2.0 has no `plan`, so no command writes
+one now. Read old sessions with `briar journal list`, `show` and
+`export`. See [journal.md](journal.md).
 
 ## Rules for AI agents that run briar
 
 1. Read `briar <command> -h` before you use a flag you have not seen.
    Do not guess flag names.
-2. Run `briar agent ... --dry-run` before a real agent run. It is free.
-3. Use `--format json` when you parse output, and check the exit code first.
-4. Do not say a command worked until you have run it and read its output.
-5. Never push to `main`, `master` or `dev`, and never force-push a shared branch.
-6. Start any comment you post for a person with `[AI] `.
-7. Do not skip git hooks (`--no-verify`) unless the person asked for it.
+2. Use `--format json` when you parse output, and check the exit code first.
+3. Do not say a command worked until you have run it and read its output.
+4. Never push to `main`, `master` or `dev`, and never force-push a shared branch.
+5. Start any comment you post for a person with `[AI] `.
+6. Do not skip git hooks (`--no-verify`) unless the person asked for it.
