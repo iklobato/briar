@@ -29,6 +29,7 @@ warnings.filterwarnings(
 
 import argparse
 import logging
+import os
 import sys
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -218,12 +219,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     metadata_only = "-h" in raw_argv or "--help" in raw_argv or not remaining
 
     if not metadata_only:
-        # Bootstrap credentials from any configured remote vault BEFORE
-        # the command registry imports (which transitively trigger
-        # provider / writer adapter construction that may read env vars
-        # at import time). auto_bootstrap() iterates the BOOTSTRAPS
-        # registry — typically a no-op locally; runs any configured
-        # bootstrap on hosts that have its credentials set.
+        # Load credentials from the env file BEFORE the command registry
+        # imports (which transitively trigger provider / writer adapter
+        # construction that may read env vars at import time).
+        # auto_bootstrap() iterates the BOOTSTRAPS registry.
         from briar.credentials._bootstraps import auto_bootstrap
 
         # Cascade — every available bootstrap runs in registry order.
@@ -289,9 +288,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     # them, and ships an error event — then re-raises into the
     # existing CliError / KeyboardInterrupt / catch-all flow.
     from briar import telemetry
+    from briar.credentials._removed_stores import RemovedCredentialStoreGuard
 
     try:
         with telemetry.command_span(args.command, args):
+            # A 1.x setup may still name a removed remote store: stop with
+            # the fix instead of running without the keys it used to load.
+            RemovedCredentialStoreGuard(os.environ).check(args.command)
             rc = commands[args.command].run(args)
         _notify_update(log)
         return rc

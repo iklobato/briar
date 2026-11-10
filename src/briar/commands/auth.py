@@ -5,7 +5,7 @@ the thing you're logging into is the **positional target**, not a
 named flag. One unified verb for both directions:
 
   briar auth login github-pat --company acme  # acquire vendor credentials
-  briar auth login aws-sso --company acme --cred-store vault
+  briar auth login aws-sso --company acme --cred-store envfile
 
 The acquirer's ``destination_policy`` decides whether ``--cred-store``
 applies (vendor flows) or is forced to envfile (bootstrap flows that
@@ -64,8 +64,8 @@ class CommandAuth(Command):
             default_store=default_store,
             store_kinds=store_kinds,
             help=(
-                "Where to persist acquired credentials. Defaults to $BRIAR_DEFAULT_STORE then envfile. "
-                "IGNORED for bootstrap targets — those always persist locally."
+                "Where to persist acquired credentials. Only `envfile` since 2.0 "
+                "(the remote stores were removed)."
             ),
         )
 
@@ -227,7 +227,7 @@ def _add_cred_store_argument(
     *,
     default_store: str,
     store_kinds: List[str],
-    help: str = "Credential store backend. Defaults to $BRIAR_DEFAULT_STORE then envfile.",
+    help: str = "Credential store backend. Only `envfile` since 2.0 (the remote stores were removed).",
 ) -> None:
     """Register the credential-store flag on a subparser.
 

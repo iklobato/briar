@@ -64,7 +64,7 @@ Your tokens stay in a file on your computer.
 - **Works with your other AI tools.** `--merge-claude-md` adds the facts to
   `CLAUDE.md`, the file Claude Code reads when it starts.
 - **Runs on your computer.** No account. Keys stay in a file on your
-  machine, or in AWS Secrets Manager, SSM or Vault.
+  machine.
 
 ## Where the knowledge comes from, and where the work goes
 
@@ -108,7 +108,7 @@ runs the coding agents. Extras add more:
 
 ```bash
 pip install 'briar-cli[mcp]'      # MCP tools for agents (a runbook's mcp: block)
-pip install 'briar-cli[all]'      # openai, gemini, mcp, gcp, azure, vault
+pip install 'briar-cli[all]'      # openai, gemini, mcp, gcp, azure
 ```
 
 Or skip the install and use the Docker image, which also has `git` and

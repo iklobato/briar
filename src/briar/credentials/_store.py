@@ -2,8 +2,8 @@
 
 Today, every cred is read directly from process env vars (via
 ``CredEnv``). This abstraction lets you keep the same call sites
-(``store.read(env_name)``) while swapping the backing source —
-EnvFile (today), AWS Secrets Manager, SSM Parameter Store, Vault.
+(``store.read(env_name)``) while swapping the backing source. 2.0 has
+one source, EnvFile (1.x also had AWS Secrets Manager, SSM and Vault).
 
 Four verbs:
 - ``read(name)``: look up one var by canonical name. Returns the value,

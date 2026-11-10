@@ -21,15 +21,21 @@ briar keeps every key as an environment variable name, such as
 letters. A `-` in the company name becomes `_`. So `--company acme`
 gives `ACME`, and `--company acme-co` gives `ACME_CO`.
 
-A **credential store** is the place where the keys are saved. You pick
-it with `--cred-store`:
+A **credential store** is the place where the keys are saved. 2.0 has
+one, `envfile`: a plain text file named `secrets.env`, one `NAME=value`
+per line, file mode `0600` (only you can read it). `--cred-store` still
+exists and takes only `envfile`.
 
-| Store | Where the keys go | What you need |
-|---|---|---|
-| `envfile` (default) | A plain text file named `secrets.env`, one `NAME=value` per line, file mode `0600` (only you can read it). | Nothing. |
-| `aws-secretsmanager` | AWS Secrets Manager, one secret per key, named `briar/<NAME>`. | AWS access from the normal AWS chain (role, profile or env vars). |
-| `ssm` | AWS SSM Parameter Store, one encrypted parameter per key, named `/briar/<NAME>`. | AWS access from the normal AWS chain. |
-| `vault` | HashiCorp Vault, KV v2 mount `secret`, path `briar/<NAME>`, saved as `{value: ...}`. | `VAULT_ADDR` and `VAULT_TOKEN` set, and `pip install 'briar-cli[vault]'`. |
+1.x also had `aws-secretsmanager`, `ssm` and `vault`. 2.0 removed them.
+If `$BRIAR_DEFAULT_STORE` still names one, every command except
+`--help` and `version` stops (exit code 1) with this error:
+
+```text
+error: credential store 'vault' was removed in briar 2.0; unset BRIAR_DEFAULT_STORE or move the keys to the env file (briar auth login)
+```
+
+To move: unset `BRIAR_DEFAULT_STORE`, then run `briar auth login` for each
+target again (it saves to the env file), or export the keys in your shell.
 
 The `envfile` store uses the first of these paths that applies:
 
@@ -39,14 +45,6 @@ The `envfile` store uses the first of these paths that applies:
 
 Every briar command loads that file when it starts. A key you already
 exported in your shell wins over the same key in the file.
-
-Since 1.1.92, when `$BRIAR_DEFAULT_STORE` names `aws-secretsmanager`,
-`ssm` or `vault`, every briar command also loads all keys from that store
-when it starts, after the envfile. A key already in your shell or the
-envfile wins. If the store cannot be read, briar logs a warning and goes
-on. Keys in a remote store that is not `$BRIAR_DEFAULT_STORE` are not
-loaded; put them in the environment yourself. Before 1.1.92 no remote
-store was loaded at start.
 
 ## Targets
 
@@ -105,20 +103,13 @@ briar auth login aws-sso --company acme
 
 You get short-lived AWS keys for `acme`. briar also prints when they expire.
 
-```bash
-# Save a Linear key in AWS SSM Parameter Store instead of the local file.
-briar auth login linear-api-key --company acme --cred-store ssm
-```
-
-You get the parameter `/briar/LINEAR_ACME_TOKEN` in SSM.
-
 ### All parameters
 
 | Parameter | What it means | Default | Example |
 |---|---|---|---|
 | `target` (positional) | The service and login style. One of the targets in the table above. Required. | none | `jira-token` |
 | `--company` | Your company name. briar puts it in the key names. Required for every target except the two GitHub ones. | `$BRIAR_COMPANY`, else `company` in `.briar.toml`, else empty. | `--company acme` |
-| `--cred-store` | Where to save the keys: `envfile`, `aws-secretsmanager`, `ssm` or `vault`. `--store` still works as an old name for this flag, but prints a note. | `$BRIAR_DEFAULT_STORE` if it names a store, else `envfile`. | `--cred-store vault` |
+| `--cred-store` | Where to save the keys. Only `envfile` since 2.0. `--store` still works as an old name for this flag, but prints a note. | `envfile` | `--cred-store envfile` |
 
 ### Good to know
 
@@ -166,20 +157,13 @@ briar auth logout jira-token --company acme --yes
 
 You get `auth-logout: removed 4/4 entries from store=envfile` when all four keys were there.
 
-```bash
-# Remove the acme AWS keys that were saved in SSM.
-briar auth logout aws-static --company acme --cred-store ssm --yes
-```
-
-You get the three `/briar/AWS_ACME_*` parameters deleted from SSM.
-
 ### All parameters
 
 | Parameter | What it means | Default | Example |
 |---|---|---|---|
 | `target` (positional) | The target whose keys to delete. Required. | none | `linear-api-key` |
 | `--company` | The company whose keys to delete. | `$BRIAR_COMPANY`, else `.briar.toml`, else empty. | `--company acme` |
-| `--cred-store` | The store to delete from. `--store` still works as an old name. | `$BRIAR_DEFAULT_STORE`, else `envfile`. | `--cred-store ssm` |
+| `--cred-store` | The store to delete from (only `envfile`). `--store` still works as an old name. | `envfile` | `--cred-store envfile` |
 | `--yes` | Skip the `proceed?` question. | off | `--yes` |
 
 ### Good to know
@@ -218,7 +202,7 @@ You get the message `credential expired: aws-sso: refresh not implemented yet`, 
 |---|---|---|---|
 | `target` (positional) | The target to renew. Required. | none | `aws-sso` |
 | `--company` | The company whose keys to renew. | `$BRIAR_COMPANY`, else `.briar.toml`, else empty. | `--company acme` |
-| `--cred-store` | The store to read and write. `--store` still works as an old name. | `$BRIAR_DEFAULT_STORE`, else `envfile`. | `--cred-store envfile` |
+| `--cred-store` | The store to read and write (only `envfile`). `--store` still works as an old name. | `envfile` | `--cred-store envfile` |
 
 ## `briar auth list`
 
@@ -261,7 +245,7 @@ You get the full list with no company filter.
 | Parameter | What it means | Default | Example |
 |---|---|---|---|
 | `--company` | Only show names that contain this company (as `_ACME_`). | `$BRIAR_COMPANY`, else `.briar.toml`, else empty (no filter). | `--company acme` |
-| `--cred-store` | The store to list. `--store` still works as an old name. | `$BRIAR_DEFAULT_STORE`, else `envfile`. | `--cred-store aws-secretsmanager` |
+| `--cred-store` | The store to list (only `envfile`). `--store` still works as an old name. | `envfile` | `--cred-store envfile` |
 
 ### Good to know
 
@@ -297,20 +281,13 @@ briar auth status github-pat
 
 You get one line for `GITHUB_TOKEN`.
 
-```bash
-# Check the acme AWS SSO keys that were saved in Vault.
-briar auth status aws-sso --company acme --cred-store vault
-```
-
-You get the four `AWS_ACME_*` names, each marked `ok` or `MISS` in Vault.
-
 ### All parameters
 
 | Parameter | What it means | Default | Example |
 |---|---|---|---|
 | `target` (positional) | The target to check. Required. | none | `fireflies` |
 | `--company` | The company to check. | `$BRIAR_COMPANY`, else `.briar.toml`, else empty. | `--company acme` |
-| `--cred-store` | The store to read from. `--store` still works as an old name. | `$BRIAR_DEFAULT_STORE`, else `envfile`. | `--cred-store vault` |
+| `--cred-store` | The store to read from (only `envfile`). `--store` still works as an old name. | `envfile` | `--cred-store envfile` |
 
 ### Good to know
 

@@ -49,8 +49,8 @@ def _validate_value(value: str) -> None:
             raise ValueError(
                 f"EnvFileStore: value contains disallowed control character {ch!r}; "
                 "credentials with embedded newlines/NUL bytes can't be safely persisted "
-                "to the line-oriented envfile format. Use a different store (e.g. "
-                "vault) if you genuinely need to persist a multi-line secret."
+                "to the line-oriented envfile format. Keep a multi-line secret in "
+                "your shell environment instead."
             )
 
 
