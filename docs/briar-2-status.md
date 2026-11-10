@@ -10,7 +10,10 @@ now, what was found on the way, what is left and what to watch.
   C22, which cut 2.0 to 5 commands and change D5, D18, D21, D28, D29, D30,
   D32a, D35) and `docs/decisions/2026-11-10-briar-2-ticket-pipeline.md` (P1
   to P22 and A1 to A15: the ticket pipeline's context, stages and loops, the 4
-  agent roles, and the pipeline YAML). Those files decide; this file reports.
+  agent roles, and the pipeline YAML) and `docs/decisions/2026-11-10-briar-2-knowledge.md`
+  (K1 to K20: one file per extractor with front-matter and an `index.md` under
+  `~/.briar/knowledge/<company>/`, pipeline notes, history, freshness). Those
+  files decide; this file reports.
 - Facts below were checked on 2026-11-10 (UTC) with the command shown. When
   this file and the code disagree, the code wins: fix this file in the same PR.
 - The spec-kit working files (`specs/`, `.specify/`) are not committed. What
@@ -198,8 +201,9 @@ Each item was reproduced in this work; the PR named holds the evidence.
      built-in pipelines `ticket`, `board`, `pr-review`, loops, checkpoints;
      D7 to D26, D35, D36, and P1 to P22, A1 to A15 of the ticket-pipeline
      file). It needs the logins of spec 005 for Fireflies and Slack (T6);
-   - spec 004: extractors cleaned inside with the same output, `extract`
-     on Typer, the 69 extractor flags (D32, D32a);
+   - spec 004: extractors cleaned inside with the same text per extractor,
+     `extract` on Typer, the extractor flags (D32, D32a, C12), and the new
+     knowledge layout (K1 to K14, K16, K20);
    - spec 005: source logins (L1 to L21), after spec 002.
 6. **Site and images**: usebriar.com `/docs` and the landing page (private
    repo `iklobato/usebriar-landing`) still describe removed features
