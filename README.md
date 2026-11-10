@@ -61,8 +61,8 @@ Your tokens stay in a file on your computer.
   code, it starts from that card's branch, so the PRs build on each other.
 - **You stay in charge.** Agents only open draft PRs. briar has no command
   that merges.
-- **Works with your other AI tools.** `--merge-claude-md` adds the facts to
-  `CLAUDE.md`, the file Claude Code reads when it starts.
+- **Works with your other AI tools.** The facts are one markdown file
+  that Claude Code or any other agent can read.
 - **Runs on your computer.** No account. Keys stay in a file on your
   machine.
 
@@ -132,7 +132,7 @@ briar auth login jira-token --company acme
 
 # 2. Read the repo's recent PRs and its tools into the blob knowledge:acme
 briar extract --company acme --repo acme-co/acme-app \
-    --include pr-archaeology --include codebase-conventions --max 50
+    --include pr-archaeology --include codebase-conventions
 
 # 3. Read what was saved
 cat ./knowledge/knowledge/acme.md
@@ -178,8 +178,8 @@ you release, how often CI passes.
 ```bash
 briar init --company myteam    # creates .briar.toml, a small settings file in your repo
 briar doctor                   # checks that briar has everything it needs
-briar extract --include pr-archaeology --include release-cadence --include ci-health --merge-claude-md
-                               # collects three kinds of facts and tells Claude Code where they are
+briar extract --include pr-archaeology --include release-cadence --include ci-health
+                               # collects three kinds of facts
 cat ./knowledge/knowledge/myteam.md  # prints the facts briar saved
 ```
 
@@ -200,13 +200,13 @@ cat ./knowledge/knowledge/myteam.md  # prints the facts briar saved
   (`release-cadence`) and your last 100 CI runs (`ci-health`), and sum
   them up. The result is saved as one markdown file under `./knowledge/`,
   called `knowledge:myteam`.
-- `--merge-claude-md` also writes the facts to `.briar/knowledge/myteam.md`
-  and adds a short block to `CLAUDE.md` that points to it. Claude Code (an
-  AI coding assistant) reads `CLAUDE.md` when it starts, so every session
-  begins with your facts. Your own text in `CLAUDE.md` stays as it is.
+- Each extractor's limits (how many PRs, how many days) have defaults.
+  Change one in `.briar.toml`, for example `[extract.pr-archaeology]`
+  then `max = 50`; `briar extract -h` lists every key.
 - `cat` prints the saved file. It is a plain markdown file on your disk.
-  (The GIF was recorded on 1.x, which read it with `briar context get`;
-  2.0 removed that command.)
+  (The GIF was recorded on 1.x, which also updated `CLAUDE.md` with
+  `--merge-claude-md` and read the file with `briar context get`; 2.0
+  removed both.)
 
 **You get:** your repo's facts in one text file, ready for any AI.
 
@@ -308,8 +308,7 @@ The first diagram from [usebriar.com](https://usebriar.com/#diagrams). Click it 
 ![A decision tree from what you need right now (understand, change code, check the setup) to the exact briar command for eleven common situations.](https://raw.githubusercontent.com/iklobato/briar/main/docs/diagrams/which-command.svg)
 
 1. Want to know something about the code, the team or production? Read it
-   once with `briar extract`, every day with `runbook serve`, or from Claude
-   Code with `briar extract --merge-claude-md`.
+   once with `briar extract`, or every day with `runbook serve`.
 2. Setting up or checking? `briar init` and `briar doctor` first, and
    `briar auth status` when a credential is missing.
 

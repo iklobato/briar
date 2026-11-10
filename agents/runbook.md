@@ -79,7 +79,7 @@ This file gives you three tasks. Once a day, at 03:17 UTC, the
 | `schedules[].every` | How often `serve` runs the task (see the next section). |
 | `schedules[].extract` | The extractors this task runs. |
 | `extract[].name` | The extractor name, such as `pr-archaeology`. A wrong name stops the file from loading. |
-| `extract[].args` | Settings for that extractor. The same names as its `briar extract` flags, with `_` in place of `-`. The short shared names work too: `repo`, `since_days`, `max`, `top_n`, `sample`, `authors_allow`, `authors_block`, `assignees_allow`, `assignees_block`. |
+| `extract[].args` | Settings for that extractor, by the 1.x option names (`pr_max`, `stale_days`, `aws_extract_region`, ...; `briar extract` itself now takes short names in `.briar.toml`, see [extract.md](extract.md)). The shared names work too: `repo`, `since_days`, `max`, `top_n`, `sample`, `authors_allow`, `authors_block`, `assignees_allow`, `assignees_block`. Unknown names are not checked until spec 004. |
 | `extract` (on the company) | Older form: a plain list of extractors with no `schedules`. briar treats it as a task named `extractors` that runs `"day at 03:17"`. |
 | `messages`, `mcp`, `git_identity` | Removed in briar 2.0 (only `briar agent` read them). A runbook that still has one stops with exit code 1 and names the key: delete the block. |
 

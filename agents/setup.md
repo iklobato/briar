@@ -45,15 +45,16 @@ repo     = "acme-app"
 provider = "github"
 ```
 
-| Key | Fills these flags | Env var that beats it |
+| Key | What it sets | Env var that beats it |
 |---|---|---|
 | `company` | Every `--company`. | `BRIAR_COMPANY` |
-| `root` | Every `--root`. | none |
-| `tracker` | Every `--tracker`. | none |
+| `root` | The knowledge folder of `extract` (default `./knowledge`; a runbook sets its own `knowledge.root`). | none |
+| `tracker` | The tracker of `active-tickets` and `ticket-archaeology`; `[extract]` beats it (see [extract.md](extract.md)). | none |
 | `repos` | The repeatable `--repo` list on `extract`. | none |
+| `[extract]`, `[extract.<name>]` | Every `briar extract` value besides the three flags. See [extract.md](extract.md). | none |
 | `telemetry` | No flag: the telemetry tier, `off` (the default), `errors-only` or `full`. See [Telemetry](#telemetry). | `BRIAR_TELEMETRY`; `DO_NOT_TRACK=1` beats both |
 | `[repo] owner`, `repo` | Every `--owner` and `--repo`. On `extract`, they form one `owner/repo` entry when `repos` is not set. | none |
-| `[repo] provider` | Every `--provider`. | none |
+| `[repo] provider` | The code host of the repo extractors; `[extract]` beats it. | none |
 
 In pyproject.toml, put the same keys under `[tool.briar]`, with
 `[tool.briar.repo]` for the `[repo]` table.

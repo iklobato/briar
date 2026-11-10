@@ -30,7 +30,7 @@ now, what was found on the way, what is left and what to watch.
   PRs under it until those merge. Merge them **in order, #79 first, as
   merge commits**.
 - CI runs on every PR into `main` or `v2` (`.github/workflows/tests.yml`).
-  PRs #79 to #92 had green CI on their last commit. Nobody has reviewed
+  PRs #79 to #93 had green CI on their last commit. Nobody has reviewed
   them (the maintainer is the only reviewer).
 
 | PR | Branch | What it does |
@@ -50,6 +50,7 @@ now, what was found on the way, what is left and what to watch.
 | https://github.com/iklobato/briar/pull/91 | `core/01-remove-plan-agent` | Spec 006 part 1: removes `plan`, `agent` and the code only they used; moves the personas and rules to `src/briar/prompts/` |
 | https://github.com/iklobato/briar/pull/92 | `core/02-small-commands` | Spec 006 part 2: removes `context`, `secrets`, `journal`, `telemetry`, `version`, `messaging`, `notify`; `--format table|json`; `-v` only; telemetry tier from env or `.briar.toml` |
 | https://github.com/iklobato/briar/pull/93 | `core/03-file-store-only` | Spec 006 part 3: the file store is the only knowledge store; removes Postgres, `--store`, the `store` setting, `SQLAlchemy`, `psycopg` |
+| https://github.com/iklobato/briar/pull/94 | `core/04-extract-config` | Spec 006 part 4: `extract` keeps `--company`, `--include`, `--repo`; every other value moves to `[extract]` / `[extract.<name>]` with short names; the output modes go |
 
 ## 2. What is done
 
@@ -193,6 +194,31 @@ as 1.x shipped it, in tag `v1.1.101`. Read one with
   left is `briar.commands.runbook` (253 ms cumulative in
   `python -X importtime`, mostly the runbook models and executor).
 
+### Spec 006: core cleanup, part 4 of 5 (PR #94)
+
+- Settled first in a grill session:
+  `docs/decisions/2026-11-10-briar-2-extract-config.md` (E1 to E16).
+- The `extract` parser has `--company`, `--include` and `--repo` only.
+  `ExtractConfig` (`commands/extract.py`) builds each included
+  extractor's namespace: its own defaults, then the `tracker` and
+  `[repo] provider` settings, then `[extract]` (shared concepts and source
+  kinds, fanned out by `apply_canonical`), then `[extract.<name>]` (short
+  names from `ExtractorKeys`: the concept name, `projects` for a tracker
+  project list, and seven niche names such as `region` and `days`). It
+  stops with exit 1 on an unknown key, an unknown extractor, a 1.x key
+  name (naming the short one) or a value outside a fixed list. Types are
+  not checked (spec 004). The root is the `root` setting.
+- `briar extract -h` and `agents/extract.md` list every key from one
+  renderer (`ExtractKeyTable`); `tests/unit/commands/test_extract_config.py`
+  fails when the page and the code differ, and when an option has no key.
+- Removed: `--out-json`, `--merge-claude-md`, `--claude-md-path`,
+  `--blob-name`, `--root`, `--advanced-help`, `extract/claude_md.py`, the
+  JSON render, `register_canonical_flags`, `hide_canonicalised_flags`,
+  the legacy-flag notice in `cli.py`, and the 3 goldens of those modes.
+  `blob.golden.md` is unchanged with `root` set in `.briar.toml`.
+- Not changed: a runbook's `args:` keeps the 1.x names and no key check
+  (E12, until spec 004 merges the two paths).
+
 ## 3. How the command line works now
 
 ```
@@ -272,7 +298,7 @@ Each item was reproduced in this work; the PR named holds the evidence.
 
 ## 5. Next steps, in order
 
-1. **Review and merge #79 to #93 into `v2`**, in order, as merge commits.
+1. **Review and merge #79 to #94 into `v2`**, in order, as merge commits.
    Re-check `gh pr checks <n>` before each merge; after the last one, check
    that the `v2` CI run is green.
 2. **Decide how 2.0 is released before `v2` merges to `main`.**
@@ -291,8 +317,8 @@ Each item was reproduced in this work; the PR named holds the evidence.
    2); (2) `context`,
    `secrets`, `journal`, `telemetry`, `version`, `messaging`, `notify`,
    `--format table|json`, `-v` only (done: PR #92); (3) file store only
-   (done: PR #93); (4) `extract`
-   with three flags and the rest from `[extract]` / `[extract.<name>]`;
+   (done: PR #93); (4) `extract` with three flags and the rest from
+   `[extract]` / `[extract.<name>]` (done: PR #94);
    (5) `auth`, `runbook`, `doctor`/`init` trims, docs and the success checks.
    A 1.x key that left (`store`, runbook `messages:`/`mcp:`, an unknown
    `[extract]` key) stops the run with exit 1; `auth status` with no target
@@ -327,9 +353,9 @@ Each item was reproduced in this work; the PR named holds the evidence.
 
 ## 6. What is missing or open
 
-- `extract` is still argparse: its flags do not tab-complete (1.x
-  completed them), `--advanced-help` and the legacy per-extractor flags
-  stay until spec 004.
+- `extract` is still argparse: its 3 flags do not tab-complete. Its
+  `[extract]` values are not type-checked and a runbook still uses the
+  1.x option names, until spec 004 (D32).
 - Startup: spec 002 left it about 60 ms slower than 1.x (section 4); after
   spec 006 part 3, `import briar.cli` is about 350 ms faster (section 2).
 - The README overview (the top sections) still describes `agent` and

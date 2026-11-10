@@ -29,11 +29,19 @@ briar auth login fireflies --company acme
 # 2. Check which keys one source still lacks
 briar auth status jira-token --company acme
 
-# 3. First snapshot: repo, Jira project, AWS and meetings
-briar extract --company acme --repo acme-co/acme-app \
-    --ticket-project ACME --ticket-archaeology-project ACME
+# 3. Name the Jira project in .briar.toml (a Jira key is not a repo)
+cat >> .briar.toml <<'TOML'
+[extract.active-tickets]
+projects = ["ACME"]
 
-# 4. Read what was saved
+[extract.ticket-archaeology]
+projects = ["ACME"]
+TOML
+
+# 4. First snapshot: repo, Jira project, AWS and meetings
+briar extract --company acme --repo acme-co/acme-app
+
+# 5. Read what was saved
 cat ./knowledge/knowledge/acme.md
 ```
 
@@ -42,17 +50,18 @@ that had what it needed. Step 2 lists any missing variable by name.
 
 ## Flow 2: List every tagged AWS resource
 
-Once, with the full detail in a JSON file:
+Once, with a count per AWS service. Put the region and the part to read
+in `.briar.toml`:
 
-```bash
-briar extract --company acme --include aws-infra \
-    --aws-extract-service tagging-inventory \
-    --aws-extract-region us-east-1 \
-    --out-json ./acme-aws.json
+```toml
+[extract.aws-infra]
+region = "us-east-1"
+services = ["tagging-inventory"]
 ```
 
-The blob gets a count per AWS service. `./acme-aws.json` gets each
-resource with its ARN, type, region and tags.
+```bash
+briar extract --company acme --include aws-infra
+```
 
 On a schedule, with a JSON copy saved next to the blob each time, put
 this in `runbooks/acme.yaml`:
@@ -119,8 +128,11 @@ When a task fails, the error is in the log; 2.0 sends no alert yet. See
 briar auth login bitbucket-app-password --company acme
 briar auth login linear-api-key --company acme
 
-# 2. Read Bitbucket PR history and the repo's tools
-briar extract --company acme --provider bitbucket --repo acme-co/acme-app \
+# 2. Point the repo extractors at Bitbucket
+printf '[extract]\nprovider = "bitbucket"\n' >> .briar.toml
+
+# 3. Read Bitbucket PR history and the repo's tools
+briar extract --company acme --repo acme-co/acme-app \
     --include pr-archaeology --include codebase-conventions
 ```
 
@@ -128,13 +140,19 @@ You get the same knowledge sections, read from Bitbucket.
 
 ## Flow 5: Many repos, projects and authors at once
 
+```toml
+[extract]
+authors_allow = ["alice", "bob"]
+authors_block = ["dependabot[bot]"]
+
+[extract.active-tickets]
+projects = ["ACME", "OPS"]
+```
+
 ```bash
 briar extract --company acme \
     --include pr-archaeology --include active-work --include active-tickets \
-    --repo acme-co/web --repo acme-co/api --repo acme-co/infra \
-    --ticket-project ACME --ticket-project OPS \
-    --authors-allow alice --authors-allow bob \
-    --authors-block 'dependabot[bot]'
+    --repo acme-co/web --repo acme-co/api --repo acme-co/infra
 ```
 
 You get one PR section that covers all three repos, and one ticket
