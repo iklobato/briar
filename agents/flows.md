@@ -26,15 +26,15 @@ briar auth login jira-token --company acme
 briar auth login aws-static --company acme
 briar auth login fireflies --company acme
 
-# 2. Check which credentials each runbook still lacks
-briar secrets doctor --examples runbooks/
+# 2. Check which keys one source still lacks
+briar auth status jira-token --company acme
 
 # 3. First snapshot: repo, Jira project, AWS and meetings
 briar extract --company acme --repo acme-co/acme-app \
     --ticket-project ACME --ticket-archaeology-project ACME
 
 # 4. Read what was saved
-briar context get knowledge:acme
+cat ./knowledge/knowledge/acme.md
 ```
 
 You get `knowledge:acme`, a markdown file with one section per extractor
@@ -76,28 +76,24 @@ companies:
               aws_extract_service: [tagging-inventory]
 ```
 
-Then run it once, and look at the saved copy:
+Then run it once:
 
 ```bash
 briar runbook extract runbooks/acme.yaml
-briar context list --store postgres --prefix inventory:
-briar context get --store postgres inventory:acme
 ```
 
-You get `inventory:acme`, a JSON blob with every resource. It is
+You get `inventory:acme` in the same store, a JSON blob with every
+resource. It is
 rewritten only when your resources change, so the Postgres history shows
 what changed and when.
 
 ## Flow 3: Keep knowledge fresh on a server
 
 ```bash
-# 1. Check credentials for every runbook in the folder
-briar secrets doctor --examples runbooks/
-
-# 2. Run every runbook once, now
+# 1. Run every runbook once, now
 briar runbook sweep runbooks/
 
-# 3. Stay running and fire each task on its schedule
+# 2. Stay running and fire each task on its schedule
 briar runbook serve runbooks/
 ```
 
@@ -115,8 +111,7 @@ User=briar
 EnvironmentFile=/etc/briar/secrets.env
 ```
 
-When a task fails, briar can alert you. List the channels in
-`BRIAR_NOTIFY_SINKS` (for example `slack,telegram`). See
+When a task fails, the error is in the log; 2.0 sends no alert yet. See
 [runbook.md](runbook.md).
 
 ## Flow 4: Bitbucket and Linear instead of GitHub and Jira
@@ -147,30 +142,6 @@ briar extract --company acme \
 You get one PR section that covers all three repos, and one ticket
 section for both Jira projects. Only PRs by `alice` or `bob` are kept.
 The author filters apply to `pr-archaeology` and `active-work` only.
-
-## Flow 6: Manage knowledge blobs by hand
-
-The store holds plain markdown blobs by name. You can add your own.
-
-```bash
-# Save a note from the command line
-briar context put memory:reviewer-alice \
-    --content "Alice asks for a regression test and a changelog line."
-
-# Save a markdown file as a blob
-briar context put memory:acme-house-style --from-file ./house-style.md
-
-# Read, list and delete
-briar context get knowledge:acme
-briar context list --prefix knowledge:
-briar context delete memory:reviewer-alice --yes
-```
-
-You get blobs you can read back by name. `memory:` blobs are for people.
-
-`context` uses the file store unless you pass `--store postgres` (or set
-`BRIAR_STORE=postgres`). That is true even when `BRIAR_DATABASE_URL` is
-set. See [context.md](context.md).
 
 ## Putting it together
 

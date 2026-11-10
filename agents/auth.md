@@ -27,8 +27,8 @@ per line, file mode `0600` (only you can read it). `--cred-store` still
 exists and takes only `envfile`.
 
 1.x also had `aws-secretsmanager`, `ssm` and `vault`. 2.0 removed them.
-If `$BRIAR_DEFAULT_STORE` still names one, every command except
-`--help` and `version` stops (exit code 1) with this error:
+If `$BRIAR_DEFAULT_STORE` still names one, every command stops (exit
+code 1; `--help` and `--version` still work) with this error:
 
 ```text
 error: credential store 'vault' was removed in briar 2.0; unset BRIAR_DEFAULT_STORE or move the keys to the env file (briar auth login)
@@ -311,5 +311,4 @@ machine. The container cannot open a browser, so briar prints the links.
 
 ## Related
 
-- [creds.md](creds.md): `briar secrets doctor` shows which keys your runbooks still need.
 - [setup.md](setup.md): `briar doctor` checks your whole setup.

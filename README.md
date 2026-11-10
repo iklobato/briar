@@ -96,7 +96,7 @@ More diagrams are in [See it run](#see-it-run).
 
 ```bash
 pip install briar-cli
-briar version
+briar --version
 ```
 
 briar needs Python 3.10 or later.
@@ -112,7 +112,7 @@ Or skip the install and use the Docker image, which also has `git` and
 `gh`:
 
 ```bash
-docker run --rm iklob1/briar version
+docker run --rm iklob1/briar --version
 ```
 
 Mounts and keys in Docker:
@@ -135,7 +135,7 @@ briar extract --company acme --repo acme-co/acme-app \
     --include pr-archaeology --include codebase-conventions --max 50
 
 # 3. Read what was saved
-briar context get knowledge:acme
+cat ./knowledge/knowledge/acme.md
 ```
 
 After step 2 you have `./knowledge/knowledge/acme.md`.
@@ -180,7 +180,7 @@ briar init --company myteam    # creates .briar.toml, a small settings file in y
 briar doctor                   # checks that briar has everything it needs
 briar extract --include pr-archaeology --include release-cadence --include ci-health --merge-claude-md
                                # collects three kinds of facts and tells Claude Code where they are
-briar context get knowledge:myteam   # prints the facts briar saved
+cat ./knowledge/knowledge/myteam.md  # prints the facts briar saved
 ```
 
 ![briar init writes .briar.toml, briar doctor shows every check as ok, briar extract collects three kinds of facts and updates CLAUDE.md, briar context get prints them](https://raw.githubusercontent.com/iklobato/briar/main/docs/demo/01-setup-and-extract.gif)
@@ -192,8 +192,8 @@ briar context get knowledge:myteam   # prints the facts briar saved
   (`myteam` is just a label). After this, no command needs `--company` or
   `--repo`. To see each setting and where it came from, run
   `briar config show`.
-- `doctor` checks Python, the settings file, the git remote, your GitHub
-  token and your AI key. `ok` means ready; `warn` tells you what is missing
+- `doctor` checks Python, the settings file, the git remote and your
+  GitHub token. `ok` means ready; `warn` tells you what is missing
   and what needs it.
 - `extract` runs the extractors you name with `--include`. They ask the
   GitHub API for your merged PRs (`pr-archaeology`), your releases
@@ -204,8 +204,9 @@ briar context get knowledge:myteam   # prints the facts briar saved
   and adds a short block to `CLAUDE.md` that points to it. Claude Code (an
   AI coding assistant) reads `CLAUDE.md` when it starts, so every session
   begins with your facts. Your own text in `CLAUDE.md` stays as it is.
-- `context get` prints the saved file. It only reads your disk; nothing
-  goes online.
+- `cat` prints the saved file. It is a plain markdown file on your disk.
+  (The GIF was recorded on 1.x, which read it with `briar context get`;
+  2.0 removed that command.)
 
 **You get:** your repo's facts in one text file, ready for any AI.
 
@@ -274,16 +275,13 @@ The same reference, with more examples, is at
 |---|---|---|
 | `briar extract` | Reads your tools into a knowledge blob (23 extractors). | [extract.md](https://github.com/iklobato/briar/blob/main/agents/extract.md) |
 | `briar runbook` | Runs extractors from a YAML file, once or on a schedule. | [runbook.md](https://github.com/iklobato/briar/blob/main/agents/runbook.md) |
-| `briar context` | Reads, writes, lists and deletes knowledge blobs. | [context.md](https://github.com/iklobato/briar/blob/main/agents/context.md) |
 | `briar auth` | Saves credentials (`login`, `logout`, `list`, `status`, `refresh`). | [auth.md](https://github.com/iklobato/briar/blob/main/agents/auth.md) |
-| `briar secrets` | Shows which credentials are missing (`doctor`, `bootstrap`). | [creds.md](https://github.com/iklobato/briar/blob/main/agents/creds.md) |
-| `briar journal` | Shows the decision sessions that 1.x `plan run` recorded. | [journal.md](https://github.com/iklobato/briar/blob/main/agents/journal.md) |
-| `briar init`, `config show`, `doctor`, `--install-completion` | Setup helpers. | [setup.md](https://github.com/iklobato/briar/blob/main/agents/setup.md) |
-| `briar telemetry` | Shows or changes what usage data is sent. | [telemetry.md](https://github.com/iklobato/briar/blob/main/agents/telemetry.md) |
-| `briar version` | Prints the version. | [version.md](https://github.com/iklobato/briar/blob/main/agents/version.md) |
+| `briar init`, `config show`, `doctor`, `--install-completion` | Setup helpers, and how to turn on telemetry. | [setup.md](https://github.com/iklobato/briar/blob/main/agents/setup.md) |
 
 `briar scaffold`, `briar dashboard`, `briar mcp serve`, `briar chat`,
-`briar agent` and `briar plan` were removed in 2.0. They are still in briar 1.x:
+`briar agent`, `briar plan`, `briar context`, `briar secrets`,
+`briar journal`, `briar telemetry` and `briar version` were removed in
+2.0 (`briar --version` stays). They are still in briar 1.x:
 `pip install 'briar-cli<2'`. The MCP registry entry
 `io.github.iklobato/briar` stays on 1.x (1.1.94).
 
@@ -296,8 +294,8 @@ Three flags work with every command, anywhere on the line:
 
 | Flag | What it does |
 |---|---|
-| `--format table\|json\|yaml\|csv\|quiet` | Output shape. Lists default to `table`, single records to `json`. |
-| `--verbose`, `-v` | Debug logs on stderr. `BRIAR_VERBOSE=1` does the same. |
+| `--format table\|json` | Output shape. Lists default to `table`, single records to `json`. |
+| `--verbose`, `-v` | Debug logs on stderr. |
 | `--version`, `-V` | Print the version and exit. |
 
 ## See it run
@@ -313,7 +311,7 @@ The first diagram from [usebriar.com](https://usebriar.com/#diagrams). Click it 
    once with `briar extract`, every day with `runbook serve`, or from Claude
    Code with `briar extract --merge-claude-md`.
 2. Setting up or checking? `briar init` and `briar doctor` first, and
-   `secrets doctor` when a credential is missing.
+   `briar auth status` when a credential is missing.
 
 </details>
 
@@ -331,11 +329,12 @@ helps other people find it.
 ## Telemetry
 
 briar sends nothing by default. To help fix bugs, turn on error reports
-with `briar telemetry errors-only`, or error reports and usage counts
-with `briar telemetry full`. Even then, no prompts, file contents, ticket
-keys, repo names, paths or secret values leave your machine. 1.x sent by
-default; 2.0 ignores the choice 1.x saved, so turn it on again if you
-want it.
+with `telemetry = "errors-only"` in `.briar.toml` (or
+`BRIAR_TELEMETRY=errors-only`), or error reports and usage counts with
+`full`. `DO_NOT_TRACK=1` turns it off whatever else says. Even then, no
+prompts, file contents, ticket keys, repo names, paths or secret values
+leave your machine. 1.x sent by default; 2.0 ignores the choice 1.x
+saved, so turn it on again if you want it.
 
 ## License
 

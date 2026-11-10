@@ -17,8 +17,7 @@ kind of data). There are 23 of them. You pick them with `--include`.
 Since 1.1.82 a run updates only the sections of the extractors it ran
 and keeps the rest of the blob, so you can refresh one source at a time.
 Before 1.1.82 each run replaced the whole blob. To start over, delete
-the blob first: `briar context delete knowledge:acme` (add
-`--store postgres` when it lives there).
+the blob first: in the file store, delete `./knowledge/knowledge/acme.md`.
 
 ## Use it when
 
@@ -44,7 +43,8 @@ that file). `acme` below stands for your company name in upper case.
 | `aws-infra`. | `AWS_ACME_ACCESS_KEY_ID` and `AWS_ACME_SECRET_ACCESS_KEY`, or an AWS profile, or your normal AWS login. The `tagging-inventory` part also needs the `tag:GetResources` permission. |
 | `meeting-digest`. | `FIREFLIES_ACME_API_KEY` (`briar auth login fireflies --company acme`). |
 
-Run `briar secrets doctor` to see which credentials are missing.
+Run `briar auth status <target> --company acme` to see which keys one
+source is missing.
 
 Repo extractors also need a repo list. Without one they are skipped.
 Give it with `--repo`. Inside a checkout, briar can also take it from
@@ -393,9 +393,8 @@ wrote blob 'knowledge:acme' (18342 bytes, 5 sections) via store=file
 - Exit code `0`: the blob was written.
 - Exit code `1` with the error `nothing extracted`: every extractor was skipped or empty, so nothing was written.
 
-Check the result with `briar context get knowledge:acme`. Add
-`--store postgres` to that command if you saved to Postgres, because
-`context` reads files by default.
+Check the result by opening the blob: `./knowledge/knowledge/acme.md` in
+the file store.
 
 ## Good to know
 
@@ -425,7 +424,7 @@ Check the result with `briar context get knowledge:acme`. Add
 
 | Problem | What to do |
 |---|---|
-| Every extractor says `skipped`. | Credentials or `--repo` are missing. Run `briar secrets doctor`, then pass `--repo`. |
+| Every extractor says `skipped`. | Credentials or `--repo` are missing. Run `briar auth status <target> --company acme`, then pass `--repo`. |
 | `403` or `404` from GitHub. | The token lacks access to the repo. A classic token needs `repo`, and `read:org` for org data. |
 | Jira calls hang or fail. | Check `JIRA_ACME_URL`. It should look like `https://acme.atlassian.net`. |
 | The run is slow. | Lower `--max` (for example `--max 20`) or use `--include` to run fewer extractors. |

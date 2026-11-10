@@ -24,15 +24,10 @@ They match briar-cli 1.1.75.
 | File | Commands |
 |---|---|
 | [flows.md](flows.md) | Recipes that chain several commands into one result. Start here for "how do I...". |
-| [setup.md](setup.md) | `briar init`, `briar config show`, `briar doctor`, shell completion: set up a project and check it. |
-| [version.md](version.md) | `briar version`: print the installed version. |
+| [setup.md](setup.md) | `briar init`, `briar config show`, `briar doctor`, shell completion, telemetry: set up a project and check it. |
 | [extract.md](extract.md) | `briar extract`: read your tools into a knowledge blob (23 extractors). |
 | [runbook.md](runbook.md) | `briar runbook extract`, `sweep`, `serve`: run extractors from YAML, once or on a schedule. |
-| [context.md](context.md) | `briar context put`, `get`, `list`, `delete`, `categories`: read and write knowledge blobs. |
 | [auth.md](auth.md) | `briar auth login`, `logout`, `refresh`, `list`, `status`: save and manage credentials. |
-| [creds.md](creds.md) | `briar secrets doctor`, `briar secrets bootstrap`: find missing credentials. |
-| [journal.md](journal.md) | `briar journal list`, `show`, `export`: read the decision sessions earlier briar versions recorded. |
-| [telemetry.md](telemetry.md) | `briar telemetry status`, `preview`, `off`, `errors-only`, `full`, `reset`: control what usage data is sent. |
 
 ## Flags that work on every command
 
@@ -40,8 +35,8 @@ You can put these anywhere on the command line.
 
 | Flag | Default | What it does |
 |---|---|---|
-| `--format table\|json\|yaml\|csv\|quiet` | `table` for lists, `json` for one record. | Output shape. Use `json` when another program reads the output. Use `quiet` when only the exit code matters. |
-| `--verbose`, `-v` | Off. | Debug logs on stderr. `BRIAR_VERBOSE=1` does the same. Without it, briar logs only warnings and errors. |
+| `--format table\|json` | `table` for lists, `json` for one record. | Output shape. Use `json` when another program reads the output. |
+| `--verbose`, `-v` | Off. | Debug logs on stderr. Without it, briar logs only warnings and errors. |
 | `--version`, `-V` | Off. | Print `briar-cli <version>` and exit. |
 
 ## Exit codes
@@ -75,7 +70,7 @@ briar saves knowledge as named markdown blobs in a store.
 
 | `--store` | Where blobs live | Default for |
 |---|---|---|
-| `file` | `./knowledge/<prefix>/<rest>.md`, so `knowledge:acme` is `./knowledge/knowledge/acme.md`. Change the folder with `--root`. | Every command when `BRIAR_DATABASE_URL` is not set. `context` even when it is set. |
+| `file` | `./knowledge/<prefix>/<rest>.md`, so `knowledge:acme` is `./knowledge/knowledge/acme.md`. Change the folder with `--root`. | Every command when `BRIAR_DATABASE_URL` is not set. |
 | `postgres` | The database in `BRIAR_DATABASE_URL`. A runbook can pick another one per company. | `extract` when `BRIAR_DATABASE_URL` is set. |
 
 `BRIAR_STORE=postgres`, or `store = "postgres"` in `.briar.toml`, makes
@@ -85,7 +80,6 @@ every command use Postgres.
 |---|---|---|
 | `knowledge:acme` | `briar extract`, `briar runbook` | You, and any agent you point at it. |
 | `inventory:acme` | `briar runbook`, when its `knowledge:` block has `config: {inventory: "true"}` | You (JSON with every resource). |
-| Any other name, like `memory:reviewer-alice` | `briar context put` | You. |
 
 ## Credentials
 
@@ -101,16 +95,13 @@ A variable already set in your shell wins over the file.
 name in upper case, like `JIRA_ACME_TOKEN` for company `acme`.
 `GITHUB_TOKEN` has no company part.
 
-When a command fails for lack of credentials, run `briar secrets doctor`.
-It lists what each runbook still needs. See [creds.md](creds.md) and
-[auth.md](auth.md).
+When a command fails for lack of credentials, run
+`briar auth status <target> --company <name>`: it lists the keys that
+source needs and which are set. See [auth.md](auth.md).
 
-## The journal
-
-In 1.x, `briar plan run` recorded each decision it made in a journal
-session under `./journal/`. briar 2.0 has no `plan`, so no command writes
-one now. Read old sessions with `briar journal list`, `show` and
-`export`. See [journal.md](journal.md).
+To read what briar saved, open the file: `knowledge:acme` is
+`./knowledge/knowledge/acme.md` in the file store. 1.x had
+`briar context` for this; 2.0 removed it.
 
 ## Rules for AI agents that run briar
 

@@ -56,9 +56,9 @@ test that fails before the fix and passes after.
   `with exc:`). To reproduce a CI seed: `UV_PROJECT_ENVIRONMENT=<dir> uv run
   --python 3.14 --extra test pytest -m integration -p randomly
   --randomly-seed=<seed>`.
-- **Logs go to stderr and are quiet by default (WARNING).** Use `--verbose` /
-  `BRIAR_VERBOSE=1` for DEBUG, or `BRIAR_LOG_LEVEL=INFO`. stdout is reserved for
-  machine-readable output (`--format json`).
+- **Logs go to stderr and are quiet by default (WARNING).** Use `-v` /
+  `--verbose` for DEBUG; 2.0 reads no log-level env var. stdout is reserved
+  for machine-readable output (`--format json`).
 
 ## Conventions
 
