@@ -4,11 +4,16 @@ selectivity is intentional, not silent."""
 
 from __future__ import annotations
 
+import io
 import logging
+import urllib.error
+from http.client import HTTPMessage
 
 import pytest
 
 from briar.decorators import swallow_errors
+
+NOT_FOUND = 404
 
 
 class TestSwallowErrors:
@@ -105,3 +110,25 @@ class TestSwallowErrors:
             return a + b
 
         assert add(1, b=2) == 3
+
+
+class RevokedWebhook:
+    """A sink whose webhook answers with an HTTP error, like a revoked Slack webhook."""
+
+    def __init__(self, error: urllib.error.HTTPError) -> None:
+        self._error = error
+
+    @swallow_errors(default=False, message="webhook send")
+    def send(self) -> bool:
+        raise self._error
+
+
+class TestSwallowedHttpError:
+    def test_swallowed_http_error_response_is_closed(self) -> None:
+        """An HTTPError holds the open response. Left open, Python 3.14 warns when the
+        error is garbage collected, and pytest fails whichever test is running then."""
+        body = io.BytesIO(b"no_service")
+        error = urllib.error.HTTPError("https://hooks.test/webhook", NOT_FOUND, "Not Found", HTTPMessage(), body)
+
+        assert RevokedWebhook(error).send() is False
+        assert body.closed

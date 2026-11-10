@@ -14,12 +14,18 @@ in-repo ``MockPromptIO`` so no network or real sleeps happen.
 
 from __future__ import annotations
 
+import io
+import urllib.error
+from http.client import HTTPMessage
 from typing import Any, Dict, List
 
 import pytest
+from pytest_mock import MockerFixture
 
 from briar.auth._acquirers.github_device import GithubDeviceAcquirer
 from briar.auth._prompt import MockPromptIO
+
+SERVER_ERROR = 500
 
 # Doc: device-code success body
 # https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#response-parameters
@@ -124,6 +130,17 @@ class TestFailureModes:
         post_form.side_effect = OSError("connection reset")
         with pytest.raises(RuntimeError, match="device-code request failed"):
             GithubDeviceAcquirer().acquire(company="acme", prompt=MockPromptIO())
+
+    def test_http_error_response_is_closed(self, mocker: MockerFixture, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The HTTPError holds the open response; Python 3.14 warns if it is only garbage collected."""
+        monkeypatch.setenv("BRIAR_GITHUB_CLIENT_ID", "Iv1.abc")
+        body = io.BytesIO(b'{"message": "server error"}')
+        error = urllib.error.HTTPError("https://github.com/login/device/code", SERVER_ERROR, "Internal Server Error", HTTPMessage(), body)
+        mocker.patch("urllib.request.urlopen", side_effect=error)
+
+        with pytest.raises(RuntimeError, match="device-code request failed: HTTP Error 500"):
+            GithubDeviceAcquirer().acquire(company="acme", prompt=MockPromptIO())
+        assert body.closed
 
     def test_malformed_device_code_response_raises(self, post_form, monkeypatch) -> None:
         monkeypatch.setenv("BRIAR_GITHUB_CLIENT_ID", "Iv1.abc")

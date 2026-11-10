@@ -130,6 +130,8 @@ class GithubProjectBoardReader(BoardReader):
                 detail = exc.read().decode("utf-8")[:300]
             except Exception:  # noqa: BLE001
                 pass
+            # Close the response the error holds; the CliError keeps the error as its cause.
+            exc.close()
             raise CliError(f"github graphql HTTP {exc.code}: {detail}") from exc
         except urllib.error.URLError as exc:
             raise CliError(f"github graphql request failed: {exc.reason}") from exc
