@@ -49,7 +49,7 @@ Your tokens stay in a file on your computer.
   small reader for one kind of fact, for example "how long PRs take to
   merge" or "which files change the most". They read GitHub, Bitbucket,
   Jira, Linear, AWS, GCP, Azure and Fireflies, and write plain markdown text
-  to a folder (or to a Postgres database), once or on a schedule.
+  to a folder, once or on a schedule.
 - **AI agents that read the facts first.** `briar agent implement` takes a
   ticket, reads the facts it needs, writes the code in a fresh copy of your
   repo, runs your tests and opens a draft PR. `briar agent prfix` answers
@@ -75,7 +75,7 @@ tools. Agents push branches, open draft PRs and reply on reviews; their
 `send_message` tool only reaches the channels you list in the runbook.
 
 1. Extractors read your tools, on demand or on a schedule, and write
-   markdown knowledge to a local folder or to Postgres.
+   markdown knowledge to a local folder.
 2. You point an agent at a ticket or a PR. It fetches the ticket, the PR's
    review threads, and matching meeting notes and Slack messages live.
 3. In a clean git worktree it first reads the knowledge sections that fit
@@ -102,7 +102,7 @@ briar --version
 briar needs Python 3.10 or later.
 
 The base install covers GitHub, Bitbucket, AWS, Jira, Linear and
-Fireflies, with a file or Postgres store. Extras add more:
+Fireflies, and writes to a local folder. Extras add more:
 
 ```bash
 pip install 'briar-cli[all]'      # gcp, azure

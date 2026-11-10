@@ -70,10 +70,9 @@ This file gives you three tasks. Once a day, at 03:17 UTC, the
 |---|---|
 | `version` | Always `1`. |
 | `companies` | One block per company. The block name (`acme`) is the company name. At least one is required. |
-| `knowledge.store` | `file` or `postgres`. Default `file`. |
+| `knowledge.store` | Only `file` (the default), so you can leave it out. `postgres` was removed in 2.0 and stops the file from loading with exit code 1. |
 | `knowledge.name` | The blob to write, such as `knowledge:acme` or a path like `./knowledge/acme.md`. Agents read only blobs named `knowledge:<company>...`, so a path is for you, not for them. Default: `knowledge:<company>` in the `file` store (since 1.1.86; before, `./knowledge/<company>.md`, which agents never read). |
 | `knowledge.root` | The folder for the `file` store. Default `./knowledge`. |
-| `knowledge.config.dsn_env` | For `postgres`: the name of the env var that holds the database URL. |
 | `knowledge.config.inventory` | Set to `"true"` to also save a JSON copy of all the raw data (see below). |
 | `schedules` | The list of tasks. |
 | `schedules[].task` | The task name. You use it with `--task`. |
@@ -92,9 +91,6 @@ This file gives you three tasks. Once a day, at 03:17 UTC, the
   is `./knowledge/acme.prs.md`.
 - briar only writes when the text changed. Otherwise the status says
   `skipped (unchanged, ...)`.
-- For `postgres`, briar looks for the database URL in this order:
-  the env var named in `config.dsn_env`, then `BRIAR_ACME_DATABASE_URL`
-  (your company name in capitals), then `BRIAR_DATABASE_URL`.
 
 ### The inventory copy
 
@@ -102,9 +98,9 @@ With `config.inventory: "true"` (also `1`, `yes` or `on`), each task also
 saves the full raw data of its extractors as JSON. The markdown blob
 drops much of that detail. The copy for `knowledge:acme` is
 `inventory:acme`. The copy for a path like `./knowledge/acme.md` is
-`./knowledge/acme.inventory.json`. It is only written when it changed,
-so in `postgres` its history shows what changed over time. In the `file`
-store it is `./knowledge/inventory/acme.md`.
+`./knowledge/acme.inventory.json`; `inventory:acme` itself is the file
+`./knowledge/inventory/acme.md`. It is only written when it changed, so
+its file date shows when the data last changed.
 
 ## The `every:` format
 

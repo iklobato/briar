@@ -102,6 +102,13 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`.
 - A runbook's `messages:` block (only `briar agent` posted to it). A
   runbook that still has one stops with exit code 1 and names the block,
   like `mcp:` and `git_identity:`.
+- The Postgres knowledge store: the file store (`./knowledge/`) is the only
+  one. `--store` leaves `briar extract` and `briar init`, the `store`
+  setting and `BRIAR_STORE` leave, and `briar doctor` drops its `store`
+  check. `store` in `.briar.toml` (or `[tool.briar]`) and `store: postgres`
+  in a runbook now stop the command with exit code 1 and name what to
+  delete. `BRIAR_DATABASE_URL` and `BRIAR_<COMPANY>_DATABASE_URL` are no
+  longer read. The `SQLAlchemy` and `psycopg` dependencies go too.
 
 ### Tests
 

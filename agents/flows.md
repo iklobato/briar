@@ -62,7 +62,6 @@ version: 1
 companies:
   acme:
     knowledge:
-      store: postgres
       name: knowledge:acme
       config:
         inventory: "true"
@@ -82,10 +81,9 @@ Then run it once:
 briar runbook extract runbooks/acme.yaml
 ```
 
-You get `inventory:acme` in the same store, a JSON blob with every
-resource. It is
-rewritten only when your resources change, so the Postgres history shows
-what changed and when.
+You get `inventory:acme` (`./knowledge/inventory/acme.md`), a JSON blob
+with every resource. It is rewritten only when your resources change, so
+its file date shows when they last changed.
 
 ## Flow 3: Keep knowledge fresh on a server
 

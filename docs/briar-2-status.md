@@ -30,7 +30,7 @@ now, what was found on the way, what is left and what to watch.
   PRs under it until those merge. Merge them **in order, #79 first, as
   merge commits**.
 - CI runs on every PR into `main` or `v2` (`.github/workflows/tests.yml`).
-  PRs #79 to #91 had green CI on their last commit. Nobody has reviewed
+  PRs #79 to #92 had green CI on their last commit. Nobody has reviewed
   them (the maintainer is the only reviewer).
 
 | PR | Branch | What it does |
@@ -49,6 +49,7 @@ now, what was found on the way, what is left and what to watch.
 | https://github.com/iklobato/briar/pull/90 | `docs/v2-status` | This file, the four 2026-11-10 decision files, the CLAUDE.md and CONTRIBUTING updates (docs only) |
 | https://github.com/iklobato/briar/pull/91 | `core/01-remove-plan-agent` | Spec 006 part 1: removes `plan`, `agent` and the code only they used; moves the personas and rules to `src/briar/prompts/` |
 | https://github.com/iklobato/briar/pull/92 | `core/02-small-commands` | Spec 006 part 2: removes `context`, `secrets`, `journal`, `telemetry`, `version`, `messaging`, `notify`; `--format table|json`; `-v` only; telemetry tier from env or `.briar.toml` |
+| https://github.com/iklobato/briar/pull/93 | `core/03-file-store-only` | Spec 006 part 3: the file store is the only knowledge store; removes Postgres, `--store`, the `store` setting, `SQLAlchemy`, `psycopg` |
 
 ## 2. What is done
 
@@ -166,6 +167,32 @@ as 1.x shipped it, in tag `v1.1.101`. Read one with
   of 7 (load average 12): `import briar.cli` 759 ms on 1.x, 728 ms here;
   `main(['--help'])` 40 ms vs 15 ms.
 
+### Spec 006: core cleanup, part 3 of 5 (PR #93)
+
+- Removed: `storage/postgres.py`, `storage/_models.py`,
+  `default_store_kind`, `--store` on `extract` and `init`,
+  `KnowledgeStoreChoice`, the `store` setting and `BRIAR_STORE`, the
+  `store` check of `doctor`, the `BRIAR_DATABASE_URL` env names, and the
+  `SQLAlchemy` and `psycopg` dependencies (`uv lock` also dropped
+  `tzdata`). The knowledge store registry keeps one entry, `file`.
+- `store` in the project config stops every command with exit 1 naming
+  the file (`settings.RemovedSettingGuard`, called next to the
+  removed-credential-store guard in `cli.main`). A runbook with
+  `knowledge.store: postgres` stops with exit 1 (`KnowledgeBinding.REMOVED_STORES`).
+- The example runbooks now use the file store. Not changed:
+  `examples/multi_company.env.example` still lists `TELEGRAM_*`,
+  `SLACK_*_WEBHOOK_URL` and maybe Postgres placeholders that 2.0 no longer
+  reads (reading it was blocked as an env file; check it by hand).
+- D21 in the pipeline decisions file now notes C11: checkpoints use
+  SQLite only.
+- Numbers on the branch (2026-11-10): `src` 15,557 lines to 15,039; mypy
+  31 errors to 30; `pytest -n auto -m "not integration"` 1613 passed;
+  `pytest -m integration` 37 passed; `make smoke` ok for all 6. Startup,
+  CPU median of 7 (load average 8): `import briar.cli` 794 ms on 1.x,
+  446 ms here; `main(['--help'])` 42 ms vs 16 ms. The heaviest import
+  left is `briar.commands.runbook` (253 ms cumulative in
+  `python -X importtime`, mostly the runbook models and executor).
+
 ## 3. How the command line works now
 
 ```
@@ -245,7 +272,7 @@ Each item was reproduced in this work; the PR named holds the evidence.
 
 ## 5. Next steps, in order
 
-1. **Review and merge #79 to #92 into `v2`**, in order, as merge commits.
+1. **Review and merge #79 to #93 into `v2`**, in order, as merge commits.
    Re-check `gh pr checks <n>` before each merge; after the last one, check
    that the `v2` CI run is green.
 2. **Decide how 2.0 is released before `v2` merges to `main`.**
@@ -263,13 +290,14 @@ Each item was reproduced in this work; the PR named holds the evidence.
    personas moved to `src/briar/prompts/*.md` first (done: PR #91, section
    2); (2) `context`,
    `secrets`, `journal`, `telemetry`, `version`, `messaging`, `notify`,
-   `--format table|json`, `-v` only (done: PR #92); (3) file store only; (4) `extract`
+   `--format table|json`, `-v` only (done: PR #92); (3) file store only
+   (done: PR #93); (4) `extract`
    with three flags and the rest from `[extract]` / `[extract.<name>]`;
    (5) `auth`, `runbook`, `doctor`/`init` trims, docs and the success checks.
    A 1.x key that left (`store`, runbook `messages:`/`mcp:`, an unknown
    `[extract]` key) stops the run with exit 1; `auth status` with no target
-   lists every login. The speed PR below may become moot: after part 1,
-   `import briar.cli` is within 5 ms of 1.x (section 2).
+   lists every login. The speed PR below is likely moot: after part 3,
+   `import briar.cli` is about 350 ms faster than 1.x (section 2).
 4. **Optional speed PR** (the user deferred it): import a command's option
    classes only when that command runs (about 25 ms), and lazy-import the
    heavy modules (before spec 006, `python -X importtime -c "import
@@ -302,8 +330,8 @@ Each item was reproduced in this work; the PR named holds the evidence.
 - `extract` is still argparse: its flags do not tab-complete (1.x
   completed them), `--advanced-help` and the legacy per-extractor flags
   stay until spec 004.
-- Startup: spec 002 left it about 60 ms slower than 1.x (section 4); spec
-  006 part 1 brought `import briar.cli` back to within 5 ms (section 2).
+- Startup: spec 002 left it about 60 ms slower than 1.x (section 4); after
+  spec 006 part 3, `import briar.cli` is about 350 ms faster (section 2).
 - The README overview (the top sections) still describes `agent` and
   `plan`; spec 006 part 5 rewrites it. The demo GIF
   `docs/demo/01-setup-and-extract.gif` shows `briar context get`, which

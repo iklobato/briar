@@ -6,7 +6,7 @@ These commands help you set briar up and check the setup:
 |---|---|
 | `briar init` | Writes a starter `.briar.toml` project config file. |
 | `briar config show` | Shows each setting's value and where it came from. |
-| `briar doctor` | Checks your machine: Python, config, git, keys, store. |
+| `briar doctor` | Checks your machine: Python, config, git, keys. |
 | `briar --install-completion` | Adds tab completion to your shell. |
 
 This page also covers the global flags `--format`, `--verbose` and
@@ -14,12 +14,12 @@ This page also covers the global flags `--format`, `--verbose` and
 
 ## How briar picks a setting
 
-Many flags repeat the same values on every run: the company, the store,
-the repo. briar can take them from other places, so you type less. For
+Many flags repeat the same values on every run: the company, the
+knowledge folder, the repo. briar can take them from other places, so you type less. For
 each flag, the first source that has a value wins:
 
 1. The flag you type, such as `--company acme`.
-2. An env var: `BRIAR_COMPANY` for the company, `BRIAR_STORE` for the knowledge store.
+2. An env var: `BRIAR_COMPANY` for the company.
 3. The project config file: `.briar.toml`, or a `[tool.briar]` table in `pyproject.toml`.
 4. Your git `origin` remote, for `--owner` and `--repo` only.
 5. briar's built-in default.
@@ -34,7 +34,6 @@ skipped with a warning.
 
 ```toml
 company = "acme"
-store   = "file"
 root    = "./knowledge"
 tracker = "jira"
 repos   = ["acme-co/acme-app", "acme-co/acme-shared"]
@@ -49,7 +48,6 @@ provider = "github"
 | Key | Fills these flags | Env var that beats it |
 |---|---|---|
 | `company` | Every `--company`. | `BRIAR_COMPANY` |
-| `store` | Every knowledge `--store`. | `BRIAR_STORE` |
 | `root` | Every `--root`. | none |
 | `tracker` | Every `--tracker`. | none |
 | `repos` | The repeatable `--repo` list on `extract`. | none |
@@ -63,16 +61,20 @@ In pyproject.toml, put the same keys under `[tool.briar]`, with
 ### Watch out
 
 - A key fills **every** flag with that name.
-- `BRIAR_STORE` sets the **knowledge** store. The **credential** store is
-  always the env file in 2.0; a `BRIAR_DEFAULT_STORE` left from 1.x that
-  names a removed store stops the command (see [auth.md](auth.md)).
+- `store` is not a key any more: 2.0 has one knowledge store, the folder
+  of files. A config file that still sets `store` stops every command
+  with exit code 1 and names the file; delete the line. `BRIAR_STORE` is
+  no longer read.
+- The **credential** store is always the env file in 2.0; a
+  `BRIAR_DEFAULT_STORE` left from 1.x that names a removed store stops
+  the command (see [auth.md](auth.md)).
 
 ## `briar init`
 
 ### What it does
 
 Writes a starter `.briar.toml` in the current folder and prints it.
-It fills in the company, the store and the repo. The owner and repo
+It fills in the company and the repo. The owner and repo
 come from your flags, else from your git `origin` remote.
 
 ### Use it when
@@ -87,13 +89,13 @@ come from your flags, else from your git `origin` remote.
 briar init --company acme
 ```
 
-You get `.briar.toml` with `company = "acme"`, `store = "file"`, and the
-owner and repo from your git remote. briar prints `wrote .briar.toml` on
+You get `.briar.toml` with `company = "acme"` and the owner and repo
+from your git remote. briar prints `wrote .briar.toml` on
 stderr and the file on stdout.
 
 ```bash
-# Use Postgres and set the repo by hand. Replace an old file.
-briar init --company acme --store postgres --owner acme-co --repo acme-app --force
+# Set the repo by hand. Replace an old file.
+briar init --company acme --owner acme-co --repo acme-app --force
 ```
 
 You get a new `.briar.toml` with those values, even if one was there.
@@ -110,7 +112,6 @@ You get `../.briar.toml`. Commands run in any folder below it find it.
 | Parameter | What it means | Default | Example |
 |---|---|---|---|
 | `--company` | The company name to write. | Empty (`company = ""`), or `BRIAR_COMPANY` if set. | `--company acme` |
-| `--store` | The knowledge store to write: `file` or `postgres`. | `file`, or `BRIAR_STORE` if set. | `--store postgres` |
 | `--owner` | The repo owner to write. | From your git `origin` remote, else empty. | `--owner acme-co` |
 | `--repo` | The repo name to write. | From your git `origin` remote, else empty. | `--repo acme-app` |
 | `--path` | Where to write the file. | `./.briar.toml` | `--path ../.briar.toml` |
@@ -143,8 +144,8 @@ Prints each project setting, its value, and its source: `env (BRIAR_COMPANY)`,
 `config (.briar.toml)` (with `[repo]` for keys in that table), `inferred (git origin)`, or `-` for `(unset)`. It prints the config file
 path on stderr first.
 
-The settings are `company`, `store`, `root`, `tracker`, `owner`, `repo`,
-`provider`, `model`, `git_user_name` and `git_user_email`.
+The settings are `company`, `root`, `tracker`, `owner`, `repo` and
+`provider`.
 
 ### Use it when
 
@@ -202,7 +203,6 @@ use it in CI.
 | `project config` | A `.briar.toml` (or `[tool.briar]`) is found. | `warn`: run `briar init`. |
 | `git remote` | An `origin` remote gives an owner and repo. | `warn`: pass `--owner` and `--repo`, or set them in the config. |
 | `github token` | `GITHUB_TOKEN` is set. | `warn`: the GitHub extractors need it. |
-| `store` | The store is `file`, or it is `postgres` and a database URL is set (`BRIAR_DATABASE_URL` or any `BRIAR_<NAME>_DATABASE_URL`). | `fail` |
 
 ### Use it when
 
@@ -249,7 +249,7 @@ You get `doctor.csv` with a header row and one row per check.
 
 Adds tab completion to your shell. It completes command names, subcommand
 names, flag names and the values of flags with a fixed list (such as
-`--store file|postgres`). It does not complete hidden flags. `briar extract`
+`--format table|json`). It does not complete hidden flags. `briar extract`
 completes as a command name only: its flags still use the 1.x parser
 until a later 2.0 change.
 
