@@ -359,9 +359,7 @@ The summary looks like this:
 
 The hidden agent flags work here too: `--meeting`, `--meeting-top-k`,
 `--meeting-max-bytes`, `--chat`, `--slack-top-k` and `--slack-max-bytes`
-(see [agent.md](agent.md)). There is no `--no-default-mcp` here. To
-skip the helper tools, or to hide their warning on a plain install, set
-`BRIAR_NO_DEFAULT_MCP=1`. Each card reads knowledge from the
+(see [agent.md](agent.md)). Each card reads knowledge from the
 plan's own `--store` and `--root`.
 
 `run` also takes `--store`, `--root`, `--company`, `--journal-store` and

@@ -148,11 +148,10 @@ only in the private site repo.
   (section 8).
 - **Docker image** (`iklob1/briar`): has `git`, `gh`, the `[mcp]` extra,
   `safe.directory '*'`, `gh` also linked at `/usr/local/bin/gh` and
-  `/opt/homebrew/bin/gh` (Mac gitconfigs), `BRIAR_NO_DEFAULT_MCP=1`,
-  `linux/amd64` only, runs as uid 1000. The git login is set up for GitHub
+  `/opt/homebrew/bin/gh` (Mac gitconfigs), `linux/amd64` only, runs as uid 1000. The git login is set up for GitHub
   only.
-- **`[mcp]` extra**: without it, agents skip the default think/time servers
-  with one warning (since 1.1.74); runbook `mcp:` servers need it.
+- **`[mcp]` extra**: needed only for runbook `mcp:` servers. 2.0 has no
+  built-in MCP servers (1.x started `think` and `time` for every agent).
 
 ## 6. What was done (summary)
 

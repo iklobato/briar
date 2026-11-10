@@ -36,8 +36,7 @@ briar clones for this run only. Your own checkout is never touched.
 | A git identity for commits. | Commits must have a human name and email. | `--git-user-name` and `--git-user-email`, or `git_identity` in the runbook, or your own `git config` (not used when `CI` is set). |
 
 A plain `pip install briar-cli` is enough. The `[mcp]` extra is
-optional here. Since 1.1.74 a run without it goes on; older versions
-stopped unless you passed `--no-default-mcp`.
+needed only when the runbook lists servers under `mcp:`.
 
 Optional, but they make the agent better:
 
@@ -49,13 +48,9 @@ Optional, but they make the agent better:
 - `FIREFLIES_ACME_API_KEY`, so the agent reads meetings about the work.
 - `SLACK_ACME_TOKEN` and `SLACK_ACME_COOKIE_D`, so it reads Slack threads about the work.
 - A runbook YAML (`--runbook`), so it can post messages through set channels.
-- The `[mcp]` extra (`pip install 'briar-cli[mcp]'`). It gives the agent
-  two small helper tools: "think" (needs `npx`) and "time" (needs
-  `uvx`). A tool whose program is missing is skipped. Without the
-  extra, briar skips both and logs one warning, then the run goes on:
-  ``mcp: the `mcp` package is not installed, so the built-in think/time servers are skipped; install 'briar-cli[mcp]' to enable them``.
-  `--no-default-mcp` hides that warning. The extra is required only
-  when the runbook lists servers under `mcp:`.
+- MCP servers under `mcp:` in the runbook, with the `[mcp]` extra
+  (`pip install 'briar-cli[mcp]'`). The agent gets their tools. There are
+  no built-in servers: 1.x also started "think" and "time", 2.0 does not.
 
 ## How `implement` works
 
@@ -162,12 +157,11 @@ briar agent implement --company acme --repo acme-co/acme-app \
 You get the same flow. The agent also reads meetings and Slack threads
 about "checkout redesign", and may use up to 50 turns.
 
-Run on a host without `npx` or `uvx`, with a fixed bot identity and a
-runbook:
+Run with a fixed bot identity and a runbook:
 
 ```bash
 briar agent implement --company acme --repo acme-co/acme-app \
-    --ticket-key ACME-42 --no-default-mcp \
+    --ticket-key ACME-42 \
     --git-user-name "Acme Bot" --git-user-email bot@acme.com \
     --runbook runbooks/acme.yaml
 ```
@@ -235,7 +229,6 @@ The agent reads up to 5 Slack threads that match "alice login".
 | `--git-user-name` | `user.name` for commits in the worktree. | The runbook's `git_identity.name`, then your `git config user.name` (skipped when `CI` is set). | `--git-user-name "Acme Bot"` |
 | `--git-user-email` | `user.email` for commits in the worktree. | The runbook's `git_identity.email`, then your `git config user.email` (skipped when `CI` is set). | `--git-user-email bot@acme.com` |
 | `--keep-worktree` | Keep the temp folder after a successful run. A failed run always keeps it. | Off. | `--keep-worktree` |
-| `--no-default-mcp` | Do not start the two built-in helper tools ("think" and "time"). Same as `BRIAR_NO_DEFAULT_MCP=1`. Use it on hosts without `npx` or `uvx`. Without the `mcp` extra the helpers are skipped anyway, and this flag only hides the warning. | Off (helpers start when the `mcp` extra is installed). | `--no-default-mcp` |
 | `--dry-run` | Print the prompt, the first message and the tool list, then stop. No clone, no Claude call, no Claude credentials needed. | Off. | `--dry-run` |
 | `--runbook` | Runbook YAML to read this company's block from. Its `messages:` gives the agent a `send_message` tool. Its `mcp:` adds tool servers. Its `git_identity` sets the commit identity. | None. | `--runbook runbooks/acme.yaml` |
 | `--meeting-key` | One Fireflies meeting ID to add to the prompt. Wins over `--meeting-query`. | None. | `--meeting-key 01JB7Q4ZK3M8` |
