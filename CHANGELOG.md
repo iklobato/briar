@@ -30,10 +30,12 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
   (`claude-agent-sdk`, a new required dependency), in its own git worktree:
   the agent writes a plan, which briar comments on the ticket before it moves
   the ticket to `status.started`; the agent builds it, the `verify` commands
-  run and the agent fixes them, a read-only self-review checks the diff;
-  briar pushes, opens the PR ready for review, comments the link and moves the
-  ticket to `status.review`, then waits for CI and has the agent fix a failed
-  run. The agent only edits files in the worktree and runs the programs of
+  run on a clean copy of the commit and the agent fixes them, a read-only
+  self-review checks the diff; briar pushes, opens the PR as a draft, comments
+  the link and moves the ticket to `status.review`, then waits for CI, has the
+  agent fix a failed run, and marks the PR ready once CI passes. The agent
+  gets the knowledge folder as an absolute path (a relative one pointed
+  nowhere from the worktree, so the agent never read it). The agent only edits files in the worktree and runs the programs of
   `bash` (or a default list); push, PR, comments and status moves are briar
   code. When `max_usd`, `max_loops` or `ci_wait_minutes` hits, or a git,
   GitHub or Jira call fails, briar pushes the work so far as a draft PR with
