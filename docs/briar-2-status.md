@@ -30,7 +30,7 @@ now, what was found on the way, what is left and what to watch.
   PRs under it until those merge. Merge them **in order, #79 first, as
   merge commits**.
 - CI runs on every PR into `main` or `v2` (`.github/workflows/tests.yml`).
-  PRs #79 to #95 had green CI on their last commit. Nobody has reviewed
+  PRs #79 to #96 had green CI on their last commit. Nobody has reviewed
   them (the maintainer is the only reviewer).
 
 | PR | Branch | What it does |
@@ -53,6 +53,7 @@ now, what was found on the way, what is left and what to watch.
 | https://github.com/iklobato/briar/pull/94 | `core/04-extract-config` | Spec 006 part 4: `extract` keeps `--company`, `--include`, `--repo`; every other value moves to `[extract]` / `[extract.<name>]` with short names; the output modes go |
 | https://github.com/iklobato/briar/pull/95 | `core/05-final-trims` | Spec 006 part 5: `auth` login and status, `runbook` extract and serve, `briar config` folded into `doctor`, README rewritten around the 5 commands, the success checks |
 | https://github.com/iklobato/briar/pull/96 | `fix/doctor-git-remote-hint` | With no git origin, `doctor` says to run `briar init --owner OWNER --repo REPO` or set `[repo]` in `.briar.toml` (F10); no em dash in the `doctor` hints |
+| https://github.com/iklobato/briar/pull/97 | `logins/01-config-pasted` | Spec 005 part 1: `[auth]` config and the runbook `auth:` block, `BRIAR_*` names with the 1.x name guard, source targets for `auth login|status` with `--runbook`, the pasted logins (GitHub PAT, Jira token and cookie, Bitbucket token, access token and cookie, Linear key, Fireflies key), the flat credential store |
 
 ## 2. What is done
 
@@ -257,6 +258,48 @@ as 1.x shipped it, in tag `v1.1.101`. Read one with
   `openai` or `google.generativeai`, and `pyproject.toml` names none of
   them (SC-006). mypy: 29 errors before, 28 after.
 
+### Spec 005: source logins, part 1 of 4 (PR #97)
+
+- Settled first in two grill sessions:
+  `docs/decisions/2026-11-10-briar-2-logins-spec.md` (G1 to G26, the
+  whole spec) and `docs/decisions/2026-11-10-briar-2-logins-pr1.md` (H1
+  to H10, this PR). The spec-kit files are in the local
+  `specs/005-source-logins/`.
+- `briar/auth/config.py`: the `[auth.<source>]` pydantic models, used for
+  `.briar.toml` (`AuthTable`, which checks the whole block, H6) and for the
+  runbook `CompanyEntry.auth`. The Jira `site` keeps the scheme and the
+  host only (H10).
+- `briar/auth/logins.py`: `CompanyLogins` gives each adapter the login of
+  its source. A `SourceLogin` knows its secret names
+  (`BRIAR_<COMPANY>_<SOURCE>_<FIELD>`, G7), what `briar auth login` asks
+  for each method, its required config values (H1), and its 1.x names:
+  when the 2.0 login is missing and a 1.x name is set, `ready()` stops the
+  run (G8, G25). `briar extract` builds it from `[auth]` and puts it on
+  each extractor namespace (`args.logins`); the runbook executor builds it
+  from the company `auth:` block (G3).
+- Adapters (Jira, Bitbucket provider and tracker, Linear, Fireflies,
+  GitHub provider and issues) take `logins` instead of reading env vars.
+  `GithubApi` holds the company token (`GithubApi(token).get_json(...)`);
+  briar no longer reads `GITHUB_TOKEN`. Jira auth is one strategy per
+  method; the cookie method sends the pasted `Cookie` header with the
+  1.x browser headers and `[auth.jira] user_agent` (H5).
+- `briar auth`: source targets plus the AWS acquirers (`LoginTargets`),
+  `--runbook FILE` (G6). The pasted 1.x acquirers and `github-device`
+  left; until PR 4 GitHub takes `method = "token"` only (H8) and Linear
+  `api-key` only.
+- Flat store (G16): `CredentialStore`, its registry, `delete`,
+  `fingerprint` and `expires_at` left; `EnvFileStore.list` matches the
+  `BRIAR_*` names. `CredEnv` keeps only the AWS names (PR 2).
+- `briar doctor`: `github login` replaces `github token` (PR 3 checks every
+  source live).
+- In a runbook, the G8 stop fails the task (a `failed` row, the message in
+  the log; exit code 0, as for any failed task) until PR 3 adds the check
+  before each task.
+- Numbers, 2026-11-10, Python 3.13.2: 1469 unit and 31 integration tests
+  pass; `make smoke` ok; mypy 30 errors before, 28 after; `src` 14,772
+  lines before, 14,377 after. The Bitbucket cookie is tested with fakes
+  only (H3).
+
 ## 3. How the command line works now
 
 ```
@@ -336,7 +379,7 @@ Each item was reproduced in this work; the PR named holds the evidence.
 
 ## 5. Next steps, in order
 
-1. **Review and merge #79 to #96 into `v2`**, in order, as merge commits.
+1. **Review and merge #79 to #97 into `v2`**, in order, as merge commits.
    Re-check `gh pr checks <n>` before each merge; after the last one, check
    that the `v2` CI run is green.
 2. **Decide how 2.0 is released before `v2` merges to `main`.**
@@ -377,7 +420,11 @@ Each item was reproduced in this work; the PR named holds the evidence.
    - spec 004: extractors cleaned inside with the same text per extractor,
      `extract` on Typer, the extractor flags (D32, D32a, C12), and the new
      knowledge layout (K1 to K14, K16, K20);
-   - spec 005: source logins (L1 to L21), after spec 002.
+   - spec 005: source logins, in progress (section 2): PR 1 is #97; PR 2
+     AWS, gcloud and Azure; PR 3 the check before a run; PR 4 the GitHub
+     device flow, Linear OAuth and the refresh lock (G19). PR 4 needs the
+     GitHub App of briar registered first (G23); its device flow code is in
+     `git show c63ccf9:src/briar/auth/_acquirers/github_device.py`.
 6. **Site and images**: usebriar.com `/docs` and the landing page (private
    repo `iklobato/usebriar-landing`) still describe removed features
    (pipeline R7). `docs/diagrams/which-command.svg` still shows `briar

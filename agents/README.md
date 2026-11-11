@@ -88,12 +88,14 @@ loads one secrets file, the first that exists:
 3. `$XDG_CONFIG_HOME/briar/secrets.env`, or `~/.config/briar/secrets.env`.
 
 A variable already set in your shell wins over the file.
-`briar auth login` writes to this file. Most variables carry the company
-name in upper case, like `JIRA_ACME_TOKEN` for company `acme`.
-`GITHUB_TOKEN` has no company part.
+`briar auth login` writes to this file. Every login carries the company
+and the source in its name, like `BRIAR_ACME_JIRA_TOKEN` for company
+`acme`; the 1.x names (`GITHUB_TOKEN`, `JIRA_ACME_TOKEN`) are no longer
+read. The non-secret choices (Jira `site`, Bitbucket `workspace`) go in
+`[auth]` of `.briar.toml`.
 
 When a command fails for lack of credentials, run
-`briar auth status <target> --company <name>`: it lists the keys that
+`briar auth status <source> --company <name>`: it lists the keys that
 source needs and which are set. See [auth.md](auth.md).
 
 To read what briar saved, open the file: `knowledge:acme` is

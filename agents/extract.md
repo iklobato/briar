@@ -30,20 +30,24 @@ To refresh on a schedule, use `briar runbook` instead (see
 
 ## Before you start
 
-Each extractor needs its own credentials. briar reads them from your
-shell and from `~/.config/briar/secrets.env` (`briar auth login` writes
-that file). `acme` below stands for your company name in upper case.
+Each extractor needs the login of its source for the company. The
+choices (Jira `site`, Bitbucket `workspace`, the method) go in `[auth]` of
+`.briar.toml`; the secrets go in `~/.config/briar/secrets.env`, which
+`briar auth login <source> --company acme` writes. See [auth.md](auth.md).
+`ACME` below stands for your company name in upper case.
 
 | Extractors | What they need |
 |---|---|
-| Every repo extractor (the 19 in "Repo extractors" below). | `GITHUB_TOKEN`. With `provider = "bitbucket"`: `BITBUCKET_ACME_USERNAME` and `BITBUCKET_ACME_APP_PASSWORD`. |
-| `dependency-health`, `code-scanning`. | A GitHub token that can read security alerts (`security_events` scope on a classic token). |
-| `active-tickets`, `ticket-archaeology`. | Jira: `JIRA_ACME_URL` plus `JIRA_ACME_EMAIL` and `JIRA_ACME_TOKEN` (or Jira session cookies). Linear: `LINEAR_ACME_TOKEN`. GitHub Issues: `GITHUB_TOKEN`. |
+| Every repo extractor (the 19 in "Repo extractors" below). | `BRIAR_ACME_GITHUB_TOKEN`. With `provider = "bitbucket"`: the Bitbucket login (`BRIAR_ACME_BITBUCKET_EMAIL` and `BRIAR_ACME_BITBUCKET_TOKEN`, or an access token) and `workspace` under `[auth.bitbucket]`. |
+| `dependency-health`, `code-scanning`. | A GitHub token that can read security alerts (Dependabot alerts and code scanning alerts: read). |
+| `active-tickets`, `ticket-archaeology`. | Jira: `site` under `[auth.jira]` plus `BRIAR_ACME_JIRA_EMAIL` and `BRIAR_ACME_JIRA_TOKEN` (or the cookie). Linear: `BRIAR_ACME_LINEAR_API_KEY`. GitHub Issues: `BRIAR_ACME_GITHUB_TOKEN`. |
 | `aws-infra`. | `AWS_ACME_ACCESS_KEY_ID` and `AWS_ACME_SECRET_ACCESS_KEY`, or an AWS profile, or your normal AWS login. The `tagging-inventory` part also needs the `tag:GetResources` permission. |
-| `meeting-digest`. | `FIREFLIES_ACME_API_KEY` (`briar auth login fireflies --company acme`). |
+| `meeting-digest`. | `BRIAR_ACME_FIREFLIES_API_KEY` (`briar auth login fireflies --company acme`). |
 
-Run `briar auth status <target> --company acme` to see which keys one
-source is missing.
+Run `briar auth status <source> --company acme` to see which values one
+login is missing. A login set only under its 1.x name (`GITHUB_TOKEN`,
+`JIRA_ACME_TOKEN`, ...) stops the run with exit code 1 and names the new
+place; a bad key in `[auth]` stops it too.
 
 Repo extractors also need a repo list. Without one they are skipped.
 Give it with `--repo`. Inside a checkout, briar can also take it from

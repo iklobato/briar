@@ -20,16 +20,19 @@ mounts in the [README](../README.md#run-with-docker).
 Save credentials, check them, then take the first snapshot.
 
 ```bash
-# 1. Save credentials. Each one goes to ~/.config/briar/secrets.env
-briar auth login github-pat --company acme
-briar auth login jira-token --company acme
+# 1. Say where the Jira site is (briar never writes this file)
+printf 'company = "acme"\n[auth.jira]\nsite = "acme.atlassian.net"\n' >> .briar.toml
+
+# 2. Save credentials. Each one goes to ~/.config/briar/secrets.env
+briar auth login github --company acme
+briar auth login jira --company acme
 briar auth login aws-static --company acme
 briar auth login fireflies --company acme
 
-# 2. Check which keys one source still lacks
-briar auth status jira-token --company acme
+# 3. Check which keys one source still lacks
+briar auth status jira --company acme
 
-# 3. Name the Jira project in .briar.toml (a Jira key is not a repo)
+# 4. Name the Jira project in .briar.toml (a Jira key is not a repo)
 cat >> .briar.toml <<'TOML'
 [extract.active-tickets]
 projects = ["ACME"]
@@ -38,10 +41,10 @@ projects = ["ACME"]
 projects = ["ACME"]
 TOML
 
-# 4. First snapshot: repo, Jira project, AWS and meetings
+# 5. First snapshot: repo, Jira project, AWS and meetings
 briar extract --company acme --repo acme-co/acme-app
 
-# 5. Read what was saved
+# 6. Read what was saved
 cat ./knowledge/knowledge/acme.md
 ```
 
@@ -124,9 +127,10 @@ When a task fails, the error is in the log; 2.0 sends no alert yet. See
 ## Flow 4: Bitbucket and Linear instead of GitHub and Jira
 
 ```bash
-# 1. Save credentials for both
-briar auth login bitbucket-app-password --company acme
-briar auth login linear-api-key --company acme
+# 1. Say which Bitbucket workspace, then save credentials for both
+printf '[auth.bitbucket]\nworkspace = "acme"\n' >> .briar.toml
+briar auth login bitbucket --company acme
+briar auth login linear --company acme
 
 # 2. Point the repo extractors at Bitbucket
 printf '[extract]\nprovider = "bitbucket"\n' >> .briar.toml
