@@ -116,6 +116,22 @@ class TestReviewFinder:
 
         assert [comment.id for comment in items[0].comments] == ["4"]
 
+    def test_a_draft_pr_left_while_waiting_for_ci_is_found_to_finish(self, companies: Companies) -> None:
+        """`serve` stopped during the CI wait: the PR is still a draft and `pr-open`."""
+        company = Watched(companies).company({}, {"status": WorkStatus.PR_OPEN})
+        github = FakeGithub(pulls={("acme/app", PR_NUMBER): PullState(True, False, False, "main", draft=True)})
+
+        items = WorkFinder(company, FakeSources(github, jira_adapter=FakeJira({"ENG": []}))).find()
+
+        assert [(item.kind, item.pr) for item in items] == [(WorkKind.READY, PR_NUMBER)]
+
+    def test_a_draft_pr_of_a_finished_task_is_left_to_people(self, companies: Companies) -> None:
+        """A person turned a `done` PR back into a draft: briar does not mark it ready again."""
+        company = Watched(companies).company({}, {})
+        github = FakeGithub(pulls={("acme/app", PR_NUMBER): PullState(True, False, False, "main", draft=True)})
+
+        assert WorkFinder(company, FakeSources(github, jira_adapter=FakeJira({"ENG": []}))).find() == []
+
     def test_a_conflict_alone_starts_a_round(self, companies: Companies) -> None:
         company = Watched(companies).company({}, {})
         github = FakeGithub(pulls={("acme/app", PR_NUMBER): PullState(True, False, True, "main")})

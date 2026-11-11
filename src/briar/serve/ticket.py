@@ -27,6 +27,8 @@ class TicketRun:
         self._flow = flow
 
     async def work(self) -> None:
+        if await self._adopted():
+            return
         plan = await self._steps.plan()
         await asyncio.to_thread(self._announce, plan)
         await self._flow.record(WorkStatus.PLANNED, {"plan": plan.markdown()})
@@ -34,24 +36,47 @@ class TicketRun:
         await self._flow.verified("build the plan")
         await self._flow.reviewed(plan, f"origin/{self._context.base}...HEAD")
         await self._flow.push()
-        number = await asyncio.to_thread(self._publish, plan)
+        number = await asyncio.to_thread(self._open, plan)
+        # Recorded before the ticket comment: a failed comment must not lose the PR.
         await self._flow.record(WorkStatus.PR_OPEN, {"pr": number})
+        await asyncio.to_thread(self._published, number)
+        await self.finish(number)
+
+    async def finish(self, number: int) -> None:
+        """Wait for CI on the draft PR, then mark it ready; also run for a PR left a draft
+        when `serve` stopped during the wait."""
         await self._flow.ci(number)
         await asyncio.to_thread(self._context.sources.github().make_ready, self._context.item.repo, number)
         await self._flow.record(WorkStatus.DONE, {})
 
+    async def _adopted(self) -> bool:
+        """A PR of the task branch already exists (the state was lost, or a person closed it):
+        record it and build nothing. An open draft may be work briar stopped: a person decides."""
+        found = await asyncio.to_thread(self._context.sources.github().branch_pull, self._context.item.repo, self._context.branch)
+        if found is None:
+            return False
+        status = WorkStatus.PR_OPEN if found.open else (WorkStatus.MERGED if found.merged else WorkStatus.CLOSED)
+        status = WorkStatus.BLOCKED if found.open and found.draft else status
+        await self._flow.record(status, {"pr": found.number})
+        return True
+
     def _announce(self, plan: Plan) -> None:
+        """The plan comment, once: a ticket taken again after a stop already has it."""
+        known = self._context.company.state.book().entry(self._context.item.key)
+        if known is not None and known.plan:
+            return
         side = TicketSide(self._context.sources)
         side.comment(self._context.item, f"briar plan for {self._context.item.ref()}:\n\n{plan.markdown()}")
         side.move(self._context.item, self._context.company.settings.status.started)
 
-    def _publish(self, plan: Plan) -> int:
+    def _open(self, plan: Plan) -> int:
         draft = PullRequestDraft(self._context.branch, self._context.base, self._context.title, self._body(plan), draft=True)
-        number = int(self._context.sources.github().open_pull(self._context.item.repo, draft))
+        return int(self._context.sources.github().open_pull(self._context.item.repo, draft))
+
+    def _published(self, number: int) -> None:
         side = TicketSide(self._context.sources)
         side.comment(self._context.item, f"briar opened https://github.com/{self._context.item.repo}/pull/{number}")
         side.move(self._context.item, self._context.company.settings.status.review)
-        return number
 
     def _body(self, plan: Plan) -> str:
         item = self._context.item

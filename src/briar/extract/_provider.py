@@ -139,6 +139,18 @@ class PullState:
     merged: bool
     conflict: bool
     base: str
+    draft: bool = False
+
+
+@dataclass(frozen=True)
+class BranchPull:
+    """The PR whose head is a task branch, open or not: briar checks it before building, so
+    a lost state or a PR a person closed never leads to the same work twice."""
+
+    number: int
+    open: bool
+    merged: bool
+    draft: bool
 
 
 @dataclass(frozen=True)

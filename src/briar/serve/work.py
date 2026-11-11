@@ -33,6 +33,8 @@ class WorkKind(Enum):
     # A briar PR that was merged or closed: the task only records it (V3).
     MERGED = "merged"
     CLOSED = "closed"
+    # A briar PR still a draft in `pr-open`: `serve` stopped during the CI wait; finish it.
+    READY = "ready"
 
 
 class Marker:
@@ -185,9 +187,10 @@ class WorkFinder:
             return WorkItem(WorkKind.MERGED if pull.merged else WorkKind.CLOSED, entry.key, entry.source, entry.repo, entry.title, pr=entry.pr)
         resolved = github.resolved_comment_ids(entry.repo, entry.pr)
         new = ReviewFilter(self._company.settings, entry, resolved).new(github.review_comments(entry.repo, entry.pr))
-        if not new and not pull.conflict:
-            return None
-        return WorkItem(WorkKind.REVIEW, entry.key, entry.source, entry.repo, entry.title, pr=entry.pr, comments=tuple(new), conflict=pull.conflict)
+        if new or pull.conflict:
+            return WorkItem(WorkKind.REVIEW, entry.key, entry.source, entry.repo, entry.title, pr=entry.pr, comments=tuple(new), conflict=pull.conflict)
+        unfinished = pull.draft and entry.status is WorkStatus.PR_OPEN
+        return WorkItem(WorkKind.READY, entry.key, entry.source, entry.repo, entry.title, pr=entry.pr) if unfinished else None
 
 
 class ReviewFilter:
