@@ -5,7 +5,7 @@ agentic development pipeline (watch the tickets assigned to briar and the review
 on its PRs; plan, build, open the PR, answer every comment; in parallel, with the Claude
 Agent SDK; GitHub and Jira only). The decisions are
 `docs/decisions/2026-11-11-briar-2-serve-pipeline.md` (S1 to S35), which also list the
-earlier decisions they change. Spec 003 builds it in 4 PRs; part 1 is #100, part 2 is #101.
+earlier decisions they change. Spec 003 builds it in 4 PRs; part 1 is #100, part 2 is #101, part 3 is #102.
 
 The handoff file for briar 2.0. Read it before you touch the `v2` branch or
 any 2.0 PR. It says where the work is, what is done, how the code works
@@ -76,6 +76,7 @@ now, what was found on the way, what is left and what to watch.
 | https://github.com/iklobato/briar/pull/99 | `logins/03-check` | Spec 005 part 3: the login check before every run ("who am I" plus a read of each resource), in `extract`, `runbook extract` and `serve`, `auth login` and `status`, `doctor` |
 | https://github.com/iklobato/briar/pull/100 | `serve/01-runbook-serve` | Spec 003 part 1: the serve decisions (S1 to S35), the runbook `serve:` block, `briar serve DIR` (model, read and write checks; one asyncio loop with `max_parallel` slots per company; the finder; the `work:<company>` state), `doctor` model login |
 | https://github.com/iklobato/briar/pull/101 | `serve/02-ticket-routine` | Spec 003 part 2: the ticket routine (Claude Agent SDK in a worktree per ticket; plan, build, verify and self-review loops, PR, CI wait, limits with a draft PR and a report) |
+| https://github.com/iklobato/briar/pull/102 | `serve/03-review-routine` | Spec 003 part 3: the review routine (writers and listed bots, marker, edits, resolved threads, base merge, replies, `max_review_rounds`), the agent sandbox and read limit, `ServeRoutine` |
 
 ## 2. What is done
 
@@ -463,6 +464,39 @@ as 1.x shipped it, in tag `v1.1.101`. Read one with
   write to). The SDK was called once with a fake key: a failed answer, cost
   0.
 
+### Spec 003: `briar serve`, part 3 of 4 (PR #102)
+
+- Decisions from a grill session: `docs/decisions/2026-11-11-briar-2-review-routine.md`
+  (V1 to V16). They change S22 to S25.
+- `serve/work.py`: the finder reads each watched PR (`pr-open` or `done`): `pull_state`
+  (a merged or closed PR becomes a `merged` or `closed` item, recorded and left),
+  `review_comments` and `resolved_comment_ids` (GraphQL); `ReviewFilter` keeps the new
+  comments of writers and `review_bots` (V1), skips the `<!-- briar -->` marker
+  (`Marker`, V2), answered and unedited ones (V4) and resolved threads (V5); a
+  `dirty` PR alone starts a round (V6). `AgentSandbox` checks `sandbox-exec`, or
+  `bwrap` and `socat` (V14).
+- `serve/review.py`: `ReviewRun` (round count and `max_review_rounds`, base merge with
+  conflict resolution and abort, one `AgentSteps.answer` call, verify, self-review,
+  push, CI wait) and `ReviewReplies` (thread replies plus one quoting comment).
+  `serve/routine.py`: `ServeRoutine` picks the routine per item. `serve/flow.py`:
+  `TaskFlow`, what both routines share; `record` now keeps the entry already stored.
+- `serve/agent.py`: the SDK `sandbox` (no `autoAllowBashIfSandboxed`, no unsandboxed
+  commands, `allowedDomains` from `allowed_domains`); Read, Glob and Grep stay in the
+  worktree and the knowledge root.
+- State: `answered` (comment key to `updated_at`) and `rounds` replace
+  `handled_comments`; statuses `merged` and `closed`.
+- Real, read only, 2026-11-11: `briar doctor` on this Mac says `agent sandbox ok
+  sandbox-exec found`; the bundled CLI starts with the sandbox settings and stops at
+  the login with a fake key (cost 0); `pull_state`, `review_comments` and
+  `resolved_comment_ids` on https://github.com/iklobato/briar/pull/75 (the GraphQL
+  `databaseId` equals the REST id of the inline comment).
+- Not run for real: bash inside the sandbox, a full round with the model, Linux with
+  `bwrap` (CI only runs the tests).
+- Numbers, 2026-11-11, Python 3.13.2: 1637 unit and 33 integration tests pass (the
+  serve tests on 3.11 too); `make smoke` ok; mypy 27 before, 27 after, same list, with
+  the same venv (the 25 of part 2 was another install of the dev extras); `src`
+  16,462 lines before, 17,051 after.
+
 ### Spec 005: real runs on the accounts of the maintainer (G20)
 
 Read only, on the machine of the maintainer, 2026-11-11, with
@@ -692,7 +726,7 @@ Found in spec 005 (2026-11-10 and 2026-11-11):
 
 ## 5. Next steps, in order
 
-1. **Review and merge #79 to #101 into `v2`**, in order, as merge commits.
+1. **Review and merge #79 to #102 into `v2`**, in order, as merge commits.
    Re-check `gh pr checks <n>` before each merge; after the last one, check
    that the `v2` CI run is green.
 2. **Decide how 2.0 is released before `v2` merges to `main`.**
@@ -728,7 +762,7 @@ Found in spec 005 (2026-11-10 and 2026-11-11):
 5. **Write the next specs** (spec-kit, from the decisions files):
    - spec 003: `briar serve` (S1 to S35; it replaces the LangGraph engine
      of D9 and the YAML pipelines of D11). Part 1 is #100, part 2 (the ticket
-     routine) is #101. Left: part 3, the review routine; part 4, `auth` and `runbook` leave, `init` writes
+     routine) is #101, part 3 (the review routine) is #102. Left: part 4, `auth` and `runbook` leave, `init` writes
      an example runbook, docs;
    - spec 004: extractors cleaned inside with the same text per extractor,
      `extract` on Typer, the extractor flags (D32, D32a, C12), and the new
@@ -790,14 +824,15 @@ Found in spec 005 (2026-11-10 and 2026-11-11):
     when `serve` loads the runbooks.
   - Nothing is cut yet (S8): Bitbucket, Linear, Fireflies and the clouds
     stay as extractors.
-- Spec 003, open after PR #101:
-  - The agent can read any file the user of `serve` can read (the Read tool
-    and `cat`), so a ticket could ask it to copy a secret into the PR.
-    The manual says to run `serve` as a user with no other secrets. Review
-    question on #101.
-  - A failure before a task starts (the clone, the ticket text) is logged
-    and tried again on the next poll. Review question on #101.
-  - No full real ticket run yet.
+- Spec 003, open after PR #102:
+  - Bash of the agent can still read any file of the user (`cat`); Read, Glob
+    and Grep are limited (V12). A secret read that way can only leave in a file
+    of the PR diff (no network in the sandbox).
+  - Not tested: bash inside the sandbox, `bwrap` in the Docker image (user
+    namespaces), a full ticket or review round with the model.
+  - A failure before a task starts is logged and tried again on the next poll
+    (V15), so a branch that cannot fast forward logs every cycle.
+  - `allowed_domains` is a way out for data (V13).
 - Spec 005, open after PRs #97 to #99:
   - `runbook serve` stops for every company when one check fails, a short
     network drop included (J8 with J3, chosen on purpose); under a
