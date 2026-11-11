@@ -32,12 +32,6 @@ class MeetingRegistryTests(unittest.TestCase):
         with self.assertRaises(CliError):
             make_meeting("otter", FakeLogins().logins())
 
-    def test_fireflies_unavailable_without_creds(self) -> None:
-        from briar.extract._meetings import make_meeting
-
-        provider = make_meeting("fireflies", FakeLogins().logins())
-        self.assertFalse(provider.is_available())
-
     def test_fireflies_available_with_the_api_key(self) -> None:
         from briar.extract._meetings import make_meeting
 

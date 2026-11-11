@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, Callable
 
 import pytest
 
@@ -87,9 +89,8 @@ class TestSecretsEnvfileStoreReal:
 class TestRunbookExtractReal:
     def _write_runbook(self, tmp_path: Path) -> Path:
         """A real runbook whose only extractor is provider-backed
-        (pr-archaeology). With GITHUB_* stripped by env_sandbox, the
-        extractor reports unavailable and the executor records a
-        deterministic 'empty (no sections)' row — no network."""
+        (pr-archaeology), read from the wire fake: the login check passes and
+        the pulls list is a 404, so the executor records 'empty (no sections)'."""
         knowledge = tmp_path / "knowledge"
         knowledge.mkdir(exist_ok=True)
         rb = tmp_path / "acme.yaml"
@@ -107,16 +108,17 @@ class TestRunbookExtractReal:
         )
         return rb
 
-    def test_extract_runs_real_executor_records_row(self, cli, tmp_path) -> None:
+    def test_extract_runs_real_executor_records_row(self, cli: Callable[..., SimpleNamespace], tmp_path: Path, github_at: Any) -> None:
         rb = self._write_runbook(tmp_path)
-        result = cli("--format", "json", "runbook", "extract", str(rb), env=_local_env(tmp_path))
+        env = {**_local_env(tmp_path), "BRIAR_ZZCORP_GITHUB_TOKEN": "PLACEHOLDER-not-a-secret"}
+        result = cli("--format", "json", "runbook", "extract", str(rb), env=env)
         assert result.code == 0, result.err
         rows = json.loads(result.out)
         assert len(rows) == 1
         row = rows[0]
         assert row["company"] == "zzcorp"
         assert row["task"] == "extractors"
-        # No creds -> extractor unavailable -> no sections collected.
+        # The pulls route is a 404 on the wire fake -> no sections collected.
         assert row["status"] == "empty (no sections)"
         assert row["output"] == "knowledge:zzcorp"
 

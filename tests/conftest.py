@@ -59,6 +59,34 @@ def env_sandbox(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPa
 
 
 @pytest.fixture
+def logins_pass(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The login check before a run passes with no network call (spec 005 PR 3): each
+    source of the run is `ok` as `bot@example.test`. For tests of what a run does after
+    the check; the check itself is tested in `tests/unit/auth/test_check.py`."""
+    from briar.auth.check import CheckResult, CheckState, LoginCheck
+
+    def passed(check: LoginCheck, targets: Any) -> Any:
+        # The fake providers of older tests have no `login_source`.
+        sources = dict.fromkeys(getattr(target.probe, "login_source", "test") for target in targets)
+        return [CheckResult(source, check._logins.company, CheckState.OK, "bot@example.test") for source in sources]
+
+    monkeypatch.setattr(LoginCheck, "check", passed)
+
+
+@pytest.fixture
+def fake_sources(monkeypatch: pytest.MonkeyPatch) -> Any:
+    """`auth` and `doctor` check `FakeProbe` adapters, and the run reads no resource: no
+    network. Set a probe with `fake_sources.probe(FakeProbe("jira", refused=...))`."""
+    from tests.unit.fake_logins import FakeSources
+
+    sources = FakeSources()
+    monkeypatch.setattr("briar.extract.login_probes.SourceProbes.target", lambda probes, source: sources.target(source))
+    monkeypatch.setattr("briar.commands.auth.AuthChoices.run_targets", lambda choices, logins: [])
+    monkeypatch.setattr("briar.commands.extract.ExtractPlan.run_targets", lambda plan: [])
+    return sources
+
+
+@pytest.fixture
 def tmp_root(tmp_path: Path) -> Path:
     """A `tmp_path` with the directory shape briar commands expect.
 

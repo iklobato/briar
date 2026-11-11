@@ -66,6 +66,7 @@ class CommandRunbook(Command):
         scheduler = RunbookScheduler(directory)
         for entry in scheduler.register_all():
             log.info("registered company=%s task=%s every=%r", entry.company, entry.task, entry.every)
+        scheduler.check_logins()
         scheduler.run_forever(TICK_SECONDS)
         return 0
 

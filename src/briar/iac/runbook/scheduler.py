@@ -24,6 +24,7 @@ from typing import List, Optional
 
 import schedule
 
+from briar.auth.check import CheckResult, LoginCheckFailed
 from briar.errors import ConfigError
 
 
@@ -114,6 +115,21 @@ class RunbookScheduler:
         self._dir = directory
         self._jobs: List[RegisteredJob] = []
         self._stop_event = threading.Event()
+        # A failed login check of a job; `run_forever` raises it after the loop stops (J8).
+        self._login_failures: List[LoginCheckFailed] = []
+
+    def check_logins(self) -> None:
+        """J8: every company and task of every runbook passes the login check before
+        `serve` starts, or it does not start."""
+        from briar.extract import EXTRACTORS
+        from briar.iac.runbook import load_runbook_file
+        from briar.iac.runbook.executor import RunbookLoginCheck, RunSelection
+
+        found: List[CheckResult] = []
+        for path in sorted(self._dir.glob("*.yaml")):
+            found.extend(RunbookLoginCheck(load_runbook_file(path), EXTRACTORS).results(RunSelection()))
+        if not all(line.passed() for line in found):
+            raise LoginCheckFailed.from_results(found)
 
     def register_all(self) -> List[RegisteredJob]:
         """Walk YAMLs + register one job per (company, task).
@@ -180,11 +196,19 @@ class RunbookScheduler:
                 rows = extract_runbook(runbook, task, company=company)
                 for row in rows:
                     log.info("result task=%s company=%s status=%s output=%s", row.task, row.company, row.status, row.output)
+            except LoginCheckFailed as failure:
+                self._stop_on(failure)
             except Exception:  # noqa: BLE001 — must not abort the loop
                 # logger.exception() includes the full traceback in the log.
                 log.exception("FAILED task=%s company=%s yaml=%s", task, company, yaml_path.name)
 
         return _job
+
+    def _stop_on(self, failure: LoginCheckFailed) -> None:
+        """J8: a login that fails its check, the network included, stops `serve`."""
+        log.error("login check failed, serve stops: %s", failure)
+        self._login_failures.append(failure)
+        self.stop()
 
     def jobs(self) -> List[RegisteredJob]:
         return list(self._jobs)
@@ -201,6 +225,8 @@ class RunbookScheduler:
                 log.exception("schedule.run_pending() raised; loop continues")
             self._stop_event.wait(tick_seconds)
         log.info("scheduler stopped (stop_event set)")
+        if self._login_failures:
+            raise self._login_failures[0]
 
     def stop(self) -> None:
         self._stop_event.set()

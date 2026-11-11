@@ -21,6 +21,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import ClassVar, List, Optional
 
+from briar.auth.check import LoginRejected
+
 log = logging.getLogger(__name__)
 
 
@@ -106,6 +108,16 @@ class MeetingProvider(ABC):
     and the extractor skips silently (matches `TrackerProvider`)."""
 
     kind: ClassVar[str] = ""
+    # The login source the check before a run asks (spec 005 PR 3, J4); each adapter sets it.
+    login_source: ClassVar[str] = ""
+
+    def who_am_i(self) -> str:
+        """The account of the login, asked of the source itself (the login check, J1)."""
+        raise LoginRejected(f"{self.kind} has no login check")
+
+    def read(self, resource: str) -> None:
+        """Read one resource a run uses (a repo, a project), to prove the access (J5)."""
+        raise LoginRejected(f"{self.kind} has no resource {resource!r} to read")
 
     @abstractmethod
     def is_available(self) -> bool:

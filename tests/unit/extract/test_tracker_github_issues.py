@@ -269,9 +269,6 @@ class AvailabilityAndLabelTests(unittest.TestCase):
     def test_is_available_true_with_token(self) -> None:
         self.assertTrue(GithubIssuesTracker(logins=FakeLogins(environ={"BRIAR_ACME_GITHUB_TOKEN": "PLACEHOLDER-not-a-secret"}).logins()).is_available())
 
-    def test_is_available_false_without_token(self) -> None:
-        self.assertFalse(GithubIssuesTracker(logins=FakeLogins().logins()).is_available())
-
     def test_kind_priority_first_match_wins(self) -> None:
         kind, priority = _kind_priority_from_labels(["story", "bug", "P1", "priority/low"])
         self.assertEqual(kind, "story")  # first kind label wins

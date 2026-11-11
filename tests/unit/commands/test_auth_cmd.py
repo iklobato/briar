@@ -9,11 +9,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
+import pytest
 from pytest_mock import MockerFixture
 
 from briar.auth import MockPromptIO
+from tests.unit.fake_logins import FakeProbe
 
 FAKE_SECRET = "ACCESS-TOKEN-PLACEHOLDER-not-a-secret"
 CLI_ERROR = 1
@@ -61,6 +63,7 @@ class AwsConfig:
         mocker.patch("briar.auth.logins.AwsLogin._profiles", return_value=self.profiles)
 
 
+@pytest.mark.usefixtures("fake_sources")
 class TestPastedLogin:
     def test_saves_the_value_and_never_prints_it(self, cli: Callable[..., SimpleNamespace], mocker: MockerFixture) -> None:
         seam = Terminal(answers=[FAKE_SECRET]).install(mocker)
@@ -83,6 +86,7 @@ class TestPastedLogin:
         assert FAKE_SECRET not in run.out
 
 
+@pytest.mark.usefixtures("fake_sources")
 class TestCliLogin:
     def test_aws_sso_profile_runs_aws_sso_login_and_saves_nothing(self, cli: Callable[..., SimpleNamespace], mocker: MockerFixture, tmp_path: Path) -> None:
         """I1: the CLI keeps the login; briar writes nothing (L3)."""
@@ -97,6 +101,18 @@ class TestCliLogin:
         assert seam.prompt.commands == ["aws sso login --profile acme-sso"]
         assert seam.store.writes == []
         assert "briar saved nothing" in run.out
+
+    def test_the_cli_login_is_checked_after_it_runs(self, cli: Callable[..., SimpleNamespace], mocker: MockerFixture, fake_sources: Any) -> None:
+        """J9: "who am I" after `aws sso login`; a refused login exits 1."""
+        mocker.patch("briar.config.load_project_config", return_value={"auth": {"aws": {"profile": "acme-sso"}}})
+        AwsConfig({"acme-sso": {"sso_session": "acme"}}).install(mocker)
+        seam = Terminal().install(mocker)
+        fake_sources.probe(FakeProbe("aws", refused="The SSO session associated with this profile has expired"))
+
+        run = cli("auth", "login", "aws", "--company", "acme")
+
+        assert (run.code, seam.prompt.commands) == (1, ["aws sso login --profile acme-sso"])
+        assert "  - aws (acme): the login was refused (The SSO session associated with this profile has expired)" in run.out
 
     def test_aws_static_profile_runs_aws_configure(self, cli: Callable[..., SimpleNamespace], mocker: MockerFixture, tmp_path: Path) -> None:
         """I5: a profile with no SSO keys gets `aws configure`."""

@@ -10,14 +10,15 @@ import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 import yaml
 from pydantic import ValidationError
 
+from briar.auth.check import CheckResult, LoginCheck, LoginCheckFailed, LoginTarget
 from briar.auth.logins import CompanyLogins, LoginScope
 from briar.errors import ConfigError
-from briar.extract.base import ExtractedSection
+from briar.extract.base import ExtractedSection, KnowledgeExtractor
 from briar.extract.canonical import apply_canonical
 from briar.iac.runbook.models import CompanyEntry, ExtractEntry, KnowledgeBinding, RunbookFile, ScheduleEntry
 from briar.log_context import log_context
@@ -107,6 +108,81 @@ class RunbookSchedules:
         return items
 
 
+@dataclass(frozen=True)
+class RunSelection:
+    """Which companies and tasks of a runbook one run takes (None: all)."""
+
+    task: Optional[str] = None
+    company: Optional[str] = None
+
+    def companies(self, runbook_file: RunbookFile) -> List[str]:
+        return [name for name in runbook_file.companies if self.company is None or name == self.company]
+
+    def schedules(self, company: CompanyEntry) -> List[ScheduleEntry]:
+        return [schedule for schedule in RunbookSchedules.for_company(company) if self.task is None or schedule.task == self.task]
+
+
+class RunbookLogins:
+    """The logins of each runbook company, from its `auth:` block only (G3)."""
+
+    def __init__(self, runbook_file: RunbookFile) -> None:
+        self._runbook_file = runbook_file
+
+    def company(self, name: str) -> CompanyLogins:
+        scope = LoginScope(name, "the runbook", f"companies.{name}.auth", runbook="FILE")
+        return CompanyLogins(scope, self._runbook_file.companies[name].auth, os.environ)
+
+
+class EntryNamespace:
+    """The namespace of one `extract:` entry of a runbook company, with its logins (spec 005)."""
+
+    def __init__(self, logins: CompanyLogins) -> None:
+        self._logins = logins
+
+    def build(self, entry: ExtractEntry, extractor: KnowledgeExtractor) -> argparse.Namespace:
+        seed = argparse.ArgumentParser(add_help=False)
+        extractor.add_arguments(seed)
+        namespace = seed.parse_args([])
+        # `company` stays overridable through the YAML args: explicit beats implicit.
+        namespace.company = self._logins.company
+        namespace.logins = self._logins
+        for key, value in entry.args.items():
+            setattr(namespace, key, value)
+        # The canonical keys (repo/max/top_n/...) fan out to each extractor's own dests,
+        # as on the `briar extract` command line; own keys in entry.args still win.
+        apply_canonical(namespace, extractor)
+        return namespace
+
+
+class RunbookLoginCheck:
+    """The login check of a runbook before any task runs (spec 005, J7): every company
+    and task the run takes, each source with the resources its extractors read."""
+
+    def __init__(self, runbook_file: RunbookFile, registry: Mapping[str, KnowledgeExtractor]) -> None:
+        self._runbook_file = runbook_file
+        self._registry = registry
+
+    def results(self, selection: RunSelection) -> List[CheckResult]:
+        found: List[CheckResult] = []
+        for name in selection.companies(self._runbook_file):
+            logins = RunbookLogins(self._runbook_file).company(name)
+            schedules = selection.schedules(self._runbook_file.companies[name])
+            found.extend(LoginCheck(logins).check(self.targets(logins, schedules)))
+        return found
+
+    def require(self, selection: RunSelection) -> None:
+        found = self.results(selection)
+        if not all(line.passed() for line in found):
+            raise LoginCheckFailed.from_results(found)
+
+    def targets(self, logins: CompanyLogins, schedules: Sequence[ScheduleEntry]) -> List[LoginTarget]:
+        namespaces = EntryNamespace(logins)
+        entries = [entry for schedule in schedules for entry in schedule.extract if entry.name in self._registry]
+        steps = [(self._registry[entry.name], namespaces.build(entry, self._registry[entry.name])) for entry in entries]
+        found = [extractor.login_target(namespace) for extractor, namespace in steps if extractor.is_available(namespace)]
+        return [target for target in found if target is not None]
+
+
 class RunbookExtractor:
     """Runs the extractors. `task` is the filter — empty string runs
     every schedule; a non-empty value runs only the matching task."""
@@ -130,6 +206,8 @@ class RunbookExtractor:
         company_filter: Optional[str] = company or None
 
         rows: List[ExtractRow] = []
+        # J7: every company and task of this run passes the login check, or nothing runs.
+        RunbookLoginCheck(runbook_file, EXTRACTORS).require(RunSelection(task_filter, company_filter))
         log.info("runbook-extract: starting companies=%d task_filter=%r", len(runbook_file.companies), task_filter or "(all)")
         for company_name, company in runbook_file.companies.items():
             if company_filter is not None and company_name != company_filter:
@@ -147,9 +225,7 @@ class RunbookExtractor:
                 binding = cls._binding_for(company, company_name)
                 log.debug("runbook-extract: knowledge binding store=%s name=%s root=%s", binding.store, binding.name, binding.root or "(default)")
 
-                logins = CompanyLogins(
-                    LoginScope(company_name, "the runbook", f"companies.{company_name}.auth"), runbook_file.companies[company_name].auth, os.environ
-                )
+                logins = RunbookLogins(runbook_file).company(company_name)
                 for schedule in schedules:
                     with log_context(task=schedule.task):
                         cls._run_schedule(
@@ -372,30 +448,17 @@ class RunbookExtractor:
         logins: CompanyLogins,
     ) -> List[ExtractedSection]:
         sections: List[ExtractedSection] = []
+        namespaces = EntryNamespace(logins)
         for entry in extract_list:
             with log_context(extractor=entry.name):
                 extractor = registry.get(entry.name)
                 if extractor is None:
                     log.warning("extractor-skip: not found in registry (known: %s)", sorted(registry.keys()) if hasattr(registry, "keys") else "?")
                     continue
-                seed = argparse.ArgumentParser(add_help=False)
-                extractor.add_arguments(seed)
-                ns = seed.parse_args([])
-                # The company and its logins (spec 005), so each adapter reads the
-                # login of this runbook company. `company` stays overridable via the
-                # YAML args dict: explicit beats implicit.
-                setattr(ns, "company", logins.company)
-                setattr(ns, "logins", logins)
-                for k, v in entry.args.items():
-                    setattr(ns, k, v)
-                # Let runbook YAML use the canonical keys (repo/max/top_n/…)
-                # too — they fan out to each extractor's private dests, same
-                # as the `briar extract` CLI. Private keys in entry.args still
-                # win (they're non-default after the setattr loop above).
-                apply_canonical(ns, extractor)
+                ns = namespaces.build(entry, extractor)
                 log.debug("extractor-args: %s", _summarise_args(entry.args))
                 if not extractor.is_available(ns):
-                    log.warning("extractor-skip: is_available() returned False — likely missing credentials")
+                    log.warning("extractor-skip: is_available() returned False (no repo, project or SDK)")
                     continue
                 started = time.perf_counter()
                 try:

@@ -15,6 +15,9 @@ from time_machine import TimeMachineFixture
 from briar.config import load_project_config
 from briar.extract.base import ExtractedSection, empty_section
 
+# The login check passes: these tests are about what a run does after it (spec 005 PR 3).
+pytestmark = pytest.mark.usefixtures("logins_pass")
+
 
 @pytest.fixture(autouse=True)
 def run_in_tmp_root(tmp_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:

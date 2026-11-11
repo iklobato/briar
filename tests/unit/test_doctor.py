@@ -1,42 +1,18 @@
-"""briar doctor health checks."""
+"""briar doctor health checks (the login lines: spec 005 G14, G15, J10 to J12).
+
+The login lines check `FakeProbe` adapters (`fake_sources`): no network."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
 import pytest
 
-from briar.doctor import OK, WARN, run_checks, worst_status
+from briar.doctor import FAIL, OK, WARN, Check, run_checks, worst_status
+from tests.unit.fake_logins import FakeProbe
 
-
-def _by_name(checks):
-    return {c.name: c for c in checks}
-
-
-def test_checks_ok_when_environment_is_set_up(monkeypatch, tmp_path):
-    cfg = tmp_path / ".briar.toml"
-    cfg.write_text('company = "acme"\n')
-    monkeypatch.setattr("briar.config.find_config_file", lambda *a, **k: cfg)
-    monkeypatch.setattr("briar.infer.git_remote_slug", lambda cwd=None: ("acme", "app"))
-    monkeypatch.setenv("BRIAR_ACME_GITHUB_TOKEN", "PLACEHOLDER-not-a-secret")
-    checks = _by_name(run_checks())
-    assert "llm key" not in checks
-    assert "store" not in checks  # the file store is the only one since 2.0
-    assert checks["project config"].status == OK
-    assert checks["git remote"].status == OK
-    assert checks["github login"].status == OK
-    assert worst_status(list(checks.values())) == OK
-
-
-def test_missing_creds_and_config_warn(monkeypatch):
-    monkeypatch.setattr("briar.config.find_config_file", lambda *a, **k: None)
-    monkeypatch.setattr("briar.infer.git_remote_slug", lambda cwd=None: None)
-    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-    checks = _by_name(run_checks())
-    assert checks["project config"].status == WARN
-    assert checks["git remote"].status == WARN
-    assert checks["github login"].status == WARN
+FAKE_SECRET = "PLACEHOLDER-not-a-secret"
 
 
 class FoundConfig:
@@ -49,18 +25,97 @@ class FoundConfig:
         return self._path
 
 
-class TestGithubLogin:
-    def test_a_1x_github_token_gets_the_new_place(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-        """G25: briar no longer reads $GITHUB_TOKEN; doctor says where the token goes now."""
-        config = tmp_path / ".briar.toml"
-        config.write_text('company = "acme"\n')
-        monkeypatch.setattr("briar.config.find_config_file", FoundConfig(config).find)
-        monkeypatch.setenv("GITHUB_TOKEN", "fake-1x-token")
-        monkeypatch.delenv("BRIAR_ACME_GITHUB_TOKEN", raising=False)
+class NoConfig:
+    """Stands in for `briar.config.find_config_file`: finds nothing."""
 
-        github = _by_name(run_checks())["github login"]
+    def find(self, start: Optional[Path] = None) -> Optional[Path]:
+        return None
+
+
+class Project:
+    """A `.briar.toml` in `tmp_path`, found by doctor, with a git origin."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        self._monkeypatch = monkeypatch
+        self._tmp_path = tmp_path
+
+    def write(self, text: str) -> Dict[str, Check]:
+        config = self._tmp_path / ".briar.toml"
+        config.write_text(text)
+        self._monkeypatch.setattr("briar.config.find_config_file", FoundConfig(config).find)
+        self._monkeypatch.setattr("briar.infer.git_remote_slug", lambda cwd=None: ("acme", "app"))
+        return {check.name: check for check in run_checks()}
+
+
+@pytest.fixture
+def project(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_sources: Any) -> Project:
+    return Project(monkeypatch, tmp_path)
+
+
+class TestOfflineChecks:
+    def test_checks_ok_when_environment_is_set_up(self, project: Project, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("BRIAR_ACME_GITHUB_TOKEN", FAKE_SECRET)
+
+        checks = project.write('company = "acme"\n')
+
+        assert ("llm key" in checks, "store" in checks) == (False, False)
+        assert [checks[name].status for name in ("project config", "git remote", "github login")] == [OK, OK, OK]
+        assert checks["github login"].detail == "github (acme): bot@example.test"
+        assert worst_status(list(checks.values())) == OK
+
+    def test_no_config_and_no_company_warn(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("briar.config.find_config_file", NoConfig().find)
+        monkeypatch.setattr("briar.infer.git_remote_slug", lambda cwd=None: None)
+
+        checks = {check.name: check for check in run_checks()}
+
+        assert [checks[name].status for name in ("project config", "git remote", "logins")] == [WARN, WARN, WARN]
+        assert checks["logins"].detail == "no company: set `company` in .briar.toml to check its logins"
+
+
+class TestLoginLines:
+    """J10: every configured source; J12: no secret is `fail`; G15: network is `warn`."""
+
+    def test_a_block_with_no_secret_fails_with_the_login_to_run(self, project: Project) -> None:
+        checks = project.write('company = "acme"\n[auth.jira]\nsite = "acme.atlassian.net"\n')
+
+        jira = checks["jira login"]
+        assert (jira.status, jira.detail) == (FAIL, "jira (acme): no login saved (BRIAR_ACME_JIRA_EMAIL, BRIAR_ACME_JIRA_TOKEN); run `briar auth login jira --company acme`")
+
+    def test_a_1x_github_token_fails_with_the_new_place(self, project: Project, monkeypatch: pytest.MonkeyPatch) -> None:
+        """G25: briar no longer reads $GITHUB_TOKEN; doctor says where the token goes now."""
+        monkeypatch.setenv("GITHUB_TOKEN", "fake-1x-token")
+
+        github = project.write('company = "acme"\n')["github login"]
 
         assert (github.status, github.detail) == (
-            WARN,
-            '`GITHUB_TOKEN` is a 1.x name: use `BRIAR_ACME_GITHUB_TOKEN` with `method = "token"`. Or run `briar auth login github --company acme`',
+            FAIL,
+            'github (acme): `GITHUB_TOKEN` is a 1.x name: use `BRIAR_ACME_GITHUB_TOKEN` with `method = "token"`. Or run `briar auth login github --company acme`',
         )
+
+    def test_a_network_error_warns(self, project: Project, monkeypatch: pytest.MonkeyPatch, fake_sources: Any) -> None:
+        monkeypatch.setenv("BRIAR_ACME_FIREFLIES_API_KEY", FAKE_SECRET)
+        fake_sources.probe(FakeProbe("fireflies", unreachable="no connection"))
+
+        fireflies = project.write('company = "acme"\n')["fireflies login"]
+
+        assert (fireflies.status, fireflies.detail) == (WARN, "fireflies (acme): could not reach it (no connection)")
+
+    def test_a_refused_login_fails(self, project: Project, monkeypatch: pytest.MonkeyPatch, fake_sources: Any) -> None:
+        monkeypatch.setenv("BRIAR_ACME_FIREFLIES_API_KEY", FAKE_SECRET)
+        fake_sources.probe(FakeProbe("fireflies", refused="HTTP 401: Unauthorized"))
+
+        checks = project.write('company = "acme"\n')
+
+        assert (checks["fireflies login"].status, worst_status(list(checks.values()))) == (FAIL, FAIL)
+
+    def test_nothing_configured_warns(self, project: Project) -> None:
+        logins = project.write('company = "acme"\n')["logins"]
+
+        assert (logins.status, logins.detail) == (WARN, "no login configured for acme: run `briar auth login <source> --company acme`")
+
+    def test_a_bad_extract_config_fails(self, project: Project) -> None:
+        logins = project.write('company = "acme"\n[extract]\nnope = 1\n')["logins"]
+
+        assert logins.status == FAIL
+        assert logins.detail.startswith("`extract.nope` in ")

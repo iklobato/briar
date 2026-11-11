@@ -35,7 +35,6 @@ import pytest
 
 from briar.extract._tracker import Comment, Ticket
 from briar.auth.logins import JiraLogin
-from briar.errors import CliError
 from briar.extract._trackers._jira_auth import JiraAuthStrategy
 from briar.extract._trackers.jira import JiraTracker
 from tests.unit.fake_logins import FakeLogins
@@ -381,14 +380,6 @@ class AdfAndAvailabilityTests(unittest.TestCase):
 
     def test_is_available_with_the_site_and_the_login(self) -> None:
         self.assertTrue(_tracker(environ=TokenLogin().environ()).is_available())
-
-    def test_is_not_available_without_a_login(self) -> None:
-        self.assertFalse(_tracker().is_available())
-
-    def test_a_login_without_the_site_stops(self) -> None:
-        with self.assertRaises(CliError) as caught:
-            _tracker(auth={}, environ=TokenLogin().environ()).is_available()
-        self.assertEqual(str(caught.exception), "set `site` under `auth.jira` in .briar.toml (briar jira login for acme)")
 
     def test_jira_client_built_lazily_with_auth_kwargs(self) -> None:
         # `_jira()` splats the auth strategy's configure() kwargs into

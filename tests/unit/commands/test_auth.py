@@ -1,16 +1,17 @@
-"""`briar auth`: dispatch and `status` (decision C15; spec 005 G9, I7).
+"""`briar auth`: dispatch and `status` (decision C15; spec 005 G9, G14, J11, J13, J14).
 
-`status` with no source lists the names held; with a source it lists what that
-login needs. The pasted sources check their secret names; the CLI sources
-(`aws`, `gcp`, `azure`) check this machine, offline."""
+`status` with a source checks that login live; with a company and no source it
+checks every configured login; with neither it lists the names held. The
+sources are `FakeProbe` adapters (`fake_sources`): no network."""
 
 from __future__ import annotations
 
-from pathlib import Path
 from types import SimpleNamespace
-from typing import Callable
+from typing import Any, Callable
 
 import pytest
+
+from tests.unit.fake_logins import FakeProbe
 
 USAGE_ERROR = 2
 FAKE_SECRET = "PLACEHOLDER-not-a-secret"
@@ -21,72 +22,81 @@ class TestUnknownAction:
         assert cli("auth", "make-up").code == USAGE_ERROR
 
 
-class TestStatusWithoutTarget:
-    """`auth status` with no source lists every credential name held, as 1.x `auth list` did."""
-
-    def test_empty_store_says_no_credentials(self, cli: Callable[..., SimpleNamespace], monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("BRIAR_ACME_JIRA_TOKEN", raising=False)
-
-        run = cli("auth", "status", "--company", "nobody")
-
-        assert run.code == 0
-        assert "no credentials" in run.out
-
-    def test_company_filter_substring(self, cli: Callable[..., SimpleNamespace], monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("BRIAR_ACME_JIRA_TOKEN", FAKE_SECRET)
-        monkeypatch.setenv("BRIAR_OTHER_JIRA_TOKEN", FAKE_SECRET)
-
-        run = cli("auth", "status", "--company", "acme")
-
-        assert run.code == 0
-        assert "BRIAR_ACME_JIRA_TOKEN" in run.out
-        assert "BRIAR_OTHER_JIRA_TOKEN" not in run.out
+class TestStatusWithoutCompany:
+    """No source and no company: every credential name held, as 1.x `auth list` did."""
 
     def test_names_only_never_values(self, cli: Callable[..., SimpleNamespace], monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("BRIAR_ACME_FIREFLIES_API_KEY", FAKE_SECRET)
 
         run = cli("auth", "status")
 
+        assert run.code == 0
         assert "BRIAR_ACME_FIREFLIES_API_KEY" in run.out
         assert FAKE_SECRET not in run.out
 
 
-class TestStatusOfAPastedLogin:
-    def test_a_missing_secret_is_miss_and_exit_1(self, cli: Callable[..., SimpleNamespace], monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("BRIAR_ACME_FIREFLIES_API_KEY", raising=False)
-
-        run = cli("auth", "status", "fireflies", "--company", "acme")
-
-        assert run.code == 1
-        assert "MISS  BRIAR_ACME_FIREFLIES_API_KEY" in run.out
-
-    def test_a_saved_secret_is_ok_and_exit_0(self, cli: Callable[..., SimpleNamespace], monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.usefixtures("fake_sources")
+class TestStatusOfASource:
+    def test_a_login_that_passes_shows_the_account(self, cli: Callable[..., SimpleNamespace], monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("BRIAR_ACME_FIREFLIES_API_KEY", FAKE_SECRET)
 
         run = cli("auth", "status", "fireflies", "--company", "acme")
 
-        assert run.code == 0
-        assert "ok    BRIAR_ACME_FIREFLIES_API_KEY" in run.out
+        assert (run.code, run.out.splitlines()[-1]) == (0, "  ok           fireflies (acme): bot@example.test")
 
+    def test_a_missing_login_fails_with_its_fix(self, cli: Callable[..., SimpleNamespace]) -> None:
+        run = cli("auth", "status", "fireflies", "--company", "acme")
 
-class TestStatusOfACliLogin:
-    """I7: before the live check of PR 3, the CLI on PATH and the local login state."""
+        assert run.code == 1
+        assert (
+            run.out.splitlines()[-1]
+            == "  failed       fireflies (acme): no login saved (BRIAR_ACME_FIREFLIES_API_KEY); run `briar auth login fireflies --company acme`"
+        )
 
-    def test_aws_without_the_cli_and_without_a_profile(self, cli: Callable[..., SimpleNamespace], monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-        monkeypatch.setenv("PATH", str(tmp_path))
+    def test_a_refused_login_exits_1(self, cli: Callable[..., SimpleNamespace], monkeypatch: pytest.MonkeyPatch, fake_sources: Any) -> None:
+        monkeypatch.setenv("BRIAR_ACME_FIREFLIES_API_KEY", FAKE_SECRET)
+        fake_sources.probe(FakeProbe("fireflies", refused="HTTP 401: Unauthorized"))
+
+        run = cli("auth", "status", "fireflies", "--company", "acme")
+
+        assert (run.code, "the login was refused (HTTP 401: Unauthorized)" in run.out) == (1, True)
+
+    def test_a_network_error_is_shown_and_exits_0(self, cli: Callable[..., SimpleNamespace], monkeypatch: pytest.MonkeyPatch, fake_sources: Any) -> None:
+        """J14: as in `doctor`, so `auth status` still works offline."""
+        monkeypatch.setenv("BRIAR_ACME_FIREFLIES_API_KEY", FAKE_SECRET)
+        fake_sources.probe(FakeProbe("fireflies", unreachable="no connection"))
+
+        run = cli("auth", "status", "fireflies", "--company", "acme")
+
+        assert (run.code, run.out.splitlines()[-1]) == (0, "  unreachable  fireflies (acme): could not reach it (no connection)")
+
+    def test_a_cloud_with_no_value_uses_its_default_chain(self, cli: Callable[..., SimpleNamespace], fake_sources: Any) -> None:
+        fake_sources.probe(FakeProbe("aws", account="arn:aws:sts::000000000000:assumed-role/ro"))
 
         run = cli("auth", "status", "aws", "--company", "acme")
 
-        assert run.code == 1
-        assert "MISS  `aws` on PATH" in run.out
-        assert "ok    no `profile` under [auth.aws]: runs use the boto3 default chain" in run.out
+        assert (run.code, run.out.splitlines()[-1]) == (0, "  ok           aws (acme): arn:aws:sts::000000000000:assumed-role/ro")
 
-    def test_gcp_names_the_missing_adc_file_and_project(self, cli: Callable[..., SimpleNamespace], monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-        monkeypatch.setenv("PATH", str(tmp_path))
-        monkeypatch.setenv("HOME", str(tmp_path))
 
-        run = cli("auth", "status", "gcp", "--company", "acme")
+@pytest.mark.usefixtures("fake_sources")
+class TestStatusOfACompany:
+    """J13: no source and a company: every configured login, live."""
 
-        assert run.code == 1
-        assert f"MISS  ADC file in {tmp_path}/.config/gcloud" in run.out
-        assert "MISS  `project` under [auth.gcp]" in run.out
+    def test_each_configured_source_gets_a_line(self, cli: Callable[..., SimpleNamespace], monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("BRIAR_ACME_FIREFLIES_API_KEY", FAKE_SECRET)
+        monkeypatch.setenv("BRIAR_ACME_LINEAR_API_KEY", FAKE_SECRET)
+        monkeypatch.setenv("BRIAR_OTHER_JIRA_TOKEN", FAKE_SECRET)
+
+        run = cli("auth", "status", "--company", "acme")
+
+        assert run.code == 0
+        assert run.out.splitlines() == [
+            "auth-status: company=acme sources=linear, fireflies",
+            "  ok           linear (acme): bot@example.test",
+            "  ok           fireflies (acme): bot@example.test",
+        ]
+
+    def test_a_company_with_nothing_configured_says_so(self, cli: Callable[..., SimpleNamespace]) -> None:
+        run = cli("auth", "status", "--company", "nobody")
+
+        assert (run.code, run.out.splitlines()) == (0, ["auth-status: company=nobody sources=(none configured)"])

@@ -7,10 +7,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
+from functools import partial
 from typing import Any, Dict, List, Optional, Tuple
 
 from briar.auth.logins import BitbucketLogin, CompanyLogins
 from briar.decorators import swallow_errors
+from briar.extract._login_failures import RequestsFailures
 from briar.extract._tracker import Comment, Ticket, TrackerProvider
 
 
@@ -19,6 +21,7 @@ log = logging.getLogger(__name__)
 
 class BitbucketIssuesTracker(TrackerProvider):
     kind = "bitbucket-issues"
+    login_source = "bitbucket"
     project_is_repo_slug = True
     BASE = "https://api.bitbucket.org/"
 
@@ -45,7 +48,23 @@ class BitbucketIssuesTracker(TrackerProvider):
         return self._login().workspace(), project
 
     def is_available(self) -> bool:
-        return self._login().ready()
+        """The login is the job of the check before the run (spec 005, J15)."""
+        return True
+
+    def who_am_i(self) -> str:
+        login = self._login()
+        if not login.has_user():
+            return f"an access token of {login.workspace()}"
+        return RequestsFailures().account(self._user_name)
+
+    def read(self, resource: str) -> None:
+        """Reads the workspace, then the repository (J5)."""
+        workspace_slug, repo_slug = self._resolve_addr(resource)
+        RequestsFailures().read(partial(self._cloud().workspaces.get(workspace_slug).repositories.get, repo_slug))
+
+    def _user_name(self) -> str:
+        user = self._cloud().get("user")
+        return str(user.get("username") or user.get("display_name") or "")
 
     @swallow_errors(default=[], message="bitbucket-issues list_tickets")
     def list_tickets(self, project: str, *, state: str, max_count: int) -> List[Ticket]:

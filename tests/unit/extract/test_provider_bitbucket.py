@@ -442,10 +442,6 @@ class SeamTests(unittest.TestCase):
     def test_is_available_requires_all_creds(self) -> None:
         self.assertTrue(_provider(environ=TokenLogin().environ()).is_available())
 
-    def test_is_available_false_when_incomplete(self) -> None:
-        self.assertFalse(_provider(environ={"BRIAR_ACME_BITBUCKET_EMAIL": "bot@example.test"}).is_available())
-
-
 @pytest.mark.boundary
 class CloudConstructionTests(unittest.TestCase):
     """`_cloud()` takes basic auth or Bearer from the `[auth.bitbucket] method` (H2)."""

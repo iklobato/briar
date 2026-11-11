@@ -82,6 +82,7 @@ class TestServe:
     def test_serve_default_tick_is_one(self, cli, mocker, tmp_path) -> None:
         fake_scheduler = SimpleNamespace(
             register_all=mocker.MagicMock(return_value=[]),
+            check_logins=mocker.MagicMock(),
             run_forever=mocker.MagicMock(),
         )
         mocker.patch("briar.commands.runbook.RunbookScheduler", return_value=fake_scheduler)

@@ -14,11 +14,14 @@ import json
 import logging
 import urllib.request
 from dataclasses import replace
+from functools import partial
 from typing import Any, Dict, List, Optional
 
 from briar._http_retry import urlopen_with_retry
+from briar.auth.check import LoginRejected
 from briar.auth.logins import CompanyLogins, LinearLogin
 from briar.decorators import swallow_errors
+from briar.extract._login_failures import UrllibFailures
 from briar.extract._tracker import Comment, Ticket, TrackerProvider
 
 
@@ -36,6 +39,7 @@ _STATE_TYPES_CLOSED = ("completed", "cancelled")
 
 class LinearTracker(TrackerProvider):
     kind = "linear"
+    login_source = "linear"
 
     def __init__(self, *, logins: Optional[CompanyLogins] = None) -> None:
         self._logins = logins
@@ -44,7 +48,23 @@ class LinearTracker(TrackerProvider):
         return (self._logins or CompanyLogins.defaults("")).linear()
 
     def is_available(self) -> bool:
-        return self._login().ready()
+        """The login is the job of the check before the run (spec 005, J15)."""
+        return True
+
+    def who_am_i(self) -> str:
+        return UrllibFailures().account(self._viewer)
+
+    def read(self, resource: str) -> None:
+        UrllibFailures().read(partial(self._team, resource))
+
+    def _viewer(self) -> str:
+        viewer = self._gql("query { viewer { email name } }", {})["data"]["viewer"]
+        return str(viewer.get("email") or viewer.get("name") or "")
+
+    def _team(self, key: str) -> None:
+        query = "query Team($key: String!) { teams(filter: { key: { eq: $key } }) { nodes { id } } }"
+        if not self._gql(query, {"key": key})["data"]["teams"]["nodes"]:
+            raise LoginRejected(f"no Linear team with key {key!r}")
 
     @swallow_errors(default=[], message="linear list_tickets")
     def list_tickets(self, project: str, *, state: str, max_count: int) -> List[Ticket]:

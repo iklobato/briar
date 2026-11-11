@@ -26,7 +26,6 @@ from unittest import mock
 
 import pytest
 
-from briar.errors import CliError
 from briar.extract._tracker import Comment, Ticket
 from briar.extract._trackers.bitbucket import BitbucketIssuesTracker
 from tests.unit.fake_logins import FakeLogins
@@ -271,15 +270,6 @@ class AddrAndAvailabilityTests(unittest.TestCase):
 
     def test_is_available_with_the_login_and_the_workspace(self) -> None:
         self.assertTrue(_tracker(environ=TokenLogin().environ()).is_available())
-
-    def test_is_not_available_with_no_login(self) -> None:
-        self.assertFalse(_tracker().is_available())
-
-    def test_a_login_with_no_workspace_stops(self) -> None:
-        """H1: the run stops and says what to add where."""
-        with self.assertRaises(CliError) as caught:
-            _tracker(workspace="", environ=TokenLogin().environ()).is_available()
-        self.assertEqual(str(caught.exception), "set `workspace` under `auth.bitbucket` in .briar.toml (briar bitbucket login for acme)")
 
     def test_cloud_client_built_lazily_with_basic_auth(self) -> None:
         tracker = _tracker(environ={"BRIAR_ACME_BITBUCKET_EMAIL": "u", "BRIAR_ACME_BITBUCKET_TOKEN": "p"})

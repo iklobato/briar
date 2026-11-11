@@ -11,10 +11,13 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import replace
+from functools import partial
 from typing import Any, Dict, List, Optional
 
+from briar.auth.check import LoginRejected
 from briar.auth.logins import CompanyLogins, JiraLogin
 from briar.decorators import swallow_errors
+from briar.extract._login_failures import RequestsFailures
 from briar.extract._tracker import Comment, Ticket, TrackerProvider
 from briar.extract._trackers._jira_auth import JiraAuths, JiraAuthStrategy
 
@@ -44,6 +47,7 @@ _ADF_BLOCK_NODES = frozenset(
 
 class JiraTracker(TrackerProvider):
     kind = "jira"
+    login_source = "jira"
 
     def __init__(self, *, logins: Optional[CompanyLogins] = None, auth: Optional[JiraAuthStrategy] = None) -> None:
         """`auth` (tests) wins over the strategy of the login method."""
@@ -66,7 +70,20 @@ class JiraTracker(TrackerProvider):
         return self._client
 
     def is_available(self) -> bool:
-        return self._login().ready()
+        """The login is the job of the check before the run (spec 005, J15)."""
+        return True
+
+    def who_am_i(self) -> str:
+        return RequestsFailures().account(self._myself)
+
+    def read(self, resource: str) -> None:
+        if not _PROJECT_RE.match(resource):
+            raise LoginRejected(f"{resource!r} is not a Jira project key")
+        RequestsFailures().read(partial(self._jira().get_project, resource))
+
+    def _myself(self) -> str:
+        profile = self._jira().myself()
+        return str(profile.get("emailAddress") or profile.get("displayName") or profile.get("accountId") or "")
 
     @swallow_errors(default=[], message="jira list_tickets")
     def list_tickets(self, project: str, *, state: str, max_count: int) -> List[Ticket]:

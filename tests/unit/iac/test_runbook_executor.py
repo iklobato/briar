@@ -14,6 +14,8 @@ stop-vs-continue, or a dropped error branch makes these fail.
 
 from __future__ import annotations
 
+import argparse
+
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -25,6 +27,9 @@ from briar.extract.base import ExtractedSection
 from briar.iac.runbook.executor import ExtractRow, RunbookExtractor, RunbookLoader
 from briar.iac.runbook.models import CompanyEntry, ExtractEntry, KnowledgeBinding, RunbookFile, ScheduleEntry
 from tests.unit.fake_logins import FakeLogins
+
+# The login check passes: these tests are about what a run does after it (spec 005 PR 3).
+pytestmark = pytest.mark.usefixtures("logins_pass")
 
 # ── Fakes ────────────────────────────────────────────────────────────
 
@@ -47,6 +52,9 @@ class _FakeExtractor:
 
     def is_available(self, ns) -> bool:  # noqa: ANN001
         return self._available
+
+    def login_target(self, ns: argparse.Namespace) -> None:
+        return None
 
     def extract(self, ns) -> ExtractedSection:  # noqa: ANN001
         self.extract_calls += 1

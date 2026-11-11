@@ -37,13 +37,6 @@ class TrackerRegistryTests(unittest.TestCase):
         with self.assertRaises(CliError):
             make_tracker("notion", FakeLogins().logins())
 
-    def test_jira_unavailable_without_creds(self) -> None:
-        from briar.extract._trackers import make_tracker
-
-        with mock.patch.dict("os.environ", {}, clear=True):
-            tracker = make_tracker("jira", FakeLogins({"jira": {"site": "acme.atlassian.net"}}).logins())
-            self.assertFalse(tracker.is_available())
-
     def test_linear_list_tickets_translates_graphql_response(self) -> None:
         from briar.extract._trackers import make_tracker
 

@@ -17,10 +17,14 @@ Token: the caller passes the token of the company login
 from __future__ import annotations
 
 import logging
+import re
 import time
+from functools import partial
 from typing import Any, Dict, List
 
+from briar.auth.check import LoginRejected
 from briar.errors import CliError
+from briar.extract._login_failures import GithubFailures
 
 
 log = logging.getLogger(__name__)
@@ -33,9 +37,24 @@ class GithubApi:
     layer does all of that internally."""
 
     BASE = "https://api.github.com"
+    # owner/repo segments: GitHub allows alphanumerics, dot, hyphen, underscore.
+    REPO_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
 
     def __init__(self, token: str = "") -> None:
         self._token = token
+
+    def account(self) -> str:
+        """The login of the token (`GET /user`), for the login check (spec 005, J1)."""
+        return GithubFailures().account(self._user_login)
+
+    def read_repo(self, repo: str) -> None:
+        """`GET /repos/{repo}`: the token can see the repo (J5; GitHub answers 404 when it cannot)."""
+        if not self.REPO_NAME.match(repo):
+            raise LoginRejected(f"{repo!r} is not an owner/repo name")
+        GithubFailures().read(partial(self.get_json, f"/repos/{repo}"))
+
+    def _user_login(self) -> str:
+        return str(self.get_json("/user").get("login") or "")
 
     def _require_token(self) -> str:
         """The token of the company login (G11, G25: briar no longer reads $GITHUB_TOKEN)."""
