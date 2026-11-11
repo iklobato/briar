@@ -341,7 +341,8 @@ class ServeCompanies:
 
     def _company(self, path: Path, name: str, entry: Any) -> ServeCompany:
         scope = LoginScope(name, str(path), f"companies.{name}.auth")
-        root = Path(entry.knowledge.root or "./knowledge")
+        # Absolute: the agent runs in the worktree, where a path relative to here points nowhere.
+        root = Path(entry.knowledge.root or "./knowledge").resolve()
         state = WorkState(make_store("file", file_root=root), name, asyncio.Lock())
         return ServeCompany(name, entry.serve, CompanyLogins(scope, entry.auth, self._environ), state, root)
 

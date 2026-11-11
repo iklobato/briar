@@ -14,7 +14,7 @@ from briar.auth.check import CheckState, LoginCheckFailed
 from briar.errors import CliError
 from briar.extract._provider import CommentKind, PullState, ReviewComment
 from briar.serve.state import WorkEntry, WorkSource, WorkStatus
-from briar.serve.work import AgentSandbox, Marker, ModelLogin, PriorityRank, ServeCheck, ServeCompany, WorkFinder, WorkKind, WriteCheck
+from briar.serve.work import AgentSandbox, Marker, ModelLogin, PriorityRank, ServeCheck, ServeCompanies, ServeCompany, WorkFinder, WorkKind, WriteCheck
 from tests.unit.serve.fakes import Companies, FakeGithub, FakeIssues, FakeJira, FakeSources, Tickets
 
 PR_NUMBER = 12
@@ -238,3 +238,21 @@ class TestServeCheck:
 
     def test_the_model_login_takes_either_name(self) -> None:
         assert [ModelLogin({"CLAUDE_CODE_OAUTH_TOKEN": "x"}).problem(), ModelLogin({"ANTHROPIC_API_KEY": " "}).problem() != ""] == ["", True]
+
+
+class TestServeCompanies:
+    RUNBOOK = (
+        "version: 1\ncompanies:\n  acme:\n    knowledge:\n      store: file\n      name: knowledge:acme\n"
+        "    serve:\n      repos: [acme/app]\n      model: claude-test\n      max_usd: 1\n      max_loops: 1\n"
+        "      ci_wait_minutes: 1\n      max_review_rounds: 1\n"
+    )
+
+    def test_the_knowledge_path_is_absolute_so_the_agent_finds_it_from_its_worktree(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The agent runs in the worktree: a path relative to where `serve` started points nowhere there."""
+        (tmp_path / "runbooks").mkdir()
+        (tmp_path / "runbooks" / "acme.yaml").write_text(self.RUNBOOK)
+        monkeypatch.chdir(tmp_path)
+
+        (company,) = ServeCompanies(Path("runbooks"), {}).load()
+
+        assert company.knowledge_file() == tmp_path.resolve() / "knowledge" / "knowledge" / "acme.md"
