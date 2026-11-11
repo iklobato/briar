@@ -3,12 +3,15 @@ the CI state, the plan and the self-review answers, the budget, and the prompt f
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
+from typing import ClassVar, List, Optional
 
 import pytest
 
 from briar.extract._provider import CiState
-from briar.extract._providers.github import CiStates
+from briar.extract._providers.github import CiStates, GithubProvider
 from briar.serve.agent import AgentAnswer
 from briar.serve.git import GitFailed, GitIdentity, RepoCheckout, Shell
 from briar.serve.task import Budget, LimitHit, Plan, Prompts, Review
@@ -18,6 +21,7 @@ TOKEN = "PLACEHOLDER-not-a-secret"
 MAX_USD = 1.0
 HALF_USD = MAX_USD / 2
 EXIT_CODE = 3
+PR_NUMBER = 11
 
 
 class TestGit:
@@ -77,6 +81,49 @@ class TestCiStates:
     )
     def test_one_state_from_runs_and_statuses(self, runs: list, statuses: list, state: CiState) -> None:
         assert CiStates().of(runs, statuses) is state
+
+    def test_a_queued_actions_run_keeps_ci_pending(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """First real CI wait (PR #11 of the test repo): GitGuardian passed at once, the
+        Actions runs were `queued` with no check run yet, and briar marked the PR ready."""
+        repo = FakeRepo(check_runs=[FakeRun("completed", "success")], workflow_runs=[FakeRun("queued", None)])
+        monkeypatch.setattr(GithubProvider, "_api", lambda provider: FakeApi(repo))
+
+        assert GithubProvider().ci_state("acme/app", PR_NUMBER) is CiState.PENDING
+        assert repo.asked_head_shas == [FakeRepo.HEAD]
+
+
+@dataclass(frozen=True)
+class FakeRun:
+    status: str
+    conclusion: Optional[str]
+
+
+@dataclass(frozen=True)
+class FakeRepo:
+    """The PyGithub repository calls of `ci_state`."""
+
+    HEAD: ClassVar[str] = "abc123"
+    check_runs: List[FakeRun] = field(default_factory=list)
+    workflow_runs: List[FakeRun] = field(default_factory=list)
+    asked_head_shas: List[str] = field(default_factory=list)
+
+    def get_pull(self, number: int) -> SimpleNamespace:
+        return SimpleNamespace(head=SimpleNamespace(sha=self.HEAD))
+
+    def get_commit(self, sha: str) -> SimpleNamespace:
+        return SimpleNamespace(get_check_runs=lambda: self.check_runs, get_combined_status=lambda: SimpleNamespace(statuses=[]))
+
+    def get_workflow_runs(self, head_sha: str) -> List[FakeRun]:
+        self.asked_head_shas.append(head_sha)
+        return self.workflow_runs
+
+
+@dataclass(frozen=True)
+class FakeApi:
+    repo: FakeRepo
+
+    def client(self) -> SimpleNamespace:
+        return SimpleNamespace(get_repo=lambda name: self.repo)
 
 
 class TestAnswers:

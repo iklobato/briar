@@ -189,10 +189,13 @@ class GithubProvider(RepositoryProvider):
 
     def _ci_state(self, repo: str, number: int) -> CiState:
         target = self._api().client().get_repo(repo)
-        commit = target.get_commit(target.get_pull(number).head.sha)
-        runs = [(run.status, run.conclusion) for run in commit.get_check_runs()]
+        sha = target.get_pull(number).head.sha
+        commit = target.get_commit(sha)
+        # A queued Actions run has no check run yet: read the workflow runs too, or a fast
+        # check of another app that passed first reads as "CI passed".
+        checks = [*commit.get_check_runs(), *target.get_workflow_runs(head_sha=sha)]
         statuses = [status.state for status in commit.get_combined_status().statuses]
-        return CiStates().of(runs, statuses)
+        return CiStates().of([(run.status, run.conclusion) for run in checks], statuses)
 
     def can_write(self, repo: str) -> None:
         """Raise `LoginRejected` when the token cannot push to `repo` (`permissions.push` of
