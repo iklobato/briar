@@ -148,9 +148,17 @@ class TaskFlow:
         return int(github.open_pull(self._context.item.repo, draft))
 
     def _verify_failures(self) -> str:
-        shell = Shell()
-        found = [(command, shell.line(command, self._context.worktree)) for command in self._context.company.settings.verify]
-        return "\n\n".join(f"`{command}` failed (exit {done.code}):\n{done.output[-self.OUTPUT_TAIL :]}" for command, done in found if not done.ok())
+        """The verify commands, run on a clean copy of the commit: what will be pushed."""
+        checkout, worktree, shell = self._context.checkout, self._context.worktree, Shell()
+        copy = checkout.verify_copy(worktree)
+        found = [(command, shell.line(command, copy)) for command in self._context.company.settings.verify]
+        checkout.drop_copy(worktree, copy)
+        failures = "\n\n".join(f"`{command}` failed (exit {done.code}):\n{done.output[-self.OUTPUT_TAIL :]}" for command, done in found if not done.ok())
+        return f"{failures}{self._ignored_note()}" if failures else ""
+
+    def _ignored_note(self) -> str:
+        ignored = self._context.checkout.ignored(self._context.worktree)
+        return f"\n\ngit ignores these files of your folder, so they are not in the commit: {', '.join(ignored)}" if ignored else ""
 
 
 __all__ = ["TaskFlow", "TicketSide"]

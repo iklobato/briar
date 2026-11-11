@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import re
 import shlex
+import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -70,6 +71,8 @@ class RepoCheckout:
     # A line git leaves in a file with a conflict.
     CONFLICT_MARK: ClassVar["re.Pattern[str]"] = re.compile(r"^(<{7}|>{7})( |$)", re.MULTILINE)
     HELPER: ClassVar[str] = "!f() {{ echo username=x-access-token; printf 'password='; cat {path}; echo; }}; f"
+    # The prefix of an ignored file in `git status --porcelain --ignored`.
+    IGNORED = "!! "
 
     def __init__(self, shell: Shell, cache: Path, repo: str) -> None:
         self._shell = shell
@@ -142,6 +145,23 @@ class RepoCheckout:
 
     def head(self, path: Path) -> str:
         return self._git(["rev-parse", "HEAD"], path, "").output.strip()
+
+    def verify_copy(self, path: Path) -> Path:
+        """A clean detached worktree of HEAD next to `path`: the commit without the files git
+        ignores, so verify checks what is pushed, not what only the task folder holds."""
+        copy = path.with_name(f"{path.name}.verify")
+        self.drop_copy(path, copy)
+        self._git(["worktree", "add", "--detach", str(copy), "HEAD"], path, "")
+        return copy
+
+    def drop_copy(self, path: Path, copy: Path) -> None:
+        shutil.rmtree(copy, ignore_errors=True)
+        self._git(["worktree", "prune"], path, "")
+
+    def ignored(self, path: Path) -> List[str]:
+        """The files of the worktree that git ignores: they never reach the commit."""
+        lines = self._git(["status", "--porcelain", "--ignored"], path, "").output.splitlines()
+        return [line[len(self.IGNORED) :] for line in lines if line.startswith(self.IGNORED)]
 
     def push(self, path: Path, branch: str, token: str) -> None:
         """Push the branch; never with force (rules no_force_push)."""

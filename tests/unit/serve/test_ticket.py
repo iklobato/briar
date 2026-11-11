@@ -87,6 +87,20 @@ class TestLoops:
         assert "`test -f feature.txt` failed (exit 1)" in agent.requests[THIRD_STEP].prompt
         assert setup.entry("ENG-1").status is WorkStatus.DONE
 
+    def test_verify_checks_the_commit_not_the_files_git_ignores(self, setups: Setups) -> None:
+        """A file the agent leaves that git ignores passes verify in its folder but is not
+        pushed (first real run: a `pytest.ini` the global gitignore dropped)."""
+        setup = setups.make({})
+        ignored_build = Step(writes={"feature.txt": "done\n", ".gitignore": "feature.txt\n"})
+        agent = ScriptedAgent([Plans().plan(), ignored_build, Step(writes={".gitignore": ""}), Plans().approved()])
+
+        setup.work_on(agent, Items().jira())
+
+        fix = agent.requests[THIRD_STEP].prompt
+        assert "`test -f feature.txt` failed (exit 1)" in fix
+        assert "git ignores these files of your folder, so they are not in the commit: feature.txt" in fix
+        assert setup.entry("ENG-1").status is WorkStatus.DONE
+
     def test_a_self_review_finding_is_fixed(self, setups: Setups) -> None:
         setup = setups.make({})
         fix = Step(writes={"feature.txt": "done, see ENG-1\n"})

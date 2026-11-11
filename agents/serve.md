@@ -36,8 +36,11 @@ and `docs/decisions/2026-11-11-briar-2-review-routine.md`.
    1. the agent reads the ticket, the knowledge of the company and the repo, and
       writes a plan; briar comments the plan on the ticket and moves it to
       `status.started`;
-   2. the agent builds the plan; briar commits and runs the `verify` commands, and
-      the agent fixes them until they pass;
+   2. the agent builds the plan; briar commits and runs the `verify` commands on a
+      clean copy of the commit (a detached worktree of HEAD, so a file git ignores
+      does not count: it would not be pushed), and the agent fixes them until they
+      pass. Verify commands must install what they need (`npm ci && npm test`): the
+      clean copy has no `node_modules` or virtualenv of the task folder;
    3. a second, read-only agent call reviews the diff against the plan; the agent
       fixes what it finds, and the verify commands run again;
    4. briar pushes the branch, opens the PR as a draft, comments the PR link on the
