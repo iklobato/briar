@@ -44,7 +44,8 @@ class TestHappyPath:
         assert tracker.comments[1][1] == f"briar opened https://github.com/acme/app/pull/{PR}"
         assert tracker.moves == [("ENG-1", "In Progress"), ("ENG-1", "In Review")]
         repo, draft = github.pulls[0]
-        assert (repo, draft.head, draft.base, draft.title, draft.draft) == ("acme/app", "briar/ENG-1", "main", "ENG-1: Add the feature", False)
+        assert (repo, draft.head, draft.base, draft.title, draft.draft) == ("acme/app", "briar/ENG-1", "main", "ENG-1: Add the feature", True)
+        assert github.readies == [PR]
         assert "Ticket: ENG-1" in draft.body
         assert "briar/ENG-1" in setup.origin.branches()
         entry = setup.entry("ENG-1")
@@ -105,6 +106,7 @@ class TestLoops:
 
         assert "1 failed: test_feature" in agent.requests[FOURTH_STEP].prompt
         assert setup.entry("ENG-1").status is WorkStatus.DONE
+        assert setup.sources.github_side.readies == [PR]
 
 
 class TestLimits:
@@ -130,6 +132,7 @@ class TestLimits:
 
         github = setup.sources.github_side
         assert (github.drafts, [repo for repo, _ in github.pulls]) == ([PR], ["acme/app"])
+        assert github.readies == []
         assert github.comments[-1][TEXT].startswith("briar stopped: CI did not pass within ci_wait_minutes (30)")
         assert setup.entry("ENG-1").status is WorkStatus.BLOCKED
 

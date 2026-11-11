@@ -112,6 +112,11 @@ class GithubProvider(RepositoryProvider):
         _validate_repo(repo)
         GithubFailures().read(partial(self._convert_to_draft, repo, number))
 
+    def make_ready(self, repo: str, number: int) -> None:
+        """Take a draft PR out of draft, so its reviewers are asked."""
+        _validate_repo(repo)
+        GithubFailures().read(partial(self._mark_ready, repo, number))
+
     def ci_state(self, repo: str, number: int) -> CiState:
         """The check runs and statuses of the PR head: none yet, pending, passed or failed."""
         _validate_repo(repo)
@@ -122,6 +127,9 @@ class GithubProvider(RepositoryProvider):
 
     def _convert_to_draft(self, repo: str, number: int) -> None:
         self._api().client().get_repo(repo).get_pull(number).convert_to_draft()
+
+    def _mark_ready(self, repo: str, number: int) -> None:
+        self._api().client().get_repo(repo).get_pull(number).mark_ready_for_review()
 
     def pull_state(self, repo: str, number: int) -> PullState:
         """Open or not, merged, in conflict with its base (`mergeable_state` `dirty`; GitHub

@@ -1,7 +1,8 @@
 """The ticket routine of `briar serve` (spec 003 PR 2; decisions S18 to S27):
 
 plan -> comment on the ticket and move it -> build -> verify loop -> self-review loop ->
-push and open the PR, ready -> comment and move -> wait for CI, fixing a failure.
+push and open the PR as a draft -> comment and move -> wait for CI, fixing a failure ->
+mark the PR ready, so reviewers are asked only for work that passed.
 
 The agent only edits (D10, S25): commits, push, PR, comments and status are this code.
 When a limit hits (S23) the work is pushed, the PR becomes a draft with a report, and the
@@ -36,6 +37,7 @@ class TicketRun:
         number = await asyncio.to_thread(self._publish, plan)
         await self._flow.record(WorkStatus.PR_OPEN, {"pr": number})
         await self._flow.ci(number)
+        await asyncio.to_thread(self._context.sources.github().make_ready, self._context.item.repo, number)
         await self._flow.record(WorkStatus.DONE, {})
 
     def _announce(self, plan: Plan) -> None:
@@ -44,7 +46,7 @@ class TicketRun:
         side.move(self._context.item, self._context.company.settings.status.started)
 
     def _publish(self, plan: Plan) -> int:
-        draft = PullRequestDraft(self._context.branch, self._context.base, self._context.title, self._body(plan))
+        draft = PullRequestDraft(self._context.branch, self._context.base, self._context.title, self._body(plan), draft=True)
         number = int(self._context.sources.github().open_pull(self._context.item.repo, draft))
         side = TicketSide(self._context.sources)
         side.comment(self._context.item, f"briar opened https://github.com/{self._context.item.repo}/pull/{number}")

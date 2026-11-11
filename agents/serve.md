@@ -40,10 +40,11 @@ and `docs/decisions/2026-11-11-briar-2-review-routine.md`.
       the agent fixes them until they pass;
    3. a second, read-only agent call reviews the diff against the plan; the agent
       fixes what it finds, and the verify commands run again;
-   4. briar pushes the branch, opens the PR (ready, not a draft), comments the PR link
-      on the ticket and moves it to `status.review`;
+   4. briar pushes the branch, opens the PR as a draft, comments the PR link on the
+      ticket and moves it to `status.review`;
    5. briar waits for CI on the PR and, when it fails, gives the agent the failed job
-      logs, then pushes the fix.
+      logs, then pushes the fix; when CI passes (or the repo has no CI), briar marks
+      the PR ready for review, so reviewers are asked only for work that passed.
 
    The agent only edits files in the worktree and runs the allowed commands: the
    commits, the push, the PR, the comments and the status moves are done by briar.

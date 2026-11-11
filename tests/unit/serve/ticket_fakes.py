@@ -104,6 +104,7 @@ class FakeGithubSide:
     pulls: List[Tuple[str, PullRequestDraft]] = field(default_factory=list)
     comments: List[Tuple[str, int, str]] = field(default_factory=list)
     drafts: List[int] = field(default_factory=list)
+    readies: List[int] = field(default_factory=list)
     replies: List[ThreadReply] = field(default_factory=list)
     # A PR refusal of GitHub, raised by every `open_pull` while set.
     refusals: List[str] = field(default_factory=list)
@@ -127,6 +128,9 @@ class FakeGithubSide:
 
     def make_draft(self, repo: str, number: int) -> None:
         self.drafts.append(number)
+
+    def make_ready(self, repo: str, number: int) -> None:
+        self.readies.append(number)
 
     def reply_in_thread(self, repo: str, reply: ThreadReply) -> None:
         self.replies.append(reply)
