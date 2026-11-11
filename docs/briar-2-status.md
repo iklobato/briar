@@ -5,7 +5,7 @@ agentic development pipeline (watch the tickets assigned to briar and the review
 on its PRs; plan, build, open the PR, answer every comment; in parallel, with the Claude
 Agent SDK; GitHub and Jira only). The decisions are
 `docs/decisions/2026-11-11-briar-2-serve-pipeline.md` (S1 to S35), which also list the
-earlier decisions they change. Spec 003 builds it in 4 PRs; part 1 is #100, part 2 is #101, part 3 is #102.
+earlier decisions they change. Spec 003 builds it in 4 PRs; part 1 is #100, part 2 is #101, part 3 is #102, part 4 is #103.
 
 The handoff file for briar 2.0. Read it before you touch the `v2` branch or
 any 2.0 PR. It says where the work is, what is done, how the code works
@@ -77,6 +77,7 @@ now, what was found on the way, what is left and what to watch.
 | https://github.com/iklobato/briar/pull/100 | `serve/01-runbook-serve` | Spec 003 part 1: the serve decisions (S1 to S35), the runbook `serve:` block, `briar serve DIR` (model, read and write checks; one asyncio loop with `max_parallel` slots per company; the finder; the `work:<company>` state), `doctor` model login |
 | https://github.com/iklobato/briar/pull/101 | `serve/02-ticket-routine` | Spec 003 part 2: the ticket routine (Claude Agent SDK in a worktree per ticket; plan, build, verify and self-review loops, PR, CI wait, limits with a draft PR and a report) |
 | https://github.com/iklobato/briar/pull/102 | `serve/03-review-routine` | Spec 003 part 3: the review routine (writers and listed bots, marker, edits, resolved threads, base merge, replies, `max_review_rounds`), the agent sandbox and read limit, `ServeRoutine` |
+| https://github.com/iklobato/briar/pull/103 | `serve/04-cleanup` | Spec 003 part 4: `briar auth` and `briar runbook` leave; `serve` runs extract-only folders, `doctor --runbooks`, `init` writes an example runbook; the hints, manuals, README and CHANGELOG |
 
 ## 2. What is done
 
@@ -497,6 +498,44 @@ as 1.x shipped it, in tag `v1.1.101`. Read one with
   the same venv (the 25 of part 2 was another install of the dev extras); `src`
   16,462 lines before, 17,051 after.
 
+### Spec 003: `briar serve`, part 4 of 4 (PR #103)
+
+- Decisions from a grill session: `docs/decisions/2026-11-11-briar-2-cleanup-pr4.md`
+  (X1 to X6).
+- `briar auth` and `briar runbook` left (`commands/auth.py`, `commands/runbook.py`,
+  their tests and the `flags_1x.json` entries). The old names give `No such
+  command` (X5).
+- Gone with them, each proved unused with grep: `briar.auth._prompt`
+  (`PromptIO`), `briar.credentials.envfile` (`EnvFileStore`, the writer),
+  `SourceLogin.login`, `CliLogin.login`, `CompanyLogins.with_entries`,
+  `LoginScope.runbook` and `login_command`, `SecretField.prompt` and `hidden`,
+  `RegistryChoice`. The startup bootstrap still reads `secrets.env`.
+- `SourceLogin.fix()`: the hint of a missing or refused login names the
+  `BRIAR_*` variables, the `secrets.env` path (`secrets_path()`) and the
+  `HELP` text; `CliLogin.fix()` names the CLI command.
+- `briar serve DIR` with no `serve:` block runs only the scheduled extracts
+  (X1); with neither block nor schedule it stops.
+- `briar doctor --runbooks DIR` (`doctor.RunbookChecks`, X2): the load, then
+  `RunbookScheduler.login_results()` and `ServeCheck.lines()`, a login both
+  check shown once.
+- `briar init` writes `runbooks/<company>.yaml` from
+  `init_templates/runbook.yaml.tmpl` (X3).
+- Manuals: `agents/auth.md` became `agents/logins.md` and `agents/runbook.md`
+  became `agents/runbooks.md`, without the commands (the decision said the two
+  go; their content on logins and the runbook file stays true, so they were
+  renamed). README: 4 commands, a logins table, the pipeline paragraph.
+  CHANGELOG: the 2.0 entries that described the two commands now describe the
+  final state.
+- Real, local, 2026-11-11: `briar init --company acme-labs` in an empty folder
+  wrote both files; `briar doctor --runbooks runbooks` failed on
+  `companies.acme-labs.serve.model  Field required` (exit 1), then, with the
+  keys uncommented, gave `runbooks ok` and one `github login fail` line with
+  the new hint; `briar auth login github` gives `No such command 'auth'`.
+- Numbers, 2026-11-11, Python 3.13.2: 1530 unit and 25 integration tests pass
+  (fewer: the tests of the removed commands and of `EnvFileStore` left);
+  `make smoke` ok on 4 commands; mypy 27 before, 25 after (the two of the
+  removed files); `src` 17,051 lines before, 16,321 after.
+
 ### Spec 005: real runs on the accounts of the maintainer (G20)
 
 Read only, on the machine of the maintainer, 2026-11-11, with
@@ -547,11 +586,9 @@ briar.cli.main(argv)
   maintainer's code rules (at most 3 parameters).
   - `UNSET_AS`: a None default turned into the 1.x value at run time
     (`secrets bootstrap --kind` keeps `""`).
-  - `RegistryChoice`: `auth` targets are checked when the command runs,
-    against `LoginTargets.kinds()`, the 8 source names of
-    `CompanyLogins.SOURCES` (spec 005, G9). Other choices are `str`
-    Enums in `commands/_enums.py`, each with a test that keeps it equal to
-    its registry (`tests/unit/cli/test_typer_routes.py`).
+  - Fixed choices are `str` Enums in `commands/_enums.py`, each with a test
+    that keeps it equal to its registry (`tests/unit/cli/test_typer_routes.py`).
+    `RegistryChoice` (the `auth` targets) left with `auth` in spec 003 part 4.
 - **`settings.py`**: env (`BRIAR_COMPANY`, empty counts as
   unset) > project config file > git `origin` (owner, repo) > the option's
   default. One file is read, never a merge: the nearest `.briar.toml`, or
@@ -574,11 +611,11 @@ briar.cli.main(argv)
 CompanyLogins(LoginScope(company, origin, table), block, os.environ)   (auth/logins.py)
         |  .github() .jira() .bitbucket() .linear() .fireflies() .aws() .gcp() .azure()
         v
-   SourceLogin: names(), problem(), login(prompt), login_command()
+   SourceLogin: names(), problem(), fix()
         |
         +-- briar extract: ExtractConfig.logins(company) -> args.logins on every namespace
         +-- runbook executor: RunbookLogins(runbook).company(name)
-        +-- briar auth login|status <source> [--company C] [--runbook FILE]
+        +-- briar serve / doctor --runbooks: ServeCompanies(DIR) -> CompanyLogins per company
         v
 adapters (_providers/, _trackers/, _meetings/, _clouds/) call self._login()
 
@@ -726,7 +763,7 @@ Found in spec 005 (2026-11-10 and 2026-11-11):
 
 ## 5. Next steps, in order
 
-1. **Review and merge #79 to #102 into `v2`**, in order, as merge commits.
+1. **Review and merge #79 to #103 into `v2`**, in order, as merge commits.
    Re-check `gh pr checks <n>` before each merge; after the last one, check
    that the `v2` CI run is green.
 2. **Decide how 2.0 is released before `v2` merges to `main`.**
@@ -762,8 +799,8 @@ Found in spec 005 (2026-11-10 and 2026-11-11):
 5. **Write the next specs** (spec-kit, from the decisions files):
    - spec 003: `briar serve` (S1 to S35; it replaces the LangGraph engine
      of D9 and the YAML pipelines of D11). Part 1 is #100, part 2 (the ticket
-     routine) is #101, part 3 (the review routine) is #102. Left: part 4, `auth` and `runbook` leave, `init` writes
-     an example runbook, docs;
+     routine) is #101, part 3 (the review routine) is #102, part 4 (`auth`
+     and `runbook` leave) is #103. Spec 003 is complete;
    - spec 004: extractors cleaned inside with the same text per extractor,
      `extract` on Typer, the extractor flags (D32, D32a, C12), and the new
      knowledge layout (K1 to K14, K16, K20);
@@ -824,7 +861,13 @@ Found in spec 005 (2026-11-10 and 2026-11-11):
     when `serve` loads the runbooks.
   - Nothing is cut yet (S8): Bitbucket, Linear, Fireflies and the clouds
     stay as extractors.
-- Spec 003, open after PR #102:
+- Spec 003, open after PR #103:
+  - The site (usebriar.com `/docs`) still teaches `briar auth` and `briar
+    runbook`; it changes after the 2.0 release (X6).
+  - A 1.x script that calls `briar runbook serve` gets a plain `No such
+    command` (X5).
+  - `iac/runbook/writer.py` (`save_runbook_file`) has no caller in `src`; it
+    was unused before this PR and is left for a later cleanup.
   - Bash of the agent can still read any file of the user (`cat`); Read, Glob
     and Grep are limited (V12). A secret read that way can only leave in a file
     of the PR diff (no network in the sandbox).
