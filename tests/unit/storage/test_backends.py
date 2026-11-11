@@ -7,10 +7,11 @@ the contract."""
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 
 import pytest
 
-from briar.storage.base import KnowledgeRef
+from briar.storage.base import KnowledgeRef, KnowledgeStore
 
 
 class TestRoundtrip:
@@ -61,6 +62,28 @@ class TestList:
 
     def test_list_empty_when_nothing_stored(self, store) -> None:
         assert store.list() == []
+
+
+class TestAtomicWrite:
+    # How much of the new text lands before the write fails.
+    WRITTEN_BEFORE_FAILURE = 3
+
+    def test_a_failed_write_keeps_the_old_content(self, store: KnowledgeStore, monkeypatch: pytest.MonkeyPatch) -> None:
+        """`briar serve` reads its state while a task writes it: a half write must never
+        replace the file a reader sees."""
+        store.put("work:acme", "old state")
+        real_write = Path.write_text
+
+        def half_then_fail(path: Path, content: str) -> int:
+            real_write(path, content[: self.WRITTEN_BEFORE_FAILURE])
+            raise OSError("disk full")
+
+        monkeypatch.setattr(Path, "write_text", half_then_fail)
+        with pytest.raises(OSError, match="disk full"):
+            store.put("work:acme", "new state")
+        monkeypatch.undo()
+
+        assert store.get("work:acme") == "old state"
 
 
 class TestDelete:
