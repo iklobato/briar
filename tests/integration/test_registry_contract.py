@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import pytest
 
-from briar.auth import AcquirerRegistry
 from briar.extract import EXTRACTORS
 from briar.formatting import FORMATTERS
 
@@ -16,7 +15,6 @@ from briar.formatting import FORMATTERS
 # (registry, name_attribute) — passed in so the test knows which attr to read.
 _REGISTRIES = [
     pytest.param(EXTRACTORS, "name", id="EXTRACTORS"),
-    pytest.param(ACQUIRERS_AS_REGISTRY := AcquirerRegistry, "kind", id="ACQUIRERS"),
     pytest.param(FORMATTERS, "name", id="FORMATTERS"),
 ]
 
@@ -71,18 +69,6 @@ class TestRegistryContract:
             # should match the key.
             attr_value = getattr(value, name_attr, None) or getattr(type(value), name_attr, None)
             assert attr_value == key, f"{registry}: key {key!r} does not match {name_attr}={attr_value!r}"
-
-
-class TestAcquirerRegistry:
-    def test_kinds_nonempty(self) -> None:
-        assert len(AcquirerRegistry.kinds()) > 0
-
-    @pytest.mark.parametrize("kind", AcquirerRegistry.kinds())
-    def test_factory_returns_instance(self, kind: str) -> None:
-        acquirer = AcquirerRegistry.make(kind)
-        assert acquirer is not None
-        # `kind` class attribute must be set
-        assert type(acquirer).kind == kind
 
 
 class TestExtractorRegistry:

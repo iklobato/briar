@@ -1,11 +1,11 @@
 """Azure `CloudProvider`.
 
 Lazy-imports each ``azure-mgmt-*`` library — opt-in via
-``pip install briar-cli[azure]``. Auth via ``DefaultAzureCredential``
-(picks up Az CLI login, env-var service principal, managed identity,
-etc.).
-
-``profile`` carries the subscription ID."""
+``pip install briar-cli[azure]``. Auth is the company login (spec 005, I3):
+``AzureCliCredential`` for the tenant in `[auth.azure] tenant` (the `az`
+login, so `az` must be installed), or ``DefaultAzureCredential`` when it is
+unset (az login, env-var service principal, managed identity). The
+subscription is `[auth.azure] subscription` (I4)."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ import importlib
 import logging
 from typing import Any, List, Optional
 
+from briar.auth.logins import AzureLogin, CompanyLogins
 from briar.decorators import swallow_errors
 from briar.extract._cloud import (
     AccountIdentity,
@@ -37,14 +38,20 @@ def _try_import(module: str) -> Optional[Any]:
 class AzureCloudProvider(CloudProvider):
     kind = "azure"
 
-    def __init__(self, *, company: str = "", region: str = "", profile: str = "") -> None:
-        self._company = company
+    def __init__(self, *, logins: Optional[CompanyLogins] = None, region: str = "") -> None:
+        self._logins = logins
         self._region = region or "eastus"
-        self._subscription_id = profile
         self._credential = None
 
+    def _login(self) -> AzureLogin:
+        return (self._logins or CompanyLogins.defaults("")).azure()
+
+    @property
+    def _subscription_id(self) -> str:
+        return self._login().subscription()
+
     def is_available(self) -> bool:
-        if not self._subscription_id:
+        if not self._subscription_id or not self._login().ready():
             return False
         return _try_import("azure.identity") is not None
 
@@ -54,7 +61,8 @@ class AzureCloudProvider(CloudProvider):
         az_identity = _try_import("azure.identity")
         if az_identity is None:
             raise RuntimeError("azure-identity not installed — run `pip install briar-cli[azure]`")
-        self._credential = az_identity.DefaultAzureCredential()
+        tenant = self._login().tenant()
+        self._credential = az_identity.AzureCliCredential(tenant_id=tenant) if tenant else az_identity.DefaultAzureCredential()
         return self._credential
 
     # TODO(timeout-parity): the azure-mgmt-* clients constructed below

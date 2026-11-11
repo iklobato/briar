@@ -99,6 +99,27 @@ class TestRunbookBlock:
         jira = runbook.companies["acme"].auth.jira
         assert (jira.site, jira.method.value) == ("https://acme.atlassian.net", "cookie")
 
+    def test_the_cloud_scope_lives_in_the_auth_block(self) -> None:
+        """I4: the AWS profile, the GCP project and the Azure subscription."""
+        auth = {"aws": {"profile": "acme"}, "gcp": {"project": "acme-prod", "config_dir": "~/gcloud-acme"}, "azure": {"tenant": "t1", "subscription": "s1"}}
+
+        block = RunbookFile.model_validate({"companies": {"acme": {"auth": auth}}}).companies["acme"].auth
+
+        assert (block.aws.profile, block.gcp.project, block.gcp.config_dir, block.azure.tenant, block.azure.subscription) == (
+            "acme",
+            "acme-prod",
+            "~/gcloud-acme",
+            "t1",
+            "s1",
+        )
+
+    def test_a_runbook_arg_that_moved_to_auth_stops_the_load(self) -> None:
+        """I4: `aws_extract_profile` in a runbook `args:` names the company `auth:` block."""
+        extract = [{"name": "aws-infra", "args": {"aws_extract_profile": "acme"}}]
+
+        with pytest.raises(ValidationError, match=r"`aws_extract_profile` moved to the company `auth:` block"):
+            RunbookFile.model_validate({"companies": {"acme": {"extract": extract}}})
+
     def test_a_bad_key_in_the_runbook_auth_block_stops_the_load(self) -> None:
         with pytest.raises(ValidationError, match=r"companies\.acme\.auth\.jira\.metod\n  Extra inputs are not permitted"):
             RunbookFile.model_validate({"companies": {"acme": {"auth": {"jira": {"metod": "token"}}}}})

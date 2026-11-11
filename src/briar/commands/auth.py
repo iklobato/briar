@@ -9,8 +9,9 @@ The thing you log into is the **positional target**, a source name (spec 005, G9
 
 The values go to `secrets.env`, the only store (L3, G16); the choices (`method`,
 `site`, `workspace`) come from the config, which briar never writes (H1). Two
-operations since 2.0 (decision C15). The AWS targets of 1.x (`aws-sso`,
-`aws-static`) stay until spec 005 PR 2."""
+operations since 2.0 (decision C15). AWS, GCP and Azure log in through their
+own CLI (`aws`, `gcloud`, `az`; spec 005 I1 to I3), and briar saves nothing
+for them."""
 
 from __future__ import annotations
 
@@ -19,13 +20,12 @@ import logging
 import os
 import sys
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import ClassVar, Dict, List, Tuple
 
 import typer
 
-from briar.auth import AcquirerRegistry, CredentialExpired, Credentials, TerminalPromptIO
+from briar.auth import TerminalPromptIO
 from briar.auth.config import AuthTable
 from briar.auth.logins import CompanyLogins, LoginScope
 from briar.commands._enums import ExitCode
@@ -37,12 +37,11 @@ log = logging.getLogger(__name__)
 
 
 class LoginTargets:
-    """What `briar auth` logs into: the sources of `briar.auth.logins`, then the AWS
-    acquirers of 1.x until spec 005 PR 2."""
+    """What `briar auth` logs into: the sources of `briar.auth.logins`."""
 
     @classmethod
     def kinds(cls) -> Tuple[str, ...]:
-        return tuple(CompanyLogins.SOURCES) + tuple(AcquirerRegistry.kinds())
+        return tuple(CompanyLogins.SOURCES)
 
 
 class AuthChoices:
@@ -101,41 +100,31 @@ class CommandAuth(Command):
         except CliError as exc:
             print(f"error: {exc}")
             return 1
-        except CredentialExpired as exc:
-            print(f"credential expired: {exc}")
-            return 2
 
     # ────────────────────────────── login ──────────────────────────────
 
     def _login(self, args: argparse.Namespace) -> int:
         log.info("auth-login: target=%s company=%s store=%s", args.target, args.company or "(none)", self.STORE)
-        if args.target in AcquirerRegistry.kinds():
-            creds = AcquirerRegistry.make(args.target).acquire(company=args.company, prompt=TerminalPromptIO())
-            return _persist_and_report(creds, store=EnvFileStore(), store_kind=self.STORE)
         entries = AuthChoices(args.company, args.runbook).logins().source(args.target).login(TerminalPromptIO())
-        return _persist_and_report(Credentials(provider_kind=args.target, entries=entries), store=EnvFileStore(), store_kind=self.STORE)
+        if not entries:
+            self._say(f"auth: {args.target} login done; its CLI keeps the login, briar saved nothing (L3)")
+            return int(ExitCode.OK)
+        return _persist_and_report(entries, store=EnvFileStore(), store_kind=self.STORE)
 
     # ────────────────────────────── status ─────────────────────────────
 
     def _status(self, args: argparse.Namespace) -> int:
         if not args.target:
             return self._held(args.company)
-        names, hint = self._needed(args)
-        store = EnvFileStore()
+        login = AuthChoices(args.company, args.runbook).logins().source(args.target)
+        lines = login.status_lines(EnvFileStore())
         self._say(f"auth-status: target={args.target} company={args.company or '(none)'} store={self.STORE}")
-        missing = [name for name in names if not store.read(name)]
-        for name in names:
-            self._say(f"  {'MISS' if name in missing else 'ok  '}  {name}")
+        for line in lines:
+            self._say(f"  {'ok  ' if line.ok else 'MISS'}  {line.label}")
+        hint = login.legacy_hint()
         if hint:
             self._say(f"  hint: {hint}")
-        return 1 if missing else 0
-
-    def _needed(self, args: argparse.Namespace) -> Tuple[List[str], str]:
-        """The names the target's login needs, and the G8 hint when 1.x names stand in for them."""
-        if args.target in AcquirerRegistry.kinds():
-            return type(AcquirerRegistry.make(args.target)).writes(company=args.company), ""
-        login = AuthChoices(args.company, args.runbook).logins().source(args.target)
-        return login.names(), login.legacy_hint()
+        return 0 if all(line.ok for line in lines) else 1
 
     def _held(self, company: str) -> int:
         """`auth status` with no target: every credential name held, as 1.x `auth list` did."""
@@ -155,32 +144,28 @@ class CommandAuth(Command):
         sys.stdout.write(f"{line}\n")
 
 
-def _persist_and_report(creds: Credentials, *, store, store_kind: str) -> int:
+def _persist_and_report(entries: Dict[str, str], *, store, store_kind: str) -> int:
     """Common login tail: write every entry through the store
     and print a summary. Values are NEVER printed — only the key
     names and counts."""
-    log.info("auth-persist: store=%s count=%d provider=%s", store_kind, len(creds.entries), creds.provider_kind)
+    log.info("auth-persist: store=%s count=%d", store_kind, len(entries))
     failures: List[str] = []
-    for name, value in creds.entries.items():
+    for name, value in entries.items():
         try:
             store.write(name, value)
         except Exception as exc:  # noqa: BLE001
             log.exception("auth-persist: write failed name=%s store=%s", name, store_kind)
             failures.append(f"{name}: {exc}")
 
-    print(f"auth: persisted {len(creds.entries) - len(failures)}/{len(creds.entries)} entries to store={store_kind}")
-    for n in creds.names:
+    sys.stdout.write(f"auth: persisted {len(entries) - len(failures)}/{len(entries)} entries to store={store_kind}\n")
+    for n in entries:
         if n in {f.split(":", 1)[0] for f in failures}:
-            print(f"  FAIL  {n}")
+            sys.stdout.write(f"  FAIL  {n}\n")
         else:
-            print(f"  ok    {n}")
-    if creds.expires_at:
-        delta = creds.expires_at - datetime.now(tz=timezone.utc)
-        days = delta.total_seconds() / 86400
-        print(f"expires: {creds.expires_at.isoformat()} ({days:+.1f} days from now)")
+            sys.stdout.write(f"  ok    {n}\n")
     if failures:
         for f in failures:
-            print(f"  reason: {f}")
+            sys.stdout.write(f"  reason: {f}\n")
         # ExitCode was folded to {OK, GENERAL_ERROR, USAGE_ERROR} in
         # Phase 8 — the granular 3 here was a leftover from the
         # pre-fold contract.

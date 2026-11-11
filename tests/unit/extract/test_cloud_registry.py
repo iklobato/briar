@@ -18,6 +18,7 @@ import pytest
 from briar.errors import CliError
 from briar.extract._cloud import AccountIdentity, CloudProvider, ComputeResource, DatabaseResource, LogGroup, QueueResource
 from briar.extract._clouds import CLOUDS, CloudRegistry, make_cloud
+from tests.unit.fake_logins import FakeLogins
 
 pytestmark = pytest.mark.registry
 
@@ -32,7 +33,7 @@ def test_kinds_lists_all_three_providers() -> None:
 
 def test_unknown_provider_raises_cli_error() -> None:
     with pytest.raises(CliError) as ctx:
-        make_cloud("digitalocean", company="acme")
+        make_cloud("digitalocean", FakeLogins().logins())
     msg = str(ctx.value)
     assert "digitalocean" in msg
     # Error lists the known kinds sorted.
@@ -132,8 +133,3 @@ def test_default_list_verbs_return_empty() -> None:
     assert m.list_queues() == []
     assert m.list_log_groups() == []
     assert m.list_subsections() == []
-
-
-def test_required_env_vars_default_empty() -> None:
-    assert CloudProvider.required_env_vars() == []
-    assert CloudProvider.required_env_vars("acme") == []

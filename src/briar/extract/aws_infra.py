@@ -29,10 +29,6 @@ class ExtractAwsInfra(CloudBackedExtractor):
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         super().add_arguments(parser)
         parser.add_argument(
-            "--aws-extract-profile",
-            help="Local AWS profile name (falls back to default boto3 chain)",
-        )
-        parser.add_argument(
             "--aws-extract-region",
             default="us-east-1",
             help="AWS region to inspect (default: us-east-1)",

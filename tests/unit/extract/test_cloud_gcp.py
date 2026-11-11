@@ -29,9 +29,11 @@ from unittest import mock
 
 import pytest
 
+from briar.errors import CliError
 from briar.extract._cloud import ComputeResource, DatabaseResource, LogGroup, QueueResource
 from briar.extract._clouds import make_cloud
 from briar.extract._clouds.gcp import GcpCloudProvider
+from tests.unit.fake_logins import FakeLogins
 
 PROJECT = "acme-prod"
 
@@ -40,11 +42,13 @@ pytestmark = pytest.mark.boundary
 
 @pytest.fixture
 def provider() -> GcpCloudProvider:
-    return GcpCloudProvider(profile=PROJECT, region="us-central1")
+    return GcpCloudProvider(logins=FakeLogins({"gcp": {"project": PROJECT}}).logins(), region="us-central1")
 
 
 def _module_with(**attrs: Any) -> types.SimpleNamespace:
-    return types.SimpleNamespace(**attrs)
+    """A google-cloud module stand-in. It also answers the `google.auth` import of
+    `_credentials` (spec 005), with placeholder credentials."""
+    return types.SimpleNamespace(default=mock.MagicMock(return_value=("credentials", PROJECT)), **attrs)
 
 
 def _obj(**kw: Any) -> Any:
@@ -60,12 +64,12 @@ def test_is_available_false_without_project() -> None:
 
 def test_is_available_true_with_project_and_auth(mocker: Any) -> None:
     mocker.patch("briar.extract._clouds.gcp._try_import", return_value=object())
-    assert GcpCloudProvider(profile=PROJECT).is_available() is True
+    assert GcpCloudProvider(logins=FakeLogins({"gcp": {"project": PROJECT}}).logins()).is_available() is True
 
 
 def test_is_available_false_when_auth_lib_missing(mocker: Any) -> None:
     mocker.patch("briar.extract._clouds.gcp._try_import", return_value=None)
-    assert GcpCloudProvider(profile=PROJECT).is_available() is False
+    assert GcpCloudProvider(logins=FakeLogins({"gcp": {"project": PROJECT}}).logins()).is_available() is False
 
 
 # ─── caller_identity ─────────────────────────────────────────────────
@@ -80,14 +84,32 @@ def test_caller_identity_verifies_adc_and_returns_project(provider: GcpCloudProv
     assert identity.account_id == PROJECT
     assert identity.region == "us-central1"
     # The project IS the identity, but ADC is still probed to fail fast.
-    google_auth.default.assert_called_once_with()
+    google_auth.default.assert_called_once_with(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+
+
+class TestCompanyConfigFolder:
+    """G26, I2: with `[auth.gcp] config_dir`, the ADC file of that folder, not the default chain."""
+
+    def test_loads_the_adc_file_of_the_folder(self, mocker: Any, tmp_path: Any) -> None:
+        google_auth = mock.MagicMock()
+        google_auth.load_credentials_from_file.return_value = ("folder-credentials", PROJECT)
+        mocker.patch("briar.extract._clouds.gcp._try_import", return_value=google_auth)
+        logins = FakeLogins({"gcp": {"project": PROJECT, "config_dir": str(tmp_path)}}).logins()
+
+        credentials = GcpCloudProvider(logins=logins)._credentials()
+
+        assert credentials == "folder-credentials"
+        google_auth.load_credentials_from_file.assert_called_once_with(
+            str(tmp_path / "application_default_credentials.json"), scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        google_auth.default.assert_not_called()
 
 
 def test_caller_identity_raises_when_auth_lib_missing(provider: GcpCloudProvider, mocker: Any) -> None:
     mocker.patch("briar.extract._clouds.gcp._try_import", return_value=None)
-    with pytest.raises(RuntimeError) as ctx:
+    with pytest.raises(CliError) as ctx:
         provider.caller_identity()
-    assert "briar-cli[gcp]" in str(ctx.value)
+    assert str(ctx.value) == "google-auth not installed: run `pip install 'briar-cli[gcp]'`"
 
 
 def test_caller_identity_propagates_adc_failure(provider: GcpCloudProvider, mocker: Any) -> None:
@@ -271,7 +293,7 @@ def test_list_log_groups_caps_at_top_by_bytes(provider: GcpCloudProvider, mocker
 
 
 def test_make_cloud_gcp_returns_provider() -> None:
-    cloud = make_cloud("gcp", profile=PROJECT, region="europe-west1")
+    cloud = make_cloud("gcp", FakeLogins({"gcp": {"project": PROJECT}}).logins(), region="europe-west1")
     assert isinstance(cloud, GcpCloudProvider)
     assert cloud.kind == "gcp"
     assert cloud._project_id == PROJECT

@@ -73,12 +73,12 @@ class TestWrite:
 
 class TestList:
     def test_list_returns_known_prefix_keys_only(self, envfile_root, monkeypatch) -> None:
-        monkeypatch.setenv("AWS_X_ACCESS_KEY_ID", "x")
+        monkeypatch.setenv("AWS_X_ACCESS_KEY_ID", "x")  # a 1.x name briar no longer reads
         monkeypatch.setenv("BRIAR_X_JIRA_TOKEN", "PLACEHOLDER-not-a-secret")
         monkeypatch.setenv("GITHUB_TOKEN", "ghp_x")  # a 1.x name briar no longer reads
         monkeypatch.setenv("UNRELATED_VAR", "x")  # not a credential prefix
         names = EnvFileStore().list()
-        assert "AWS_X_ACCESS_KEY_ID" in names
+        assert "AWS_X_ACCESS_KEY_ID" not in names
         assert "BRIAR_X_JIRA_TOKEN" in names
         assert "GITHUB_TOKEN" not in names
         assert "UNRELATED_VAR" not in names

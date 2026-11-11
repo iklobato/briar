@@ -18,6 +18,7 @@ from unittest import mock
 
 import schedule
 
+from briar.errors import CliError
 from tests.unit.fake_logins import FakeLogins
 
 
@@ -95,27 +96,27 @@ class CloudRegistryTests(unittest.TestCase):
     def test_aws_available_with_boto3(self) -> None:
         from briar.extract._clouds import make_cloud
 
-        cloud = make_cloud("aws", company="acme", region="us-east-1")
+        cloud = make_cloud("aws", FakeLogins().logins(), region="us-east-1")
         # boto3 is a hard runtime dep; should always be available
         self.assertTrue(cloud.is_available())
 
     def test_gcp_unavailable_without_project(self) -> None:
         from briar.extract._clouds import make_cloud
 
-        cloud = make_cloud("gcp", company="acme")
+        cloud = make_cloud("gcp", FakeLogins().logins())
         self.assertFalse(cloud.is_available())
 
     def test_azure_unavailable_without_sdk(self) -> None:
         from briar.extract._clouds import make_cloud
 
-        cloud = make_cloud("azure", profile="sub-id-here")
+        cloud = make_cloud("azure", FakeLogins({"azure": {"subscription": "sub-id-here"}}).logins())
         with mock.patch("briar.extract._clouds.azure._try_import", return_value=None):
             self.assertFalse(cloud.is_available())
 
     def test_azure_caller_identity_raises_when_sdk_missing(self) -> None:
         from briar.extract._clouds import make_cloud
 
-        cloud = make_cloud("azure", profile="sub-id-here")
+        cloud = make_cloud("azure", FakeLogins({"azure": {"subscription": "sub-id-here"}}).logins())
         with mock.patch("briar.extract._clouds.azure._try_import", return_value=None):
             with self.assertRaises(RuntimeError) as ctx:
                 cloud.caller_identity()
@@ -124,9 +125,9 @@ class CloudRegistryTests(unittest.TestCase):
     def test_gcp_caller_identity_raises_when_sdk_missing(self) -> None:
         from briar.extract._clouds import make_cloud
 
-        cloud = make_cloud("gcp", profile="proj-id")
+        cloud = make_cloud("gcp", FakeLogins({"gcp": {"project": "proj-id"}}).logins())
         with mock.patch("briar.extract._clouds.gcp._try_import", return_value=None):
-            with self.assertRaises(RuntimeError) as ctx:
+            with self.assertRaises(CliError) as ctx:
                 cloud.caller_identity()
             self.assertIn("briar-cli[gcp]", str(ctx.exception))
 
@@ -154,7 +155,7 @@ class CredentialStoreTests(unittest.TestCase):
         }
         with mock.patch.dict("os.environ", environ, clear=True):
             names = EnvFileStore().list()
-        self.assertEqual(names, ["AWS_ACME_ACCESS_KEY_ID", "BRIAR_ACME_CO_GITHUB_TOKEN", "BRIAR_ACME_JIRA_TOKEN"])
+        self.assertEqual(names, ["BRIAR_ACME_CO_GITHUB_TOKEN", "BRIAR_ACME_JIRA_TOKEN"])
 
 
 class ProviderRequiredEnvVarsTests(unittest.TestCase):
@@ -671,20 +672,6 @@ class ErrorPolicyTests(unittest.TestCase):
             RetryingExecutor(ErrorPolicyRegistry(), max_attempts=0)
 
 
-class CredentialAcquirerTests(unittest.TestCase):
-    """`briar.auth` — interactive credential acquisition.
-
-    Pins the registry surface + each acquirer's happy-path
-    interactive flow via MockPromptIO. The flows that hit external
-    APIs (github-device, aws-sso) are tested with mocked HTTP."""
-
-    def test_registry_keeps_only_the_aws_acquirers(self) -> None:
-        """Spec 005 PR 1 moved the pasted logins to `briar.auth.logins`; AWS moves in PR 2."""
-        from briar.auth import AcquirerRegistry
-
-        self.assertEqual(set(AcquirerRegistry.kinds()), {"aws-static", "aws-sso"})
-
-
 class EnvFileStoreWriteTests(unittest.TestCase):
     """``EnvFileStore.write/delete`` — file persistence + os.environ
     update, idempotent replace-in-place."""
@@ -1111,27 +1098,6 @@ class Phase3ErrorHandlingTests(unittest.TestCase):
         a.data["x"] = 1
         self.assertEqual(b.data, {}, "mutating one empty_section() must not leak to others")
 
-    def test_known_matchers_cover_every_credenv_entry(self) -> None:
-        """Adding a new credential to CredEnv must auto-propagate to
-        envfile.list() — the previous hand-maintained tuple drifted
-        (FIREFLIES_* was missing). A representative
-        concrete env var for each template must match."""
-        from briar.credentials.envfile import _KNOWN_MATCHERS
-        from briar.env_vars import CredEnv
-
-        def matches(name: str) -> bool:
-            return any(m.match(name) for m in _KNOWN_MATCHERS)
-
-        for member in CredEnv:
-            val = member.value
-            if val == "BRIAR_NOTIFY_SINKS":  # excluded as config, not a credential
-                self.assertFalse(matches(val), "BRIAR_NOTIFY_SINKS must not be treated as a credential")
-                continue
-            # `{c}` is upper-cased + underscore-normalised by for_company;
-            # substitute a representative company to get a concrete name.
-            sample = val.replace("{c}", "ACME")
-            self.assertTrue(matches(sample), f"CredEnv.{member.name} sample {sample!r} unmatched")
-
     def test_list_excludes_briar_config_vars(self) -> None:
         """Config vars (`BRIAR_SECRETS_FILE`, `AWS_PROFILE`) share prefixes
         with credentials. A bare-prefix match would leak them into
@@ -1146,7 +1112,7 @@ class Phase3ErrorHandlingTests(unittest.TestCase):
             "BRIAR_NOTIFY_SINKS": "telegram,slack",  # config — must NOT list
             "BRIAR_VERBOSE": "1",  # config — must NOT list
             "AWS_PROFILE": "dev",  # not a briar credential: must NOT list
-            "AWS_ACME_REGION": "us-east-1",  # per-company cred: must list
+            "AWS_ACME_REGION": "us-east-1",  # a 1.x name briar no longer reads: must NOT list
             "BRIAR_ACME_GITHUB_TOKEN": "PLACEHOLDER-not-a-secret",  # a 2.0 login: must list
             "GITHUB_TOKEN": "ghp_x",  # a 1.x name briar no longer reads: must NOT list
         }
@@ -1156,29 +1122,13 @@ class Phase3ErrorHandlingTests(unittest.TestCase):
         self.assertNotIn("BRIAR_NOTIFY_SINKS", names)
         self.assertNotIn("BRIAR_VERBOSE", names)
         self.assertNotIn("AWS_PROFILE", names)
-        self.assertIn("AWS_ACME_REGION", names)
+        self.assertNotIn("AWS_ACME_REGION", names)
         self.assertIn("BRIAR_ACME_GITHUB_TOKEN", names)
         self.assertNotIn("GITHUB_TOKEN", names)
 
 
 class Phase4PythonStyleHygieneTests(unittest.TestCase):
     """Regression tests for Phase 4 mechanical-style hygiene fixes."""
-
-    def test_credenv_for_company_rejects_empty_on_templated(self) -> None:
-        """Empty company on a templated var used to produce 'AWS__ACCESS_KEY_ID'
-        (double underscore) which never matched any operator-set env."""
-        from briar.env_vars import CredEnv
-
-        with self.assertRaises(ValueError):
-            CredEnv.AWS_KEY_ID.for_company("")
-
-    def test_credenv_read_returns_empty_for_templated_without_company(self) -> None:
-        """read() should still gracefully return '' (matches the
-        contract callers use with `if env.read(...)`) — it's only
-        for_company() that hard-errors."""
-        from briar.env_vars import CredEnv
-
-        self.assertEqual(CredEnv.AWS_KEY_ID.read(""), "")
 
     def test_scheduler_warns_on_tz_with_sub_day_cadence(self) -> None:
         """schedule library's tz support is day-or-coarser. Sub-day

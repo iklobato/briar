@@ -52,39 +52,16 @@ def _validate_value(value: str) -> None:
             )
 
 
-# Env-var name MATCHERS that count as "credentials" for ``list()``.
-# Derived from ``CredEnv`` at import time so adding a new credential
-# enum entry can never silently fall out of the doctor's view (the
-# previous hand-maintained list drifted — FIREFLIES_* was missing
-# from ``list()`` even though it exists in CredEnv).
-#
-# We match the FULL anchored template, NOT a bare prefix. A prefix match
-# (``startswith``) over-matches a shared namespace: ``AWS_{c}_REGION``
-# yields prefix ``AWS_``, which would sweep unrelated vars such as
-# ``AWS_PROFILE`` into ``list()`` as if they were briar credentials.
-# Matching ``^AWS_[A-Z0-9_]+_REGION$`` keeps only the per-company name.
+class LoginNames:
+    """The env var names that count as briar credentials for ``list()``: the 2.0
+    names `BRIAR_<COMPANY>_<SOURCE>_<FIELD>` of the login sources (spec 005, G7).
+    Other `BRIAR_*` settings (`BRIAR_TELEMETRY`, `BRIAR_SECRETS_FILE`) do not match."""
 
+    def pattern(self) -> "re.Pattern[str]":
+        from briar.auth.logins import CompanyLogins  # local import: no cycle at module load
 
-def _matcher_for(template: str) -> "re.Pattern[str]":
-    """Compile a ``CredEnv`` template into an anchored regex. ``{c}`` —
-    the per-company segment, which ``for_company`` upper-cases and
-    underscore-normalises — becomes ``[A-Z0-9_]+``; a fixed name matches
-    verbatim."""
-    escaped = re.escape(template).replace(re.escape("{c}"), "[A-Z0-9_]+")
-    return re.compile(f"^{escaped}$")
-
-
-def _derive_known_matchers() -> tuple:
-    from briar.auth.logins import CompanyLogins  # local imports to avoid a cycle at module load
-    from briar.env_vars import CredEnv
-
-    # The 2.0 names `BRIAR_<COMPANY>_<SOURCE>_<FIELD>` (spec 005, G7), then the CredEnv
-    # names still in use (AWS, until spec 005 PR 2).
-    sources = "|".join(source.upper() for source in CompanyLogins.SOURCES)
-    return (re.compile(f"^BRIAR_[A-Z0-9_]+_(?:{sources})_[A-Z_]+$"),) + tuple(_matcher_for(member.value) for member in CredEnv)
-
-
-_KNOWN_MATCHERS: tuple = _derive_known_matchers()
+        sources = "|".join(source.upper() for source in CompanyLogins.SOURCES)
+        return re.compile(f"^BRIAR_[A-Z0-9_]+_(?:{sources})_[A-Z_]+$")
 
 
 class EnvFileStore:
@@ -160,4 +137,5 @@ class EnvFileStore:
         os.environ[name] = value
 
     def list(self) -> List[str]:
-        return sorted(k for k in os.environ if any(m.match(k) for m in _KNOWN_MATCHERS))
+        pattern = LoginNames().pattern()
+        return sorted(k for k in os.environ if pattern.match(k))
