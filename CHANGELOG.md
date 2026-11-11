@@ -8,7 +8,26 @@ cut automatically on merge to `main` (patch bump + PyPI + Docker).
 ## [2.0.0] - Unreleased
 
 Work for 2.0 lands on the `v2` branch and ships as one release. The scope
-is in `docs/decisions/2026-11-10-briar-2-pipeline.md`.
+is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
+`briar extract` and `briar serve` in
+`docs/decisions/2026-11-11-briar-2-serve-pipeline.md`.
+
+### Added
+
+- `briar serve DIR`, the agentic development pipeline (first part). For each
+  company with a `serve:` block in a runbook of `DIR`, it checks the model
+  login (`ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`) and the GitHub and
+  Jira logins, read and write, then polls every `poll_minutes`: new review
+  comments on the PRs briar opened first, then the open tickets assigned to
+  the account of the token (Jira JQL `assignee = currentUser()`, GitHub
+  issues assigned to the owner of the PAT), by priority. Up to
+  `max_parallel` tasks of a company run at once, never two on the same
+  ticket, and the tickets it took go in `work:<company>` of the knowledge
+  store. It also runs the scheduled extracts of the runbooks, as
+  `briar runbook serve` does. The work on a ticket and on review comments
+  comes next. The `serve:` block needs `model`, `max_usd`, `max_loops` and
+  `ci_wait_minutes`. See `agents/serve.md`.
+- `briar doctor` has a `model login` line.
 
 ### Changed
 
