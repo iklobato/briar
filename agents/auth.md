@@ -8,8 +8,8 @@ It has two subcommands:
 
 | Subcommand | What it does |
 |---|---|
-| `login <source>` | Ask for the values of one login and save them. |
-| `status [source]` | With a source: which values its login needs, and which are set. Without one: the names of every value that is set. Never the values. |
+| `login <source>` | Ask for the values of one login, check them with the source, and save them. |
+| `status [source]` | Check a login live: the source says who it is, and briar reads the repos and projects a run would read. Without a source: every configured login of the company. With no company either: the names of every value that is set. Never the values. |
 
 1.x also had `logout`, `refresh` and `list`. 2.0 removed them (decision
 C15): to remove a login, delete its lines from `secrets.env`; to renew
@@ -161,8 +161,10 @@ error: credential store 'vault' was removed in briar 2.0; unset BRIAR_DEFAULT_ST
 ### What it does
 
 Reads the choices of one source from the config, asks for the values its
-method needs, and saves them to `secrets.env`. It prints the names it
-saved, never the values.
+method needs, asks the source "who am I" with them, and saves them to
+`secrets.env` only when the source answers. It prints the account and the
+names it saved, never the values. For `aws`, `gcp` and `azure` the check
+runs after their CLI login.
 
 ### Use it when
 
@@ -216,8 +218,16 @@ The site and the method come from `companies.acme.auth.jira` of that file.
 - Run `login` in a real terminal: it reads your answers from the keyboard
   and hides secret input. Piped answers on stdin work too. For a server
   with no terminal, set the `BRIAR_*` env vars instead.
-- `login` saves what you type. It does not test the login against the
-  service yet.
+- `login` checks before it saves: a value the source refuses, or a source
+  briar cannot reach, saves nothing and exits with code 1:
+
+  ```text
+  error: the login check failed; fix these, then run again:
+    - fireflies (acme): the login was refused (HTTP 401: HTTP Error 401: Unauthorized); run `briar auth login fireflies --company acme`
+  ```
+
+- The check of `login` is "who am I" only: it does not know which repos a
+  run will read. `status` and every run read them.
 - If some values fail to save, `login` lists them as `FAIL` with the
   reason and exits with code 1.
 
@@ -225,49 +235,63 @@ The site and the method come from `companies.acme.auth.jira` of that file.
 
 ### What it does
 
-With a source: shows the names its login needs for one company, and marks
-each one `ok` (set) or `MISS` (missing), then a `hint:` line when a 1.x
-name stands in for a missing one. With no source: prints the name of every
-value that is set (in your shell or in `secrets.env`), never the values.
+With a source: checks the login of one company live, the way a run checks
+it. The source says who the login is, then briar reads each repo, Jira
+project, Linear team, Bitbucket workspace, GCP project or Azure
+subscription that `briar extract` would read with your `[extract]` (or
+that the tasks of the company read, with `--runbook`). With no source:
+the same for every configured login of the company, that is a source with
+an `[auth.<source>]` block, a saved value, or a 1.x name. With no source
+and no company: the name of every value that is set (in your shell or in
+`secrets.env`), never the values.
 
 ### Examples
 
 ```bash
-# Are the acme Jira values all set?
+# Is the acme Jira login good, and can it read the projects of [extract]?
 briar auth status jira --company acme
 ```
 
-You get one line per name, marked `ok` or `MISS`. The exit code is 0 when
-all are set and 1 when any is missing.
+You get one line per source, `ok` with the account, `failed` with the fix,
+or `unreachable` when briar could not reach the source:
 
-```bash
-# Names of every value briar can see, then only the acme ones.
-briar auth status
-briar auth status --company acme
+```text
+auth-status: company=acme sources=jira
+  ok           jira (acme): bot@acme.example
 ```
 
-You get `store=envfile  N entry(ies):` and one name per line, or
-`(no credentials in store=envfile)`.
+The exit code is 1 when a line is `failed`, else 0 (a network error does
+not fail it, as in `briar doctor`).
+
+```bash
+# Every configured login of acme, then the names of every value briar can see.
+briar auth status --company acme
+briar auth status --company ""
+```
 
 ### All parameters
 
 | Parameter | What it means | Default | Example |
 |---|---|---|---|
-| `source` (positional) | The source to check. Leave it out to list every name. | none | `fireflies` |
-| `--company` | The company to check. Without a source, keeps only the names that carry that company. | `$BRIAR_COMPANY`, else `.briar.toml`. | `--company acme` |
+| `source` (positional) | The source to check. Leave it out to check every configured login. | none | `fireflies` |
+| `--company` | The company to check. With no source and no company, `status` lists the names. | `$BRIAR_COMPANY`, else `.briar.toml`. | `--company acme` |
 | `--runbook` | Read the choices from this runbook instead of `.briar.toml`. | none | `--runbook runbooks/acme.yaml` |
 
 ### Good to know
 
-- `status` only checks that a value is set. It does not test it against
-  the service: an expired token still shows `ok`.
-- For `aws`, `gcp` and `azure`, `status` checks this machine: the CLI is
-  on `PATH`, the profile is in the AWS config, the ADC file is in the
-  gcloud folder, `az` has a login; and that `project` or `subscription`
-  is set. Exit code 1 when one is missing.
-- Without a source, inside a repo with `company = "acme"` in
-  `.briar.toml`, the list is filtered to acme. Pass `--company ""` to see
-  everything.
+- The calls: GitHub `GET /user` and `GET /repos/<owner>/<repo>`; Jira
+  `myself` and `project/<KEY>`; Bitbucket `GET /2.0/user` (not for an
+  access token, which belongs to no user), then the workspace and each
+  repository; Linear and Fireflies, the user of the key and each Linear
+  team; AWS `sts get-caller-identity`; GCP a refresh of the ADC and the
+  project; Azure a token for the tenant and the subscription. One call
+  after another.
+- For `gcp` and `azure` the SDK must be installed (`pip install
+  'briar-cli[gcp]'`, `'briar-cli[azure]'`); without it the line says
+  what to install.
+- With no `[auth.azure] tenant`, Azure tries its whole default chain, and
+  a machine where the managed identity address does not answer can wait
+  about two minutes before it uses the `az` login.
 
 ## Run it with Docker
 
@@ -289,5 +313,5 @@ them. Azure in Docker is not supported, because the run needs `az`.
 
 ## Related
 
-- [setup.md](setup.md): `briar doctor` checks your setup, including the
-  GitHub login of your company.
+- [setup.md](setup.md): `briar doctor` checks your setup, including every
+  configured login of your company, live.

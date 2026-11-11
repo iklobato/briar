@@ -15,8 +15,9 @@ now, what was found on the way, what is left and what to watch.
   `~/.briar/knowledge/<company>/`, pipeline notes, history, freshness), and
   for spec 005 (logins) `docs/decisions/2026-11-10-briar-2-logins-spec.md`
   (G1 to G26, which replace L15 and parts of L2 to L5) with the per-PR files
-  `2026-11-10-briar-2-logins-pr1.md` (H1 to H10) and
-  `2026-11-11-briar-2-logins-pr2.md` (I1 to I10). Those files decide; this
+  `2026-11-10-briar-2-logins-pr1.md` (H1 to H10),
+  `2026-11-11-briar-2-logins-pr2.md` (I1 to I10) and
+  `2026-11-11-briar-2-logins-pr3.md` (J1 to J19). Those files decide; this
   file reports.
 - Facts below were checked on 2026-11-10 and 2026-11-11 (UTC) with the
   command shown. When this file and the code disagree, the code wins: fix
@@ -36,9 +37,9 @@ now, what was found on the way, what is left and what to watch.
   merge commits**.
 - CI runs on every PR into `main` or `v2` (`.github/workflows/tests.yml`).
   PRs #79 to #98 had green CI on their last commit (#97: run 42945883590,
-  #98: run 42950183037, checked 2026-11-11 with `gh pr checks <n> -R
-  iklobato/briar`). Nobody has reviewed them (the maintainer is the only
-  reviewer).
+  #98: run 43011048825, checked 2026-11-11 with `gh pr checks <n> -R
+  iklobato/briar`); for #99 check it the same way. Nobody has reviewed
+  them (the maintainer is the only reviewer).
 - The branch of #97 was rewritten and force-pushed twice on 2026-11-11 to
   take a test constant out of its history (section 4, GitGuardian). #98 was
   built on the rewritten branch. Nothing else in the stack was rewritten.
@@ -65,6 +66,7 @@ now, what was found on the way, what is left and what to watch.
 | https://github.com/iklobato/briar/pull/96 | `fix/doctor-git-remote-hint` | With no git origin, `doctor` says to run `briar init --owner OWNER --repo REPO` or set `[repo]` in `.briar.toml` (F10); no em dash in the `doctor` hints |
 | https://github.com/iklobato/briar/pull/97 | `logins/01-config-pasted` | Spec 005 part 1: `[auth]` config and the runbook `auth:` block, `BRIAR_*` names with the 1.x name guard, source targets for `auth login|status` with `--runbook`, the pasted logins (GitHub PAT, Jira token and cookie, Bitbucket token, access token and cookie, Linear key, Fireflies key), the flat credential store |
 | https://github.com/iklobato/briar/pull/98 | `logins/02-clouds` | Spec 005 part 2: AWS, GCP and Azure log in through their CLI (`[auth.aws] profile`, `[auth.gcp] config_dir` and `project`, `[auth.azure] tenant` and `subscription`); `profile` leaves `[extract.aws-infra]`; the acquirers and `CredEnv` go |
+| https://github.com/iklobato/briar/pull/99 | `logins/03-check` | Spec 005 part 3: the login check before every run ("who am I" plus a read of each resource), in `extract`, `runbook extract` and `serve`, `auth login` and `status`, `doctor` |
 
 ## 2. What is done
 
@@ -347,6 +349,44 @@ as 1.x shipped it, in tag `v1.1.101`. Read one with
   pass; `make smoke` ok; mypy 28 errors before, 25 after; `src` 14,377
   lines before, 14,104 after.
 
+### Spec 005: source logins, part 3 of 4 (PR #99)
+
+- Settled first in a grill session:
+  `docs/decisions/2026-11-11-briar-2-logins-pr3.md` (J1 to J19). The end of
+  that file lists the choices made while coding, for the review.
+- `briar/auth/check.py`: `LoginCheck` groups the targets of a run by source
+  (`TargetGroups`: the first adapter of each source, each resource once)
+  and runs one `SourceCheck` per source: the login `problem()` first (no
+  call), then `who_am_i()`, then `read()` of each resource, one call after
+  another (J6). States `ok`, `failed`, `unreachable`. `require()` raises
+  `LoginCheckFailed` (exit 1) on any line that is not `ok`, network
+  included (J3). `LoginRejected` and `SourceUnreachable` are the only
+  errors an adapter raises to it.
+- Every adapter has `login_source`, `who_am_i()` and `read()` (defaults in
+  the 4 adapter base classes raise `LoginRejected`); `CloudProvider.scope()`
+  gives the GCP project or the Azure subscription.
+  `extract/_login_failures.py` turns the errors of requests (atlassian),
+  PyGithub, urllib (Linear, Fireflies), botocore, google and azure into
+  those two errors, through the same client the run uses (J4).
+- The login left `is_available` (J15). An extractor gives its
+  `login_target(args)`: the adapter and the repos or projects of its gate
+  argument. `ExtractPlan` (`commands/extract.py`) builds the steps of a
+  `briar extract`, checks the targets of the steps that run (J2), then
+  runs them. `RunbookLoginCheck` (`iac/runbook/executor.py`) does the same
+  for every company and task of a runbook run before any task (J7);
+  `RunbookScheduler.check_logins()` runs it at `serve` start, and a job
+  whose check fails stops `serve` (`run_forever` raises it, J8).
+- `briar auth login` checks with `CompanyLogins.with_entries(entries)`
+  before saving (J9). `briar auth status` and `briar doctor` check the
+  configured sources (`CompanyLogins.configured()`: a block, a secret or a
+  1.x name), with the run targets of the project or the runbook and
+  `SourceProbes` (`extract/login_probes.py`) for the rest (J10, J11, J13).
+- Gone: `SourceLogin.ready()`, `status_lines`, `StatusLine`, the offline
+  CLI lines of I7, and the `github login` doctor check of PR 1.
+- Numbers, 2026-11-11, Python 3.13.2: 1501 unit and 32 integration tests
+  pass; `make smoke` ok; mypy 25 errors before, 25 after; `src` 14,104
+  lines before, 14,947 after.
+
 ### Spec 005: real runs on the accounts of the maintainer (G20)
 
 Read only, on the machine of the maintainer, 2026-11-11, with
@@ -357,12 +397,18 @@ Read only, on the machine of the maintainer, 2026-11-11, with
 | GitHub | `BRIAR_REALTEST_GITHUB_TOKEN="$(gh auth token)" env -u GITHUB_TOKEN -u GH_TOKEN briar extract --company realtest --include ...` | ok: the blob was written (516 bytes) with the token of company `realtest` and no `GITHUB_TOKEN` |
 | AWS, SSO profile | `[auth.aws] profile` set to an SSO profile, `briar auth status aws`, `briar extract --include aws-infra` | ok: the AWS section names the account and region `us-east-1`, exit 0 |
 | AWS, static-key profile | the same with the `default` profile | AWS itself rejects the key (`InvalidClientTokenId`, the same as `aws sts get-caller-identity`), so the section says UNREACHABLE; not a briar bug |
-| GCP, Azure | `briar auth status gcp`, `briar auth status azure` | ok: found the CLIs and their local logins |
+| GCP, Azure | `briar auth status gcp`, `briar auth status azure` | ok: found the CLIs and their local logins (PR 2, offline lines) |
+| GitHub, PR 3 | `briar extract --include stale-prs --repo iklobato/briar`, then a repo that does not exist, then a fake token | ok: `login github (realtest): iklobato`; the missing repo stops with the 404 line; the fake token stops with `HTTP 401: ... Bad credentials` |
+| AWS, PR 3 | `briar auth status aws` with the SSO profile | ok: the assumed-role ARN |
+| GCP, Azure, PR 3 | `briar auth status gcp` and `azure`, first without the SDKs, then in a separate env with `--extra gcp --extra azure` | without: a crash, fixed (the line says what to install); with: GCP refreshed the ADC (`application default credentials`), Azure got a token through `az` (`the default tenant`), after 114 s on the managed identity address |
+| doctor, PR 3 | `briar doctor` with GitHub and AWS configured | ok: one `github login` and one `aws login` line, each with the account |
 
 Not run for real yet: Jira, Bitbucket, Linear, Fireflies (each needs the
 maintainer to run `briar auth login <source> --company <c>` first), a GCP or
-Azure extract (no project or subscription set up for it), the Bitbucket
-cookie (fakes only, H3). Keep account ids out of the repo and the PRs.
+Azure extract and the project or subscription read (no project or
+subscription set up for it), the Bitbucket cookie (fakes only, H3) and the
+Bitbucket access token path. Keep account ids and emails out of the repo
+and the PRs.
 
 ## 3. How the command line works now
 
@@ -406,7 +452,7 @@ briar.cli.main(argv)
 - **`config.py`**: now only the argparse shim for `extract`
   (`apply_config_defaults`); `infer.py` fills `extract --repo` from git.
 
-### Logins (spec 005, PRs #97 and #98)
+### Logins (spec 005, PRs #97 to #99)
 
 ```
 .briar.toml [auth.<source>]           runbook companies.<c>.auth
@@ -418,13 +464,26 @@ briar.cli.main(argv)
 CompanyLogins(LoginScope(company, origin, table), block, os.environ)   (auth/logins.py)
         |  .github() .jira() .bitbucket() .linear() .fireflies() .aws() .gcp() .azure()
         v
-   SourceLogin: names(), ready(), status_lines(), login(prompt)
+   SourceLogin: names(), problem(), login(prompt), login_command()
         |
         +-- briar extract: ExtractConfig.logins(company) -> args.logins on every namespace
-        +-- runbook executor: one CompanyLogins per company
+        +-- runbook executor: RunbookLogins(runbook).company(name)
         +-- briar auth login|status <source> [--company C] [--runbook FILE]
         v
 adapters (_providers/, _trackers/, _meetings/, _clouds/) call self._login()
+
+The check before a run (PR #99, auth/check.py):
+
+ExtractPlan.steps() / RunbookLoginCheck   (the steps that run: is_available, J2)
+        |  extractor.login_target(namespace) -> LoginTarget(adapter, repos or projects)
+        v
+LoginCheck(logins).require(targets)
+        |  TargetGroups: first adapter per source, each resource once
+        v
+SourceCheck: login.problem()  ->  adapter.who_am_i()  ->  adapter.read(resource) ...
+        |  adapter errors -> LoginRejected | SourceUnreachable (extract/_login_failures.py)
+        v
+CheckResult lines (ok / failed / unreachable); any not ok -> LoginCheckFailed, exit 1
 ```
 
 - **Secrets** are env names `BRIAR_<COMPANY>_<SOURCE>_<FIELD>`: the company
@@ -439,15 +498,16 @@ adapters (_providers/, _trackers/, _meetings/, _clouds/) call self._login()
   in `[auth]`, never in `secrets.env`. briar never writes the config: a
   missing one stops with "set `site` under `auth.jira` in .briar.toml (...)"
   (H1).
-- **`ready()`**: True when every secret and config value is there. False
-  makes the extractor skip (`is_available`), until PR 3 turns it into a stop
-  before the run (G12). When the 2.0 login is missing and a 1.x name is set
-  (`JIRA_<C>_TOKEN`, `GITHUB_TOKEN`, `AWS_<C>_REGION`, ...), it raises a
-  `CliError` that names the new place and `briar auth login <source>` (G8,
-  G25, I10). With the 2.0 login set, the 1.x name is ignored.
+- **`problem()`**: "" when every secret and config value is there, else
+  the reason with its fix: a 1.x name set while the 2.0 login is missing
+  (`JIRA_<C>_TOKEN`, `GITHUB_TOKEN`, `AWS_<C>_REGION`, ...; G8, G25, I10),
+  no secret saved, or a missing config value (H1). The check shows it as a
+  `failed` line without calling the source. With the 2.0 login set, the
+  1.x name is ignored. For the clouds only a 1.x name is a problem (I6).
 - **Pasted sources** (GitHub token, Jira, Bitbucket, Linear key, Fireflies
   key): `login` asks each field (secrets hidden) and returns the entries;
-  `commands/auth.py` saves them. No live check until PR 3 (H9).
+  `commands/auth.py` checks them with `CompanyLogins.with_entries` and
+  saves them only when the source answers (J9).
 - **Cloud sources** (`CliLogin`: AWS, GCP, Azure): `login` runs the cloud
   CLI in the terminal through `PromptIO.run_login` (`os.system`) and saves
   nothing. The run reads the CLI login with the cloud SDK: boto3
@@ -533,11 +593,30 @@ Found in spec 005 (2026-11-10 and 2026-11-11):
 - **Each PR of spec 005 cut tests with the code they pinned**: unit tests
   went 1511 (PR #95) to 1469 (PR #97) to 1428 (PR #98). The acquirer,
   `env_vars` and store-interface tests left with their code; the adapter
-  tests were rewritten to take `FakeLogins`.
+  tests were rewritten to take `FakeLogins`. PR #99 added the check tests
+  (1501) and dropped the ones that pinned the old login skip.
+- **A test of a command now meets the login check** (PR #99). Unit tests of
+  what a run does after the check use the `logins_pass` fixture
+  (`tests/conftest.py`); tests of `auth` and `doctor` use `fake_sources`
+  (`FakeProbe` adapters); the integration wire fake answers `GET /user`,
+  `/repos/<o>/<r>`, Jira `myself` and `project/<KEY>` (`add_pattern` in
+  `tests/integration/conftest.py`), and `graphql_at` points Linear and
+  Fireflies at it.
+- **With no `[auth.azure] tenant`, `DefaultAzureCredential` waited 114 s**
+  on the managed identity address (`169.254.169.254` answered HTML on
+  this network) before it used the `az` login (`-v` log, 2026-11-11).
+  The run and `auth status` pay that each time.
+- **An optional SDK that is missing must not crash the check.** The error
+  translators import their library only when a call fails; `auth status
+  gcp` crashed with `ModuleNotFoundError: No module named 'httplib2'`
+  until they returned nothing to catch in that case, and Azure raised a
+  `RuntimeError` that was not a `CliError`. Found by the real run of PR #99.
+- **There is no `[extract] include` key.** G12 and J18 named one; the docs
+  say `--include`.
 
 ## 5. Next steps, in order
 
-1. **Review and merge #79 to #98 into `v2`**, in order, as merge commits.
+1. **Review and merge #79 to #99 into `v2`**, in order, as merge commits.
    Re-check `gh pr checks <n>` before each merge; after the last one, check
    that the `v2` CI run is green.
 2. **Decide how 2.0 is released before `v2` merges to `main`.**
@@ -579,18 +658,9 @@ Found in spec 005 (2026-11-10 and 2026-11-11):
      `extract` on Typer, the extractor flags (D32, D32a, C12), and the new
      knowledge layout (K1 to K14, K16, K20);
    - spec 005: source logins, in progress (section 2). PR 1 is #97, PR 2
-     (AWS, gcloud and Azure) is #98. Left (G19), each one grilled before
-     code (the maintainer asks for a grill at the start of every PR):
-     - PR 3, the check: one "who am I" call per source (research table in
-       the local `specs/005-source-logins/research.md`, R-4: GitHub `GET
-       /user`, Jira `/rest/api/3/myself`, Bitbucket `/2.0/user`, Linear
-       and Fireflies GraphQL, `sts.get_caller_identity`, the ADC refresh,
-       an Azure `get_token`). It runs before `briar extract` and before
-       each runbook task, and stops with every missing or bad login listed
-       (G12, G13); `briar auth status` and `briar doctor` show it live
-       (G14), 401/403 fail and a network error warns (G15). After PR 3 a
-       bare `briar extract` stops for a user with only a GitHub login, since
-       all 23 extractors run.
+     (AWS, gcloud and Azure) is #98, PR 3 (the check) is #99. Left (G19),
+     grilled before code (the maintainer asks for a grill at the start of
+     every PR):
      - PR 4: the GitHub device flow of a briar GitHub App (G10), Linear
        OAuth with `authlib` (G17, approved dependency L19), the refresh
        lock on `secrets.env` (G18, R-7), and the docs. Needs the maintainer
@@ -601,7 +671,8 @@ Found in spec 005 (2026-11-10 and 2026-11-11):
        maintainer runs `briar auth login <source> --company <c>` in their
        terminal, then asks for the run.
      - Local spec-kit state: `specs/005-source-logins/tasks.md` has T001 to
-       T013 done (PRs 1 and 2) and T014 to T023 left.
+       T017 done (PRs 1 to 3; T017a, the real runs, open) and T018 to T023
+       left.
 6. **Site and images**: usebriar.com `/docs` and the landing page (private
    repo `iklobato/usebriar-landing`) still describe removed features
    (pipeline R7). `docs/diagrams/which-command.svg` still shows `briar
@@ -638,17 +709,23 @@ Found in spec 005 (2026-11-10 and 2026-11-11):
 - Not checked: `briar --install-completion` writing into a real shell
   config; Python 3.10 only runs in CI.
 - The open risks in both decisions files (pipeline R1 to R12, logins R1 to R7).
-- Spec 005, open after PRs #97 and #98:
-  - In a runbook, a 1.x name with no 2.0 login fails the task (a `failed`
-    row, the message in the log) and the command still exits 0, until PR 3
-    checks before each task.
-  - Until PR 3, a missing login only skips its extractor
-    (`skipped ... (not available in this env)`).
+- Spec 005, open after PRs #97 to #99:
+  - `runbook serve` stops for every company when one check fails, a short
+    network drop included (J8 with J3, chosen on purpose); under a
+    supervisor that restarts on failure it loops until the source answers.
+    Review question on #99.
+  - `runbook extract` runs nothing when one company fails its check (J7).
+  - A bare `briar extract` checks every source of the extractors that have
+    their repo or project list: with the git origin as the repo, that is
+    GitHub, AWS and Fireflies at least. Use `--include`.
+  - The Bitbucket access token path skips `GET /2.0/user` (it belongs to no
+    user); not checked on a real token. The GCP project read and the Azure
+    subscription read were not run for real.
   - GitHub takes `method = "token"` only and Linear `api-key` only, until
     PR 4 (H8). Review question on #97.
-  - With no `[auth.azure] tenant`, a run uses `DefaultAzureCredential`.
-    Review question on #98: keep it, or `AzureCliCredential` with the
-    default tenant only.
+  - With no `[auth.azure] tenant`, a run uses `DefaultAzureCredential`,
+    which waited 114 s here (section 4). Review question on #98: keep it,
+    or `AzureCliCredential` with the default tenant only.
   - The Docker image has no `aws`, `gcloud` or `az` (I8): log in outside
     the container and mount `~/.aws` and the gcloud folder. Azure in Docker
     is not supported until someone asks.
@@ -687,3 +764,14 @@ Found in spec 005 (2026-11-10 and 2026-11-11):
   `JIRA_<C>_*`, `AWS_<C>_*`, ...) stops a run until the user moves it. The
   stop message names the new place; keep those messages in step with
   `[auth]` when a key moves.
+- **The calls of the login check** (PR #99): one per source plus one per
+  resource before every run, and before every `serve` job. A job every
+  minute with 10 GitHub repos makes 11 calls a minute, 660 an hour, against
+  the GitHub REST limit of 5,000 an hour for a user token (J16, other
+  sources not measured). Watch the rate limit when a company has many repos
+  and a short `every:`.
+- **A new extractor or adapter must join the check**: an extractor gives
+  `login_target`, an adapter `login_source`, `who_am_i` and `read`, and its
+  library errors go through a class of `extract/_login_failures.py`. One
+  that does not is never checked, and its bad login shows up only as an
+  empty section.

@@ -44,12 +44,25 @@ choices (Jira `site`, Bitbucket `workspace`, the method) go in `[auth]` of
 | `aws-infra`. | AWS: the profile in `[auth.aws] profile` (`briar auth login aws`), or the boto3 default chain. GCP (`cloud = "gcp"`): `[auth.gcp] project` and the ADC of `config_dir`. Azure (`cloud = "azure"`): `[auth.azure] subscription` and the `az` login of `tenant`. The `tagging-inventory` part also needs the `tag:GetResources` permission. |
 | `meeting-digest`. | `BRIAR_ACME_FIREFLIES_API_KEY` (`briar auth login fireflies --company acme`). |
 
-Run `briar auth status <source> --company acme` to see which values one
-login is missing. A login set only under its 1.x name (`GITHUB_TOKEN`,
-`JIRA_ACME_TOKEN`, ...) stops the run with exit code 1 and names the new
-place; a bad key in `[auth]` stops it too.
+Before any extractor runs, `briar extract` checks the login of each
+source the run uses: the source says who the login is, and briar reads
+each repo, Jira project, Linear team, Bitbucket workspace, GCP project and
+Azure subscription the run will read. Any failure stops the run with exit
+code 1 and lists every failure with its fix: a missing login, one the
+source refuses, a resource it cannot read, a network error, a login set
+only under its 1.x name (`GITHUB_TOKEN`, `JIRA_ACME_TOKEN`, ...):
 
-Repo extractors also need a repo list. Without one they are skipped.
+```text
+error: the login check failed; fix these, then run again:
+  - github (acme): no login saved (BRIAR_ACME_GITHUB_TOKEN); run `briar auth login github --company acme`
+  - jira (acme): bot@acme.example cannot read ENG (HTTP 404: ...); check the name and the access of this login
+```
+
+`briar auth status <source> --company acme` runs the same check without
+extracting. A bad key in `[auth]` stops the run too.
+
+Repo extractors also need a repo list. Without one they are skipped, and
+their source is not checked.
 Give it with `--repo`. Inside a checkout, briar can also take it from
 `.briar.toml` or the git `origin` remote (see `--repo` in "All
 parameters").
@@ -62,8 +75,11 @@ Run every extractor that is set up, for one repo:
 briar extract --company acme --repo acme-co/acme-app
 ```
 
-You get `./knowledge/knowledge/acme.md`. Extractors without credentials
-print `skipped <name>  (not available in this env)` and are left out.
+You get `./knowledge/knowledge/acme.md`. With no `--include` every
+extractor that has its repo or project list runs, so the run needs every
+login they use: the check stops it when one is missing. Extractors with no
+repo or project list print `skipped <name>  (not available in this env)`
+and are left out.
 
 Run only two extractors, and look at the last 50 merged PRs. Put the
 limit in `.briar.toml` first:
@@ -409,14 +425,17 @@ from the code; a test fails when this table and the code differ):
 Progress goes to stderr, so stdout stays empty for scripts:
 
 ```text
+  skipped active-tickets  (not available in this env)
+  login github (acme): octo
   running pr-archaeology ...
-  skipped meeting-digest  (not available in this env)
   stale-prs: no data
 
 wrote blob 'knowledge:acme' (18342 bytes, 5 sections) under ./knowledge
 ```
 
-- `skipped`: credentials or the repo list are missing for that extractor.
+- `skipped`: the repo or project list is missing for that extractor, or its
+  cloud SDK is not installed. Its source is not checked.
+- `login`: the login check passed for that source, with the account.
 - `no data`: it ran but found nothing. This is not an error.
 - Exit code `0`: the blob was written.
 - Exit code `1` with the error `nothing extracted`: every extractor was skipped or empty, so nothing was written.
@@ -428,9 +447,9 @@ the file store.
 
 - Inside a repo with `.briar.toml` or a git `origin`, that repo is
   already the `--repo` list. A `--repo` you type replaces it.
-- With no `--include`, `aws-infra` always runs. Without AWS access it
-  writes a section titled `AWS infrastructure (UNREACHABLE)`. Use
-  `--include` to skip it.
+- With no `--include`, `aws-infra` and `meeting-digest` always run, so the
+  check needs an AWS and a Fireflies login. Use `--include` to leave them
+  out.
 - On Bitbucket, `dependency-health`, `code-scanning`, `release-cadence`,
   `todo-density` and `test-discipline` come back empty. `repo-governance`
   cannot read branch protection there.
@@ -446,8 +465,9 @@ the file store.
 
 | Problem | What to do |
 |---|---|
-| Every extractor says `skipped`. | Credentials or `--repo` are missing. Run `briar auth status <target> --company acme`, then pass `--repo`. |
-| `403` or `404` from GitHub. | The token lacks access to the repo. A classic token needs `repo`, and `read:org` for org data. |
-| Jira calls hang or fail. | Check `JIRA_ACME_URL`. It should look like `https://acme.atlassian.net`. |
+| Every extractor says `skipped`. | `--repo` or the project lists are missing. Pass `--repo`, or set `projects` under `[extract.<name>]`. |
+| The login check fails with `cannot read ... (HTTP 404 ...)`. | The repo name is wrong, or the login lacks access to it. A fine-grained GitHub token must list the repo. |
+| The login check fails with `could not reach it`. | briar could not reach the source (network, VPN). Run again when it answers; `briar doctor` shows it as `warn`. |
+| Jira calls hang or fail. | Check `site` under `[auth.jira]`. It should look like `acme.atlassian.net`. |
 | The run is slow. | Lower `max` in `[extract]` (for example `max = 20`) or use `--include` to run fewer extractors. |
 | `unrecognized arguments: --pr-max` (or another 1.x flag). | The flag moved to `.briar.toml`: see "Settings". |

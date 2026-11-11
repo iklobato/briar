@@ -36,8 +36,8 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`.
   then the checks. `briar doctor --format json` prints one object,
   `{"settings": [...], "checks": [...]}`, instead of the list of checks: a
   script that read the 1.x list reads `.checks` now.
-- `briar auth status` with no target lists the name of every credential
-  that is set (never a value), as `briar auth list` did.
+- `briar auth status` with no target and no company lists the name of
+  every credential that is set (never a value), as `briar auth list` did.
 - `briar runbook serve` checks for due jobs every second, always.
 - The `briar init` template has a commented `[extract]` example.
 - The README is rewritten around the 5 commands. It shows no GIF or
@@ -66,10 +66,8 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`.
 - A 1.x name (`GITHUB_TOKEN`, `JIRA_<C>_TOKEN`, `JIRA_<C>_URL`,
   `BITBUCKET_<C>_APP_PASSWORD`, `LINEAR_<C>_TOKEN`,
   `FIREFLIES_<C>_API_KEY`, ...) that stands in for a missing 2.0 login
-  stops `briar extract` with exit 1 and names the new place. In a runbook
-  it fails the task. `agents/auth.md` has the full map, old to new.
-- `briar doctor` checks the GitHub login of the company (`github login`)
-  instead of `GITHUB_TOKEN` (`github token`).
+  stops `briar extract` and `briar runbook` with exit 1 and names the new
+  place. `agents/auth.md` has the full map, old to new.
 - AWS, GCP and Azure log in per company through their own CLI, and briar
   saves nothing for them: `[auth.aws] profile`, `[auth.gcp] config_dir`
   and `project`, `[auth.azure] tenant` and `subscription`.
@@ -78,10 +76,36 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`.
   `CLOUDSDK_CONFIG=<dir> gcloud auth application-default login`, `azure`
   runs `az login --tenant T`; each needs its value. A run with no value
   uses the default chain of the cloud. Azure with a tenant needs `az` at
-  run time too. `briar auth status aws|gcp|azure` checks the CLI and the
-  local login, offline.
+  run time too.
 - 1.x used an AWS profile named like the company when one existed; 2.0
   reads only `[auth.aws] profile`.
+- Every run checks its logins first. `briar extract` and each runbook task
+  ask each source they use "who am I" and read each repo, Jira project,
+  Linear team, Bitbucket workspace, GCP project and Azure subscription
+  they will read. Any failure (no login, a refused login, a resource the
+  login cannot see, a network error) stops the run with exit 1 before any
+  extractor runs, and lists every failure with its fix. In 1.x an
+  extractor with no login was skipped and a bad token gave an empty
+  section. An extractor with no repo or project set, or whose cloud SDK is
+  not installed, is still skipped, and its source is not checked. So a
+  bare `briar extract` needs every login its default extractors use:
+  pass `--include`.
+- `briar runbook extract` checks every company and task it will run
+  before it runs any of them, and runs nothing if one fails.
+  `briar runbook serve` does not start if a check fails, and stops (exit 1)
+  when the check before a job fails later, a network error included.
+- `briar auth login` asks the source "who am I" with the values entered
+  and saves them only when it answers (for `aws`, `gcp` and `azure`, after
+  their CLI login). It prints the account.
+- `briar auth status <source>` checks that login live, with the resources
+  of `[extract]` (or of the runbook tasks with `--runbook`).
+  `briar auth status --company C` checks every configured login: a source
+  with an `[auth.<source>]` block, a saved secret, or a 1.x name. A network
+  error is shown and exits 0; any other failure exits 1.
+- `briar doctor` checks every configured login of the company live, one
+  `<source> login` line each: a login that is missing or refused, or a
+  resource it cannot read, is `fail`; a network error is `warn`. It
+  replaces the offline `github token` check of 1.x.
 
 ### Fixed
 
