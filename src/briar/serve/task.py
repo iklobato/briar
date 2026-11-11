@@ -1,6 +1,7 @@
-"""The parts of one ticket task of `briar serve` (spec 003 PR 2): where it works
-(`TaskContext`, made by `TaskPrep`), what it may spend (`Budget`, S23), the plan, and
-the agent steps (plan, build, fix, self-review; S18 to S20)."""
+"""The parts of one task of `briar serve` (spec 003 PR 2 and PR 3): where it works
+(`TaskContext`, made by `TaskPrep`), what it may spend (`Budget`, S23), the plan, the
+answers to review comments (V7), and the agent steps (plan, build, fix, self-review,
+answer; S18 to S20)."""
 
 from __future__ import annotations
 
@@ -11,6 +12,7 @@ from pathlib import Path
 from typing import Any, ClassVar, List, Mapping, Tuple
 
 from briar.errors import CliError
+from briar.extract._provider import ReviewComment
 from briar.serve.agent import Access, AgentAnswer, AgentRequest, AgentRunner
 from briar.serve.git import GitIdentity, RepoCheckout, Shell
 from briar.serve.state import WorkSource
@@ -75,8 +77,18 @@ class ServeCache:
         return (Path(base) if base else Path.home() / ".cache") / "briar"
 
 
+@dataclass(frozen=True)
+class TaskRefs:
+    """The branch of a task, the base of its PR, and where a new worktree starts: the base
+    for a ticket, the branch of the PR for a review round."""
+
+    branch: str
+    base: str
+    start: str
+
+
 class TaskPrep:
-    """Makes the context of a ticket task: the clone, the worktree, the branch and the title
+    """Makes the context of a task: the clone, the worktree, the branch and the title
     (S27), the ticket text, and who the commits are from (S2)."""
 
     UNSAFE = re.compile(r"[^A-Za-z0-9._/-]+")
@@ -87,17 +99,31 @@ class TaskPrep:
         self._cache = cache
 
     def context(self, company: ServeCompany, item: WorkItem) -> TaskContext:
+        """A ticket: a new branch from the base."""
+        fields = {"key": item.ref(), "title": item.title, "number": item.number()}
+        branch = self.UNSAFE.sub("-", company.settings.branch.format_map(fields)).strip("-")
+        base = self._sources.github().default_branch(item.repo)
+        return self._made(company, item, TaskRefs(branch, base, base))
+
+    def review_context(self, company: ServeCompany, item: WorkItem) -> TaskContext:
+        """A review round: the branch of the PR, brought up to `origin` (V6, V7)."""
+        known = company.state.book().entry(item.key)
+        if known is None or not known.branch:
+            raise CliError(f"serve: no branch recorded for {item.key}; cannot work on PR #{item.pr}")
+        base = self._sources.github().default_branch(item.repo)
+        context = self._made(company, item, TaskRefs(known.branch, base, known.branch))
+        context.checkout.sync(context.worktree, known.branch)
+        return context
+
+    def _made(self, company: ServeCompany, item: WorkItem, refs: TaskRefs) -> TaskContext:
         github = self._sources.github()
         token = company.logins.github().token()
         checkout = RepoCheckout(self._shell, self._cache, item.repo)
         checkout.update(token)
-        fields = {"key": item.ref(), "title": item.title, "number": item.number()}
-        branch = self.UNSAFE.sub("-", company.settings.branch.format_map(fields)).strip("-")
-        base = github.default_branch(item.repo)
-        worktree = checkout.worktree(branch, base, self._cache / "worktrees" / company.name / branch.replace("/", "__"))
-        title = company.settings.title.format_map(fields)
+        worktree = checkout.worktree(refs.branch, refs.start, self._cache / "worktrees" / company.name / refs.branch.replace("/", "__"))
+        title = company.settings.title.format_map({"key": item.ref(), "title": item.title, "number": item.number()})
         identity = GitIdentity(github.who_am_i())
-        return TaskContext(item, company, worktree, checkout, base, branch, title, self._describe(item), identity, token, self._sources)
+        return TaskContext(item, company, worktree, checkout, refs.base, refs.branch, title, self._describe(item), identity, token, self._sources)
 
     def _describe(self, item: WorkItem) -> str:
         """The ticket text; "" when the tracker cannot give it (its `get_ticket` logs why)."""
@@ -160,6 +186,47 @@ class Review:
         return cls(bool(found.get("approved", False)), tuple(str(entry) for entry in found.get("findings", [])))
 
 
+@dataclass(frozen=True)
+class CommentAnswer:
+    """What the agent says about one review comment (V7, V9)."""
+
+    changed: bool
+    reply: str
+
+
+@dataclass(frozen=True)
+class Answers:
+    """The answer of the agent for every comment of a round, by `ReviewComment.key()`; a
+    comment it skipped still gets a reply (S22: every comment gets one)."""
+
+    by_key: Mapping[str, CommentAnswer]
+
+    SCHEMA: ClassVar[Mapping[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "answers": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {"id": {"type": "string"}, "changed": {"type": "boolean"}, "reply": {"type": "string"}},
+                    "required": ["id", "changed", "reply"],
+                },
+            }
+        },
+        "required": ["answers"],
+    }
+    MISSING: ClassVar[CommentAnswer] = CommentAnswer(False, "briar gave no answer for this comment; a person needs to look at it.")
+
+    @classmethod
+    def from_answer(cls, answer: AgentAnswer) -> "Answers":
+        rows = [row for row in answer.structured.get("answers", []) if isinstance(row, dict)]
+        return cls({str(row.get("id", "")): CommentAnswer(bool(row.get("changed")), str(row.get("reply", "")).strip()) for row in rows})
+
+    def of(self, comment: ReviewComment) -> CommentAnswer:
+        found = self.by_key.get(comment.key())
+        return found if found is not None and found.reply else self.MISSING
+
+
 class Prompts:
     """The prompt files of `briar.prompts` (`serve/*.md`), filled in."""
 
@@ -190,9 +257,20 @@ class AgentSteps:
     async def fix(self, what: str, details: str) -> None:
         await self._ask(Prompts().text("fix", {**self._fields(), "what": what, "details": details}), {}, Access.EDIT)
 
+    async def answer(self, comments: Tuple[ReviewComment, ...]) -> Answers:
+        """V7: one call over every new comment of the round; it may edit."""
+        listed = "\n\n".join(self._listed(comment) for comment in comments)
+        prompt = Prompts().text("comments", {**self._fields(), "comments": listed})
+        return Answers.from_answer(await self._ask(prompt, Answers.SCHEMA, Access.EDIT))
+
     async def review(self, plan: Plan, diff: str) -> Review:
         prompt = Prompts().text("review", {**self._fields(), "plan": plan.markdown(), "diff": diff[: self.DIFF_LIMIT]})
         return Review.from_answer(await self._ask(prompt, Review.SCHEMA, Access.READ))
+
+    def _listed(self, comment: ReviewComment) -> str:
+        where = f" on {comment.file_path}:{comment.line}" if comment.file_path else ""
+        quoted = "\n".join(f"> {line}" for line in comment.body.splitlines())
+        return f"id `{comment.key()}`, {comment.kind.value} comment by {comment.author}{where}:\n{quoted}"
 
     def _fields(self) -> Mapping[str, str]:
         return {"key": self._context.item.ref(), "title": self._context.item.title}
@@ -208,4 +286,4 @@ class AgentSteps:
         return answer
 
 
-__all__ = ["AgentSteps", "Budget", "LimitHit", "Plan", "Prompts", "Review", "ServeCache", "TaskContext", "TaskPrep"]
+__all__ = ["AgentSteps", "Answers", "Budget", "CommentAnswer", "LimitHit", "Plan", "Prompts", "Review", "ServeCache", "TaskContext", "TaskPrep", "TaskRefs"]

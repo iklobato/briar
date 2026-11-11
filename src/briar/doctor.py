@@ -102,6 +102,24 @@ class ModelLoginCheck:
         return [Check(self.NAME, OK, f"{found[0]} set")]
 
 
+class AgentSandboxCheck:
+    """The programs the sandbox of the agent of `briar serve` needs (spec 003, V14)."""
+
+    NAME = "agent sandbox"
+
+    def checks(self) -> List[Check]:
+        import platform
+        import shutil
+
+        from briar.serve.work import AgentSandbox
+
+        sandbox = AgentSandbox(platform.system(), shutil.which)
+        problem = sandbox.problem()
+        if problem:
+            return [Check(self.NAME, WARN, f"{problem}; only `briar serve` needs it")]
+        return [Check(self.NAME, OK, f"{sandbox.found()} found")]
+
+
 _CHECKS = (
     _python_check,
     _version_check,
@@ -112,7 +130,7 @@ _CHECKS = (
 
 def run_checks() -> List[Check]:
     """Run every health check in display order: the offline ones, then the logins."""
-    return [check() for check in _CHECKS] + ModelLoginCheck().checks() + LoginChecks().checks()
+    return [check() for check in _CHECKS] + ModelLoginCheck().checks() + AgentSandboxCheck().checks() + LoginChecks().checks()
 
 
 def worst_status(checks: List[Check]) -> str:

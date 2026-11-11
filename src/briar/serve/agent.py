@@ -1,10 +1,12 @@
 """The agent of `briar serve`: the Claude Agent SDK (S1), behind `AgentRunner` so the
 routines are tested with a fake.
 
-The agent edits files only inside the worktree of its task, and runs only the bash
-commands of the allowlist of the company (S25, A13); push, PR, comments and ticket
-changes are briar code (D10). Each call gets the money left in the task (`max_usd`,
-S23) as `max_budget_usd`."""
+The agent edits files only inside the worktree of its task, reads with its tools only
+there and in the knowledge folder of the company, and runs only the bash commands of the
+allowlist of the company (S25, A13), inside the sandbox of the SDK: no network but the
+`allowed_domains` of the company (V12, V13). Push, PR, comments and ticket changes are
+briar code (D10). Each call gets the money left in the task (`max_usd`, S23) as
+`max_budget_usd`."""
 
 from __future__ import annotations
 
@@ -62,18 +64,24 @@ class BashGuard:
         "rm -rf", "sudo", "su ", "ssh ", "scp ", "curl", "wget", "shutdown", "reboot", "chmod 777", "mkfs", "dd if=",
         "--force", "-f origin", "--amend", "rebase", "squash", "filter-branch", "reset --hard", "git push", "gh ",
     )  # fmt: skip
-    READ_TOOLS: ClassVar[Tuple[str, ...]] = ("Read", "Glob", "Grep", "LS", "TodoWrite")
+    READ_TOOLS: ClassVar[Tuple[str, ...]] = ("Read", "Glob", "Grep", "LS")
+    FREE_TOOLS: ClassVar[Tuple[str, ...]] = ("TodoWrite",)
+    PATH_KEYS: ClassVar[Tuple[str, ...]] = ("file_path", "path", "notebook_path")
+    GLOB_CHARS: ClassVar[str] = "*?["
     EDIT_TOOLS: ClassVar[Tuple[str, ...]] = ("Edit", "MultiEdit", "Write", "NotebookEdit")
     SEPARATORS: ClassVar[str] = ";|\n"
 
-    def __init__(self, worktree: Path, verbs: Sequence[str]) -> None:
+    def __init__(self, worktree: Path, verbs: Sequence[str], readable: Sequence[Path]) -> None:
         self._worktree = worktree
         self._verbs = verbs
+        self._readable = readable
 
     def refusal(self, tool: str, tool_input: Mapping[str, Any]) -> str:
         """Why the call is refused, or "" to allow it."""
-        if tool in self.READ_TOOLS:
+        if tool in self.FREE_TOOLS:
             return ""
+        if tool in self.READ_TOOLS:
+            return self._unreadable(tool, tool_input)
         if tool in self.EDIT_TOOLS:
             return self._outside(str(tool_input.get("file_path") or tool_input.get("notebook_path") or ""))
         if tool == "Bash":
@@ -81,9 +89,27 @@ class BashGuard:
         return f"{tool} is not allowed in briar serve"
 
     def _outside(self, path: str) -> str:
-        target = (self._worktree / path).resolve()
-        inside = target == self._worktree.resolve() or self._worktree.resolve() in target.parents
+        inside = self._within(self._worktree / path, [self._worktree])
         return "" if inside else f"edits stay inside the worktree {self._worktree}: {path} is outside"
+
+    def _unreadable(self, tool: str, tool_input: Mapping[str, Any]) -> str:
+        """V12: the read tools stay in the worktree and the readable folders. A Glob pattern
+        is checked up to its first wildcard (`../../**` climbs out too)."""
+        base = self._worktree / Path(str(next((tool_input[key] for key in self.PATH_KEYS if tool_input.get(key)), "."))).expanduser()
+        targets = [base]
+        if tool == "Glob":
+            targets.append(base / self._fixed_part(str(tool_input.get("pattern", ""))))
+        outside = [target.expanduser().resolve() for target in targets if not self._within(target, [self._worktree, *self._readable])]
+        return f"reads stay inside the worktree and the knowledge folder: {outside[0]} is outside" if outside else ""
+
+    def _fixed_part(self, pattern: str) -> Path:
+        parts = Path(pattern).expanduser().parts
+        fixed = [part for index, part in enumerate(parts) if not any(char in self.GLOB_CHARS for char in "".join(parts[: index + 1]))]
+        return Path(*fixed) if fixed else Path(".")
+
+    def _within(self, path: Path, roots: Sequence[Path]) -> bool:
+        target = path.expanduser().resolve()
+        return any(target == root.resolve() or root.resolve() in target.parents for root in roots)
 
     def _bash(self, command: str) -> str:
         lowered = command.lower()
@@ -125,9 +151,10 @@ class ToolGate:
 class ClaudeAgent:
     """`AgentRunner` on the Claude Agent SDK, with the model of the company (S5)."""
 
-    def __init__(self, model: str, guard: BashGuard) -> None:
+    def __init__(self, model: str, guard: BashGuard, domains: Sequence[str]) -> None:
         self._model = model
         self._guard = guard
+        self._domains = domains
 
     async def ask(self, request: AgentRequest) -> AgentAnswer:
         from claude_agent_sdk import ClaudeSDKError
@@ -166,10 +193,17 @@ class ClaudeAgent:
             "permission_mode": "default",
             "can_use_tool": ToolGate(self._guard, request.access),
             "setting_sources": [],
+            "sandbox": self._sandbox(),
         }
         if request.schema:
             options["output_format"] = {"type": "json_schema", "schema": dict(request.schema)}
         return ClaudeAgentOptions(**options)
+
+    def _sandbox(self) -> Dict[str, Any]:
+        """V12, V13: bash runs sandboxed with no way out of it, and each command still goes
+        through `can_use_tool` (the allowlist) instead of the auto-allow of a sandbox."""
+        network = {"allowedDomains": list(self._domains)}
+        return {"enabled": True, "autoAllowBashIfSandboxed": False, "allowUnsandboxedCommands": False, "network": network}
 
     def _answer(self, message: Optional[Any]) -> AgentAnswer:
         if message is None:

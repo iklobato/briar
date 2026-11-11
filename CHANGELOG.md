@@ -38,7 +38,21 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
   code. When `max_usd`, `max_loops` or `ci_wait_minutes` hits, or a git,
   GitHub or Jira call fails, briar pushes the work so far as a draft PR with
   a report, comments the report on the ticket and does not take the ticket
-  again. New review comments on briar PRs are only logged for now.
+  again.
+- `briar serve` answers review comments on the PRs it opened. Only comments of
+  people with write access and of the bots in `review_bots` count; every
+  comment briar posts carries the hidden marker `<!-- briar -->`, and an edit
+  or a thread reply makes a comment new again, while resolved threads are
+  skipped. One agent call per round answers every new comment (changed, or why
+  not); briar runs verify, a self-review, pushes, replies in each inline thread
+  and in one comment for the rest, and waits for CI. A PR in conflict with its
+  base gets the base merged and the conflicts resolved by the agent. A merged or
+  closed PR is recorded and no longer read. The new required key
+  `max_review_rounds` caps the rounds of one PR.
+- The bash of the `serve` agent runs in the sandbox of the Claude Agent SDK, with
+  no network but the new `allowed_domains`; its Read, Glob and Grep tools stay in
+  the worktree and the knowledge folder. `serve` and `doctor` check the sandbox
+  programs (`bubblewrap` and `socat` on Linux, now in the Docker image).
 - `briar doctor` has a `model login` line.
 
 ### Changed

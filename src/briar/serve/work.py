@@ -1,22 +1,26 @@
 """What `briar serve` works on, and the checks before it starts (spec 003 PR 1).
 
-The finder asks GitHub and Jira each cycle (S10): new comments on the PRs briar opened
-come first (S14, S22), then the open tickets assigned to the account of the token (S9),
-highest priority first, then the oldest. Before the first cycle `serve` checks the model
+The finder asks GitHub and Jira each cycle (S10): the PRs briar opened come first (S14,
+S22): the merged or closed ones to record, and the ones with new comments of people with
+write access or listed bots (V1 to V5) or in conflict with their base (V6); then the open
+tickets assigned to the account of the token (S9), highest priority first, then the
+oldest. Before the first cycle `serve` checks the model
 login (S3), the read logins (#99) and the write access (S29) of every company."""
 
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from enum import Enum
 from functools import partial
 from pathlib import Path
-from typing import Any, Callable, ClassVar, List, Mapping, Sequence, Tuple
+from typing import Any, Callable, ClassVar, List, Mapping, Optional, Sequence, Set, Tuple
 
 from briar.auth.check import CheckResult, CheckState, LoginCheck, LoginCheckFailed, LoginTarget, SourceUnreachable
 from briar.auth.logins import CompanyLogins, LoginScope
 from briar.errors import CliError
+from briar.extract._provider import CommentKind, ReviewComment
 from briar.extract._tracker import Ticket
 from briar.iac.runbook.models import ServeSettings
 from briar.serve.state import WorkBook, WorkEntry, WorkSource, WorkState, WorkStatus
@@ -26,11 +30,28 @@ from briar.storage import make_store
 class WorkKind(Enum):
     REVIEW = "review"
     TICKET = "ticket"
+    # A briar PR that was merged or closed: the task only records it (V3).
+    MERGED = "merged"
+    CLOSED = "closed"
+
+
+class Marker:
+    """The hidden mark on every GitHub comment briar posts (V2): briar skips only marked
+    comments, so the owner of the token can still steer it from the PR."""
+
+    TEXT = "<!-- briar -->"
+
+    def mark(self, text: str) -> str:
+        return f"{text}\n\n{self.TEXT}"
+
+    def absent(self, body: str) -> bool:
+        return self.TEXT not in body
 
 
 @dataclass(frozen=True)
 class WorkItem:
-    """One task: a ticket to build, or a briar PR with new review comments."""
+    """One task: a ticket to build, a briar PR with new review comments or a conflict, or
+    a briar PR that ended."""
 
     kind: WorkKind
     key: str
@@ -40,11 +61,12 @@ class WorkItem:
     rank: int = 0
     created_at: str = ""
     pr: int = 0
-    comments: Tuple[str, ...] = ()
+    comments: Tuple[ReviewComment, ...] = ()
+    conflict: bool = False
 
     def order(self) -> Tuple[int, int, str]:
-        """Reviews first (S14), then the rank of the priority, then the oldest."""
-        return (0 if self.kind is WorkKind.REVIEW else 1, self.rank, self.created_at)
+        """The PRs first (S14), then the rank of the priority, then the oldest."""
+        return (1 if self.kind is WorkKind.TICKET else 0, self.rank, self.created_at)
 
     def entry(self) -> WorkEntry:
         return WorkEntry(key=self.key, source=self.source, repo=self.repo, title=self.title, status=WorkStatus.FOUND)
@@ -126,9 +148,9 @@ class WorkFinder:
 
     def find(self) -> List[WorkItem]:
         book = self._company.state.book()
-        login = self._sources.github().who_am_i() if self._company.settings.all_repos() else ""
+        login = self._sources.github().who_am_i() if self._company.settings.repos else ""
         tickets = [item for item in [*self._jira(), *self._issues(login)] if not book.taken(item.key)]
-        return sorted([*self._reviews(book, login), *tickets], key=WorkItem.order)
+        return sorted([*self._pulls(book), *tickets], key=WorkItem.order)
 
     def _jira(self) -> List[WorkItem]:
         if not self._company.settings.jira:
@@ -152,14 +174,49 @@ class WorkFinder:
         rank = PriorityRank().github(ticket.labels, self._company.settings.priority_labels)
         return WorkItem(WorkKind.TICKET, f"{repo}{ticket.key}", WorkSource.GITHUB, repo, ticket.title, rank, ticket.created_at)
 
-    def _reviews(self, book: WorkBook, login: str) -> List[WorkItem]:
-        found = [self._review(entry, login) for entry in book.open_prs()]
-        return [item for item in found if item.comments]
+    def _pulls(self, book: WorkBook) -> List[WorkItem]:
+        found = [self._pull(entry) for entry in book.watched()]
+        return [item for item in found if item is not None]
 
-    def _review(self, entry: WorkEntry, login: str) -> WorkItem:
-        comments = self._sources.github().list_pr_comments(entry.repo, entry.pr)
-        new = tuple(comment.id for comment in comments if comment.author != login and comment.id not in entry.handled_comments)
-        return WorkItem(WorkKind.REVIEW, entry.key, entry.source, entry.repo, entry.title, pr=entry.pr, comments=new)
+    def _pull(self, entry: WorkEntry) -> Optional[WorkItem]:
+        github = self._sources.github()
+        pull = github.pull_state(entry.repo, entry.pr)
+        if not pull.open:
+            return WorkItem(WorkKind.MERGED if pull.merged else WorkKind.CLOSED, entry.key, entry.source, entry.repo, entry.title, pr=entry.pr)
+        resolved = github.resolved_comment_ids(entry.repo, entry.pr)
+        new = ReviewFilter(self._company.settings, entry, resolved).new(github.review_comments(entry.repo, entry.pr))
+        if not new and not pull.conflict:
+            return None
+        return WorkItem(WorkKind.REVIEW, entry.key, entry.source, entry.repo, entry.title, pr=entry.pr, comments=tuple(new), conflict=pull.conflict)
+
+
+class ReviewFilter:
+    """The new comments of a briar PR that briar answers: from people with write access or
+    a bot of `review_bots` (V1), not its own (V2), never answered or edited since (V4), and
+    not in a resolved thread (V5)."""
+
+    LOG: ClassVar[logging.Logger] = logging.getLogger(__name__)
+    WRITE: ClassVar[Tuple[str, ...]] = ("OWNER", "MEMBER", "COLLABORATOR")
+
+    def __init__(self, settings: ServeSettings, entry: WorkEntry, resolved: Set[str]) -> None:
+        self._settings = settings
+        self._entry = entry
+        self._resolved = resolved
+
+    def new(self, comments: Sequence[ReviewComment]) -> List[ReviewComment]:
+        fresh = [comment for comment in comments if self._fresh(comment)]
+        strangers = [comment for comment in fresh if not self._trusted(comment)]
+        if strangers:
+            self.LOG.info("serve: %s#%d: %d comments from accounts with no write access left alone", self._entry.repo, self._entry.pr, len(strangers))
+        return [comment for comment in fresh if self._trusted(comment)]
+
+    def _fresh(self, comment: ReviewComment) -> bool:
+        resolved = comment.kind is CommentKind.INLINE and comment.id in self._resolved
+        answered = self._entry.answered.get(comment.key()) == comment.updated_at
+        return Marker().absent(comment.body) and not resolved and not answered
+
+    def _trusted(self, comment: ReviewComment) -> bool:
+        return comment.author in self._settings.review_bots or (not comment.bot and comment.association in self.WRITE)
 
 
 class ModelLogin:
@@ -174,6 +231,33 @@ class ModelLogin:
         if any(self._environ.get(name, "").strip() for name in self.NAMES):
             return ""
         return "no model login: set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN (in the environment or secrets.env)"
+
+
+class AgentSandbox:
+    """V12, V14: what the sandbox of the SDK needs for the bash of the agent: the macOS
+    sandbox, or bubblewrap and socat on Linux. Checked by briar itself, since what the SDK
+    does without them is not known; no switch turns the sandbox off."""
+
+    NEEDS: ClassVar[Tuple[Tuple[str, Tuple[str, ...]], ...]] = (("Darwin", ("sandbox-exec",)), ("Linux", ("bwrap", "socat")))
+    PACKAGES: ClassVar[Tuple[Tuple[str, str], ...]] = (("bwrap", "bubblewrap"),)
+
+    def __init__(self, system: str, which: Callable[[str], Optional[str]]) -> None:
+        self._system = system
+        self._which = which
+
+    def problem(self) -> str:
+        needs = dict(self.NEEDS).get(self._system)
+        if needs is None:
+            return f"no agent sandbox: briar serve runs on macOS and Linux only, not on {self._system}"
+        missing = [self._package(name) for name in needs if not self._which(name)]
+        return f"no agent sandbox: install {' and '.join(missing)}; briar serve runs the bash of the agent in it" if missing else ""
+
+    def found(self) -> str:
+        return " and ".join(dict(self.NEEDS).get(self._system, ()))
+
+    def _package(self, program: str) -> str:
+        package = dict(self.PACKAGES).get(program, "")
+        return f"{program} (package {package})" if package else program
 
 
 class WriteCheck:
@@ -209,17 +293,19 @@ class WriteCheck:
 
 
 class ServeCheck:
-    """Before the first cycle: the model login, then the read and write checks of every
-    company; any failure stops `serve` with every failed line (G13, J8)."""
+    """Before the first cycle: the model login and the agent sandbox, then the read and
+    write checks of every company; any failure stops `serve` with every failed line (G13,
+    J8, V14)."""
 
-    def __init__(self, companies: Sequence[ServeCompany], environ: Mapping[str, str]) -> None:
+    def __init__(self, companies: Sequence[ServeCompany], environ: Mapping[str, str], sandbox: AgentSandbox) -> None:
         self._companies = companies
         self._environ = environ
+        self._sandbox = sandbox
 
     def require(self) -> None:
-        problem = ModelLogin(self._environ).problem()
-        if problem:
-            raise CliError(problem)
+        problems = [problem for problem in (ModelLogin(self._environ).problem(), self._sandbox.problem()) if problem]
+        if problems:
+            raise CliError("\n".join(problems))
         lines = [line for company in self._companies for line in self._company_lines(company)]
         if not all(line.passed() for line in lines):
             raise LoginCheckFailed.from_results(lines)
@@ -256,4 +342,18 @@ class ServeCompanies:
         return ServeCompany(name, entry.serve, CompanyLogins(scope, entry.auth, self._environ), state, root)
 
 
-__all__ = ["ModelLogin", "PriorityRank", "ServeCheck", "ServeCompanies", "ServeCompany", "WorkFinder", "WorkItem", "WorkKind", "WorkSources", "WriteCheck"]
+__all__ = [
+    "AgentSandbox",
+    "Marker",
+    "ModelLogin",
+    "PriorityRank",
+    "ReviewFilter",
+    "ServeCheck",
+    "ServeCompanies",
+    "ServeCompany",
+    "WorkFinder",
+    "WorkItem",
+    "WorkKind",
+    "WorkSources",
+    "WriteCheck",
+]

@@ -12,7 +12,7 @@ import pytest
 from briar.serve.loop import ServeLoop
 
 CLI_ERROR = 1
-SERVE_BLOCK = "    serve:\n      model: claude-test\n      max_usd: 5\n      max_loops: 3\n      ci_wait_minutes: 30\n      repos: [acme/app]\n"
+SERVE_BLOCK = "    serve:\n      model: claude-test\n      max_usd: 5\n      max_loops: 3\n      ci_wait_minutes: 30\n      max_review_rounds: 2\n      repos: [acme/app]\n"
 
 
 class Runbooks:
@@ -30,6 +30,12 @@ class Runbooks:
 @pytest.fixture
 def runbooks(tmp_path: Path) -> Runbooks:
     return Runbooks(tmp_path / "runbooks")
+
+
+@pytest.fixture(autouse=True)
+def sandbox_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The host of the test may lack bwrap; `test_no_sandbox_stops_before_the_loop` takes it away."""
+    monkeypatch.setattr("briar.serve.work.AgentSandbox.problem", lambda sandbox: "")
 
 
 class TestBeforeTheLoop:
@@ -57,6 +63,14 @@ class TestBeforeTheLoop:
         run = cli("serve", str(runbooks.write(SERVE_BLOCK)))
 
         assert run.err.strip().splitlines()[-1] == "error: no model login: set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN (in the environment or secrets.env)"
+
+    def test_no_sandbox_stops_before_the_loop(self, cli: Callable[..., SimpleNamespace], runbooks: Runbooks, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "PLACEHOLDER-not-a-secret")
+        monkeypatch.setattr("briar.serve.work.AgentSandbox.problem", lambda sandbox: "no agent sandbox: install socat")
+
+        run = cli("serve", str(runbooks.write(SERVE_BLOCK)))
+
+        assert (run.code, run.err.strip().splitlines()[-1]) == (CLI_ERROR, "error: no agent sandbox: install socat")
 
     def test_a_missing_github_login_stops_before_the_loop(
         self, cli: Callable[..., SimpleNamespace], runbooks: Runbooks, monkeypatch: pytest.MonkeyPatch

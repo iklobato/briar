@@ -2,8 +2,8 @@
 polls every `poll_minutes` (S10, S11) and runs up to `max_parallel` tasks at once (S16),
 never two on the same ticket; the scheduled extracts of the runbooks run beside it (S28).
 
-Each task runs the ticket routine (`briar.serve.ticket`); the review routine arrives in
-spec 003 PR 3."""
+Each task runs `ServeRoutine`: the ticket routine (`briar.serve.ticket`) or a review
+round (`briar.serve.review`)."""
 
 from __future__ import annotations
 
@@ -109,14 +109,16 @@ class ServeLoop:
 
 
 class AgentMaker:
-    """The agent of a task: the Claude Agent SDK with the model and the bash allowlist of
-    the company, kept inside the worktree of the task (S1, S5, S25)."""
+    """The agent of a task: the Claude Agent SDK with the model, the bash allowlist and the
+    allowed domains of the company, kept inside the worktree of the task; it reads the
+    knowledge folder too (S1, S5, S25, V12, V13)."""
 
     def __init__(self, company: ServeCompany) -> None:
         self._company = company
 
     def agent(self, context: TaskContext) -> AgentRunner:
-        return ClaudeAgent(self._company.settings.model, BashGuard(context.worktree, self._company.settings.bash))
+        guard = BashGuard(context.worktree, self._company.settings.bash, [self._company.root])
+        return ClaudeAgent(self._company.settings.model, guard, self._company.settings.allowed_domains)
 
 
 class ServeLoops:
@@ -131,10 +133,10 @@ class ServeLoops:
         return ServeLoop(watches, self._scheduler)
 
     def _routine(self, company: ServeCompany) -> Routine:
-        from briar.serve.ticket import TicketRoutine
+        from briar.serve.routine import ServeRoutine
 
         prep = TaskPrep(WorkSources(company.logins), Shell(), ServeCache(os.environ).root())
-        return TicketRoutine(company, AgentMaker(company).agent, prep)
+        return ServeRoutine(company, AgentMaker(company).agent, prep)
 
     def _slots(self, company: ServeCompany) -> TaskSlots:
         return TaskSlots(asyncio.Semaphore(company.settings.max_parallel), set(), set())

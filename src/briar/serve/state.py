@@ -25,6 +25,8 @@ class WorkStatus(str, Enum):
     PR_OPEN = "pr-open"
     DONE = "done"
     BLOCKED = "blocked"
+    MERGED = "merged"
+    CLOSED = "closed"
 
 
 class WorkEntry(BaseModel):
@@ -40,14 +42,23 @@ class WorkEntry(BaseModel):
     plan: str = ""
     # Why a task stopped on a limit or an error (S23).
     report: str = ""
-    handled_comments: List[str] = Field(default_factory=list)
+    # The review comments briar answered (V4): `ReviewComment.key()` -> its `updated_at`
+    # then; an edit after the answer makes it new again.
+    answered: Dict[str, str] = Field(default_factory=dict)
+    # The review rounds run on the PR (V11).
+    rounds: int = 0
 
     # A ticket in one of these is not taken again; one found or planned when `serve`
     # stopped is taken again and picks up its worktree.
-    TAKEN: ClassVar[Tuple[str, ...]] = ("pr-open", "done", "blocked")
+    TAKEN: ClassVar[Tuple[str, ...]] = ("pr-open", "done", "blocked", "merged", "closed")
+    # The PR of a ticket in one of these is read each cycle (V3).
+    WATCHED: ClassVar[Tuple[str, ...]] = ("pr-open", "done")
 
     def taken(self) -> bool:
         return self.status.value in self.TAKEN
+
+    def watched(self) -> bool:
+        return bool(self.pr) and self.status.value in self.WATCHED
 
 
 class WorkBook(BaseModel):
@@ -64,8 +75,9 @@ class WorkBook(BaseModel):
     def with_entry(self, entry: WorkEntry) -> "WorkBook":
         return WorkBook(entries={**self.entries, entry.key: entry})
 
-    def open_prs(self) -> List[WorkEntry]:
-        return [entry for entry in self.entries.values() if entry.pr]
+    def watched(self) -> List[WorkEntry]:
+        """The PRs briar still reads: open, and not blocked (V3)."""
+        return [entry for entry in self.entries.values() if entry.watched()]
 
 
 class WorkState:

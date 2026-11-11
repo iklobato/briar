@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional
 
 import pytest
 
-from briar.doctor import FAIL, OK, WARN, Check, run_checks, worst_status
+from briar.doctor import FAIL, OK, WARN, AgentSandboxCheck, Check, run_checks, worst_status
 from tests.unit.fake_logins import FakeProbe
 
 FAKE_SECRET = "PLACEHOLDER-not-a-secret"
@@ -49,6 +49,8 @@ class Project:
 
 @pytest.fixture
 def project(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_sources: Any) -> Project:
+    # The host of the test may lack bwrap; TestAgentSandbox checks that line.
+    monkeypatch.setattr("briar.serve.work.AgentSandbox.problem", lambda sandbox: "")
     return Project(monkeypatch, tmp_path)
 
 
@@ -76,6 +78,25 @@ class TestOfflineChecks:
             "no model login: set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN (in the environment or secrets.env); only `briar serve` needs it"
         )
         assert checks["logins"].detail == "no company: set `company` in .briar.toml to check its logins"
+
+
+class TestAgentSandbox:
+    """V14: the line names what `briar serve` needs on this system."""
+
+    def test_missing_programs_warn(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("platform.system", lambda: "Linux")
+        monkeypatch.setattr("shutil.which", lambda program: None)
+
+        (line,) = AgentSandboxCheck().checks()
+
+        expected = "no agent sandbox: install bwrap (package bubblewrap) and socat; briar serve runs the bash of the agent in it; only `briar serve` needs it"
+        assert (line.name, line.status, line.detail) == ("agent sandbox", WARN, expected)
+
+    def test_found_programs_pass(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("platform.system", lambda: "Linux")
+        monkeypatch.setattr("shutil.which", lambda program: f"/usr/bin/{program}")
+
+        assert [(line.status, line.detail) for line in AgentSandboxCheck().checks()] == [(OK, "bwrap and socat found")]
 
 
 class TestLoginLines:

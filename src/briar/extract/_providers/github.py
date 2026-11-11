@@ -15,7 +15,7 @@ import base64
 import logging
 import re
 from functools import partial
-from typing import Any, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional, Set
 
 from briar.auth.check import LoginRejected
 from briar.auth.logins import CompanyLogins, GithubLogin
@@ -31,13 +31,16 @@ from briar.extract._provider import (
     Deployment,
     Environment,
     CiState,
+    CommentKind,
     PullRequest,
     PullRequestDraft,
+    PullState,
     Release,
     RepositoryProvider,
     ReviewComment,
     ScanAlert,
     SecurityAlert,
+    ThreadReply,
     TreeEntry,
 )
 
@@ -73,6 +76,12 @@ class CiStates:
 class GithubProvider(RepositoryProvider):
     kind = "github"
     login_source = "github"
+    # ponytail: the first 100 threads of a PR and 100 comments each; page when a PR has more.
+    RESOLVED_THREADS: ClassVar[str] = (
+        "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) {"
+        " pullRequest(number: $number) { reviewThreads(first: 100) { nodes { isResolved comments(first: 100) {"
+        " nodes { databaseId } } } } } } }"
+    )
 
     def __init__(self, *, logins: Optional[CompanyLogins] = None) -> None:
         self._logins = logins
@@ -113,6 +122,58 @@ class GithubProvider(RepositoryProvider):
 
     def _convert_to_draft(self, repo: str, number: int) -> None:
         self._api().client().get_repo(repo).get_pull(number).convert_to_draft()
+
+    def pull_state(self, repo: str, number: int) -> PullState:
+        """Open or not, merged, in conflict with its base (`mergeable_state` `dirty`; GitHub
+        computes it late, so a new PR can read `unknown` once)."""
+        _validate_repo(repo)
+        found = GithubFailures().answer(partial(self._api().get_json, f"/repos/{repo}/pulls/{number}"))
+        base = (found.get("base") or {}).get("ref") or ""
+        return PullState(found.get("state") == "open", bool(found.get("merged")), found.get("mergeable_state") == "dirty", base)
+
+    def review_comments(self, repo: str, number: int) -> List[ReviewComment]:
+        """Every comment of a PR for `briar serve` (V1, V4, V9): whole, with who wrote it and
+        when it was edited. Unlike `list_pr_comments` it raises, and a review with no text
+        (an approval) is no comment."""
+        _validate_repo(repo)
+        return GithubFailures().answer(partial(self._review_comments, repo, number))
+
+    def resolved_comment_ids(self, repo: str, number: int) -> Set[str]:
+        """V5: the ids of the inline comments in resolved review threads (GraphQL)."""
+        _validate_repo(repo)
+        return GithubFailures().answer(partial(self._resolved_comment_ids, repo, number))
+
+    def reply_in_thread(self, repo: str, reply: ThreadReply) -> None:
+        _validate_repo(repo)
+        GithubFailures().read(partial(self._reply_in_thread, repo, reply))
+
+    def _review_comments(self, repo: str, number: int) -> List[ReviewComment]:
+        api = self._api()
+        inline = [self._comment_of(row, CommentKind.INLINE) for row in api.get_paginated(f"/repos/{repo}/pulls/{number}/comments")]
+        talk = [self._comment_of(row, CommentKind.CONVERSATION) for row in api.get_paginated(f"/repos/{repo}/issues/{number}/comments")]
+        reviews = api.get_paginated(f"/repos/{repo}/pulls/{number}/reviews")
+        return [*inline, *talk, *(self._comment_of(row, CommentKind.REVIEW) for row in reviews if (row.get("body") or "").strip())]
+
+    def _comment_of(self, row: Dict[str, Any], kind: CommentKind) -> ReviewComment:
+        user = row.get("user") or {}
+        own = str(row.get("id") or "")
+        return ReviewComment(
+            id=own, author=user.get("login") or "", body=row.get("body") or "", file_path=row.get("path") or "",
+            line=int(row.get("line") or row.get("original_line") or 0), created_at=row.get("created_at") or row.get("submitted_at") or "",
+            kind=kind, association=row.get("author_association") or "", bot=user.get("type") == "Bot",
+            updated_at=row.get("updated_at") or row.get("submitted_at") or "", thread=str(row.get("in_reply_to_id") or own),
+        )  # fmt: skip
+
+    def _resolved_comment_ids(self, repo: str, number: int) -> Set[str]:
+        owner, name = repo.split("/", 1)
+        requester = self._api().client()._Github__requester
+        _, found = requester.graphql_query(self.RESOLVED_THREADS, {"owner": owner, "name": name, "number": number})
+        pull = ((found.get("data") or {}).get("repository") or {}).get("pullRequest") or {}
+        threads = (pull.get("reviewThreads") or {}).get("nodes") or []
+        return {str(node["databaseId"]) for thread in threads if thread.get("isResolved") for node in (thread.get("comments") or {}).get("nodes") or []}
+
+    def _reply_in_thread(self, repo: str, reply: ThreadReply) -> None:
+        self._api().client().get_repo(repo).get_pull(reply.number).create_review_comment_reply(int(reply.thread), reply.text)
 
     def _create_pull(self, repo: str, draft: PullRequestDraft) -> int:
         target = self._api().client().get_repo(repo)
