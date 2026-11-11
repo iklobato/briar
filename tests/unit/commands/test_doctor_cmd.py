@@ -10,6 +10,8 @@ from typing import Callable, Dict
 
 import pytest
 
+EM_DASH = "—"
+
 
 @dataclass(frozen=True)
 class TelemetryCase:
@@ -51,4 +53,15 @@ class TestTable:
         """The table renderer read `[repo]` as markup and dropped it from the git remote hint."""
         run = cli("doctor")
 
-        assert "set [repo] in config" in " ".join(run.out.split())
+        assert "or set [repo] in .briar.toml" in " ".join(run.out.split())
+
+    def test_the_git_remote_hint_names_the_command_that_takes_owner(self, cli: Callable[..., SimpleNamespace]) -> None:
+        """Only `briar init` has `--owner` in 2.0 (decision F10)."""
+        run = cli("doctor")
+
+        assert "no git origin: run `briar init --owner OWNER --repo REPO`" in " ".join(run.out.split())
+
+    def test_the_hints_use_no_em_dash(self, cli: Callable[..., SimpleNamespace]) -> None:
+        run = cli("doctor")
+
+        assert EM_DASH not in run.out
