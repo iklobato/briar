@@ -5,7 +5,7 @@ agentic development pipeline (watch the tickets assigned to briar and the review
 on its PRs; plan, build, open the PR, answer every comment; in parallel, with the Claude
 Agent SDK; GitHub and Jira only). The decisions are
 `docs/decisions/2026-11-11-briar-2-serve-pipeline.md` (S1 to S35), which also list the
-earlier decisions they change. Spec 003 builds it in 4 PRs; part 1 is #100.
+earlier decisions they change. Spec 003 builds it in 4 PRs; part 1 is #100, part 2 is #101.
 
 The handoff file for briar 2.0. Read it before you touch the `v2` branch or
 any 2.0 PR. It says where the work is, what is done, how the code works
@@ -75,6 +75,7 @@ now, what was found on the way, what is left and what to watch.
 | https://github.com/iklobato/briar/pull/98 | `logins/02-clouds` | Spec 005 part 2: AWS, GCP and Azure log in through their CLI (`[auth.aws] profile`, `[auth.gcp] config_dir` and `project`, `[auth.azure] tenant` and `subscription`); `profile` leaves `[extract.aws-infra]`; the acquirers and `CredEnv` go |
 | https://github.com/iklobato/briar/pull/99 | `logins/03-check` | Spec 005 part 3: the login check before every run ("who am I" plus a read of each resource), in `extract`, `runbook extract` and `serve`, `auth login` and `status`, `doctor` |
 | https://github.com/iklobato/briar/pull/100 | `serve/01-runbook-serve` | Spec 003 part 1: the serve decisions (S1 to S35), the runbook `serve:` block, `briar serve DIR` (model, read and write checks; one asyncio loop with `max_parallel` slots per company; the finder; the `work:<company>` state), `doctor` model login |
+| https://github.com/iklobato/briar/pull/101 | `serve/02-ticket-routine` | Spec 003 part 2: the ticket routine (Claude Agent SDK in a worktree per ticket; plan, build, verify and self-review loops, PR, CI wait, limits with a draft PR and a report) |
 
 ## 2. What is done
 
@@ -427,6 +428,41 @@ as 1.x shipped it, in tag `v1.1.101`. Read one with
   keeps it. The rest of spec 005 PR 4 (Linear OAuth, the GitHub App) is not
   planned.
 
+### Spec 003: `briar serve`, part 2 of 4 (PR #101)
+
+- The ticket routine (S18 to S27): `serve/ticket.py` (`TicketRoutine` per
+  company, `TicketRun` per ticket: plan, comment and `status.started`,
+  build, verify loop, self-review loop, push, PR ready, comment and
+  `status.review`, CI wait with fixes; `blocked()` on any `CliError`, which
+  pushes a draft PR with the report and comments it, and blocks the ticket
+  even when posting fails).
+- `serve/agent.py`: `ClaudeAgent` on `claude_agent_sdk.query` (structured
+  output for the plan and the review, `max_budget_usd` per call, no setting
+  sources), `BashGuard` (1.x verbs and forbidden tokens, plus `git push` and
+  `gh `; edits only in the worktree; reads anywhere) behind `ToolGate`
+  (`can_use_tool`; read-only steps cannot edit). The SDK yields an error
+  `ResultMessage` and then raises `ResultError`: both become one failed
+  `AgentAnswer`, which stops the task.
+- `serve/git.py`: `Shell` (`os.system` with the output in a file, no
+  `subprocess`), `RepoCheckout` (clone in `$XDG_CACHE_HOME/briar`, one
+  worktree per task, commits as `<login>@users.noreply.github.com`, push
+  with a credential helper that reads a 0600 token file).
+- `serve/task.py`: `TaskPrep` (the context of a task: clone, worktree,
+  branch and title formats, ticket text), `Budget` (S23), `Plan`, `Review`,
+  `Prompts` (`src/briar/prompts/serve/*.md`), `AgentSteps`.
+- Adapter verbs: `GithubProvider.open_pull`, `comment`, `make_draft`,
+  `ci_state` (wrapped in `GithubFailures`, so a GitHub refusal is a
+  `CliError`), `JiraTracker.comment` and `move`.
+- State: `found`, `planned`, `pr-open`, `done`, `blocked`. The finder takes
+  again a ticket left `found` or `planned` (a crash before the PR), never
+  one `pr-open`, `done` or `blocked`.
+- Numbers, 2026-11-11, Python 3.13.2: 1593 unit and 33 integration tests
+  pass; `make smoke` ok; mypy 25 before, 25 after; `src` 15,585 lines
+  before, 16,462 after.
+- Not run for real: a full ticket (needs model money and a ticket briar may
+  write to). The SDK was called once with a fake key: a failed answer, cost
+  0.
+
 ### Spec 005: real runs on the accounts of the maintainer (G20)
 
 Read only, on the machine of the maintainer, 2026-11-11, with
@@ -656,7 +692,7 @@ Found in spec 005 (2026-11-10 and 2026-11-11):
 
 ## 5. Next steps, in order
 
-1. **Review and merge #79 to #100 into `v2`**, in order, as merge commits.
+1. **Review and merge #79 to #101 into `v2`**, in order, as merge commits.
    Re-check `gh pr checks <n>` before each merge; after the last one, check
    that the `v2` CI run is green.
 2. **Decide how 2.0 is released before `v2` merges to `main`.**
@@ -691,10 +727,8 @@ Found in spec 005 (2026-11-10 and 2026-11-11):
    storage, which part 3 removes).
 5. **Write the next specs** (spec-kit, from the decisions files):
    - spec 003: `briar serve` (S1 to S35; it replaces the LangGraph engine
-     of D9 and the YAML pipelines of D11). Part 1 is #100. Left: part 2, the
-     ticket routine (adds `claude-agent-sdk`; plan, implement with the bash
-     allowlist, verify, self-review, PR, CI wait, limits, status); part 3,
-     the review routine; part 4, `auth` and `runbook` leave, `init` writes
+     of D9 and the YAML pipelines of D11). Part 1 is #100, part 2 (the ticket
+     routine) is #101. Left: part 3, the review routine; part 4, `auth` and `runbook` leave, `init` writes
      an example runbook, docs;
    - spec 004: extractors cleaned inside with the same text per extractor,
      `extract` on Typer, the extractor flags (D32, D32a, C12), and the new
@@ -756,6 +790,14 @@ Found in spec 005 (2026-11-10 and 2026-11-11):
     when `serve` loads the runbooks.
   - Nothing is cut yet (S8): Bitbucket, Linear, Fireflies and the clouds
     stay as extractors.
+- Spec 003, open after PR #101:
+  - The agent can read any file the user of `serve` can read (the Read tool
+    and `cat`), so a ticket could ask it to copy a secret into the PR.
+    The manual says to run `serve` as a user with no other secrets. Review
+    question on #101.
+  - A failure before a task starts (the clone, the ticket text) is logged
+    and tried again on the next poll. Review question on #101.
+  - No full real ticket run yet.
 - Spec 005, open after PRs #97 to #99:
   - `runbook serve` stops for every company when one check fails, a short
     network drop included (J8 with J3, chosen on purpose); under a
