@@ -12,7 +12,7 @@ import logging
 import re
 from dataclasses import replace
 from functools import partial
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from briar.auth.check import LoginRejected
 from briar.auth.logins import CompanyLogins, JiraLogin
@@ -48,6 +48,9 @@ _ADF_BLOCK_NODES = frozenset(
 class JiraTracker(TrackerProvider):
     kind = "jira"
     login_source = "jira"
+    TICKET_FIELDS = ("summary", "status", "issuetype", "priority", "reporter", "assignee", "labels", "created", "updated")
+    # The most results one Jira search page gives.
+    PAGE_LIMIT = 100
 
     def __init__(self, *, logins: Optional[CompanyLogins] = None, auth: Optional[JiraAuthStrategy] = None) -> None:
         """`auth` (tests) wins over the strategy of the login method."""
@@ -84,6 +87,28 @@ class JiraTracker(TrackerProvider):
     def _myself(self) -> str:
         profile = self._jira().myself()
         return str(profile.get("emailAddress") or profile.get("displayName") or profile.get("accountId") or "")
+
+    def assigned(self, project: str, max_count: int) -> List[Ticket]:
+        """Open tickets of `project` assigned to the account of the login, highest priority
+        first, then the oldest (`briar serve`, spec 003 S9 and S14). Errors are not swallowed."""
+        if not _PROJECT_RE.match(project):
+            raise LoginRejected(f"{project!r} is not a Jira project key")
+        jql = f'project = "{project}" AND assignee = currentUser() AND statusCategory != "Done" ORDER BY priority DESC, created ASC'
+        payload = {"jql": jql, "fields": list(self.TICKET_FIELDS), "maxResults": min(max_count, self.PAGE_LIMIT)}
+        found = self._jira().post("rest/api/3/search/jql", data=payload)
+        return [self._to_ticket(issue) for issue in (found or {}).get("issues", [])[:max_count]]
+
+    def can_write(self, project: str, permissions: Sequence[str]) -> None:
+        """Raise `LoginRejected` when the login lacks one of `permissions` in `project`
+        (`mypermissions`, nothing is written; spec 003 S29)."""
+        RequestsFailures().read(partial(self._require_permissions, project, permissions))
+
+    def _require_permissions(self, project: str, permissions: Sequence[str]) -> None:
+        found = self._jira().get("rest/api/2/mypermissions", params={"projectKey": project, "permissions": ",".join(permissions)})
+        granted = {name for name, entry in ((found or {}).get("permissions") or {}).items() if entry.get("havePermission")}
+        missing = [name for name in permissions if name not in granted]
+        if missing:
+            raise LoginRejected(f"missing the Jira permission {', '.join(missing)}")
 
     @swallow_errors(default=[], message="jira list_tickets")
     def list_tickets(self, project: str, *, state: str, max_count: int) -> List[Ticket]:

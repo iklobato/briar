@@ -81,12 +81,12 @@ class TestSmokeVersionAndHelp:
         result = _run(tmp_path, "--help")
         assert result.returncode == 0, result.stderr
         # The help text enumerates the command surface.
-        for command in ("extract", "runbook", "auth", "init", "doctor"):
+        for command in ("extract", "serve", "runbook", "auth", "init", "doctor"):
             assert command in result.stdout
 
     @pytest.mark.parametrize(
         "command",
-        ["runbook", "auth", "init", "doctor"],
+        ["serve", "runbook", "auth", "init", "doctor"],
         ids=lambda c: f"help-{c}",
     )
     def test_per_command_help_exit_0(self, tmp_path, command) -> None:

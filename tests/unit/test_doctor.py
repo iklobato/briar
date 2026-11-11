@@ -55,11 +55,13 @@ def project(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_sources: Any) 
 class TestOfflineChecks:
     def test_checks_ok_when_environment_is_set_up(self, project: Project, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("BRIAR_ACME_GITHUB_TOKEN", FAKE_SECRET)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", FAKE_SECRET)
 
         checks = project.write('company = "acme"\n')
 
         assert ("llm key" in checks, "store" in checks) == (False, False)
-        assert [checks[name].status for name in ("project config", "git remote", "github login")] == [OK, OK, OK]
+        assert [checks[name].status for name in ("project config", "git remote", "model login", "github login")] == [OK, OK, OK, OK]
+        assert checks["model login"].detail == "ANTHROPIC_API_KEY set"
         assert checks["github login"].detail == "github (acme): bot@example.test"
         assert worst_status(list(checks.values())) == OK
 
@@ -69,7 +71,10 @@ class TestOfflineChecks:
 
         checks = {check.name: check for check in run_checks()}
 
-        assert [checks[name].status for name in ("project config", "git remote", "logins")] == [WARN, WARN, WARN]
+        assert [checks[name].status for name in ("project config", "git remote", "model login", "logins")] == [WARN, WARN, WARN, WARN]
+        assert checks["model login"].detail == (
+            "no model login: set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN (in the environment or secrets.env); only `briar serve` needs it"
+        )
         assert checks["logins"].detail == "no company: set `company` in .briar.toml to check its logins"
 
 
@@ -80,7 +85,10 @@ class TestLoginLines:
         checks = project.write('company = "acme"\n[auth.jira]\nsite = "acme.atlassian.net"\n')
 
         jira = checks["jira login"]
-        assert (jira.status, jira.detail) == (FAIL, "jira (acme): no login saved (BRIAR_ACME_JIRA_EMAIL, BRIAR_ACME_JIRA_TOKEN); run `briar auth login jira --company acme`")
+        assert (jira.status, jira.detail) == (
+            FAIL,
+            "jira (acme): no login saved (BRIAR_ACME_JIRA_EMAIL, BRIAR_ACME_JIRA_TOKEN); run `briar auth login jira --company acme`",
+        )
 
     def test_a_1x_github_token_fails_with_the_new_place(self, project: Project, monkeypatch: pytest.MonkeyPatch) -> None:
         """G25: briar no longer reads $GITHUB_TOKEN; doctor says where the token goes now."""

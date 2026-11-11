@@ -16,6 +16,7 @@ import logging
 import re
 from typing import Any, Dict, List, Optional
 
+from briar.auth.check import LoginRejected
 from briar.auth.logins import CompanyLogins, GithubLogin
 from briar.decorators import swallow_errors
 from briar.extract._gh import GithubApi
@@ -66,6 +67,13 @@ class GithubProvider(RepositoryProvider):
 
     def read(self, resource: str) -> None:
         self._api().read_repo(resource)
+
+    def can_write(self, repo: str) -> None:
+        """Raise `LoginRejected` when the token cannot push to `repo` (`permissions.push` of
+        `GET /repos/{repo}`, nothing is written; spec 003 S29)."""
+        _validate_repo(repo)
+        if not (self._api().get_json(f"/repos/{repo}").get("permissions") or {}).get("push"):
+            raise LoginRejected("the token cannot push: give it Contents and Pull requests read and write")
 
     def _login(self) -> GithubLogin:
         """The GitHub login of the company (spec 005); with no logins, the defaults of no company."""

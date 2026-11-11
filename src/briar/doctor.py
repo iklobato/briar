@@ -85,6 +85,23 @@ class LoginChecks:
         return [Check(f"{line.source} login", self.STATUS_OF[line.state.value], line.line()) for line in lines]
 
 
+class ModelLoginCheck:
+    """The model login `briar serve` needs (spec 003, S3), offline: a name set, not tested."""
+
+    NAME = "model login"
+
+    def checks(self) -> List[Check]:
+        import os
+
+        from briar.serve.work import ModelLogin
+
+        problem = ModelLogin(os.environ).problem()
+        if problem:
+            return [Check(self.NAME, WARN, f"{problem}; only `briar serve` needs it")]
+        found = [name for name in ModelLogin.NAMES if os.environ.get(name, "").strip()]
+        return [Check(self.NAME, OK, f"{found[0]} set")]
+
+
 _CHECKS = (
     _python_check,
     _version_check,
@@ -95,7 +112,7 @@ _CHECKS = (
 
 def run_checks() -> List[Check]:
     """Run every health check in display order: the offline ones, then the logins."""
-    return [check() for check in _CHECKS] + LoginChecks().checks()
+    return [check() for check in _CHECKS] + ModelLoginCheck().checks() + LoginChecks().checks()
 
 
 def worst_status(checks: List[Check]) -> str:

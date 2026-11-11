@@ -1,0 +1,80 @@
+"""The work state of `briar serve`: one blob per company in the knowledge store,
+`work:<company>` (decision S17). It holds each ticket briar took, with its repo,
+branch and PR, and the review comments already answered; a restart picks up from it,
+and the agent can read it as the history of the company."""
+
+from __future__ import annotations
+
+import asyncio
+from enum import Enum
+from typing import Dict, List
+
+from pydantic import BaseModel, Field
+
+from briar.storage import KnowledgeStore
+
+
+class WorkSource(str, Enum):
+    JIRA = "jira"
+    GITHUB = "github"
+
+
+class WorkStatus(str, Enum):
+    # Seen by the loop; the ticket routine (spec 003 PR 2) takes it from here.
+    FOUND = "found"
+
+
+class WorkEntry(BaseModel):
+    """One ticket briar took."""
+
+    key: str
+    source: WorkSource
+    repo: str
+    title: str
+    status: WorkStatus
+    branch: str = ""
+    pr: int = 0
+    handled_comments: List[str] = Field(default_factory=list)
+
+
+class WorkBook(BaseModel):
+    """Every ticket of one company, by key."""
+
+    entries: Dict[str, WorkEntry] = Field(default_factory=dict)
+
+    def known(self, key: str) -> bool:
+        return key in self.entries
+
+    def with_entry(self, entry: WorkEntry) -> "WorkBook":
+        return WorkBook(entries={**self.entries, entry.key: entry})
+
+    def open_prs(self) -> List[WorkEntry]:
+        return [entry for entry in self.entries.values() if entry.pr]
+
+
+class WorkState:
+    """Reads and writes `work:<company>`. The tasks of one `serve` share one process, so
+    an `asyncio.Lock` per company keeps two writes apart."""
+
+    # ponytail: an in-process lock; a second `serve` on the same knowledge root is not supported.
+    # The JSON indent of the blob, so a person or the agent can read it.
+    INDENT = 2
+
+    def __init__(self, store: KnowledgeStore, company: str, lock: asyncio.Lock) -> None:
+        self._store = store
+        self._company = company
+        self._lock = lock
+
+    def blob_name(self) -> str:
+        return f"work:{self._company}"
+
+    def book(self) -> WorkBook:
+        saved = self._store.get(self.blob_name())
+        return WorkBook.model_validate_json(saved) if saved else WorkBook()
+
+    async def record(self, entry: WorkEntry) -> None:
+        async with self._lock:
+            self._store.put(self.blob_name(), self.book().with_entry(entry).model_dump_json(indent=self.INDENT), category="work")
+
+
+__all__ = ["WorkBook", "WorkEntry", "WorkSource", "WorkState", "WorkStatus"]

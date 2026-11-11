@@ -10,7 +10,8 @@ require a schema edit."""
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Dict, List, Literal, Tuple
+import re
+from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_core import PydanticCustomError
@@ -93,6 +94,53 @@ class KnowledgeBinding(BaseModel):
         return value
 
 
+class StatusNames(_Strict):
+    """The ticket status names `briar serve` moves a ticket to (S26); empty: no move."""
+
+    started: str = ""
+    review: str = ""
+
+
+class ServeSettings(_Strict):
+    """`companies.<company>.serve` of a runbook: what `briar serve` watches and the limits
+    of one task (decisions S5, S11 to S16, S24 to S27 in
+    `docs/decisions/2026-11-11-briar-2-serve-pipeline.md`)."""
+
+    # Required (S5, S24): nobody spends on a model or a limit they did not choose.
+    model: str = Field(min_length=1)
+    max_usd: float = Field(gt=0)
+    max_loops: int = Field(ge=1)
+    ci_wait_minutes: int = Field(ge=1)
+    max_parallel: int = Field(default=3, ge=1)
+    poll_minutes: int = Field(default=5, ge=1)
+    # GitHub repos to work in: an open issue there assigned to the token owner is a ticket.
+    repos: List[str] = Field(default_factory=list)
+    # Jira project key -> the repo its tickets are built in (S13).
+    jira: Dict[str, str] = Field(default_factory=dict)
+    verify: List[str] = Field(default_factory=list)
+    bash: List[str] = Field(default_factory=list)
+    priority_labels: List[str] = Field(default_factory=list)
+    status: StatusNames = Field(default_factory=StatusNames)
+    branch: str = "briar/{key}"
+    title: str = "{key}: {title}"
+
+    REPO_NAME: ClassVar["re.Pattern[str]"] = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
+    PROJECT_KEY: ClassVar["re.Pattern[str]"] = re.compile(r"^[A-Z][A-Z0-9_]*$")
+
+    @model_validator(mode="after")
+    def _check_targets(self) -> "ServeSettings":
+        if not self.repos and not self.jira:
+            raise PydanticCustomError("nothing_to_watch", "set `repos` or `jira` under `serve`: there is nothing to watch", {})
+        bad = [name for name in self.all_repos() if not self.REPO_NAME.match(name)] + [key for key in self.jira if not self.PROJECT_KEY.match(key)]
+        if bad:
+            raise PydanticCustomError("bad_target", "not an owner/repo name or a Jira project key: {names}", {"names": ", ".join(bad)})
+        return self
+
+    def all_repos(self) -> List[str]:
+        """Every repo briar works in: `repos`, then the repos of `jira`, each once."""
+        return list(dict.fromkeys([*self.repos, *self.jira.values()]))
+
+
 class CompanyEntry(BaseModel):
     """Company-level extraction config. Ignores unknown keys so legacy
     YAMLs that still carry `runbooks:`, `defaults:`, etc. still load."""
@@ -108,6 +156,8 @@ class CompanyEntry(BaseModel):
     # The login choices of this company (spec 005, G2, G3): same keys as `[auth]` of
     # `.briar.toml`, and the only ones `briar runbook` reads.
     auth: AuthBlock = Field(default_factory=AuthBlock)
+    # What `briar serve` watches for this company (spec 003); None: serve leaves it alone.
+    serve: Optional[ServeSettings] = None
 
     # Blocks only the 1.x agent read (spec 006, C5, C20): a runbook that still
     # has one stops the load instead of being silently ignored (FR-006a).
