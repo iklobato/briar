@@ -27,7 +27,7 @@ user's machine and does two things:
 No server, no account. There was a SaaS version; it is archived and lives
 only in the private site repo.
 
-## 2. Quick facts (checked 2026-11-10)
+## 2. Quick facts (checked 2026-11-11)
 
 | Thing | Value |
 |---|---|
@@ -89,11 +89,21 @@ only in the private site repo.
   `cli` fixture, `-p no:tldr`, `-p no:randomly`).
 - **Lint.** black (line length 160, from `pyproject.toml`) and ruff (its
   default rules; no `[tool.ruff]` section). The repo is not clean repo-wide
-  under black, ruff and mypy (39 mypy errors on `v2` on 2026-11-10); keep your
+  under black, ruff and mypy (39 mypy errors on `v2` on 2026-11-10, 25 on
+  the top of the 2.0 stack, `logins/02-clouds`, on 2026-11-11); keep your
   changed files clean and compare counts before and after.
 - **Fake secrets in docs must look fake.** GitGuardian blocks PRs on
   realistic ones (`ghp_...` with a real-looking body, `sk-ant-api03-...`,
   `postgresql://user:pass@`). Use `<placeholder>` or `sk-ant-...`.
+- **No email and token side by side as module-level test constants**, even
+  fake ones: GitGuardian reads them as an "Authentication Tuple" and fails
+  the PR, and only a history rewrite clears it (PR #97, 2026-11-11). Put
+  `bot@example.test` and `PLACEHOLDER-not-a-secret` inside the test or a
+  local dict. Build logins in unit tests with `tests/unit/fake_logins.py`
+  (`FakeLogins`), not with env vars.
+- **No `subprocess` in new code** (maintainer rule): run a command with
+  `os.system` and `shlex.quote`/`shlex.join`, as `PromptIO.run_login` in
+  `src/briar/auth/_prompt.py` does.
 - **Grep every caller before calling a fix done.** The extract loop is still
   copied in `iac/runbook/executor.py` (2.0 decision D32 removes the copy), so
   a bug can live in two places. In 1.x the MCP server's `service/` layer was
@@ -144,10 +154,38 @@ only in the private site repo.
 - **A runbook with `messages:`, `mcp:` or `git_identity:`** stops with
   exit 1 and names the block (`CompanyEntry.REMOVED_KEYS` in
   `iac/runbook/models.py`).
+- **Logins on `v2`** (spec 005, PRs #97 and #98; flow in
+  `docs/briar-2-status.md` section 3):
+  - One login per source per company. Secrets are env names
+    `BRIAR_<COMPANY>_<SOURCE>_<FIELD>` (`acme-co` gives
+    `BRIAR_ACME_CO_JIRA_TOKEN`), in the environment or `secrets.env`.
+    Choices (`method`, Jira `site`, Bitbucket `workspace`, cloud scope) are
+    in `[auth.<source>]` of `.briar.toml`, or `companies.<c>.auth` of a
+    runbook. An unknown key anywhere in `[auth]` stops `extract`, `auth`
+    and the `doctor` GitHub check; in a runbook `auth:` block it stops the
+    load.
+  - briar never writes the config: a missing `site` or `workspace` stops
+    with the key to add.
+  - briar no longer reads `GITHUB_TOKEN` or any 1.x name. A 1.x name set
+    while the 2.0 login is missing stops the run and names the new place;
+    next to a 2.0 login it is ignored.
+  - `briar auth login aws|gcp|azure` runs `aws sso login` (or `aws
+    configure`), `gcloud auth application-default login` with
+    `CLOUDSDK_CONFIG`, or `az login` in the terminal and saves nothing. A
+    run reads that login with the cloud SDK; Azure needs `az` at run time.
+    With no `[auth.aws] profile` (or GCP `config_dir`, Azure `tenant`) the
+    run uses the default chain of the cloud.
+  - The AWS profile, GCP project and Azure subscription are in `[auth]`,
+    not `[extract.aws-infra] profile` (that key stops the run and names the
+    new place).
+  - Until spec 005 PR 3, a missing login skips its extractor; in a
+    runbook, a 1.x-name stop fails the task and the command exits 0.
 - **Docker image** (`iklob1/briar`): has `git`, `gh`,
   `safe.directory '*'`, `gh` also linked at `/usr/local/bin/gh` and
   `/opt/homebrew/bin/gh` (Mac gitconfigs), `linux/amd64` only, runs as uid 1000. The git login is set up for GitHub
-  only. The `[mcp]` extra is gone on `v2`.
+  only. The `[mcp]` extra is gone on `v2`. On `v2` it has no `aws`,
+  `gcloud` or `az`: log in on the host and mount `~/.aws` and the gcloud
+  folder; Azure in Docker is not supported (decision I8).
 
 ## 6. What was done (summary)
 
@@ -200,8 +238,11 @@ Full detail per version is in `CHANGELOG.md`. In short:
 
 0. **2.0**: review and merge PRs #79 to #98 into `v2` in order; decide how
    2.0 is released before `v2` merges to `main` (the workflow would publish
-   1.1.102); spec 005 PRs 3 and 4, then specs 004 and 003. Order and detail:
-   `docs/briar-2-status.md` section 5.
+   1.1.102); spec 005 PR 3 (the "who am I" check before a run) and PR 4
+   (GitHub device flow, Linear OAuth, refresh lock; needs the briar GitHub
+   App registered by the maintainer), each grilled first; the real runs
+   left for Jira, Bitbucket, Linear and Fireflies; then specs 004 and 003.
+   Order and detail: `docs/briar-2-status.md` section 5.
 1. Fix #77 (small): treat GitHub's `404 no analysis found` as "no data"
    without a traceback; keep other errors logged. Then check the same
    `@swallow_errors` pattern for other expected 404s (for example a
@@ -220,7 +261,9 @@ Full detail per version is in `CHANGELOG.md`. In short:
 
 **2.0**: see `docs/briar-2-status.md` section 6 (extract still on argparse;
 site docs, GIFs and diagrams still show removed commands, so the README
-shows none until they are redone; release mechanics for 2.0 not decided).
+shows none until they are redone; release mechanics for 2.0 not decided;
+the spec 005 review questions on #97 and #98 and the logins not run for
+real yet).
 
 **Filed issues (2026-10-29, both reproduced on 1.1.99, acceptance
 criteria in each):**
@@ -263,7 +306,8 @@ client run that writes data.
 
 - **2.0 stack and release**: `docs/briar-2-status.md` section 7 (stacked PRs,
   the release that a `v2` to `main` merge triggers, the integration job on
-  Python 3.14, Typer upgrades, the 1.x CLI contract file).
+  Python 3.14, Typer upgrades, the 1.x CLI contract file, GitGuardian, the
+  cloud CLIs briar runs, 1.x users whose env names now stop a run).
 - **Release runs.** A random test failure has blocked a release before
   (telemetry banner, fixed in 1.1.80; one other failure on 2026-06-25,
   cause not checked). After every merge, check that the run is green and
