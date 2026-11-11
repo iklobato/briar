@@ -18,7 +18,6 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import pytest
 
 
 def _row(company: str, task: str, status: str, output: str) -> SimpleNamespace:
@@ -79,22 +78,6 @@ class TestExtractFlags:
 # ──────────────────────────── sweep: directory ─────────────────────────
 
 
-class TestSweepFlags:
-    def test_directory_positional_required(self, cli) -> None:
-        result = cli("runbook", "sweep")
-        assert result.code == 2
-
-    def test_directory_value_drives_glob(self, cli, mocker, tmp_path) -> None:
-        # The passed directory is the one scanned; the matching yaml is loaded.
-        (tmp_path / "only.yaml").write_text("x: 1\n")
-        load = mocker.patch("briar.commands.runbook.load_runbook_file", return_value="RB")
-        mocker.patch("briar.commands.runbook.extract_runbook", return_value=[])
-        result = cli("runbook", "sweep", str(tmp_path))
-        assert result.code == 0
-        assert "--- only.yaml ---" in result.out
-        assert load.call_args.args[0].name == "only.yaml"
-
-
 # ──────────────────────────── serve: directory + --tick ────────────────
 
 
@@ -114,17 +97,6 @@ class TestServeFlags:
         result = cli("runbook", "serve", str(tmp_path))
         assert result.code == 0
         assert ctor.call_args.args[0] == Path(str(tmp_path))
-
-    @pytest.mark.parametrize("tick_str,tick_val", [("2.5", 2.5), ("0.25", 0.25), ("10", 10.0)], ids=["2.5", "0.25", "10"])
-    def test_tick_value_reaches_run_forever(self, cli, mocker, tmp_path, tick_str, tick_val) -> None:
-        fake = SimpleNamespace(
-            register_all=mocker.MagicMock(return_value=[]),
-            run_forever=mocker.MagicMock(),
-        )
-        mocker.patch("briar.commands.runbook.RunbookScheduler", return_value=fake)
-        result = cli("runbook", "serve", str(tmp_path), "--tick", tick_str)
-        assert result.code == 0
-        fake.run_forever.assert_called_once_with(tick_val)
 
     def test_tick_default_is_one(self, cli, mocker, tmp_path) -> None:
         fake = SimpleNamespace(

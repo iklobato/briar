@@ -1,30 +1,21 @@
-"""`briar auth` — interactive credential management.
+"""`briar auth`: interactive credential management.
 
-Surface mirrors ``gh auth login`` / ``vault login`` / ``op signin``:
-the thing you're logging into is the **positional target**, not a
-named flag. One unified verb for both directions:
+Surface mirrors ``gh auth login``: the thing you're logging into is the
+**positional target**, not a named flag.
 
-  briar auth login github-pat --company acme  # acquire vendor credentials
-  briar auth login aws-sso --company acme --cred-store envfile
+  briar auth login github-pat --company acme   # acquire and save to secrets.env
+  briar auth status jira-token --company acme  # which keys that target needs, set or missing
+  briar auth status                            # every credential name held
 
-The acquirer's ``destination_policy`` decides whether ``--cred-store``
-applies (vendor flows) or is forced to envfile (bootstrap flows that
-populate the credentials needed to talk to a store).
-
-Five subcommands:
-  login    run an acquirer's interactive flow + persist
-  logout   delete credentials a target's login would have written
-  refresh  renew without re-prompting where the acquirer supports it
-  list     enumerate credentials currently held in a store
-  status   show one target × company bundle's coverage (set / missing)
-
-Dispatch via the ``_ACTIONS`` map (one entry per subcommand) — same
-table-driven dispatch as ``commands/secrets.py``."""
+Two operations since 2.0 (decision C15): `logout`, `refresh` and `list`
+left, and so did `--cred-store`, since `secrets.env` is the only store
+(L3, F1). Dispatch via the ``_ACTIONS`` map (one entry per operation)."""
 
 from __future__ import annotations
 
 import argparse
 import logging
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import ClassVar, Dict, List
@@ -32,9 +23,8 @@ from typing import ClassVar, Dict, List
 import typer
 
 from briar.auth import AcquirerRegistry, CredentialExpired, Credentials, TerminalPromptIO
-from briar.auth._acquirer import DestinationPolicy
-from briar.commands._enums import CredentialStoreChoice, ExitCode
-from briar.commands.base import Command, CommandOptions, RegistryChoice, Route, confirm
+from briar.commands._enums import ExitCode
+from briar.commands.base import Command, CommandOptions, RegistryChoice, Route
 from briar.credentials import make_credential_store
 from briar.errors import CliError
 
@@ -43,7 +33,8 @@ log = logging.getLogger(__name__)
 
 class CommandAuth(Command):
     name = "auth"
-    help = "Acquire + persist credentials interactively (login / logout / list / status / refresh)."
+    help = "Save credentials interactively and show which ones are set (login / status)."
+    STORE = "envfile"
 
     OP_HELP = {
         "login": (
@@ -51,20 +42,11 @@ class CommandAuth(Command):
             "a password manager bootstraps a connection; "
             "a vendor (github-pat / aws-sso / jira-session) acquires credentials and stores them."
         ),
-        "logout": "Delete the credentials a target's login would have written.",
-        "refresh": (
-            "Renew keys without a new login. No target supports it yet: every target exits 2 "
-            "and prints the `briar auth login` command to run instead."
-        ),
-        "list": "Show which credential env-vars are populated (names only, no values).",
-        "status": "Show one target × company bundle's coverage (names + set/missing).",
+        "status": "With a target: the keys it needs and which are set. Without: every credential name held (names only, no values).",
     }
 
     _ACTIONS: ClassVar[Dict[str, str]] = {
         "login": "_login",
-        "logout": "_logout",
-        "refresh": "_refresh",
-        "list": "_list",
         "status": "_status",
     }
 
@@ -85,125 +67,44 @@ class CommandAuth(Command):
 
     # ────────────────────────────── login ──────────────────────────────
 
-    @staticmethod
-    def _login(args: argparse.Namespace) -> int:
+    def _login(self, args: argparse.Namespace) -> int:
         acquirer = AcquirerRegistry.make(args.target)
-        effective_store = _effective_store_kind(acquirer, requested=args.cred_store)
-        store = make_credential_store(effective_store)
-        prompt = TerminalPromptIO()
-        log.info(
-            "auth-login: target=%s company=%s store=%s policy=%s",
-            args.target,
-            args.company or "(none)",
-            effective_store,
-            type(acquirer).destination_policy.value,
-        )
-        creds = acquirer.acquire(company=args.company, prompt=prompt)
-        return _persist_and_report(creds, store=store, store_kind=effective_store)
-
-    # ────────────────────────────── logout ─────────────────────────────
-
-    @staticmethod
-    def _logout(args: argparse.Namespace) -> int:
-        acquirer = AcquirerRegistry.make(args.target)
-        acquirer_cls = type(acquirer)
-        names = acquirer_cls.writes(company=args.company)
-        effective_store = _effective_store_kind(acquirer, requested=args.cred_store)
-        if not names:
-            print(f"auth-logout: nothing to delete for target={args.target} company={args.company or '(none)'}")
-            return 0
-        if not args.yes:
-            print(f"auth-logout: will delete {len(names)} env vars from store={effective_store}:")
-            for n in names:
-                print(f"  - {n}")
-            if not confirm("proceed? "):
-                print("aborted")
-                return 1
-        store = make_credential_store(effective_store)
-        removed = 0
-        for n in names:
-            if store.delete(n):
-                removed += 1
-        print(f"auth-logout: removed {removed}/{len(names)} entries from store={effective_store}")
-        return 0
-
-    # ────────────────────────────── refresh ────────────────────────────
-
-    @staticmethod
-    def _refresh(args: argparse.Namespace) -> int:
-        acquirer = AcquirerRegistry.make(args.target)
-        effective_store = _effective_store_kind(acquirer, requested=args.cred_store)
-        store = make_credential_store(effective_store)
-
-        # Reconstruct an "existing" bundle from the store so the
-        # acquirer's refresh() can use it (OAuth refresh tokens,
-        # expiry timestamps, etc.).
-        acquirer_cls = type(acquirer)
-        names = acquirer_cls.writes(company=args.company)
-        existing = Credentials(
-            provider_kind=args.target,
-            entries={n: store.read(n) for n in names if store.read(n)},
-        )
-        new = acquirer.refresh(company=args.company, existing=existing)
-        return _persist_and_report(new, store=store, store_kind=effective_store)
-
-    # ────────────────────────────── list ───────────────────────────────
-
-    @staticmethod
-    def _list(args: argparse.Namespace) -> int:
-        store = make_credential_store(args.cred_store)
-        names = store.list()
-        if args.company:
-            tok = args.company.upper().replace("-", "_")
-            names = [n for n in names if f"_{tok}_" in f"_{n}_"]
-        if not names:
-            print(f"(no credentials in store={args.cred_store}{' for company=' + args.company if args.company else ''})")
-            return 0
-        print(f"store={args.cred_store}  {len(names)} entry(ies):")
-        for n in names:
-            print(f"  {n}")
-        return 0
+        log.info("auth-login: target=%s company=%s store=%s", args.target, args.company or "(none)", self.STORE)
+        creds = acquirer.acquire(company=args.company, prompt=TerminalPromptIO())
+        return _persist_and_report(creds, store=make_credential_store(self.STORE), store_kind=self.STORE)
 
     # ────────────────────────────── status ─────────────────────────────
 
-    @staticmethod
-    def _status(args: argparse.Namespace) -> int:
-        acquirer = AcquirerRegistry.make(args.target)
-        acquirer_cls = type(acquirer)
-        names = acquirer_cls.writes(company=args.company)
-        effective_store = _effective_store_kind(acquirer, requested=args.cred_store)
+    def _status(self, args: argparse.Namespace) -> int:
+        if not args.target:
+            return self._held(args.company)
+        names = type(AcquirerRegistry.make(args.target)).writes(company=args.company)
         if not names:
-            print(f"auth-status: target={args.target} writes nothing for company={args.company or '(none)'}")
+            self._say(f"auth-status: target={args.target} writes nothing for company={args.company or '(none)'}")
             return 0
-        store = make_credential_store(effective_store)
-        print(f"auth-status: target={args.target} company={args.company or '(none)'} store={effective_store}")
-        any_missing = False
-        for n in names:
-            val = store.read(n)
-            mark = "ok  " if val else "MISS"
-            print(f"  {mark}  {n}")
-            if not val:
-                any_missing = True
-        return 1 if any_missing else 0
+        store = make_credential_store(self.STORE)
+        self._say(f"auth-status: target={args.target} company={args.company or '(none)'} store={self.STORE}")
+        missing = [name for name in names if not store.read(name)]
+        for name in names:
+            self._say(f"  {'MISS' if name in missing else 'ok  '}  {name}")
+        return 1 if missing else 0
 
+    def _held(self, company: str) -> int:
+        """`auth status` with no target: every credential name held, as 1.x `auth list` did."""
+        names = make_credential_store(self.STORE).list()
+        token = company.upper().replace("-", "_")
+        held = [name for name in names if not company or f"_{token}_" in f"_{name}_"]
+        if not held:
+            self._say(f"(no credentials in store={self.STORE}{' for company=' + company if company else ''})")
+            return 0
+        self._say(f"store={self.STORE}  {len(held)} entry(ies):")
+        for name in held:
+            self._say(f"  {name}")
+        return 0
 
-def _effective_store_kind(acquirer, *, requested: str) -> str:
-    """Honour the acquirer's destination policy. Bootstrap acquirers
-    (e.g. a future Vault VAULT_ADDR/TOKEN) MUST
-    persist locally — they can't store the credentials that describe
-    how to reach their own store. Warn the operator if their
-    ``--store`` choice gets overridden."""
-    policy = type(acquirer).destination_policy
-    if policy is DestinationPolicy.BOOTSTRAP_LOCAL and requested != "envfile":
-        log.warning(
-            "auth: target=%s is a bootstrap flow — forcing store=envfile "
-            "(requested store=%s ignored; you can't store the credentials "
-            "for a store inside that same store)",
-            type(acquirer).kind,
-            requested,
-        )
-        return "envfile"
-    return requested
+    def _say(self, line: str) -> None:
+        """Command output (stdout, read at call time so a test can capture it)."""
+        sys.stdout.write(f"{line}\n")
 
 
 def _persist_and_report(creds: Credentials, *, store, store_kind: str) -> int:
@@ -241,7 +142,6 @@ def _persist_and_report(creds: Credentials, *, store, store_kind: str) -> int:
 
 # ─── Options on Typer ──────────────────────────────────────────────
 
-CRED_STORE_HELP = "Credential store backend. Only `envfile` since 2.0 (the remote stores were removed)."
 TARGET_HELP = "What to log into: " + ", ".join(AcquirerRegistry.kinds()) + "."  # read once, for help only
 
 
@@ -251,42 +151,11 @@ class AuthLoginOptions(CommandOptions):
 
     target: str = typer.Argument(..., metavar="TARGET", callback=RegistryChoice(AcquirerRegistry).check, help=TARGET_HELP)
     company: str = typer.Option("", "--company", help="Per-company namespace (required for vendor targets).")
-    cred_store: CredentialStoreChoice = typer.Option(
-        CredentialStoreChoice.ENVFILE, "--cred-store", help="Where to persist acquired credentials. Only `envfile` since 2.0 (the remote stores were removed)."
-    )
-
-
-@dataclass(frozen=True)
-class AuthLogoutOptions(CommandOptions):
-    ROUTE = Route(CommandAuth.name, "auth_action", "logout")
-
-    target: str = typer.Argument(..., metavar="TARGET", callback=RegistryChoice(AcquirerRegistry).check, help=TARGET_HELP)
-    company: str = typer.Option("", "--company")
-    cred_store: CredentialStoreChoice = typer.Option(CredentialStoreChoice.ENVFILE, "--cred-store", help=CRED_STORE_HELP)
-    yes: bool = typer.Option(False, "--yes", help="Skip confirmation prompt.")
-
-
-@dataclass(frozen=True)
-class AuthRefreshOptions(CommandOptions):
-    ROUTE = Route(CommandAuth.name, "auth_action", "refresh")
-
-    target: str = typer.Argument(..., metavar="TARGET", callback=RegistryChoice(AcquirerRegistry).check, help=TARGET_HELP)
-    company: str = typer.Option("", "--company")
-    cred_store: CredentialStoreChoice = typer.Option(CredentialStoreChoice.ENVFILE, "--cred-store", help=CRED_STORE_HELP)
-
-
-@dataclass(frozen=True)
-class AuthListOptions(CommandOptions):
-    ROUTE = Route(CommandAuth.name, "auth_action", "list")
-
-    cred_store: CredentialStoreChoice = typer.Option(CredentialStoreChoice.ENVFILE, "--cred-store", help=CRED_STORE_HELP)
-    company: str = typer.Option("", "--company", help="Filter to one company (matches the company token in env-var names).")
 
 
 @dataclass(frozen=True)
 class AuthStatusOptions(CommandOptions):
     ROUTE = Route(CommandAuth.name, "auth_action", "status")
 
-    target: str = typer.Argument(..., metavar="TARGET", callback=RegistryChoice(AcquirerRegistry).check, help=TARGET_HELP)
-    company: str = typer.Option("", "--company")
-    cred_store: CredentialStoreChoice = typer.Option(CredentialStoreChoice.ENVFILE, "--cred-store", help=CRED_STORE_HELP)
+    target: str = typer.Argument("", metavar="[TARGET]", callback=RegistryChoice(AcquirerRegistry).check, help=TARGET_HELP + " Leave it out to list every credential name held.")
+    company: str = typer.Option("", "--company", help="Per-company namespace; without a target, keeps only that company's names.")

@@ -10,15 +10,15 @@ from briar.errors import CliError
 
 class TestGlobalFlags:
     def test_format_flag_before_command(self, cli) -> None:
-        result = cli("--format", "json", "config", "show")
+        result = cli("--format", "json", "doctor")
         assert result.code == 0
 
     def test_format_flag_after_command(self, cli) -> None:
-        result = cli("config", "show", "--format", "json")
+        result = cli("doctor", "--format", "json")
         assert result.code == 0
 
     def test_format_equals_form(self, cli) -> None:
-        result = cli("--format=json", "config", "show")
+        result = cli("--format=json", "doctor")
         assert result.code == 0
 
     def test_format_missing_value_exit_1(self, cli) -> None:
@@ -29,11 +29,11 @@ class TestGlobalFlags:
         assert "requires a value" in result.err
 
     def test_verbose_short_flag(self, cli) -> None:
-        result = cli("-v", "config", "show")
+        result = cli("-v", "doctor")
         assert result.code == 0
 
     def test_verbose_long_flag(self, cli) -> None:
-        result = cli("--verbose", "config", "show")
+        result = cli("--verbose", "doctor")
         assert result.code == 0
 
 
@@ -101,7 +101,7 @@ class TestBootstrap:
             "briar.credentials._bootstraps.auto_bootstrap",
             return_value=[HydrateResult(backend="fake", error="fail")],
         )
-        result = cli("config", "show")
+        result = cli("doctor")
         assert result.code == 0
         assert any("credential-bootstrap" in r.message and "failed" in r.message for r in caplog_briar.records)
 
@@ -119,7 +119,7 @@ class TestMetadataOnlyInvocationsSkipBootstrap:
 
     def test_subcommand_help_skips_bootstrap(self, cli, mocker) -> None:
         boot = mocker.patch("briar.credentials._bootstraps.auto_bootstrap")
-        result = cli("config", "--help")
+        result = cli("doctor", "--help")
         assert result.code == 0
         boot.assert_not_called()
 
@@ -135,6 +135,6 @@ class TestMetadataOnlyInvocationsSkipBootstrap:
         # Guard against the skip-guard going too far: a genuine command
         # must still hydrate credentials.
         boot = mocker.patch("briar.credentials._bootstraps.auto_bootstrap", return_value=[])
-        result = cli("config", "show")
+        result = cli("doctor")
         assert result.code == 0
         boot.assert_called_once()

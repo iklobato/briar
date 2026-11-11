@@ -50,7 +50,7 @@ check: pytest
 
 smoke:
 	@$(BRIAR) --help >/dev/null && echo "  ok top-level"
-	@for c in extract runbook auth init config doctor; do \
+	@for c in extract runbook auth init doctor; do \
 	    $(BRIAR) "$$c" --help >/dev/null 2>&1 && echo "  ok $$c" \
 	      || { echo "  FAIL $$c"; exit 1; }; \
 	done

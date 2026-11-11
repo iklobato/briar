@@ -68,47 +68,6 @@ class TestExtract:
 # ─────────────────────────── sweep ─────────────────────────────────
 
 
-class TestSweep:
-    def test_sweep_not_a_directory_exit_1(self, cli, tmp_path) -> None:
-        not_dir = tmp_path / "file.txt"
-        not_dir.write_text("x")
-        result = cli("runbook", "sweep", str(not_dir))
-        assert result.code == 1
-        assert f"{not_dir} is not a directory" in result.err
-
-    def test_sweep_empty_dir_exit_0(self, cli, tmp_path) -> None:
-        result = cli("runbook", "sweep", str(tmp_path))
-        assert result.code == 0
-        assert f"no *.yaml under {tmp_path}" in result.out
-
-    def test_sweep_processes_each_yaml_sorted(self, cli, mocker, tmp_path) -> None:
-        (tmp_path / "b.yaml").write_text("x")
-        (tmp_path / "a.yaml").write_text("x")
-        mocker.patch("briar.commands.runbook.load_runbook_file", return_value="RB")
-        mocker.patch("briar.commands.runbook.extract_runbook", return_value=[_row("c", "t", "ok", "out")])
-        result = cli("runbook", "sweep", str(tmp_path))
-        assert result.code == 0
-        # Sorted order: a before b.
-        assert result.out.index("--- a.yaml ---") < result.out.index("--- b.yaml ---")
-
-    def test_sweep_one_file_fails_others_continue_exit_1(self, cli, mocker, tmp_path) -> None:
-        (tmp_path / "good.yaml").write_text("x")
-        (tmp_path / "bad.yaml").write_text("x")
-
-        def loader(path):
-            if path.name == "bad.yaml":
-                raise ValueError("boom")
-            return "RB"
-
-        mocker.patch("briar.commands.runbook.load_runbook_file", side_effect=loader)
-        mocker.patch("briar.commands.runbook.extract_runbook", return_value=[_row("c", "t", "ok", "out")])
-        result = cli("runbook", "sweep", str(tmp_path))
-        # One file failed → exit 1, but the good file was still processed.
-        assert result.code == 1
-        assert "--- good.yaml ---" in result.out
-        assert "--- bad.yaml ---" in result.out
-
-
 # ─────────────────────────── serve ─────────────────────────────────
 
 
@@ -119,20 +78,6 @@ class TestServe:
         result = cli("runbook", "serve", str(not_dir))
         assert result.code == 1
         assert f"{not_dir} is not a directory" in result.err
-
-    def test_serve_registers_then_runs_loop_with_tick(self, cli, mocker, tmp_path) -> None:
-        entry = SimpleNamespace(company="acme", task="weekly", every="monday at 09:00")
-        fake_scheduler = SimpleNamespace(
-            register_all=mocker.MagicMock(return_value=[entry]),
-            run_forever=mocker.MagicMock(),
-        )
-        ctor = mocker.patch("briar.commands.runbook.RunbookScheduler", return_value=fake_scheduler)
-        result = cli("runbook", "serve", str(tmp_path), "--tick", "2.5")
-        assert result.code == 0
-        # Scheduler built on the target dir, registered, then looped at the requested tick.
-        assert ctor.call_args.args[0] == tmp_path
-        fake_scheduler.register_all.assert_called_once_with()
-        fake_scheduler.run_forever.assert_called_once_with(2.5)
 
     def test_serve_default_tick_is_one(self, cli, mocker, tmp_path) -> None:
         fake_scheduler = SimpleNamespace(

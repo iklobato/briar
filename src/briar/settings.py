@@ -104,7 +104,7 @@ class ResolvedSetting:
     source: str
 
     def row(self) -> Dict[str, str]:
-        """The `briar config show` row."""
+        """The row of the `briar doctor` settings table."""
         return {"setting": self.key.name, "value": UNSET_VALUE if self.value is None else self.value, "source": self.source}
 
 

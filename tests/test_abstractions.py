@@ -1159,62 +1159,6 @@ class CredentialAcquirerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             acquirer.acquire(company="acme", prompt=MockPromptIO(answers=["  "]))
 
-    def test_default_destination_policy_is_external(self) -> None:
-        """Vendor acquirers (github, aws, jira, …) should let --store
-        decide where their result lands."""
-        from briar.auth import AcquirerRegistry
-        from briar.auth._acquirer import DestinationPolicy
-
-        for kind in (
-            "github-pat",
-            "github-device",
-            "aws-static",
-            "aws-sso",
-            "jira-token",
-            "jira-session",
-            "linear-api-key",
-            "fireflies",
-            "bitbucket-app-password",
-        ):
-            acquirer = AcquirerRegistry.make(kind)
-            self.assertIs(type(acquirer).destination_policy, DestinationPolicy.EXTERNAL, f"{kind} should be EXTERNAL")
-
-
-class CommandAuthStoreResolutionTests(unittest.TestCase):
-    """`briar auth` CLI surface — positional target + destination policy."""
-
-    def test_effective_store_forces_envfile_for_bootstrap(self) -> None:
-        """A BOOTSTRAP_LOCAL acquirer's credentials can't be stored in a
-        remote store — ``_effective_store_kind`` must force envfile."""
-        from briar.auth._acquirer import CredentialAcquirer, Credentials, DestinationPolicy
-        from briar.commands.auth import _effective_store_kind
-
-        class _FakeBootstrapLocal(CredentialAcquirer):
-            kind = "fake-bootstrap"
-            destination_policy = DestinationPolicy.BOOTSTRAP_LOCAL
-
-            def acquire(self, *, company, prompt):
-                return Credentials(provider_kind=self.kind, entries={})
-
-            @classmethod
-            def writes(cls, *, company):
-                return []
-
-        acquirer = _FakeBootstrapLocal()
-        self.assertEqual(_effective_store_kind(acquirer, requested="vault"), "envfile")
-        self.assertEqual(_effective_store_kind(acquirer, requested="envfile"), "envfile")
-
-    def test_effective_store_honours_request_for_external(self) -> None:
-        """Vendor acquirers go wherever --store says."""
-        from briar.auth import AcquirerRegistry
-        from briar.commands.auth import _effective_store_kind
-
-        for kind in ("github-pat", "jira-session", "aws-static"):
-            acquirer = AcquirerRegistry.make(kind)
-            self.assertEqual(_effective_store_kind(acquirer, requested="ssm"), "ssm")
-            self.assertEqual(_effective_store_kind(acquirer, requested="vault"), "vault")
-            self.assertEqual(_effective_store_kind(acquirer, requested="envfile"), "envfile")
-
 
 class EnvFileStoreWriteTests(unittest.TestCase):
     """``EnvFileStore.write/delete`` — file persistence + os.environ
@@ -1776,11 +1720,11 @@ class Phase5DispatchEliminationTests(unittest.TestCase):
 
     def test_runbook_command_dispatches_via_actions_table(self) -> None:
         """commands/runbook.py used `if args.op == 'extract' elif 'sweep' ...`
-        — now an `_ACTIONS` dict matching commands/auth.py."""
+        — now an `_ACTIONS` dict matching commands/auth.py. `sweep` left in 2.0 (C14)."""
         from briar.commands.runbook import CommandRunbook
 
         cmd = CommandRunbook()
-        self.assertEqual(set(cmd._ACTIONS), {"extract", "sweep", "serve"})
+        self.assertEqual(set(cmd._ACTIONS), {"extract", "serve"})
         # Each entry resolves to a real method on the command
         for action, handler_name in cmd._ACTIONS.items():
             with self.subTest(action=action):

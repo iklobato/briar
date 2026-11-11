@@ -2,13 +2,10 @@
 
 Companion to test_auth.py / test_auth_cmd.py (dispatch + persistence
 happy/unhappy paths). This file asserts the *observable effect* of every
-flag in /tmp/cli_manifest/auth.md for all five subcommands:
+option of the two operations 2.0 keeps (decision C15):
 
-  login    target (positional, choices) · --company · --store
-  logout   target · --company · --store · --yes
-  refresh  target · --company · --store
-  list     --store · --company
-  status   target · --company · --store
+  login    target (positional, choices) · --company
+  status   [target] · --company   (no target: every credential name held)
 
 For each flag we assert the value reaches the seam (the acquirer call or
 ``make_credential_store(kind)``) or changes the rendered output — a
@@ -20,13 +17,11 @@ network.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any, Callable
+from typing import Callable
 
 import pytest
 
 from briar.auth import Credentials
-from briar.commands._enums import ExitCode
-from briar.auth._acquirer import DestinationPolicy
 
 # Obvious placeholder — never a real-format secret (GitGuardian-safe).
 _SECRET_PLACEHOLDER = "ACCESS-TOKEN-PLACEHOLDER-not-a-secret"
@@ -51,14 +46,13 @@ def _make_acquirer_cls(kind: str, company_seen: list):
     """Build a fresh acquirer class whose ``writes`` classmethod records
     the company it was called with into the shared ``company_seen`` list.
 
-    The command code calls ``type(acquirer).writes(company=...)`` and reads
-    ``type(acquirer).destination_policy`` off the *class*, so recording must
+    The command code calls ``type(acquirer).writes(company=...)`` off the
+    *class*, so recording must
     live on a class bound to this test's ``company_seen`` list — a single
     shared class would leak state across parametrized cases."""
 
     class _FakeAcquirer:
         display_name = "Fake"
-        destination_policy = DestinationPolicy.EXTERNAL
 
         def __init__(self) -> None:
             self.kind = kind
@@ -137,88 +131,37 @@ def auth_seam(mocker):
     return install
 
 
-# ───────────────────────────── --store choices ─────────────────────────
-
-
-class TestStoreChoiceFlag:
-    @pytest.mark.parametrize("store_kind", _STORE_CHOICES, ids=_STORE_CHOICES)
-    def test_list_store_value_reaches_factory(self, cli, auth_seam, store_kind) -> None:
-        # `list` passes --store straight to make_credential_store (no policy
-        # override), so each documented choice must reach the factory verbatim.
-        state = auth_seam()
-        result = cli("auth", "list", "--cred-store", store_kind)
-        assert result.code == 0
-        assert state.store_kinds == [store_kind]
-
-    def test_list_store_default_is_envfile(self, cli, auth_seam) -> None:
-        # Manifest default='envfile' (BRIAR_DEFAULT_STORE unset by env_sandbox).
-        state = auth_seam()
-        result = cli("auth", "list")
-        assert result.code == 0
-        assert state.store_kinds == ["envfile"]
-
-    def test_invalid_store_choice_exit_2(self, cli, auth_seam) -> None:
-        auth_seam()
-        result = cli("auth", "list", "--cred-store", "not-a-store")
-        assert result.code == 2
-        assert "Invalid value for '--cred-store'" in result.err
-
-    @pytest.mark.parametrize("store_kind", REMOVED_STORES)
-    def test_removed_store_is_no_longer_a_choice(self, cli: Callable[..., SimpleNamespace], auth_seam: Callable[..., Any], store_kind: str) -> None:
-        auth_seam()
-        listing = cli("auth", "list", "--cred-store", store_kind)
-        assert listing.code == ExitCode.USAGE_ERROR
-        assert f"'{store_kind}' is not one of 'envfile'" in listing.err
-
-    @pytest.mark.parametrize("store_kind", _STORE_CHOICES, ids=_STORE_CHOICES)
-    def test_cred_store_canonical_reaches_factory(self, cli, auth_seam, store_kind) -> None:
-        # `--cred-store` is the only name since 2.0 (the 1.x `--store` alias is gone).
-        state = auth_seam()
-        result = cli("auth", "list", "--cred-store", store_kind)
-        assert result.code == 0
-        assert state.store_kinds == [store_kind]
-
-
-# ───────────────────────────── --company filter ────────────────────────
-
-
 class TestCompanyFlag:
-    def test_list_company_filters_by_token(self, cli, auth_seam) -> None:
+    def test_status_without_target_company_filters_by_token(self, cli: Callable[..., SimpleNamespace], auth_seam: Callable[..., SimpleNamespace]) -> None:
         # --company narrows the listing to env-vars carrying the company token.
         auth_seam(present={"AWS_ACME_KEY": "x", "AWS_GLOBEX_KEY": "y"})
-        result = cli("auth", "list", "--cred-store", "envfile", "--company", "acme")
-        assert result.code == 0
-        assert "AWS_ACME_KEY" in result.out
-        assert "AWS_GLOBEX_KEY" not in result.out
+        run = cli("auth", "status", "--company", "acme")
+        assert run.code == 0
+        assert "AWS_ACME_KEY" in run.out
+        assert "AWS_GLOBEX_KEY" not in run.out
 
-    def test_list_company_default_lists_all(self, cli, auth_seam) -> None:
+    def test_status_without_target_default_lists_all(self, cli: Callable[..., SimpleNamespace], auth_seam: Callable[..., SimpleNamespace]) -> None:
         # Omitting --company (default='') applies no filter.
         auth_seam(present={"AWS_ACME_KEY": "x", "AWS_GLOBEX_KEY": "y"})
-        result = cli("auth", "list", "--cred-store", "envfile")
-        assert result.code == 0
-        assert "AWS_ACME_KEY" in result.out
-        assert "AWS_GLOBEX_KEY" in result.out
+        run = cli("auth", "status")
+        assert run.code == 0
+        assert "AWS_ACME_KEY" in run.out
+        assert "AWS_GLOBEX_KEY" in run.out
 
     def test_status_company_reaches_acquirer_writes(self, cli, auth_seam) -> None:
         # status calls writes(company=...) — the flag must reach it so the
         # per-company env-var names are computed correctly.
         state = auth_seam(present={"GITHUB_ACME_TOKEN": "v"})
-        result = cli("auth", "status", "github-pat", "--cred-store", "envfile", "--company", "acme")
+        result = cli("auth", "status", "github-pat", "--company", "acme")
         assert result.code == 0
         assert ("writes", "acme") in state.company_seen
         assert "GITHUB_ACME_TOKEN" in result.out
 
     def test_login_company_reaches_acquirer_acquire(self, cli, auth_seam) -> None:
         state = auth_seam()
-        result = cli("auth", "login", "github-pat", "--cred-store", "envfile", "--company", "globex")
+        result = cli("auth", "login", "github-pat", "--company", "globex")
         assert result.code == 0
         assert ("acquire", "globex") in state.company_seen
-
-    def test_refresh_company_reaches_acquirer_refresh(self, cli, auth_seam) -> None:
-        state = auth_seam()
-        result = cli("auth", "refresh", "github-pat", "--cred-store", "envfile", "--company", "umbrella")
-        assert result.code == 0
-        assert ("refresh", "umbrella") in state.company_seen
 
 
 # ───────────────────────── positional target (required + choices) ───────
@@ -227,18 +170,18 @@ class TestCompanyFlag:
 class TestTargetPositional:
     @pytest.mark.parametrize(
         "subcmd",
-        ["login", "logout", "refresh", "status"],
-        ids=["login", "logout", "refresh", "status"],
+        ["login"],
+        ids=["login"],
     )
     def test_target_omitted_is_usage_error(self, cli, auth_seam, subcmd) -> None:
         auth_seam()
-        result = cli("auth", subcmd, "--cred-store", "envfile")
+        result = cli("auth", subcmd)
         assert result.code == 2
         assert "Missing argument 'TARGET'" in result.err
 
     def test_target_invalid_choice_exit_2(self, cli, auth_seam) -> None:
         auth_seam()
-        result = cli("auth", "login", "not-a-target", "--cred-store", "envfile")
+        result = cli("auth", "login", "not-a-target")
         assert result.code == 2
         assert "'not-a-target' is not one of" in result.err
 
@@ -246,59 +189,26 @@ class TestTargetPositional:
     def test_each_documented_target_is_accepted(self, cli, auth_seam, target) -> None:
         # Every documented choice parses and drives the acquirer (login).
         state = auth_seam(kind=target)
-        result = cli("auth", "login", target, "--cred-store", "envfile")
+        result = cli("auth", "login", target)
         assert result.code == 0
         # The acquirer ran (acquire recorded) for this target.
         assert any(verb == "acquire" for verb, _ in state.company_seen)
 
 
-# ──────────────────────────────── --yes (logout) ───────────────────────
-
-
-class TestLogoutYesFlag:
-    def test_yes_skips_prompt_and_deletes(self, cli, auth_seam) -> None:
-        # WITH --yes: no prompt, store.delete is called for the target's vars.
-        state = auth_seam(present={"GITHUB_TOKEN": "v"})
-        result = cli("auth", "logout", "github-pat", "--cred-store", "envfile", "--yes")
-        assert result.code == 0
-        assert state.store.deletes == ["GITHUB_TOKEN"]
-        assert "removed 1/1" in result.out
-
-    def test_without_yes_aborts_on_negative_prompt_no_delete(self, cli, auth_seam, monkeypatch) -> None:
-        # WITHOUT --yes: prompts; answering 'n' aborts and deletes nothing.
-        state = auth_seam(present={"GITHUB_TOKEN": "v"})
-        monkeypatch.setattr("builtins.input", lambda _: "n")
-        result = cli("auth", "logout", "github-pat", "--cred-store", "envfile")
-        assert result.code == 1
-        assert state.store.deletes == []
-        assert "aborted" in result.out
-
-    def test_without_yes_proceeds_on_positive_prompt(self, cli, auth_seam, monkeypatch) -> None:
-        state = auth_seam(present={"GITHUB_TOKEN": "v"})
-        monkeypatch.setattr("builtins.input", lambda _: "y")
-        result = cli("auth", "logout", "github-pat", "--cred-store", "envfile")
-        assert result.code == 0
-        assert state.store.deletes == ["GITHUB_TOKEN"]
-
-
 # ───────────────────────── --store on write-path subcmds ───────────────
 
 
-class TestStoreOnLoginRefresh:
-    def test_login_store_reaches_factory(self, cli, auth_seam) -> None:
+class TestTheEnvFileIsTheStore:
+    """`--cred-store` left (F1): the env file is the only store (L3)."""
+
+    def test_login_writes_to_the_env_file(self, cli: Callable[..., SimpleNamespace], auth_seam: Callable[..., SimpleNamespace]) -> None:
         state = auth_seam()
-        result = cli("auth", "login", "github-pat", "--cred-store", "envfile")
-        assert result.code == 0
+        run = cli("auth", "login", "github-pat")
+        assert run.code == 0
         assert state.store_kinds == ["envfile"]
 
-    def test_refresh_store_reaches_factory(self, cli, auth_seam) -> None:
-        state = auth_seam()
-        result = cli("auth", "refresh", "github-pat", "--cred-store", "envfile")
-        assert result.code == 0
-        assert state.store_kinds == ["envfile"]
-
-    def test_status_store_label_reflects_flag(self, cli, auth_seam) -> None:
+    def test_status_names_the_env_file(self, cli: Callable[..., SimpleNamespace], auth_seam: Callable[..., SimpleNamespace]) -> None:
         auth_seam(present={"GITHUB_TOKEN": "v"})
-        result = cli("auth", "status", "github-pat", "--cred-store", "envfile")
-        assert result.code == 0
-        assert "store=envfile" in result.out
+        run = cli("auth", "status", "github-pat")
+        assert run.code == 0
+        assert "store=envfile" in run.out

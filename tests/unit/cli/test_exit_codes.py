@@ -40,7 +40,7 @@ class UsageErrors:
         ((), ""),
         (("nope",), "nope"),
         (("runbook",), ""),
-        (("config", "show", "--nope"), "--nope"),
+        (("doctor", "--nope"), "--nope"),
         (("extract",), "--company"),
         (("--format", "xml", "doctor"), "xml"),
         # Commands briar 2.0 removed get the usual unknown-command error (decision C22).
@@ -51,6 +51,11 @@ class UsageErrors:
         (("journal", "list"), "No such command 'journal'"),
         (("telemetry", "status"), "No such command 'telemetry'"),
         (("version",), "No such command 'version'"),
+        (("config", "show"), "No such command 'config'"),
+        (("runbook", "sweep", "runbooks/"), "No such command 'sweep'"),
+        (("auth", "list"), "No such command 'list'"),
+        (("auth", "logout", "github-pat"), "No such command 'logout'"),
+        (("auth", "refresh", "github-pat"), "No such command 'refresh'"),
     )
 
     def ids(self) -> List[str]:

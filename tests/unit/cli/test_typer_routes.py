@@ -12,11 +12,9 @@ from typing import Callable, Dict, Optional, Tuple
 import pytest
 
 from briar.commands._enums import (
-    CredentialStoreChoice,
     OutputFormat,
 )
 from briar.config import load_project_config
-from briar.credentials import CredentialStoreRegistry
 from briar.formatting import FORMATTERS
 
 from .conftest import Tripwire
@@ -61,9 +59,6 @@ class TestChoicesMatchTheRegistries:
     def test_output_formats_are_the_formatters(self) -> None:
         assert [choice.value for choice in OutputFormat] == list(FORMATTERS)
 
-    def test_cred_store_choices_are_the_credential_stores(self) -> None:
-        assert [choice.value for choice in CredentialStoreChoice] == list(CredentialStoreRegistry.kinds())
-
 
 class TestSettingsFillTyperOptions:
     def test_config_file_fills_init(self, cli: Callable[..., SimpleNamespace], project: Project, recorded_run: Dict[str, argparse.Namespace]) -> None:
@@ -105,8 +100,8 @@ class TestRemovedAliases:
 
     @pytest.mark.parametrize(
         "argv",
-        [("auth", "list", "--store", "envfile")],
-        ids=["auth --store"],
+        [("auth", "status", "--store", "envfile"), ("auth", "status", "--cred-store", "envfile"), ("runbook", "serve", "d", "--tick", "5")],
+        ids=["auth --store", "auth --cred-store (F1)", "runbook serve --tick (C14)"],
     )
     def test_alias_is_an_unknown_option(self, cli: Callable[..., SimpleNamespace], recorded_run: Dict[str, argparse.Namespace], argv: Tuple[str, ...]) -> None:
         alias = argv[ALIAS_POSITION]
@@ -127,9 +122,9 @@ class TestRemovedAliases:
 
 
 class TestCommandList:
-    EXPECTED = {"extract", "runbook", "auth", "init", "config", "doctor"}
+    EXPECTED = {"extract", "runbook", "auth", "init", "doctor"}
 
-    def test_help_lists_the_6_commands(self, cli: Callable[..., SimpleNamespace]) -> None:
+    def test_help_lists_the_5_commands(self, cli: Callable[..., SimpleNamespace]) -> None:
         listed = cli("--help").out.split("Commands:")[1].split()
 
         assert {word for word in listed if word in self.EXPECTED | {"completion"}} == self.EXPECTED

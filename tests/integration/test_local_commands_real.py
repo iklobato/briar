@@ -13,7 +13,7 @@ tests/conftest.py) strips every credential-shaped env var, so:
   * provider-backed extractors report missing creds deterministically.
 `BRIAR_SECRETS_FILE` is already redirected per-test by `env_sandbox`.
 
-These cover: the envfile credential store, runbook extract/sweep.
+These cover: the envfile credential store, runbook extract.
 """
 
 from __future__ import annotations
@@ -155,29 +155,3 @@ class TestRunbookExtractReal:
         result = cli("runbook", "extract", str(missing), env=_local_env(tmp_path))
         assert result.code == 1
         assert "not found" in result.err
-
-    def test_sweep_processes_each_yaml_in_dir(self, cli, tmp_path) -> None:
-        self._write_runbook(tmp_path)  # writes acme.yaml + knowledge/
-        # A second runbook so sweep has >1 file to walk.
-        (tmp_path / "beta.yaml").write_text(
-            "version: 1\n"
-            "companies:\n"
-            "  betacorp:\n"
-            "    knowledge: {store: file, name: knowledge:betacorp, root: " + str(tmp_path / "knowledge") + "}\n"
-            "    extract:\n"
-            "      - name: pr-archaeology\n"
-            "        args: {pr_repo: [betacorp/api]}\n"
-        )
-        result = cli("runbook", "sweep", str(tmp_path), env=_local_env(tmp_path))
-        assert result.code == 0, result.err
-        # Both files processed, in sorted order.
-        assert "--- acme.yaml ---" in result.out
-        assert "--- beta.yaml ---" in result.out
-        assert result.out.index("--- acme.yaml ---") < result.out.index("--- beta.yaml ---")
-
-    def test_sweep_not_a_directory_is_error(self, cli, tmp_path) -> None:
-        not_dir = tmp_path / "f.txt"
-        not_dir.write_text("x")
-        result = cli("runbook", "sweep", str(not_dir), env=_local_env(tmp_path))
-        assert result.code == 1
-        assert "is not a directory" in result.err

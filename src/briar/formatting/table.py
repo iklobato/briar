@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Sequence
 from rich.box import SIMPLE
 from rich.console import Console
 from rich.table import Table
+from rich.text import Text
 
 from briar.formatting.base import Formatter
 from briar.pagination import items_of, looks_like_list
@@ -93,5 +94,6 @@ class FormatTable(Formatter):
             table.add_column(c, overflow="fold")
         for it in items:
             row = [self._cell(it.get(c)) for c in columns] if isinstance(it, dict) else [str(it)]
-            table.add_row(*row)
+            # Text, not markup: a cell such as "set [repo] in config" must print as written.
+            table.add_row(*(Text(cell) for cell in row))
         console.print(table)
