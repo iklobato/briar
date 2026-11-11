@@ -30,7 +30,7 @@ now, what was found on the way, what is left and what to watch.
   PRs under it until those merge. Merge them **in order, #79 first, as
   merge commits**.
 - CI runs on every PR into `main` or `v2` (`.github/workflows/tests.yml`).
-  PRs #79 to #96 had green CI on their last commit. Nobody has reviewed
+  PRs #79 to #97 had green CI on their last commit. Nobody has reviewed
   them (the maintainer is the only reviewer).
 
 | PR | Branch | What it does |
@@ -54,6 +54,7 @@ now, what was found on the way, what is left and what to watch.
 | https://github.com/iklobato/briar/pull/95 | `core/05-final-trims` | Spec 006 part 5: `auth` login and status, `runbook` extract and serve, `briar config` folded into `doctor`, README rewritten around the 5 commands, the success checks |
 | https://github.com/iklobato/briar/pull/96 | `fix/doctor-git-remote-hint` | With no git origin, `doctor` says to run `briar init --owner OWNER --repo REPO` or set `[repo]` in `.briar.toml` (F10); no em dash in the `doctor` hints |
 | https://github.com/iklobato/briar/pull/97 | `logins/01-config-pasted` | Spec 005 part 1: `[auth]` config and the runbook `auth:` block, `BRIAR_*` names with the 1.x name guard, source targets for `auth login|status` with `--runbook`, the pasted logins (GitHub PAT, Jira token and cookie, Bitbucket token, access token and cookie, Linear key, Fireflies key), the flat credential store |
+| https://github.com/iklobato/briar/pull/98 | `logins/02-clouds` | Spec 005 part 2: AWS, GCP and Azure log in through their CLI (`[auth.aws] profile`, `[auth.gcp] config_dir` and `project`, `[auth.azure] tenant` and `subscription`); `profile` leaves `[extract.aws-infra]`; the acquirers and `CredEnv` go |
 
 ## 2. What is done
 
@@ -300,6 +301,34 @@ as 1.x shipped it, in tag `v1.1.101`. Read one with
   lines before, 14,377 after. The Bitbucket cookie is tested with fakes
   only (H3).
 
+### Spec 005: source logins, part 2 of 4 (PR #98)
+
+- Settled first in a grill session:
+  `docs/decisions/2026-11-11-briar-2-logins-pr2.md` (I1 to I10).
+- `briar/auth/logins.py`: `CliLogin` (AWS, GCP, Azure) runs the CLI login
+  through `PromptIO.run_login` (`os.system`, no `subprocess`) and saves
+  nothing (L3). `AwsLogin` tells an SSO profile from a static one by
+  reading the AWS config with botocore (I5); `GcpLogin` gives the ADC file
+  of `config_dir` (G26); `AzureLogin` the tenant. A login needs its value;
+  a run does not (I6). `status_lines` is polymorphic: secret names for the
+  pasted sources, the CLI on `PATH` and the local login state for the
+  clouds (I7).
+- Cloud adapters take `logins`: boto3 `Session(profile_name=...)`,
+  google-auth `load_credentials_from_file` of the folder (or the default
+  chain) passed to every google client, `AzureCliCredential(tenant_id=...)`
+  (or `DefaultAzureCredential` with no tenant). The project and the
+  subscription come from `[auth.gcp]` and `[auth.azure]` (I4).
+- `profile` leaves `[extract.aws-infra]` (`ExtractConfig.MOVED` names the
+  new place) and the runbook args `aws_extract_profile` and `cloud_profile`
+  stop the load. The examples moved their cloud scope to `auth:` blocks,
+  and `examples/all_features.yaml` now lists the `BRIAR_*` names.
+- Gone: the acquirer package, `briar.env_vars` (`CredEnv`), the AWS
+  `required_env_vars`, and the 1.x AWS fallback to a profile named like
+  the company.
+- Numbers, 2026-11-11, Python 3.13.2: 1428 unit and 31 integration tests
+  pass; `make smoke` ok; mypy 28 errors before, 25 after; `src` 14,377
+  lines before, 14,104 after.
+
 ## 3. How the command line works now
 
 ```
@@ -379,7 +408,7 @@ Each item was reproduced in this work; the PR named holds the evidence.
 
 ## 5. Next steps, in order
 
-1. **Review and merge #79 to #97 into `v2`**, in order, as merge commits.
+1. **Review and merge #79 to #98 into `v2`**, in order, as merge commits.
    Re-check `gh pr checks <n>` before each merge; after the last one, check
    that the `v2` CI run is green.
 2. **Decide how 2.0 is released before `v2` merges to `main`.**
@@ -420,8 +449,8 @@ Each item was reproduced in this work; the PR named holds the evidence.
    - spec 004: extractors cleaned inside with the same text per extractor,
      `extract` on Typer, the extractor flags (D32, D32a, C12), and the new
      knowledge layout (K1 to K14, K16, K20);
-   - spec 005: source logins, in progress (section 2): PR 1 is #97; PR 2
-     AWS, gcloud and Azure; PR 3 the check before a run; PR 4 the GitHub
+   - spec 005: source logins, in progress (section 2): PR 1 is #97, PR 2
+     (AWS, gcloud and Azure) is #98; PR 3 the check before a run; PR 4 the GitHub
      device flow, Linear OAuth and the refresh lock (G19). PR 4 needs the
      GitHub App of briar registered first (G23); its device flow code is in
      `git show c63ccf9:src/briar/auth/_acquirers/github_device.py`.

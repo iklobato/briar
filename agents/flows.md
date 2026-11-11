@@ -20,13 +20,13 @@ mounts in the [README](../README.md#run-with-docker).
 Save credentials, check them, then take the first snapshot.
 
 ```bash
-# 1. Say where the Jira site is (briar never writes this file)
-printf 'company = "acme"\n[auth.jira]\nsite = "acme.atlassian.net"\n' >> .briar.toml
+# 1. Say where the Jira site is and which AWS profile (briar never writes this file)
+printf 'company = "acme"\n[auth.jira]\nsite = "acme.atlassian.net"\n[auth.aws]\nprofile = "acme"\n' >> .briar.toml
 
 # 2. Save credentials. Each one goes to ~/.config/briar/secrets.env
 briar auth login github --company acme
 briar auth login jira --company acme
-briar auth login aws-static --company acme
+briar auth login aws --company acme      # runs aws sso login (or aws configure) for the acme profile
 briar auth login fireflies --company acme
 
 # 3. Check which keys one source still lacks

@@ -41,7 +41,7 @@ choices (Jira `site`, Bitbucket `workspace`, the method) go in `[auth]` of
 | Every repo extractor (the 19 in "Repo extractors" below). | `BRIAR_ACME_GITHUB_TOKEN`. With `provider = "bitbucket"`: the Bitbucket login (`BRIAR_ACME_BITBUCKET_EMAIL` and `BRIAR_ACME_BITBUCKET_TOKEN`, or an access token) and `workspace` under `[auth.bitbucket]`. |
 | `dependency-health`, `code-scanning`. | A GitHub token that can read security alerts (Dependabot alerts and code scanning alerts: read). |
 | `active-tickets`, `ticket-archaeology`. | Jira: `site` under `[auth.jira]` plus `BRIAR_ACME_JIRA_EMAIL` and `BRIAR_ACME_JIRA_TOKEN` (or the cookie). Linear: `BRIAR_ACME_LINEAR_API_KEY`. GitHub Issues: `BRIAR_ACME_GITHUB_TOKEN`. |
-| `aws-infra`. | `AWS_ACME_ACCESS_KEY_ID` and `AWS_ACME_SECRET_ACCESS_KEY`, or an AWS profile, or your normal AWS login. The `tagging-inventory` part also needs the `tag:GetResources` permission. |
+| `aws-infra`. | AWS: the profile in `[auth.aws] profile` (`briar auth login aws`), or the boto3 default chain. GCP (`cloud = "gcp"`): `[auth.gcp] project` and the ADC of `config_dir`. Azure (`cloud = "azure"`): `[auth.azure] subscription` and the `az` login of `tenant`. The `tagging-inventory` part also needs the `tag:GetResources` permission. |
 | `meeting-digest`. | `BRIAR_ACME_FIREFLIES_API_KEY` (`briar auth login fireflies --company acme`). |
 
 Run `briar auth status <source> --company acme` to see which values one
@@ -342,7 +342,6 @@ from the code; a test fails when this table and the code differ):
 | `active-work` | `authors_block` | `[]` |  |
 | `active-work` | `provider` | `"github"` | github, bitbucket |
 | `aws-infra` | `cloud` | `"aws"` | aws, gcp, azure |
-| `aws-infra` | `profile` | `unset` |  |
 | `aws-infra` | `region` | `"us-east-1"` |  |
 | `aws-infra` | `services` | `[]` | ecs, lambda, logs, rds, sqs, tagging-inventory |
 | `ci-health` | `max` | `100` |  |
