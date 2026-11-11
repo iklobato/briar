@@ -1,12 +1,11 @@
-# Setup: `init`, `config show`, `doctor`, shell completion and global flags
+# Setup: `init`, `doctor`, shell completion and global flags
 
 These commands help you set briar up and check the setup:
 
 | Command | What it does |
 |---|---|
 | `briar init` | Writes a starter `.briar.toml` project config file. |
-| `briar config show` | Shows each setting's value and where it came from. |
-| `briar doctor` | Checks your machine: Python, config, git, keys. |
+| `briar doctor` | Shows each setting's value and where it came from, then checks your machine: Python, config, git, keys. |
 | `briar --install-completion` | Adds tab completion to your shell. |
 
 This page also covers the global flags `--format`, `--verbose` and
@@ -137,65 +136,22 @@ You get `../.briar.toml`. Commands run in any folder below it find it.
   `[repo]` in `.briar.toml`, which briar reads without git. Before
   1.1.75 the image had no `git`, so this was always needed.
 
-## `briar config show`
-
-### What it does
-
-Prints each project setting, its value, and its source: `env (BRIAR_COMPANY)`,
-`config (.briar.toml)` (with `[repo]` for keys in that table), `inferred (git origin)`, or `-` for `(unset)`. It prints the config file
-path on stderr first.
-
-The settings are `company`, `root`, `tracker`, `owner`, `repo` and
-`provider`.
-
-### Use it when
-
-- A command uses a company or repo you did not expect.
-- You want to check that `.briar.toml` is found.
-
-### Examples
-
-```bash
-# Show every setting and where it came from.
-briar config show
-```
-
-You get a table with the columns `setting`, `value` and `source`, plus
-`config file: <path>` on stderr.
-
-```bash
-# The same, as JSON for a script.
-briar config show --format json
-```
-
-You get a JSON list of `{setting, value, source}` rows.
-
-```bash
-# Check which company a command will use, from another folder.
-BRIAR_COMPANY=acme briar config show
-```
-
-You get `company  acme  env (BRIAR_COMPANY)` in the table.
-
-### All parameters
-
-`config show` has no flags of its own. The global `--format` flag works.
-
-### Good to know
-
-- `config show` cannot see flags, because you type those per command. A
-  flag always wins over what it shows.
-- With no config file, the stderr line says `(none found ...)` and the
-  values come from env vars and git only.
-
 ## `briar doctor`
 
 ### What it does
 
-Runs quick checks on this machine and prints one row per check, with
-the status `ok`, `warn` or `fail`. It makes no network calls and opens
-no database. It exits with code 1 only when a check fails, so you can
-use it in CI.
+Prints two tables. The first has each project setting, its value and its
+source: `env (BRIAR_COMPANY)`, `config (.briar.toml)` (with `[repo]` for
+keys in that table), `inferred (git origin)`, or `-` for `(unset)`. The
+settings are `company`, `root`, `tracker`, `owner`, `repo`, `provider` and
+`telemetry` (its tier, from `DO_NOT_TRACK`, `BRIAR_TELEMETRY`, the config
+file or the `default`). The config file path goes to stderr first. 1.x
+printed this table with `briar config show`; 2.0 removed that command
+(decision C16).
+
+The second table has one row per check, with the status `ok`, `warn` or
+`fail`. It makes no network calls. It exits with code 1 only when a check
+fails, so you can use it in CI.
 
 | Check | `ok` when | Otherwise |
 |---|---|---|
@@ -210,6 +166,7 @@ use it in CI.
 - You set up a new machine.
 - A command fails and you want a quick look at the basics.
 - You want a CI step that fails on a broken setup.
+- A command uses a company or repo you did not expect.
 
 ### Examples
 
@@ -218,21 +175,23 @@ use it in CI.
 briar doctor
 ```
 
-You get a table with the columns `check`, `status` and `detail`.
+You get the settings table (`setting`, `value`, `source`), then the checks
+table (`check`, `status`, `detail`).
 
 ```bash
 # The same as JSON, for CI.
 briar doctor --format json
 ```
 
-You get a JSON list of `{check, status, detail}` rows.
+You get one object: `{"settings": [...], "checks": [...]}`. 1.x printed
+only the checks, as a list.
 
 ```bash
-# Save the result as a CSV file for a report.
-briar doctor --format csv > doctor.csv
+# Check which company a command will use, from another folder.
+BRIAR_COMPANY=acme briar doctor
 ```
 
-You get `doctor.csv` with a header row and one row per check.
+You get `company  acme  env (BRIAR_COMPANY)` in the settings table.
 
 ### All parameters
 
@@ -241,6 +200,8 @@ You get `doctor.csv` with a header row and one row per check.
 ### Good to know
 
 - `doctor` only checks that keys are set, not that they work.
+- The settings table cannot see flags, because you type those per
+  command. A flag always wins over what it shows.
 - For the keys one source needs, use `briar auth status <target>
   --company <name>` (see [auth.md](auth.md)).
 
@@ -310,12 +271,12 @@ same thing.
 
 - `table` prints a table for lists. One record prints as JSON instead.
 - `json` prints the same data as JSON.
-- Only these commands use `--format`: `config show`, `doctor`,
-  `runbook extract` and `runbook sweep`. Other commands ignore it.
+- Only `doctor` and `runbook extract` use `--format`. Other commands
+  ignore it.
 
 ```bash
 # Read the doctor checks as JSON with jq.
-briar --format json doctor | jq '.[].check'
+briar --format json doctor | jq '.checks[].check'
 ```
 
 You get one check name per line.

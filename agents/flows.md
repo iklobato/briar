@@ -98,7 +98,7 @@ its file date shows when they last changed.
 
 ```bash
 # 1. Run every runbook once, now
-briar runbook sweep runbooks/
+for f in runbooks/*.yaml; do briar runbook extract "$f"; done
 
 # 2. Stay running and fire each task on its schedule
 briar runbook serve runbooks/

@@ -24,10 +24,10 @@ They match briar-cli 1.1.75.
 | File | Commands |
 |---|---|
 | [flows.md](flows.md) | Recipes that chain several commands into one result. Start here for "how do I...". |
-| [setup.md](setup.md) | `briar init`, `briar config show`, `briar doctor`, shell completion, telemetry: set up a project and check it. |
+| [setup.md](setup.md) | `briar init`, `briar doctor`, shell completion, telemetry: set up a project and check it. |
 | [extract.md](extract.md) | `briar extract`: read your tools into a knowledge blob (23 extractors). |
-| [runbook.md](runbook.md) | `briar runbook extract`, `sweep`, `serve`: run extractors from YAML, once or on a schedule. |
-| [auth.md](auth.md) | `briar auth login`, `logout`, `refresh`, `list`, `status`: save and manage credentials. |
+| [runbook.md](runbook.md) | `briar runbook extract`, `serve`: run extractors from YAML, once or on a schedule. |
+| [auth.md](auth.md) | `briar auth login`, `status`: save credentials and see which are set. |
 
 ## Flags that work on every command
 
@@ -61,7 +61,7 @@ briar looks up each setting in this order and takes the first one it finds:
 4. The git `origin` remote, for the repo owner and name only.
 5. The built-in default.
 
-`briar config show` prints each setting and where it came from. See
+`briar doctor` prints each setting and where it came from. See
 [setup.md](setup.md).
 
 ## The knowledge store and blob names

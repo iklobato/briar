@@ -30,7 +30,7 @@ now, what was found on the way, what is left and what to watch.
   PRs under it until those merge. Merge them **in order, #79 first, as
   merge commits**.
 - CI runs on every PR into `main` or `v2` (`.github/workflows/tests.yml`).
-  PRs #79 to #93 had green CI on their last commit. Nobody has reviewed
+  PRs #79 to #94 had green CI on their last commit. Nobody has reviewed
   them (the maintainer is the only reviewer).
 
 | PR | Branch | What it does |
@@ -51,6 +51,7 @@ now, what was found on the way, what is left and what to watch.
 | https://github.com/iklobato/briar/pull/92 | `core/02-small-commands` | Spec 006 part 2: removes `context`, `secrets`, `journal`, `telemetry`, `version`, `messaging`, `notify`; `--format table|json`; `-v` only; telemetry tier from env or `.briar.toml` |
 | https://github.com/iklobato/briar/pull/93 | `core/03-file-store-only` | Spec 006 part 3: the file store is the only knowledge store; removes Postgres, `--store`, the `store` setting, `SQLAlchemy`, `psycopg` |
 | https://github.com/iklobato/briar/pull/94 | `core/04-extract-config` | Spec 006 part 4: `extract` keeps `--company`, `--include`, `--repo`; every other value moves to `[extract]` / `[extract.<name>]` with short names; the output modes go |
+| https://github.com/iklobato/briar/pull/95 | `core/05-final-trims` | Spec 006 part 5: `auth` login and status, `runbook` extract and serve, `briar config` folded into `doctor`, README rewritten around the 5 commands, the success checks |
 
 ## 2. What is done
 
@@ -219,6 +220,42 @@ as 1.x shipped it, in tag `v1.1.101`. Read one with
 - Not changed: a runbook's `args:` keeps the 1.x names and no key check
   (E12, until spec 004 merges the two paths).
 
+### Spec 006: core cleanup, part 5 of 5 (PR #95)
+
+- Settled first in a grill session:
+  `docs/decisions/2026-11-10-briar-2-final-trims.md` (F1 to F9).
+- `auth` has `login` and `status`. `status` with no target lists the name
+  of every credential that is set, as 1.x `auth list` did. `logout`,
+  `refresh`, `list`, `--cred-store`, `_effective_store_kind` and
+  `DestinationPolicy` left; the `CredentialStore` interface and its
+  one-entry registry stay for spec 005 (F1).
+- `runbook` has `extract` and `serve`. `sweep` left (use `serve DIR`, or
+  `extract` once per file, F9); `serve` ticks every second
+  (`TICK_SECONDS` in `commands/runbook.py`), `--tick` left.
+- `briar config` left. `briar doctor` prints its settings table first, with
+  a `telemetry` row (tier and source, from `telemetry.active_config()`,
+  so no install id is written), then the checks. `--format json` prints
+  `{"settings": [...], "checks": [...]}` (F2, F3). The table renderer adds
+  cells as `rich.text.Text`, which fixes the `[repo]` that rich read as
+  markup in the `git remote` hint.
+- `briar init` writes a commented `[extract]` example (F8). `make smoke`
+  checks the 5 commands.
+- README rewritten around the 5 commands, with no GIF or diagram (F4 to
+  F6); the files stay in `docs/demo/` and `docs/diagrams/` for the site.
+  `pyproject.toml` description and keywords match 2.0 (F7).
+- Success checks, run 2026-11-10 on Python 3.13.2: `briar --help` lists
+  extract, runbook, auth, init, doctor (SC-001); `briar extract --help`
+  lists `--company`, `--include`, `--repo`, `-h` (SC-002); `blob.golden.md`
+  has no change since `f01164f`, the commit that added it (SC-003); 1511
+  unit and 35 integration tests pass, and the kept `flags_1x.json` cases
+  only lost the keys of removed options (`tick`, `cred_store`) (SC-004);
+  `src` 14,967 lines before this PR and 14,772 after, and `import
+  briar.cli` 679 ms against 1,130 ms on the 1.x code (CPU time, median of
+  7, load average 23, so only the ratio means something) (SC-005); no
+  module imports `anthropic`, `git`, `sqlalchemy`, `psycopg`, `mcp`,
+  `openai` or `google.generativeai`, and `pyproject.toml` names none of
+  them (SC-006). mypy: 29 errors before, 28 after.
+
 ## 3. How the command line works now
 
 ```
@@ -255,8 +292,8 @@ briar.cli.main(argv)
   default. One file is read, never a merge: the nearest `.briar.toml`, or
   `pyproject.toml` with `[tool.briar]`, found upward from the cwd; in one
   folder `.briar.toml` hides `pyproject.toml`. It feeds the Typer default
-  map, `config show` (labels `env (<VAR>)`, `config (<file>) [<table>]`,
-  `inferred (git origin)`, `-`) and `doctor`.
+  map and the settings table of `doctor` (labels `env (<VAR>)`,
+  `config (<file>) [<table>]`, `inferred (git origin)`, `-`).
 - **`config.py`**: now only the argparse shim for `extract`
   (`apply_config_defaults`); `infer.py` fills `extract --repo` from git.
 
@@ -298,7 +335,7 @@ Each item was reproduced in this work; the PR named holds the evidence.
 
 ## 5. Next steps, in order
 
-1. **Review and merge #79 to #94 into `v2`**, in order, as merge commits.
+1. **Review and merge #79 to #95 into `v2`**, in order, as merge commits.
    Re-check `gh pr checks <n>` before each merge; after the last one, check
    that the `v2` CI run is green.
 2. **Decide how 2.0 is released before `v2` merges to `main`.**
@@ -319,7 +356,8 @@ Each item was reproduced in this work; the PR named holds the evidence.
    `--format table|json`, `-v` only (done: PR #92); (3) file store only
    (done: PR #93); (4) `extract` with three flags and the rest from
    `[extract]` / `[extract.<name>]` (done: PR #94);
-   (5) `auth`, `runbook`, `doctor`/`init` trims, docs and the success checks.
+   (5) `auth`, `runbook`, `doctor`/`init` trims, docs and the success checks
+   (done: PR #95).
    A 1.x key that left (`store`, runbook `messages:`/`mcp:`, an unknown
    `[extract]` key) stops the run with exit 1; `auth status` with no target
    lists every login. The speed PR below is likely moot: after part 3,
@@ -346,7 +384,10 @@ Each item was reproduced in this work; the PR named holds the evidence.
    shows `mcp serve` and agents. Both come from the site, so change them
    there and export again. `agent-run.svg`, `review.svg`, `board.svg` and
    the demo GIFs `03-agent-ticket.gif`, `04-agent-review.gif` are no longer
-   in the README; the site may still load them from `main`.
+   in the README; the site may still load them from `main`. Since PR #95
+   the README shows no GIF and no diagram (F6): record
+   `01-setup-and-extract.gif` and `02-runbook.gif` again on 2.0 and redraw
+   the diagrams before putting any back. Nobody owns that yet.
 7. **1.x issues still open on `main`**:
    https://github.com/iklobato/briar/issues/76 and
    https://github.com/iklobato/briar/issues/77.
@@ -357,11 +398,12 @@ Each item was reproduced in this work; the PR named holds the evidence.
   `[extract]` values are not type-checked and a runbook still uses the
   1.x option names, until spec 004 (D32).
 - Startup: spec 002 left it about 60 ms slower than 1.x (section 4); after
-  spec 006 part 3, `import briar.cli` is about 350 ms faster (section 2).
-- The README overview (the top sections) still describes `agent` and
-  `plan`; spec 006 part 5 rewrites it. The demo GIF
-  `docs/demo/01-setup-and-extract.gif` shows `briar context get`, which
-  2.0 removed; re-record it with the README rewrite.
+  spec 006, `import briar.cli` is faster than 1.x (679 ms against 1,130 ms,
+  section 2, part 5).
+- The README has no GIF or diagram until they are redone for 2.0
+  (section 5, item 6).
+- `briar doctor --format json` changed shape (F2): a script that read the
+  1.x list of checks breaks.
 - `runbook serve` has no failure alert until Apprise (C20, K4).
 - Unit tests in `tests/unit/test_http_retry.py` and `tests/test_abstractions.py`
   still leak their own `HTTPError` objects on Python 3.14. CI does not run
