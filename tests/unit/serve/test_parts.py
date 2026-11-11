@@ -39,15 +39,17 @@ class TestGit:
         log = Shell().line("git log -1 --format=%an/%ae/%s", worktree).output.strip()
         assert log == "octo/octo@users.noreply.github.com/ENG-1: add"
 
-    def test_a_failed_git_command_names_it_and_hides_the_token(self, tmp_path: Path) -> None:
-        checkout = RepoCheckout(Shell(), tmp_path, "acme/missing")
+    def test_a_failed_git_command_names_it_and_hides_the_token(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(RepoCheckout, "HOST", f"file://{tmp_path / 'remotes'}")
+        checkout = RepoCheckout(Shell(), tmp_path / "cache", "acme/missing")
 
         with pytest.raises(GitFailed) as caught:
-            checkout.worktree("b", "main", tmp_path / "wt")
+            checkout.update(TOKEN)
 
-        assert str(caught.value).startswith("`git ")
-        assert "No such file or directory" in str(caught.value)
-        assert TOKEN not in str(caught.value)
+        message = str(caught.value)
+        command = f"git clone file://{tmp_path}/remotes/acme/missing.git {tmp_path}/cache/repos/acme__missing"
+        assert message.startswith(f"`{command}` failed in {tmp_path / 'cache'}: ")
+        assert ("does not appear to be a git repository" in message, TOKEN in message) == (True, False)
 
     def test_the_shell_gives_the_exit_code_and_the_output(self, tmp_path: Path) -> None:
         done = Shell().line(f"echo out; echo err >&2; exit {EXIT_CODE}", tmp_path)
@@ -57,7 +59,7 @@ class TestGit:
     def test_a_missing_folder_is_a_failed_command_with_the_reason(self, tmp_path: Path) -> None:
         done = Shell().line("echo never", tmp_path / "missing")
 
-        assert (done.ok(), "No such file or directory" in done.output) == (False, True)
+        assert (done.ok(), str(tmp_path / "missing") in done.output, "never" in done.output) == (False, True, False)
 
 
 class TestCiStates:

@@ -64,9 +64,8 @@ class RepoCheckout:
     HOST = "https://github.com"
     # The token file is readable by its owner only.
     SECRET_MODE = 0o600
-    # The tail of a failed git output kept in the error, and the arguments named in it.
+    # The tail of a failed git output kept in the error.
     OUTPUT_TAIL = 500
-    NAMED_ARGS = 3
     HELPER: ClassVar[str] = "!f() {{ echo username=x-access-token; printf 'password='; cat {path}; echo; }}; f"
 
     def __init__(self, shell: Shell, cache: Path, repo: str) -> None:
@@ -113,19 +112,19 @@ class RepoCheckout:
 
     def _git(self, args: Sequence[str], cwd: Path, token: str) -> ShellResult:
         if not token:
-            return self._checked(["git", *args], cwd)
+            return self._checked(["git"], args, cwd)
         with tempfile.TemporaryDirectory(prefix="briar-git-") as scratch:
             secret = Path(scratch) / "token"
             secret.write_text(token)
             secret.chmod(self.SECRET_MODE)
             helper = self.HELPER.format(path=shlex.quote(str(secret)))
-            return self._checked(["git", "-c", "credential.helper=", "-c", f"credential.helper={helper}", *args], cwd)
+            return self._checked(["git", "-c", "credential.helper=", "-c", f"credential.helper={helper}"], args, cwd)
 
-    def _checked(self, argv: Sequence[str], cwd: Path) -> ShellResult:
-        answer = self._shell.program(argv, cwd)
+    def _checked(self, prefix: Sequence[str], args: Sequence[str], cwd: Path) -> ShellResult:
+        """Run `prefix + args`; a failure names `args` only, never the credential helper."""
+        answer = self._shell.program([*prefix, *args], cwd)
         if not answer.ok():
-            named = " ".join(argv[-self.NAMED_ARGS :])
-            raise GitFailed(f"`git {named}` failed in {cwd}: {answer.output.strip()[-self.OUTPUT_TAIL :]}")
+            raise GitFailed(f"`git {shlex.join(args)}` failed in {cwd}: {answer.output.strip()[-self.OUTPUT_TAIL :]}")
         return answer
 
 

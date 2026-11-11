@@ -123,6 +123,8 @@ filterwarnings = [
     "error",
     "ignore::DeprecationWarning:botocore.*",
     "ignore::DeprecationWarning:boto3.*",
+    # opentelemetry (pulled in by claude-agent-sdk) reads entry points the 3.10/3.11 way.
+    "ignore:SelectableGroups dict interface is deprecated:DeprecationWarning:opentelemetry.*",
     "ignore::PendingDeprecationWarning",
 ]
 markers = [
