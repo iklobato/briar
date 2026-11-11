@@ -84,6 +84,35 @@ now, what was found on the way, what is left and what to watch.
 | https://github.com/iklobato/briar/pull/102 | `serve/03-review-routine` | Spec 003 part 3: the review routine (writers and listed bots, marker, edits, resolved threads, base merge, replies, `max_review_rounds`), the agent sandbox and read limit, `ServeRoutine` |
 | https://github.com/iklobato/briar/pull/103 | `serve/04-cleanup` | Spec 003 part 4: `briar auth` and `briar runbook` leave; `serve` runs extract-only folders, `doctor --runbooks`, `init` writes an example runbook; the hints, manuals, README and CHANGELOG |
 
+### A local test build (not a release)
+
+To try the top of the stack on a machine without publishing anything (a PyPI
+version can never be reused, and the 2.0 release is not decided, section 5):
+
+```bash
+git -C <repo> worktree add --detach /tmp/briar-build <top commit>
+# in /tmp/briar-build/pyproject.toml only: version = "2.0.0.dev0+g<short sha>"
+(cd /tmp/briar-build && uv build --wheel -o <out dir>)
+uv venv --python 3.13 <out dir>/briar-2.0.0.dev0
+uv pip install --python <out dir>/briar-2.0.0.dev0/bin/python <out dir>/briar_cli-2.0.0.dev0+g<sha>-py3-none-any.whl
+<out dir>/briar-2.0.0.dev0/bin/briar --version     # briar-cli 2.0.0.dev0+g<sha>
+git -C <repo> worktree remove --force /tmp/briar-build
+```
+
+- `briar --version` reads the installed package metadata
+  (`importlib.metadata`), so the version comes from `pyproject.toml` at build
+  time. Never commit the dev version: `release.yml` bumps the patch of what is
+  in `pyproject.toml`.
+- A separate venv keeps an older `briar` on the `PATH` untouched; run the new
+  one by its full path or an alias.
+- `uv build -o <dir>` also writes a `.gitignore` (`*`) into `<dir>`.
+- The venv is about 409 MB, mostly the Claude Code CLI inside
+  `claude-agent-sdk`.
+- Built and checked on 2026-11-11 from `748d1d2` (PR #103): `--version`, the 4
+  commands in `--help`, `claude-agent-sdk` 0.2.180, `init` writing both files,
+  `doctor --runbooks` stopping on `Field required` for the commented model and
+  limits. The maintainer tests it locally next; no real `serve` run yet.
+
 ## 2. What is done
 
 Each part below records what that PR did when it was written. Later PRs
@@ -996,7 +1025,8 @@ Found in spec 003 (`briar serve`, 2026-11-11):
    runbooks/`. Watch for: the plan comment on the issue, the PR, the CI wait,
    then a review comment by the owner and the reply. It also shows for the
    first time bash running inside the SDK sandbox and the real cost of one
-   ticket.
+   ticket. A local build for it exists since 2026-11-11 (section 1, "A
+   local test build"); the maintainer tests it next.
 7. **The review questions on #100 to #103**, none answered yet: the 152 MB
    wheel of `claude-agent-sdk` as a required dependency (#100); a failed poll
    stopping `serve` (#100); bash reads outside the worktree and a failure
@@ -1061,6 +1091,9 @@ Found in spec 003 (`briar serve`, 2026-11-11):
   - A failure before a task starts is logged and tried again on the next poll
     (V15), so a branch that cannot fast forward logs every cycle.
   - `allowed_domains` is a way out for data (V13).
+  - The example model of the `init` runbook template and `agents/serve.md` is
+    `claude-sonnet-4-5`, an older id than the current Claude models; it was
+    not checked against the model list. Pick a current id when testing.
 - Spec 005, open after PRs #97 to #99:
   - `briar serve` (the scheduled extracts, as `runbook serve` before #103)
     stops for every company when one check fails, a short network drop
@@ -1152,3 +1185,44 @@ Found in spec 003 (`briar serve`, 2026-11-11):
   library errors go through a class of `extract/_login_failures.py`. One
   that does not is never checked, and its bad login shows up only as an
   empty section.
+
+## 8. The asks of the maintainer and where they stand
+
+What the maintainer asked in their own words (not the answers to questions)
+in the session of 2026-11-10 and 2026-11-11, merged into one list, and where
+each stands on 2026-11-11. "Done" means built in an open PR with green CI:
+none is merged or released (section 1).
+
+| # | Ask | Status |
+|---|---|---|
+| 1 | Analyse briar and plan how to make it as organized as possible | Done: the decision files of `docs/decisions/` and specs 001, 002, 003, 005, 006 |
+| 2 | Use ready libraries (CrewAI was named) instead of manual code | Done with other libraries: the Claude Agent SDK for the agent (S1 replaced LangGraph, D9), PyGithub, atlassian-python-api, the cloud SDKs |
+| 3 | Access and logins with existing tools, not manual code | Done: spec 005 (#97 to #99), GitHub by PAT (S2) |
+| 4 | Programmatic in the code rather than client tools | Partial: GitHub and Jira through libraries; `serve` still runs `git` through `os.system`; the agent is the Claude Code CLI inside the SDK; the clouds log in through their own CLI |
+| 5 | Keep extracting the sources as today | Done: `briar extract`, 23 extractors, the byte-for-byte snapshot test (#79) |
+| 6 | Understand the extractor and its features | Decided (K1 to K20); not built (spec 004, not written) |
+| 7 | Store the data so other agents can use it | Decided (K1 to K20); not built: still one blob `knowledge:<company>` |
+| 8 | Always the simplest way | Applied in every PR |
+| 9 | Logins for every source briar reads | Built (#97 to #99); run for real: GitHub, AWS, GCP and Azure offline lines; not run for real: Jira, Bitbucket, Linear, Fireflies (G20) |
+| 10 | A pasted cookie string instead of a browser login | Built for Jira and Bitbucket (`method = "cookie"`); not run for real; the Bitbucket cookie only against a fake server |
+| 11 | `briar extract` and `briar serve` as the core of 2.0 | Done: 4 commands (#103) |
+| 12 | A pipeline with inner loops up to the PR | Done: verify, self-review and CI loops (#101) |
+| 13 | Look at sources like GitHub and Fireflies in the ticket pipeline | Partial: the pipeline talks to GitHub and Jira only (S8); other sources reach the agent only through the knowledge blob |
+| 14 | Watch for a newly assigned ticket | Done (#100) |
+| 15 | Write a plan of action | Done: structured plan, commented on the ticket (#101) |
+| 16 | Read the knowledge of the sources | Done: scheduled extracts plus the blob path given to the agent (#100, #101) |
+| 17 | Build on a new branch and open the PR | Done (#101) |
+| 18 | Watch the PR and fix or justify each review comment | Done (#102) |
+| 19 | Parallel, not only sequential | Done: asyncio, `max_parallel` per company (#100) |
+| 20 | Focus on GitHub and Jira only | Partial: true for `serve`; Bitbucket, Linear, Fireflies and the clouds stay as extractors (S8) |
+| 21 | Cut and clean up as much as possible | Partial: 15 commands of 1.x left (`scaffold`, `dashboard`, `chat`, `mcp`, `agent`, `plan`, `context`, `secrets`, `journal`, `telemetry`, `version`, `config`, `completion`, `auth`, `runbook`) and the Postgres store too; still there: the extra sources, the unused prompts `roles/`, `tasks/`, `rules/`, `save_runbook_file`, `extract` on argparse |
+| 22 | A simplest PR 4 for `serve`, no grill | Built (the GitHub device flow, `cf7bcb4`), then dropped by the re-scope (S30) |
+| 23 | A grill before each decision | Done for every spec and PR except ask 22 |
+| 24 | Status of the running task | Given at the time |
+| 25 to 28 | Keep this file and `CLAUDE.md` current, readable by any agent, in the repo, for the session only | Done (PR #90, a commit on #98, `748d1d2` and this commit on #103) |
+| 29 | List every ask of the session | Given in the session |
+
+Left before any of it counts as live: the first real `serve` run (section 5,
+item 6), the review and merge of #79 to #103 into `v2`, the answers to the
+review questions on #100 to #103, the 2.0 release decision (S32), then the
+site (X6).

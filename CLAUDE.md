@@ -120,6 +120,11 @@ only in the private site repo.
   a bug can live in two places. In 1.x the MCP server's `service/` layer was
   a third copy (the extract merge was fixed in the CLI in 1.1.82 and in MCP
   in 1.1.83).
+- **A local test build is not a release.** To try the 2.0 stack, build a
+  wheel from a detached worktree with a dev version set only there
+  (`2.0.0.dev0+g<sha>`) and install it in its own venv; never commit that
+  version, since `release.yml` bumps what `pyproject.toml` says. Steps:
+  `docs/briar-2-status.md` section 1, "A local test build".
 - **After a release, verify it live**, not from the run log:
   - PyPI: `curl -s https://pypi.org/pypi/briar-cli/<version>/json`
     (the plain `/pypi/briar-cli/json` lags a few minutes).
@@ -301,7 +306,8 @@ Full detail per version is in `CHANGELOG.md`. In short:
    is complete with #103); decide how
    2.0 is released before `v2` merges to `main` (the workflow would publish
    1.1.102); the first real run of `briar serve` on the test repo (spends
-   model money, ask first); the real runs left for Jira (and, while they
+   model money, ask first; a local `2.0.0.dev0` build exists for it since
+   2026-11-11 and the maintainer tests it next); the real runs left for Jira (and, while they
    stay, Bitbucket, Linear and Fireflies); then spec 004. Spec 005 PR 4 was dropped by the
    re-scope (S2).
    Order and detail: `docs/briar-2-status.md` section 5.
@@ -320,6 +326,9 @@ Full detail per version is in `CHANGELOG.md`. In short:
 5. The MCP registry stays at 1.1.94; 2.0 has no MCP server.
 
 ## 8. What is still open
+
+The asks of the maintainer in the 2.0 session and where each stands:
+`docs/briar-2-status.md` section 8.
 
 **2.0**: see `docs/briar-2-status.md` section 6 (extract still on argparse;
 site docs, GIFs and diagrams still show removed commands, so the README
