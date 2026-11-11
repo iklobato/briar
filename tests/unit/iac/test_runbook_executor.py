@@ -24,6 +24,8 @@ from pytest_mock import MockerFixture
 
 from briar.errors import ConfigError
 from briar.extract.base import ExtractedSection
+from briar.extract.composer import KnowledgeComposer
+from briar.storage import make_store
 from briar.iac.runbook.executor import ExtractRow, RunbookExtractor, RunbookLoader
 from briar.iac.runbook.models import CompanyEntry, ExtractEntry, KnowledgeBinding, RunbookFile, ScheduleEntry
 from tests.unit.fake_logins import FakeLogins
@@ -80,6 +82,9 @@ class _FakeStore:
         self._outcome = outcome
         self._raises = raises
         self.put_calls: List[Dict[str, Any]] = []
+
+    def get(self, blob_name: str) -> str:
+        return ""
 
     def put_if_changed(self, blob_name: str, content: str, category: str = "") -> _FakeOutcome:
         self.put_calls.append({"blob_name": blob_name, "content": content, "category": category})
@@ -160,24 +165,26 @@ class TestRunScheduleHappyPath:
         )
         assert rows[0].status == "skipped (unchanged, 99 bytes, hash=deadbeef)"
 
-    def test_non_default_task_suffixes_blob_name(self) -> None:
+    def test_every_task_writes_the_company_blob_and_keeps_the_other_sections(self, tmp_path: Path) -> None:
+        """K9, validation run of 2026-11-11: task `knowledge` wrote a blob the agent never
+        reads; task `extractors` dropped the other sections (3 became 1)."""
+        store = make_store("file", file_root=tmp_path)
+        store.put("knowledge:acme", KnowledgeComposer.markdown(company="acme", sections=[ExtractedSection(title="Stale PRs - 1 repo(s)", body="old")]))
         rows: List[ExtractRow] = []
-        registry = _FakeRegistry(fake=_FakeExtractor())
-        store = _FakeStore(_FakeOutcome(wrote=True, byte_count=10))
 
         RunbookExtractor._run_schedule(
             company_name="acme",
             schedule=_schedule(task="nightly"),
-            binding=KnowledgeBinding(store="file", name="acme.md"),
-            registry=registry,
-            composer=_FakeComposer,
-            make_store=_make_store_returning(store),
+            binding=KnowledgeBinding(store="file", name="knowledge:acme"),
+            registry=_FakeRegistry(fake=_FakeExtractor(section=ExtractedSection(title="Infra", body="b"))),
+            composer=KnowledgeComposer,
+            make_store=lambda kind, *, file_root, binding: store,
             rows=rows,
             logins=FakeLogins().logins(),
         )
-        # ".md" base → "<base>.<task>.md"
-        assert store.put_calls[0]["blob_name"] == "acme.nightly.md"
-        assert rows[0].output == "acme.nightly.md"
+
+        assert list(KnowledgeComposer.split_sections(store.get("knowledge:acme"))) == ["Stale PRs", "Infra"]
+        assert (rows[0].output, store.get("knowledge:acme.nightly")) == ("knowledge:acme", "")
 
 
 class TestRunScheduleInventory:
@@ -249,6 +256,9 @@ class TestRunScheduleInventory:
 
             def __init__(self) -> None:
                 self.put_calls: List[Dict[str, Any]] = []
+
+            def get(self, blob_name: str) -> str:
+                return ""
 
             def put_if_changed(self, blob_name: str, content: str, category: str = "") -> _FakeOutcome:
                 self.put_calls.append({"blob_name": blob_name, "category": category})
@@ -470,9 +480,8 @@ class TestExtractOrchestration:
             }
         )
         rows = RunbookExtractor.extract(rb, task="hourly")
-        # Only the hourly schedule ran → one row, blob suffixed for that task.
-        assert len(rows) == 1
-        assert rows[0].output == "acme.hourly.md"
+        # Only the hourly schedule ran: one row, into the company blob (K9).
+        assert [(row.task, row.output) for row in rows] == [("hourly", "acme.md")]
 
     def test_no_filter_records_skipped_row_when_company_has_no_schedule(self, mocker) -> None:
         registry = _FakeRegistry(fake=_FakeExtractor())
@@ -517,12 +526,6 @@ class TestBindingResolution:
         binding = RunbookExtractor._binding_for(company, "acme")
         assert binding.store == "file"
         assert binding.name == "custom/acme.md"
-
-    def test_task_blob_name_without_md_suffix(self) -> None:
-        assert RunbookExtractor._task_blob_name("acme", "nightly") == "acme.nightly"
-
-    def test_task_blob_name_with_md_suffix(self) -> None:
-        assert RunbookExtractor._task_blob_name("acme.md", "nightly") == "acme.nightly.md"
 
 
 # ── RunbookSchedules.for_company: legacy + new coalescing ─────────────
