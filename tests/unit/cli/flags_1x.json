@@ -2,48 +2,6 @@
  "dash_values": [
   {
    "argv": [
-    "runbook",
-    "extract",
-    "x-file-1",
-    "--task=-x-task"
-   ],
-   "dest": "task",
-   "expected": "-x-task",
-   "path": [
-    "runbook",
-    "extract"
-   ]
-  },
-  {
-   "argv": [
-    "auth",
-    "login",
-    "github",
-    "--company=-x-company"
-   ],
-   "dest": "company",
-   "expected": "-x-company",
-   "path": [
-    "auth",
-    "login"
-   ]
-  },
-  {
-   "argv": [
-    "auth",
-    "status",
-    "github",
-    "--company=-x-company"
-   ],
-   "dest": "company",
-   "expected": "-x-company",
-   "path": [
-    "auth",
-    "status"
-   ]
-  },
-  {
-   "argv": [
     "init",
     "--company=-x-company"
    ],
@@ -68,65 +26,6 @@
    },
    "path": [
     "extract"
-   ]
-  },
-  {
-   "argv": [
-    "runbook",
-    "extract",
-    "x-file-1"
-   ],
-   "expected": {
-    "file": "x-file-1",
-    "task": ""
-   },
-   "path": [
-    "runbook",
-    "extract"
-   ]
-  },
-  {
-   "argv": [
-    "runbook",
-    "serve",
-    "x-directory-1"
-   ],
-   "expected": {
-    "directory": "x-directory-1"
-   },
-   "path": [
-    "runbook",
-    "serve"
-   ]
-  },
-  {
-   "argv": [
-    "auth",
-    "login",
-    "github"
-   ],
-   "expected": {
-    "company": "",
-    "target": "github"
-   },
-   "path": [
-    "auth",
-    "login"
-   ]
-  },
-  {
-   "argv": [
-    "auth",
-    "status",
-    "github"
-   ],
-   "expected": {
-    "company": "",
-    "target": "github"
-   },
-   "path": [
-    "auth",
-    "status"
    ]
   },
   {
@@ -191,51 +90,6 @@
    ],
    "path": [
     "extract"
-   ]
-  },
-  {
-   "argv": [
-    "runbook",
-    "extract",
-    "x-file-1",
-    "--task",
-    "x-task-1"
-   ],
-   "dest": "task",
-   "expected": "x-task-1",
-   "path": [
-    "runbook",
-    "extract"
-   ]
-  },
-  {
-   "argv": [
-    "auth",
-    "login",
-    "github",
-    "--company",
-    "x-company-1"
-   ],
-   "dest": "company",
-   "expected": "x-company-1",
-   "path": [
-    "auth",
-    "login"
-   ]
-  },
-  {
-   "argv": [
-    "auth",
-    "status",
-    "github",
-    "--company",
-    "x-company-1"
-   ],
-   "dest": "company",
-   "expected": "x-company-1",
-   "path": [
-    "auth",
-    "status"
    ]
   },
   {

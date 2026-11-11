@@ -3,6 +3,7 @@
 Prints the settings table (what `briar config show` printed in 1.x, plus the
 telemetry tier), then one status line per check (python, config, git,
 credentials), and exits non-zero only on a hard failure, so it is CI-usable.
+`--runbooks DIR` adds the checks `briar serve DIR` runs before its first cycle (X2).
 With `--format json` it prints `{"settings": [...], "checks": [...]}`
 (decisions C16, F2, F3)."""
 
@@ -13,6 +14,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar, Dict, List, Mapping, Optional
+
+import typer
 
 from briar.commands._enums import ExitCode
 from briar.commands.base import Command, CommandOptions, Route
@@ -68,9 +71,9 @@ class CommandDoctor(Command):
     help = "Show the settings and check the local environment (config, git, credentials)."
 
     def run(self, args: argparse.Namespace) -> int:
-        from briar.doctor import FAIL, run_checks, worst_status
+        from briar.doctor import FAIL, RunbookChecks, run_checks, worst_status
 
-        checks = run_checks()
+        checks = run_checks() + (RunbookChecks(Path(args.runbooks)).checks() if args.runbooks else [])
         report = DoctorReport(self._settings(), [{"check": c.name, "status": c.status, "detail": c.detail} for c in checks])
         report.render(args.format)
         return ExitCode.GENERAL_ERROR if worst_status(checks) == FAIL else ExitCode.OK
@@ -88,3 +91,5 @@ class CommandDoctor(Command):
 @dataclass(frozen=True)
 class DoctorOptions(CommandOptions):
     ROUTE = Route(CommandDoctor.name)
+
+    runbooks: str = typer.Option("", "--runbooks", help="Also run the checks of `briar serve` on this folder of runbooks, without starting it.")

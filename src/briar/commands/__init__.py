@@ -1,18 +1,16 @@
 """Command registry — Strategy + Factory composition.
 
-Top-level commands: auth · doctor · extract · init · runbook · serve.
+Top-level commands: doctor · extract · init · serve.
 """
 
 from __future__ import annotations
 
 from typing import Dict, List, Type
 
-from briar.commands.auth import CommandAuth
 from briar.commands.base import Command
 from briar.commands.doctor import CommandDoctor
 from briar.commands.extract import CommandExtract
 from briar.commands.init import CommandInit
-from briar.commands.runbook import CommandRunbook
 from briar.commands.serve import CommandServe
 
 
@@ -23,8 +21,6 @@ class CommandRegistry:
     COMMANDS: List[Type[Command]] = [
         CommandExtract,
         CommandServe,
-        CommandRunbook,
-        CommandAuth,
         CommandInit,
         CommandDoctor,
     ]

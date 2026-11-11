@@ -1,6 +1,6 @@
-"""The login check of a runbook (spec 005 PR 3): `runbook extract` checks every
-company and task before running any (J7); `runbook serve` checks at start and
-stops on any failed check later (J8). Fireflies answers through a fake
+"""The login check of a runbook (spec 005 PR 3): a runbook extract checks every
+company and task before running any (J7); `briar serve` checks at start and stops on
+any failed check later (J8; `runbook serve` until spec 003 part 4). Fireflies answers through a fake
 `urlopen_with_retry`: no network."""
 
 from __future__ import annotations
@@ -17,7 +17,10 @@ import pytest
 
 from briar.auth.check import LoginCheckFailed
 from briar.extract.base import ExtractedSection
+from briar.auth.logins import FirefliesLogin
 from briar.iac.runbook import RunbookScheduler, extract_runbook, load_runbook_file
+from briar.serve.loop import ServeLoop
+from tests.unit.fake_logins import Fixes
 
 CLI_ERROR = 1
 TWO_COMPANIES = "version: 1\ncompanies:\n  acme:\n    extract:\n      - name: meeting-digest\n  globex:\n    extract:\n      - name: meeting-digest\n"
@@ -84,7 +87,7 @@ class TestRunbookExtract:
 
         assert str(caught.value) == (
             "the login check failed; fix these, then run again:\n"
-            "  - fireflies (globex): no login saved (BRIAR_GLOBEX_FIREFLIES_API_KEY); run `briar auth login fireflies --company globex --runbook FILE`"
+            f"  - fireflies (globex): no login saved (BRIAR_GLOBEX_FIREFLIES_API_KEY); {Fixes().secrets(['BRIAR_GLOBEX_FIREFLIES_API_KEY'], FirefliesLogin.HELP['api-key'])}"
         )
         assert seams.extracts.companies == []
 
@@ -93,19 +96,14 @@ class TestRunbookExtract:
 
         assert (seams.extracts.companies, len(seams.answers.calls)) == (["acme"], 1)
 
-    def test_the_command_exits_1(self, cli: Callable[..., SimpleNamespace], runbook: Path, seams: Seams) -> None:
-        run = cli("runbook", "extract", str(runbook))
-
-        assert (run.code, "fireflies (globex): no login saved" in run.err, seams.extracts.companies) == (CLI_ERROR, True, [])
-
 
 class TestServe:
     def test_a_failed_check_at_start_does_not_start(self, cli: Callable[..., SimpleNamespace], tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         Runbook(tmp_path, monkeypatch).write()
 
         with mock.patch("briar.extract._meetings.fireflies.urlopen_with_retry", side_effect=FirefliesAnswers().urlopen):
-            with mock.patch.object(RunbookScheduler, "run_forever") as loop:
-                run = cli("runbook", "serve", str(tmp_path))
+            with mock.patch.object(ServeLoop, "serve_forever") as loop:
+                run = cli("serve", str(tmp_path))
 
         assert (run.code, loop.called) == (CLI_ERROR, False)
         assert "  - fireflies (globex): no login saved" in run.err

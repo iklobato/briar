@@ -100,8 +100,8 @@ class TestRemovedAliases:
 
     @pytest.mark.parametrize(
         "argv",
-        [("auth", "status", "--store", "envfile"), ("auth", "status", "--cred-store", "envfile"), ("runbook", "serve", "d", "--tick", "5")],
-        ids=["auth --store", "auth --cred-store (F1)", "runbook serve --tick (C14)"],
+        [("serve", "d", "--tick", "5")],
+        ids=["serve --tick (C14, was on runbook serve)"],
     )
     def test_alias_is_an_unknown_option(self, cli: Callable[..., SimpleNamespace], recorded_run: Dict[str, argparse.Namespace], argv: Tuple[str, ...]) -> None:
         alias = argv[ALIAS_POSITION]
@@ -122,9 +122,9 @@ class TestRemovedAliases:
 
 
 class TestCommandList:
-    EXPECTED = {"extract", "runbook", "auth", "init", "doctor"}
+    EXPECTED = {"extract", "serve", "init", "doctor"}
 
-    def test_help_lists_the_5_commands(self, cli: Callable[..., SimpleNamespace]) -> None:
+    def test_help_lists_the_4_commands(self, cli: Callable[..., SimpleNamespace]) -> None:
         listed = cli("--help").out.split("Commands:")[1].split()
 
         assert {word for word in listed if word in self.EXPECTED | {"completion"}} == self.EXPECTED
@@ -147,7 +147,7 @@ class TestShellCompletion:
 
     def test_tab_completes_the_options_of_a_command(self, cli: Callable[..., SimpleNamespace], tripwire: Tripwire) -> None:
         """A TAB press runs briar with no arguments and the words in the environment."""
-        run = cli(env={"_BRIAR_COMPLETE": "complete_bash", "COMP_WORDS": "briar runbook extract --", "COMP_CWORD": "3"})
+        run = cli(env={"_BRIAR_COMPLETE": "complete_bash", "COMP_WORDS": "briar doctor --", "COMP_CWORD": "2"})
 
         assert (run.code, tripwire.calls) == (0, [])
-        assert run.out.split() == ["--task", "--help"]
+        assert run.out.split() == ["--runbooks", "--help"]

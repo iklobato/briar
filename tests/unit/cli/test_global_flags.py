@@ -20,8 +20,8 @@ from briar import __version__
 from .conftest import Tripwire
 
 SHOW = ("doctor",)
-# A command and its operation, so a flag can also sit between the two words.
-TWO_WORDS = ("auth", "status")
+# A command and one of its options, so a flag can also sit between the two words.
+TWO_WORDS = ("doctor", "--format=json")
 FORMATS = ("json", "table")
 VERSION_LINE = f"briar-cli {__version__}\n"
 STARTUP_STEPS = ("credential bootstrap", "project config", "telemetry")

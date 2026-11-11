@@ -13,17 +13,19 @@ tests/conftest.py) strips every credential-shaped env var, so:
   * provider-backed extractors report missing creds deterministically.
 `BRIAR_SECRETS_FILE` is already redirected per-test by `env_sandbox`.
 
-These cover: the envfile credential store, runbook extract.
+These cover the runbook executor that `briar serve` runs for each scheduled extract
+(`runbook extract` left in spec 003 part 4; the envfile writer left with `auth`).
 """
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from types import SimpleNamespace
-from typing import Any, Callable
+from typing import Any
 
 import pytest
+
+from briar.errors import CliError
+from briar.iac.runbook import extract_runbook, load_runbook_file
 
 pytestmark = pytest.mark.integration
 
@@ -43,44 +45,6 @@ def _local_env(tmp_path: Path) -> dict[str, str]:
         "XDG_CONFIG_HOME": str(tmp_path / "xdg"),
         "BRIAR_TELEMETRY": "off",
     }
-
-
-# ═════════════════════════ credential store ═════════════════════════
-
-
-class TestSecretsEnvfileStoreReal:
-    def test_write_then_read_roundtrip_persists_and_never_echoes(self, cli, tmp_path, monkeypatch) -> None:
-        """Drive the REAL EnvFileStore: write a placeholder secret, read it
-        back, assert it landed on disk as `KEY=value`, and that the value
-        is never printed."""
-        from briar.credentials.envfile import EnvFileStore
-
-        secrets_file = tmp_path / "secrets.env"
-        monkeypatch.setenv("BRIAR_SECRETS_FILE", str(secrets_file))
-
-        placeholder = "TOKEN-VALUE-PLACEHOLDER-not-a-secret"
-        store = EnvFileStore()
-        store.write("GITHUB_ACME_TOKEN", placeholder)
-
-        # Persisted to the real file as a single KEY=value line.
-        on_disk = secrets_file.read_text()
-        assert on_disk == f"GITHUB_ACME_TOKEN={placeholder}\n"
-        # 0600 — never group/world readable.
-        assert oct(secrets_file.stat().st_mode & 0o777) == "0o600"
-        # Read back returns exactly what we wrote.
-        assert store.read("GITHUB_ACME_TOKEN") == placeholder
-
-    def test_write_is_idempotent_replace_in_place(self, cli, tmp_path, monkeypatch) -> None:
-        from briar.credentials.envfile import EnvFileStore
-
-        secrets_file = tmp_path / "secrets.env"
-        monkeypatch.setenv("BRIAR_SECRETS_FILE", str(secrets_file))
-        store = EnvFileStore()
-        store.write("GITHUB_ACME_TOKEN", "FIRST-PLACEHOLDER-not-a-secret")
-        store.write("GITHUB_ACME_TOKEN", "SECOND-PLACEHOLDER-not-a-secret")
-        # Replaced in place — exactly one line, the new value.
-        assert secrets_file.read_text() == "GITHUB_ACME_TOKEN=SECOND-PLACEHOLDER-not-a-secret\n"
-        assert store.read("GITHUB_ACME_TOKEN") == "SECOND-PLACEHOLDER-not-a-secret"
 
 
 # ════════════════════════════ runbook ═══════════════════════════════
@@ -108,38 +72,22 @@ class TestRunbookExtractReal:
         )
         return rb
 
-    def test_extract_runs_real_executor_records_row(self, cli: Callable[..., SimpleNamespace], tmp_path: Path, github_at: Any) -> None:
+    def test_extract_runs_real_executor_records_row(self, tmp_path: Path, github_at: Any, monkeypatch: pytest.MonkeyPatch) -> None:
         rb = self._write_runbook(tmp_path)
-        env = {**_local_env(tmp_path), "BRIAR_ZZCORP_GITHUB_TOKEN": "PLACEHOLDER-not-a-secret"}
-        result = cli("--format", "json", "runbook", "extract", str(rb), env=env)
-        assert result.code == 0, result.err
-        rows = json.loads(result.out)
-        assert len(rows) == 1
-        row = rows[0]
-        assert row["company"] == "zzcorp"
-        assert row["task"] == "extractors"
+        for name, value in {**_local_env(tmp_path), "BRIAR_ZZCORP_GITHUB_TOKEN": "PLACEHOLDER-not-a-secret"}.items():
+            monkeypatch.setenv(name, value)
+
+        rows = extract_runbook(load_runbook_file(rb))
+
         # The pulls route is a 404 on the wire fake -> no sections collected.
-        assert row["status"] == "empty (no sections)"
-        assert row["output"] == "knowledge:zzcorp"
+        assert [(row.company, row.task, row.status, row.output) for row in rows] == [("zzcorp", "extractors", "empty (no sections)", "knowledge:zzcorp")]
 
-    def test_extract_task_filter_no_match_skips(self, cli, tmp_path) -> None:
+    def test_extract_task_filter_no_match_skips(self, tmp_path: Path) -> None:
         rb = self._write_runbook(tmp_path)
-        result = cli(
-            "--format",
-            "json",
-            "runbook",
-            "extract",
-            str(rb),
-            "--task",
-            "nonexistent",
-            env=_local_env(tmp_path),
-        )
-        assert result.code == 0, result.err
-        # Filter matched nothing; with an explicit filter, no rows emitted.
-        assert json.loads(result.out) == []
 
-    def test_extract_missing_file_is_error(self, cli, tmp_path) -> None:
-        missing = tmp_path / "does-not-exist.yaml"
-        result = cli("runbook", "extract", str(missing), env=_local_env(tmp_path))
-        assert result.code == 1
-        assert "not found" in result.err
+        # Filter matched nothing; with an explicit filter, no rows emitted.
+        assert extract_runbook(load_runbook_file(rb), "nonexistent") == []
+
+    def test_extract_missing_file_is_error(self, tmp_path: Path) -> None:
+        with pytest.raises(CliError, match="not found"):
+            load_runbook_file(tmp_path / "does-not-exist.yaml")

@@ -105,7 +105,7 @@ class CompanyTokenTests(unittest.TestCase):
         with mock.patch.dict("os.environ", {"GITHUB_TOKEN": "fake-from-env"}):
             with self.assertRaises(CliError) as ctx:
                 GithubApi("").client()
-        self.assertEqual(str(ctx.exception), "no GitHub login: run `briar auth login github --company <company>`")
+        self.assertEqual(str(ctx.exception), "no GitHub login: set BRIAR_<COMPANY>_GITHUB_TOKEN in the environment or in secrets.env")
 
 
 # ---------------------------------------------------------------------------

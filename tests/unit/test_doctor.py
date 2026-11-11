@@ -4,13 +4,15 @@ The login lines check `FakeProbe` adapters (`fake_sources`): no network."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
-from typing import Any, Dict, Optional
+from types import SimpleNamespace
+from typing import Any, Callable, Dict, Optional
 
 import pytest
 
-from briar.doctor import FAIL, OK, WARN, AgentSandboxCheck, Check, run_checks, worst_status
-from tests.unit.fake_logins import FakeProbe
+from briar.doctor import FAIL, OK, WARN, AgentSandboxCheck, Check, RunbookChecks, run_checks, worst_status
+from tests.unit.fake_logins import FakeProbe, Fixes
 
 FAKE_SECRET = "PLACEHOLDER-not-a-secret"
 
@@ -99,6 +101,57 @@ class TestAgentSandbox:
         assert [(line.status, line.detail) for line in AgentSandboxCheck().checks()] == [(OK, "bwrap and socat found")]
 
 
+class Folders:
+    """A folder of runbooks for `doctor --runbooks` with one company `acme`."""
+
+    SERVE = "    serve:\n      model: claude-test\n      max_usd: 5\n      max_loops: 3\n      ci_wait_minutes: 30\n      max_review_rounds: 2\n      repos: [acme/app]\n"
+
+    def __init__(self, tmp_path: Path) -> None:
+        self._tmp_path = tmp_path
+
+    def write(self, company_yaml: str) -> Path:
+        folder = self._tmp_path / "runbooks"
+        folder.mkdir(exist_ok=True)
+        (folder / "acme.yaml").write_text(f"version: 1\ncompanies:\n  acme:\n{company_yaml}")
+        return folder
+
+
+class TestRunbookChecks:
+    """X2: `doctor --runbooks DIR` runs the checks `serve DIR` runs, without serving."""
+
+    def test_the_serve_logins_of_each_company_are_lines(self, tmp_path: Path) -> None:
+        folder = Folders(tmp_path).write(Folders.SERVE)
+
+        lines = [(check.name, check.status, check.detail) for check in RunbookChecks(folder).checks()]
+
+        assert lines == [
+            ("runbooks", OK, f"{folder}: 1 companies with a `serve:` block"),
+            ("github login", FAIL, f"github (acme): no login saved (BRIAR_ACME_GITHUB_TOKEN); {Fixes().github()}"),
+        ]
+
+    def test_a_login_both_checks_need_is_one_line(self, tmp_path: Path) -> None:
+        """A scheduled GitHub extract and the pipeline check the same GitHub login."""
+        schedule = '    schedules:\n      - task: daily\n        every: "day at 03:17"\n        extract:\n          - name: pr-archaeology\n            args: {pr_repo: [acme/app]}\n'
+        folder = Folders(tmp_path).write(schedule + Folders.SERVE)
+
+        names = [check.name for check in RunbookChecks(folder).checks()]
+
+        assert names == ["runbooks", "github login"]
+
+    def test_a_runbook_that_does_not_load_fails_with_the_key(self, tmp_path: Path) -> None:
+        folder = Folders(tmp_path).write(Folders.SERVE.replace("      model: claude-test\n", ""))
+
+        (line,) = RunbookChecks(folder).checks()
+
+        assert (line.name, line.status, "companies.acme.serve.model" in line.detail) == ("runbooks", FAIL, True)
+
+    def test_the_option_reaches_doctor(self, cli: Callable[..., SimpleNamespace], tmp_path: Path) -> None:
+        run = cli("--format", "json", "doctor", "--runbooks", str(tmp_path / "missing"))
+
+        checks = {check["check"]: check for check in json.loads(run.out)["checks"]}
+        assert (run.code, checks["runbooks"]["status"], checks["runbooks"]["detail"]) == (1, FAIL, f"{tmp_path / 'missing'} is not a directory")
+
+
 class TestLoginLines:
     """J10: every configured source; J12: no secret is `fail`; G15: network is `warn`."""
 
@@ -108,7 +161,7 @@ class TestLoginLines:
         jira = checks["jira login"]
         assert (jira.status, jira.detail) == (
             FAIL,
-            "jira (acme): no login saved (BRIAR_ACME_JIRA_EMAIL, BRIAR_ACME_JIRA_TOKEN); run `briar auth login jira --company acme`",
+            f"jira (acme): no login saved (BRIAR_ACME_JIRA_EMAIL, BRIAR_ACME_JIRA_TOKEN); {Fixes().jira()}",
         )
 
     def test_a_1x_github_token_fails_with_the_new_place(self, project: Project, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -119,7 +172,7 @@ class TestLoginLines:
 
         assert (github.status, github.detail) == (
             FAIL,
-            'github (acme): `GITHUB_TOKEN` is a 1.x name: use `BRIAR_ACME_GITHUB_TOKEN` with `method = "token"`. Or run `briar auth login github --company acme`',
+            'github (acme): `GITHUB_TOKEN` is a 1.x name: use `BRIAR_ACME_GITHUB_TOKEN` with `method = "token"`',
         )
 
     def test_a_network_error_warns(self, project: Project, monkeypatch: pytest.MonkeyPatch, fake_sources: Any) -> None:
@@ -141,7 +194,10 @@ class TestLoginLines:
     def test_nothing_configured_warns(self, project: Project) -> None:
         logins = project.write('company = "acme"\n')["logins"]
 
-        assert (logins.status, logins.detail) == (WARN, "no login configured for acme: run `briar auth login <source> --company acme`")
+        assert (logins.status, logins.detail) == (
+            WARN,
+            "no login configured for acme: set its BRIAR_* secrets in the environment or in secrets.env (the README lists them)",
+        )
 
     def test_a_bad_extract_config_fails(self, project: Project) -> None:
         logins = project.write('company = "acme"\n[extract]\nnope = 1\n')["logins"]

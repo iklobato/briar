@@ -27,8 +27,8 @@ They match briar-cli 1.1.75.
 | [setup.md](setup.md) | `briar init`, `briar doctor`, shell completion, telemetry: set up a project and check it. |
 | [extract.md](extract.md) | `briar extract`: read your tools into a knowledge blob (23 extractors). |
 | [serve.md](serve.md) | `briar serve`: watch the tickets assigned to briar and the review comments on its PRs (GitHub, Jira). |
-| [runbook.md](runbook.md) | `briar runbook extract`, `serve`: run extractors from YAML, once or on a schedule. |
-| [auth.md](auth.md) | `briar auth login`, `status`: save credentials and see which are set. |
+| [runbooks.md](runbooks.md) | The runbook YAML: the extractors of each company and their schedules, which `briar serve` runs. |
+| [logins.md](logins.md) | The `BRIAR_*` names of each source, the `[auth]` choices, `secrets.env`, and how `briar doctor` checks them. |
 
 ## Flags that work on every command
 
@@ -76,8 +76,8 @@ stops the command with exit code 1.
 
 | Blob name | Written by | Read by |
 |---|---|---|
-| `knowledge:acme` | `briar extract`, `briar runbook` | You, and any agent you point at it. |
-| `inventory:acme` | `briar runbook`, when its `knowledge:` block has `config: {inventory: "true"}` | You (JSON with every resource). |
+| `knowledge:acme` | `briar extract`, the scheduled extracts of `briar serve` | You, and any agent you point at it. |
+| `inventory:acme` | the scheduled extracts of `briar serve`, when the `knowledge:` block has `config: {inventory: "true"}` | You (JSON with every resource). |
 
 ## Credentials
 
@@ -89,15 +89,16 @@ loads one secrets file, the first that exists:
 3. `$XDG_CONFIG_HOME/briar/secrets.env`, or `~/.config/briar/secrets.env`.
 
 A variable already set in your shell wins over the file.
-`briar auth login` writes to this file. Every login carries the company
+You write this file yourself. Every login carries the company
 and the source in its name, like `BRIAR_ACME_JIRA_TOKEN` for company
 `acme`; the 1.x names (`GITHUB_TOKEN`, `JIRA_ACME_TOKEN`) are no longer
 read. The non-secret choices (Jira `site`, Bitbucket `workspace`) go in
 `[auth]` of `.briar.toml`.
 
-When a command fails for lack of credentials, run
-`briar auth status <source> --company <name>`: it lists the keys that
-source needs and which are set. See [auth.md](auth.md).
+When a command fails for lack of credentials, the error names the keys
+to write and where. `briar doctor` checks the logins of `.briar.toml`, and
+`briar doctor --runbooks DIR` those of a folder of runbooks. See
+[logins.md](logins.md).
 
 To read what briar saved, open the file: `knowledge:acme` is
 `./knowledge/knowledge/acme.md` in the file store. 1.x had

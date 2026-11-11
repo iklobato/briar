@@ -59,7 +59,7 @@ class GithubApi:
     def _require_token(self) -> str:
         """The token of the company login (G11, G25: briar no longer reads $GITHUB_TOKEN)."""
         if not self._token.strip():
-            raise CliError("no GitHub login: run `briar auth login github --company <company>`")
+            raise CliError("no GitHub login: set BRIAR_<COMPANY>_GITHUB_TOKEN in the environment or in secrets.env")
         return self._token.strip()
 
     def client(self):

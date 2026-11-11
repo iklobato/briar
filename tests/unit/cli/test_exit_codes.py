@@ -39,7 +39,6 @@ class UsageErrors:
     CASES: Tuple[Tuple[Tuple[str, ...], str], ...] = (
         ((), ""),
         (("nope",), "nope"),
-        (("runbook",), ""),
         (("doctor", "--nope"), "--nope"),
         (("extract",), "--company"),
         (("--format", "xml", "doctor"), "xml"),
@@ -52,10 +51,9 @@ class UsageErrors:
         (("telemetry", "status"), "No such command 'telemetry'"),
         (("version",), "No such command 'version'"),
         (("config", "show"), "No such command 'config'"),
-        (("runbook", "sweep", "runbooks/"), "No such command 'sweep'"),
-        (("auth", "list"), "No such command 'list'"),
-        (("auth", "logout", "github-pat"), "No such command 'logout'"),
-        (("auth", "refresh", "github-pat"), "No such command 'refresh'"),
+        # `auth` and `runbook` left in spec 003 part 4 (X5): the same plain error.
+        (("auth", "login", "github"), "No such command 'auth'"),
+        (("runbook", "serve", "runbooks/"), "No such command 'runbook'"),
     )
 
     def ids(self) -> List[str]:
@@ -109,7 +107,7 @@ class TestRemovedRunbookBlocks:
         runbook = tmp_path / "runbook.yaml"
         runbook.write_text(f"version: 1\ncompanies:\n  acme:\n    {block}: {{}}\n")
 
-        run = cli("runbook", "extract", str(runbook))
+        run = cli("serve", str(tmp_path))
 
         assert run.code == CLI_ERROR
         assert f"`{block}` was removed in briar 2.0" in run.err
@@ -118,14 +116,14 @@ class TestRemovedRunbookBlocks:
         runbook = tmp_path / "runbook.yaml"
         runbook.write_text("version: 1\ncompanies:\n  acme:\n    knowledge:\n      store: postgres\n")
 
-        run = cli("runbook", "extract", str(runbook))
+        run = cli("serve", str(tmp_path))
 
         assert run.code == CLI_ERROR
         assert "`store: postgres` was removed in briar 2.0" in run.err
 
 
 class TestHelpDoesNoIo:
-    @pytest.mark.parametrize("argv", [("--help",), ("-h",), ("runbook", "--help"), ("auth", "login", "-h"), ("runbook", "extract", "--help")], ids=" ".join)
+    @pytest.mark.parametrize("argv", [("--help",), ("-h",), ("serve", "--help"), ("init", "-h"), ("doctor", "--help")], ids=" ".join)
     def test_help_exits_zero_without_startup_io(self, cli: Callable[..., SimpleNamespace], tripwire: Tripwire, argv: Tuple[str, ...]) -> None:
         run = cli(*argv)
 

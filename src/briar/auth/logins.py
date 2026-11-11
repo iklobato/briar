@@ -1,13 +1,14 @@
 """One login per source per company.
 
 A `SourceLogin` knows the secret names of its source (`BRIAR_<COMPANY>_<SOURCE>_<FIELD>`,
-G7), what `briar auth login` asks for each method (G5), which config values it
+G7), the values each method needs (G5) and how to get them, which config values it
 needs (H1), and the 1.x names that stop a run when the 2.0 ones are missing (G8,
 G25, H7). Adapters get a `CompanyLogins` and ask it for their source; nothing
 here reads `.briar.toml` or a runbook: the callers pass the checked block.
 Decisions: `docs/decisions/2026-11-10-briar-2-logins-spec.md`,
 `docs/decisions/2026-11-10-briar-2-logins-pr1.md`, `docs/decisions/2026-11-11-briar-2-logins-pr2.md`,
-`docs/decisions/2026-11-11-briar-2-logins-pr3.md`."""
+`docs/decisions/2026-11-11-briar-2-logins-pr3.md`. Since spec 003 part 4 (X4) the
+secrets are written by hand, in the environment or in `secrets.env`."""
 
 from __future__ import annotations
 
@@ -18,8 +19,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, ClassVar, Dict, List, Mapping, Optional, Tuple, Type
 
-from briar.auth._prompt import PromptIO
 from briar.auth.config import AuthBlock, AwsAuth, AzureAuth, BitbucketAuth, GcpAuth, GithubAuth, JiraAuth, SourceAuth
+from briar.credentials._paths import secrets_path
 from briar.errors import CliError
 
 
@@ -30,8 +31,6 @@ class LoginScope:
     company: str
     origin: str = ".briar.toml"
     table: str = "auth"
-    # The runbook a login fix names with `--runbook` ("" for `.briar.toml`).
-    runbook: str = ""
 
     def env_prefix(self) -> str:
         if not self.company:
@@ -45,18 +44,17 @@ class LoginScope:
     def where(self, source: str) -> str:
         return f"`{self.table}.{source}` in {self.origin}"
 
-    def login_command(self, source: str) -> str:
-        runbook = f" --runbook {self.runbook}" if self.runbook else ""
-        return f"run `briar auth login {source} --company {self.company}{runbook}`"
+    def secrets_place(self) -> str:
+        """Where a person writes a secret (S7): the environment, or the `secrets.env` the
+        startup bootstrap reads."""
+        return f"in the environment or in {secrets_path()}"
 
 
 @dataclass(frozen=True)
 class SecretField:
-    """One value `briar auth login` asks for and writes to `secrets.env`."""
+    """One value of a login method, as the last part of its `BRIAR_*` name."""
 
     key: str
-    prompt: str
-    hidden: bool = True
 
 
 @dataclass(frozen=True)
@@ -90,8 +88,9 @@ class SourceLogin:
     def company(self) -> str:
         return self._scope.company
 
-    def login_command(self) -> str:
-        return self._scope.login_command(self.SOURCE)
+    def fix(self) -> str:
+        """How to give briar this login."""
+        return f"set {' and '.join(self.names())} {self._scope.secrets_place()} ({self.HELP[self.method()]})"
 
     def names(self) -> List[str]:
         return [self.name(field.key) for field in self.FIELDS[self.method()]]
@@ -121,7 +120,7 @@ class SourceLogin:
             return hint
         missing = self.missing_secrets()
         if missing:
-            return f"no login saved ({', '.join(missing)}); {self.login_command()}"
+            return f"no login saved ({', '.join(missing)}); {self.fix()}"
         return self.settings_problem()
 
     def settings_problem(self) -> str:
@@ -147,25 +146,14 @@ class SourceLogin:
         if not found:
             return ""
         moves = "; ".join(f"`{legacy.name(self._scope)}` is a 1.x name: use {legacy.place.format(p=self._scope.env_prefix())}" for legacy in found)
-        return f"{moves}. Or run `briar auth login {self.SOURCE} --company {self._scope.company}`"
-
-    def login(self, prompt: PromptIO) -> Dict[str, str]:
-        """Ask for this method's values and return them by secret name (nothing is written here)."""
-        self.check_settings()
-        prompt.info(f"==> {self.SOURCE} login for {self._scope.company} (method: {self.method()})")
-        prompt.info(f"    {self.HELP[self.method()]}")
-        entries = {self.name(field.key): prompt.prompt(f"    {field.prompt}: ", secret=field.hidden).strip() for field in self.FIELDS[self.method()]}
-        empty = [name for name, value in entries.items() if not value]
-        if empty:
-            raise CliError(f"{self.SOURCE} login: nothing entered for {', '.join(empty)}")
-        return entries
+        return moves
 
 
 class JiraLogin(SourceLogin):
     SOURCE = "jira"
     FIELDS = {
-        "token": (SecretField("EMAIL", "Atlassian account email", hidden=False), SecretField("TOKEN", "API token")),
-        "cookie": (SecretField("COOKIE", "the Cookie header of a request to your Jira site"),),
+        "token": (SecretField("EMAIL"), SecretField("TOKEN")),
+        "cookie": (SecretField("COOKIE"),),
     }
     HELP = {
         "token": "Create an API token at https://id.atlassian.com/manage-profile/security/api-tokens",
@@ -200,9 +188,9 @@ class JiraLogin(SourceLogin):
 class BitbucketLogin(SourceLogin):
     SOURCE = "bitbucket"
     FIELDS = {
-        "token": (SecretField("EMAIL", "Atlassian account email", hidden=False), SecretField("TOKEN", "API token (with Bitbucket scopes)")),
-        "access-token": (SecretField("ACCESS_TOKEN", "workspace or repository access token"),),
-        "cookie": (SecretField("COOKIE", "the Cookie header of a request to bitbucket.org"),),
+        "token": (SecretField("EMAIL"), SecretField("TOKEN")),
+        "access-token": (SecretField("ACCESS_TOKEN"),),
+        "cookie": (SecretField("COOKIE"),),
     }
     HELP = {
         "token": "Create an API token with Bitbucket scopes at https://id.atlassian.com/manage-profile/security/api-tokens",
@@ -265,7 +253,7 @@ class BitbucketLogin(SourceLogin):
 
 class LinearLogin(SourceLogin):
     SOURCE = "linear"
-    FIELDS = {"api-key": (SecretField("API_KEY", "personal API key"),)}
+    FIELDS = {"api-key": (SecretField("API_KEY"),)}
     HELP = {"api-key": "Create a personal API key at https://linear.app/settings/api"}
     LEGACY = (LegacyName("LINEAR_{c}_TOKEN", '`{p}_LINEAR_API_KEY` with `method = "api-key"`'),)
 
@@ -276,7 +264,7 @@ class LinearLogin(SourceLogin):
 
 class FirefliesLogin(SourceLogin):
     SOURCE = "fireflies"
-    FIELDS = {"api-key": (SecretField("API_KEY", "API key"),)}
+    FIELDS = {"api-key": (SecretField("API_KEY"),)}
     HELP = {"api-key": "Copy the API key from https://app.fireflies.ai/settings (Developer settings)"}
     LEGACY = (LegacyName("FIREFLIES_{c}_API_KEY", "`{p}_FIREFLIES_API_KEY`"),)
 
@@ -286,8 +274,10 @@ class FirefliesLogin(SourceLogin):
 
 class GithubLogin(SourceLogin):
     SOURCE = "github"
-    FIELDS = {"token": (SecretField("TOKEN", "fine-grained personal access token"),)}
-    HELP = {"token": "Create a fine-grained token at https://github.com/settings/personal-access-tokens/new (read access)"}
+    FIELDS = {"token": (SecretField("TOKEN"),)}
+    HELP = {
+        "token": "Create a fine-grained token at https://github.com/settings/personal-access-tokens/new: read access, and read and write on Contents, Pull requests and Issues for `briar serve`"
+    }
     # G25: the global 1.x token; briar no longer reads it.
     LEGACY = (LegacyName("GITHUB_TOKEN", '`{p}_GITHUB_TOKEN` with `method = "token"`'),)
 
@@ -303,8 +293,8 @@ class GithubLogin(SourceLogin):
 
 
 class CliLogin(SourceLogin, ABC):
-    """A source whose login lives in its own CLI (L3, L14, I1 to I3): `briar auth login`
-    runs the CLI login in the terminal and saves nothing; runs read what the CLI keeps."""
+    """A source whose login lives in its own CLI (L3, L14, I1 to I3): a person runs the
+    CLI login; runs read what the CLI keeps."""
 
     CLI: ClassVar[str] = ""
     FIELDS = {"": ()}
@@ -316,15 +306,8 @@ class CliLogin(SourceLogin, ABC):
         """A run needs no value (I6: then the default of the cloud); only a 1.x name stops it (I10)."""
         return self.legacy_hint()
 
-    def login(self, prompt: PromptIO) -> Dict[str, str]:
-        """Run the CLI login (I6: its value must be set); nothing to save, so no entries."""
-        self.check_settings()
-        line = self.command_line()
-        prompt.info(f"==> {self.SOURCE} login for {self._scope.company}: {line}")
-        status = prompt.run_login(line)
-        if status:
-            raise CliError(f"`{line}` failed with exit code {status}")
-        return {}
+    def fix(self) -> str:
+        return f"run `{self.command_line()}`"
 
     @abstractmethod
     def command_line(self) -> str:
@@ -454,10 +437,6 @@ class CompanyLogins:
         """The sources with an `[auth.<source>]` block or a saved secret (J10)."""
         written = self._block.model_fields_set
         return [name for name in self.SOURCES if name in written or self.source(name).has_secret()]
-
-    def with_entries(self, entries: Mapping[str, str]) -> "CompanyLogins":
-        """The same logins with values not saved yet (`briar auth login` checks first, J9)."""
-        return CompanyLogins(self._scope, self._block, {**self._environ, **entries})
 
     def source(self, name: str) -> SourceLogin:
         if name not in self.SOURCES:

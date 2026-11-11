@@ -76,7 +76,7 @@ def configure(verbose: bool = False) -> None:
 
 def daemon_logging() -> None:
     """Raise briar's own loggers to at least INFO for long-running
-    operational commands (`runbook serve`, `runbook extract`) where
+    operational commands (`serve`) where
     progress visibility matters. No-op when already at DEBUG/INFO (so
     `--verbose` still wins). Other commands stay quiet-by-default."""
     briar_logger = logging.getLogger("briar")

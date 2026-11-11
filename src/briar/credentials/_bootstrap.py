@@ -1,8 +1,6 @@
 """`CredentialBootstrap` — bulk-write-at-startup credential hydration.
 
-Distinct from `EnvFileStore` (read-on-demand at the call site).
-Where `EnvFileStore.read(name)` is invoked by `briar auth` + by
-code that needs one specific value, `CredentialBootstrap.hydrate()`
+`CredentialBootstrap.hydrate()`
 runs ONCE at process startup, fetches every secret from a remote
 store, and writes them to `os.environ` so the rest of briar (the
 company logins of `briar.auth.logins`) reads them through the

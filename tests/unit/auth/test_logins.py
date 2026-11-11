@@ -11,10 +11,10 @@ from typing import Any, Dict, List
 
 import pytest
 
-from briar.auth import MockPromptIO
 from briar.auth.config import AuthTable
-from briar.auth.logins import CompanyLogins, LoginScope
+from briar.auth.logins import AzureLogin, CompanyLogins, FirefliesLogin, JiraLogin, LoginScope
 from briar.errors import CliError
+from tests.unit.fake_logins import Fixes
 
 FAKE_TOKEN = "PLACEHOLDER-not-a-secret"
 
@@ -77,7 +77,8 @@ class TestProblem:
     def test_nothing_saved_names_the_secrets_and_the_login(self) -> None:
         problem = LoginsFor({"jira": {"site": "acme.atlassian.net"}}, {}).logins().jira().problem()
 
-        assert problem == "no login saved (BRIAR_ACME_CO_JIRA_EMAIL, BRIAR_ACME_CO_JIRA_TOKEN); run `briar auth login jira --company acme-co`"
+        names = ["BRIAR_ACME_CO_JIRA_EMAIL", "BRIAR_ACME_CO_JIRA_TOKEN"]
+        assert problem == f"no login saved ({', '.join(names)}); {Fixes().secrets(names, JiraLogin.HELP['token'])}"
 
     def test_secrets_and_site_have_no_problem(self) -> None:
         environ = {"BRIAR_ACME_CO_JIRA_EMAIL": "bot@example.test", "BRIAR_ACME_CO_JIRA_TOKEN": FAKE_TOKEN}
@@ -93,12 +94,12 @@ class TestProblem:
 
         assert LoginsFor({}, environ).logins().jira().problem() == "set `site` under `auth.jira` in .briar.toml (briar jira login for acme-co)"
 
-    def test_a_runbook_login_names_the_runbook_in_the_fix(self) -> None:
-        """J17: the fix of a runbook company takes `--runbook`."""
+    def test_a_runbook_login_names_the_same_secrets(self) -> None:
+        """X4: a runbook company writes its secrets where every company does."""
         block = AuthTable({}, ".briar.toml").block()
-        logins = CompanyLogins(LoginScope("acme-co", "runbooks/a.yaml", "companies.acme-co.auth", runbook="runbooks/a.yaml"), block, {})
+        logins = CompanyLogins(LoginScope("acme-co", "runbooks/a.yaml", "companies.acme-co.auth"), block, {})
 
-        assert logins.fireflies().problem().endswith("run `briar auth login fireflies --company acme-co --runbook runbooks/a.yaml`")
+        assert logins.fireflies().problem().endswith(Fixes().secrets(["BRIAR_ACME_CO_FIREFLIES_API_KEY"], FirefliesLogin.HELP["api-key"]))
 
 
 class TestLegacyNames:
@@ -127,7 +128,7 @@ class TestLegacyNames:
     def test_a_1x_name_with_no_2x_login_names_the_new_place(self, case: LegacyCase) -> None:
         problem = LoginsFor({}, case.environ).logins().source(case.source).problem()
 
-        assert problem == f"{case.message}. Or run `briar auth login {case.source} --company acme-co`"
+        assert problem == case.message
 
     def test_a_1x_name_next_to_the_2x_login_is_ignored(self) -> None:
         environ = {"GITHUB_TOKEN": "fake-1x", "BRIAR_ACME_CO_GITHUB_TOKEN": FAKE_TOKEN}
@@ -153,36 +154,6 @@ class TestConfigured:
 
     def test_nothing_set_configures_nothing(self) -> None:
         assert LoginsFor({}, {}).logins().configured() == []
-
-    def test_values_not_saved_yet_reach_the_login(self) -> None:
-        """J9: `briar auth login` checks the entered values before saving them."""
-        logins = LoginsFor({}, {}).logins().with_entries({"BRIAR_ACME_CO_FIREFLIES_API_KEY": FAKE_TOKEN})
-
-        assert (logins.fireflies().problem(), logins.fireflies().api_key()) == ("", FAKE_TOKEN)
-
-
-class TestLogin:
-    def test_asks_each_field_and_returns_them_by_name(self) -> None:
-        prompt = MockPromptIO(answers=["bot@example.test", f"  {FAKE_TOKEN}  "])
-
-        entries = LoginsFor({"jira": {"site": "acme.atlassian.net"}}, {}).logins().jira().login(prompt)
-
-        assert entries == {"BRIAR_ACME_CO_JIRA_EMAIL": "bot@example.test", "BRIAR_ACME_CO_JIRA_TOKEN": FAKE_TOKEN}
-        assert [secret for _, secret in prompt.prompts] == [False, True]
-
-    def test_an_empty_answer_stops(self) -> None:
-        with pytest.raises(CliError) as caught:
-            LoginsFor({}, {}).logins().linear().login(MockPromptIO(answers=[""]))
-
-        assert str(caught.value) == "linear login: nothing entered for BRIAR_ACME_CO_LINEAR_API_KEY"
-
-    def test_a_missing_site_stops_before_asking(self) -> None:
-        prompt = MockPromptIO(answers=[])
-
-        with pytest.raises(CliError, match=r"set `site` under `auth.jira`"):
-            LoginsFor({}, {}).logins().jira().login(prompt)
-
-        assert prompt.prompts == []
 
 
 class TestBitbucketClient:
@@ -219,7 +190,7 @@ class TestCliLogins:
     def test_the_1x_aws_keys_without_a_profile_stop_the_run(self) -> None:
         login = LoginsFor({}, {"AWS_ACME_CO_REGION": "eu-west-1"}).logins().aws()
 
-        assert login.problem() == "`AWS_ACME_CO_REGION` is a 1.x name: use `region` under `[extract.aws-infra]`. Or run `briar auth login aws --company acme-co`"
+        assert login.problem() == "`AWS_ACME_CO_REGION` is a 1.x name: use `region` under `[extract.aws-infra]`"
 
     def test_the_1x_aws_keys_next_to_a_profile_are_ignored(self) -> None:
         login = LoginsFor({"aws": {"profile": "acme"}}, {"AWS_ACME_CO_ACCESS_KEY_ID": FAKE_TOKEN}).logins().aws()
@@ -231,9 +202,7 @@ class TestCliLogins:
 
         assert login.adc_file() == tmp_path / "gcloud-acme" / "application_default_credentials.json"
 
-    def test_a_cli_login_saves_nothing_and_runs_the_command(self) -> None:
-        prompt = MockPromptIO()
+    def test_the_fix_of_a_cli_login_is_its_command(self) -> None:
+        login: AzureLogin = LoginsFor({"azure": {"tenant": "acme.onmicrosoft.com"}}, {}).logins().azure()
 
-        entries = LoginsFor({"azure": {"tenant": "acme.onmicrosoft.com"}}, {}).logins().azure().login(prompt)
-
-        assert (entries, prompt.commands) == ({}, ["az login --tenant acme.onmicrosoft.com"])
+        assert login.fix() == "run `az login --tenant acme.onmicrosoft.com`"

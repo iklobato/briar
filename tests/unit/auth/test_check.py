@@ -8,7 +8,7 @@ import pytest
 
 from briar.auth.check import CheckResult, CheckState, LoginCheck, LoginCheckFailed, LoginTarget, TargetGroups
 from briar.errors import CliError
-from tests.unit.fake_logins import FakeLogins, FakeProbe
+from tests.unit.fake_logins import FakeLogins, FakeProbe, Fixes
 
 
 class SdkMissing:
@@ -51,7 +51,7 @@ class TestOneSource:
 
         lines = CheckFor(()).check().check([LoginTarget(probe, ("acme/app",))])
 
-        assert [line.line() for line in lines] == ["github (acme): no login saved (BRIAR_ACME_GITHUB_TOKEN); run `briar auth login github --company acme`"]
+        assert [line.line() for line in lines] == [f"github (acme): no login saved (BRIAR_ACME_GITHUB_TOKEN); {Fixes().github()}"]
         assert probe.calls == []
 
     def test_a_refused_login_reads_nothing_and_names_the_login(self) -> None:
@@ -60,7 +60,7 @@ class TestOneSource:
         lines = CheckFor(("github",)).check().check([LoginTarget(probe, ("acme/app",))])
 
         assert [(line.state, line.line()) for line in lines] == [
-            (CheckState.FAILED, "github (acme): the login was refused (HTTP 401: Bad credentials); run `briar auth login github --company acme`")
+            (CheckState.FAILED, f"github (acme): the login was refused (HTTP 401: Bad credentials); {Fixes().github()}")
         ]
         assert probe.calls == ["who_am_i"]
 
@@ -99,8 +99,8 @@ class TestRequire:
 
         assert str(caught.value) == (
             "the login check failed; fix these, then run again:\n"
-            "  - github (acme): the login was refused (HTTP 401: Bad credentials); run `briar auth login github --company acme`\n"
-            "  - jira (acme): no login saved (BRIAR_ACME_JIRA_EMAIL, BRIAR_ACME_JIRA_TOKEN); run `briar auth login jira --company acme`"
+            f"  - github (acme): the login was refused (HTTP 401: Bad credentials); {Fixes().github()}\n"
+            f"  - jira (acme): no login saved (BRIAR_ACME_JIRA_EMAIL, BRIAR_ACME_JIRA_TOKEN); {Fixes().jira()}"
         )
 
     def test_a_network_error_stops_the_run_too(self) -> None:

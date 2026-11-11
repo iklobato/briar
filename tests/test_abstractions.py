@@ -125,32 +125,6 @@ class CloudRegistryTests(unittest.TestCase):
             self.assertIn("briar-cli[gcp]", str(ctx.exception))
 
 
-class CredentialStoreTests(unittest.TestCase):
-    def test_envfile_read_round_trip(self) -> None:
-        from briar.credentials import EnvFileStore
-
-        store = EnvFileStore()
-        with mock.patch.dict("os.environ", {"BRIAR_ACME_JIRA_TOKEN": "PLACEHOLDER-not-a-secret"}, clear=False):
-            self.assertEqual(store.read("BRIAR_ACME_JIRA_TOKEN"), "PLACEHOLDER-not-a-secret")
-            # Missing returns None (distinct from "set to empty string") so callers can fail closed.
-            self.assertIsNone(store.read("DOES_NOT_EXIST"))
-
-    def test_envfile_list_keeps_the_login_names(self) -> None:
-        from briar.credentials import EnvFileStore
-
-        environ = {
-            "BRIAR_ACME_JIRA_TOKEN": "x",
-            "BRIAR_ACME_CO_GITHUB_TOKEN": "x",
-            "AWS_ACME_ACCESS_KEY_ID": "x",
-            "BRIAR_TELEMETRY": "off",
-            "GITHUB_TOKEN": "x",
-            "UNRELATED_VAR": "y",
-        }
-        with mock.patch.dict("os.environ", environ, clear=True):
-            names = EnvFileStore().list()
-        self.assertEqual(names, ["BRIAR_ACME_CO_GITHUB_TOKEN", "BRIAR_ACME_JIRA_TOKEN"])
-
-
 class ProviderRequiredEnvVarsTests(unittest.TestCase):
     """Each provider declares its own required env vars via a
     ``classmethod required_env_vars(company)`` — replaces the
@@ -665,93 +639,6 @@ class ErrorPolicyTests(unittest.TestCase):
             RetryingExecutor(ErrorPolicyRegistry(), max_attempts=0)
 
 
-class EnvFileStoreWriteTests(unittest.TestCase):
-    """``EnvFileStore.write/delete`` — file persistence + os.environ
-    update, idempotent replace-in-place."""
-
-    def setUp(self) -> None:
-        import tempfile
-        from pathlib import Path
-
-        self.tmpdir = tempfile.TemporaryDirectory()
-        self.path = Path(self.tmpdir.name) / "secrets.env"
-        self._patcher = mock.patch.dict(os.environ, {"BRIAR_SECRETS_FILE": str(self.path)}, clear=False)
-        self._patcher.start()
-
-    def tearDown(self) -> None:
-        self._patcher.stop()
-        self.tmpdir.cleanup()
-        # Clean up any test keys we leaked into os.environ
-        for k in list(os.environ.keys()):
-            if k.startswith("TEST_BRIAR_"):
-                del os.environ[k]
-
-    def test_write_creates_file_and_updates_environ(self) -> None:
-        from briar.credentials.envfile import EnvFileStore
-
-        store = EnvFileStore()
-        store.write("TEST_BRIAR_FOO", "bar")
-        self.assertEqual(os.environ["TEST_BRIAR_FOO"], "bar")
-        self.assertIn("TEST_BRIAR_FOO=bar", self.path.read_text())
-
-    def test_write_replaces_in_place_no_duplicate(self) -> None:
-        from briar.credentials.envfile import EnvFileStore
-
-        store = EnvFileStore()
-        store.write("TEST_BRIAR_FOO", "first")
-        store.write("TEST_BRIAR_FOO", "second")
-        contents = self.path.read_text()
-        # Only ONE TEST_BRIAR_FOO= line, with the latest value
-        self.assertEqual(contents.count("TEST_BRIAR_FOO="), 1)
-        self.assertIn("TEST_BRIAR_FOO=second", contents)
-        self.assertNotIn("TEST_BRIAR_FOO=first", contents)
-
-    def test_write_validates_env_var_name(self) -> None:
-        from briar.credentials.envfile import EnvFileStore
-
-        store = EnvFileStore()
-        with self.assertRaises(ValueError):
-            store.write("lowercase-bad", "x")
-        with self.assertRaises(ValueError):
-            store.write("123_LEADING_DIGIT", "x")
-
-    def test_write_creates_parent_directory(self) -> None:
-        """First-time laptop use: ``~/.config/briar/`` may not exist.
-        The store must `mkdir(parents=True)` rather than fail."""
-        import tempfile
-        from pathlib import Path
-
-        from briar.credentials.envfile import EnvFileStore
-
-        with tempfile.TemporaryDirectory() as tmp:
-            nested = Path(tmp) / "missing" / "dir" / "secrets.env"
-            with mock.patch.dict(os.environ, {"BRIAR_SECRETS_FILE": str(nested)}, clear=False):
-                store = EnvFileStore()
-                store.write("TEST_BRIAR_NESTED", "v")
-                self.assertTrue(nested.exists())
-                self.assertIn("TEST_BRIAR_NESTED=v", nested.read_text())
-
-    def test_write_raises_on_unwritable_parent(self) -> None:
-        """When the parent cannot be created (e.g. read-only fs), the
-        write MUST raise — the misleading 'fall through to os.environ
-        only' behaviour is what caused the 'persisted 4/4' lie."""
-        from pathlib import Path
-
-        from briar.credentials.envfile import EnvFileStore
-
-        # /dev/null/x — /dev/null is a char device, can't have children.
-        bad_path = Path("/dev/null/nope/secrets.env")
-        with mock.patch.dict(os.environ, {"BRIAR_SECRETS_FILE": str(bad_path)}, clear=False):
-            store = EnvFileStore()
-            with self.assertRaises(OSError):
-                store.write("TEST_BRIAR_BADPATH", "v")
-            # Disk write failed → os.environ stays clean. A secret that
-            # didn't make it to a 0o600 file MUST NOT linger in process env
-            # where every spawned subprocess would inherit it (fixed in
-            # Phase 1 security hardening — see envfile.py:write docstring).
-            self.assertNotIn("TEST_BRIAR_BADPATH", os.environ)
-
-
 class EnvFileSecretsPathResolutionTests(unittest.TestCase):
     """Three-step resolution chain for the secrets file path:
     1. $BRIAR_SECRETS_FILE       (explicit)
@@ -764,7 +651,7 @@ class EnvFileSecretsPathResolutionTests(unittest.TestCase):
                 del os.environ[k]
 
     def test_explicit_env_var_wins(self) -> None:
-        from briar.credentials.envfile import _secrets_path
+        from briar.credentials._paths import secrets_path as _secrets_path
 
         with mock.patch.dict(os.environ, {"BRIAR_SECRETS_FILE": "/tmp/forced/path.env"}, clear=False):
             self.assertEqual(str(_secrets_path()), "/tmp/forced/path.env")
@@ -777,7 +664,7 @@ class EnvFileSecretsPathResolutionTests(unittest.TestCase):
         the assertion is deterministic on droplets and laptops alike."""
         from pathlib import Path
 
-        from briar.credentials.envfile import _secrets_path
+        from briar.credentials._paths import secrets_path as _secrets_path
 
         missing_system = Path("/nonexistent/etc/briar/secrets.env")
         env = {"BRIAR_SECRETS_FILE": "", "XDG_CONFIG_HOME": "/tmp/xdg-home"}
@@ -789,7 +676,7 @@ class EnvFileSecretsPathResolutionTests(unittest.TestCase):
     def test_xdg_config_home_override_honoured(self) -> None:
         from pathlib import Path
 
-        from briar.credentials.envfile import _secrets_path
+        from briar.credentials._paths import secrets_path as _secrets_path
 
         with mock.patch.dict(os.environ, {"BRIAR_SECRETS_FILE": "", "XDG_CONFIG_HOME": "/custom/cfg"}, clear=False):
             # Only test XDG-resolution when system path doesn't exist.
@@ -798,66 +685,6 @@ class EnvFileSecretsPathResolutionTests(unittest.TestCase):
             if Path("/etc/briar/secrets.env").exists():
                 self.skipTest("system /etc/briar/secrets.env exists on this host")
             self.assertEqual(str(_secrets_path()), "/custom/cfg/briar/secrets.env")
-
-
-class Phase1CredentialHardeningTests(unittest.TestCase):
-    """Regression tests for the Phase 1 security hardening of credential
-    stores. Pins behavior that has caused incidents in similar systems:
-
-      1. Auth errors (revoked token, expired session) must NOT silently
-         look like "secret not found." The contract is: ``read`` returns
-         ``None`` only for true not-found; auth/network/permission errors
-         propagate so callers fail closed.
-      2. EnvFileStore writes must be atomic and 0o600 BEFORE any bytes
-         hit the disk — no chmod-after-write race window.
-      3. A failed disk write must NOT leak the value into ``os.environ``
-         (subprocesses inherit env; a "best effort" in-memory write is
-         worse than nothing because the operator thinks the credential
-         landed).
-      4. Error messages crossing log boundaries never contain the
-         credential's env-var name or the credential value itself.
-      5. The rotation-detection fingerprint must not be a bare MD5 — use
-         a keyed digest so an attacker with the hash cannot brute-force
-         against common-secret rainbow tables."""
-
-    # ── envfile write atomicity + permissions ──────────────────────
-
-    def test_envfile_write_creates_0o600_file(self) -> None:
-        """The temp file is opened with mode 0o600 directly (via
-        os.open with explicit mode bits), so the bytes are never
-        readable by group/other. The old chmod-after-write sequence
-        left a microsecond window where the secret was world-readable."""
-        import stat
-        import tempfile
-
-        from briar.credentials.envfile import EnvFileStore
-
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "secrets.env"
-            with mock.patch.dict(os.environ, {"BRIAR_SECRETS_FILE": str(path)}, clear=False):
-                store = EnvFileStore()
-                store.write("TEST_BRIAR_PERMS", "secretvalue")
-            mode = stat.S_IMODE(path.stat().st_mode)
-            self.assertEqual(mode, 0o600, f"expected 0o600 (-rw-------), got {oct(mode)}")
-
-    def test_envfile_error_message_excludes_credential_name(self) -> None:
-        """An OSError raised by ``write`` must not contain the credential
-        env-var name. Operators tail logs; the var name + path pairing
-        reveals which credentials are configured on this host."""
-        from briar.credentials.envfile import EnvFileStore
-
-        bad_path = Path("/dev/null/nope/secrets.env")
-        with mock.patch.dict(os.environ, {"BRIAR_SECRETS_FILE": str(bad_path)}, clear=False):
-            store = EnvFileStore()
-            with self.assertRaises(OSError) as ctx:
-                store.write("TEST_BRIAR_LEAK_NAME", "value")
-            msg = str(ctx.exception)
-            self.assertNotIn("TEST_BRIAR_LEAK_NAME", msg)
-            self.assertNotIn("value", msg)
-            # Path is allowed (operationally useful) — confirm it's there.
-            self.assertIn("/dev/null", msg)
-
-    # ── fingerprint is keyed (not bare MD5) ────────────────────────
 
 
 class Phase2BoundaryDefaultsTests(unittest.TestCase):
@@ -1091,34 +918,6 @@ class Phase3ErrorHandlingTests(unittest.TestCase):
         a.data["x"] = 1
         self.assertEqual(b.data, {}, "mutating one empty_section() must not leak to others")
 
-    def test_list_excludes_briar_config_vars(self) -> None:
-        """Config vars (`BRIAR_SECRETS_FILE`, `AWS_PROFILE`) share prefixes
-        with credentials. A bare-prefix match would leak them into
-        `auth list`; full-template matching keeps them out while still
-        listing the real per-company creds."""
-        from unittest import mock
-
-        from briar.credentials.envfile import EnvFileStore
-
-        env = {
-            "BRIAR_SECRETS_FILE": "/etc/briar/secrets.env",  # config — must NOT list
-            "BRIAR_NOTIFY_SINKS": "telegram,slack",  # config — must NOT list
-            "BRIAR_VERBOSE": "1",  # config — must NOT list
-            "AWS_PROFILE": "dev",  # not a briar credential: must NOT list
-            "AWS_ACME_REGION": "us-east-1",  # a 1.x name briar no longer reads: must NOT list
-            "BRIAR_ACME_GITHUB_TOKEN": "PLACEHOLDER-not-a-secret",  # a 2.0 login: must list
-            "GITHUB_TOKEN": "ghp_x",  # a 1.x name briar no longer reads: must NOT list
-        }
-        with mock.patch.dict("os.environ", env, clear=True):
-            names = EnvFileStore().list()
-        self.assertNotIn("BRIAR_SECRETS_FILE", names)
-        self.assertNotIn("BRIAR_NOTIFY_SINKS", names)
-        self.assertNotIn("BRIAR_VERBOSE", names)
-        self.assertNotIn("AWS_PROFILE", names)
-        self.assertNotIn("AWS_ACME_REGION", names)
-        self.assertIn("BRIAR_ACME_GITHUB_TOKEN", names)
-        self.assertNotIn("GITHUB_TOKEN", names)
-
 
 class Phase4PythonStyleHygieneTests(unittest.TestCase):
     """Regression tests for Phase 4 mechanical-style hygiene fixes."""
@@ -1139,18 +938,6 @@ class Phase4PythonStyleHygieneTests(unittest.TestCase):
 class Phase5DispatchEliminationTests(unittest.TestCase):
     """Regression tests for Phase 5 — every string-keyed elif chain
     that was flagged is now a registry / table / ClassVar lookup."""
-
-    def test_runbook_command_dispatches_via_actions_table(self) -> None:
-        """commands/runbook.py used `if args.op == 'extract' elif 'sweep' ...`
-        — now an `_ACTIONS` dict matching commands/auth.py. `sweep` left in 2.0 (C14)."""
-        from briar.commands.runbook import CommandRunbook
-
-        cmd = CommandRunbook()
-        self.assertEqual(set(cmd._ACTIONS), {"extract", "serve"})
-        # Each entry resolves to a real method on the command
-        for action, handler_name in cmd._ACTIONS.items():
-            with self.subTest(action=action):
-                self.assertTrue(callable(getattr(cmd, handler_name)))
 
     def test_make_sink_uses_factory_dict_not_elif_chain(self) -> None:
         """Unknown sink name raises with a useful list — confirms the
@@ -1293,10 +1080,8 @@ class Phase7DeduplicationTests(unittest.TestCase):
         resolution chain. Now both import from credentials/_paths."""
         from briar.credentials._bootstraps.envfile import _resolve_secrets_path
         from briar.credentials._paths import secrets_path
-        from briar.credentials.envfile import _secrets_path
 
-        # All three names point at the same callable
-        self.assertIs(_secrets_path, secrets_path)
+        # The bootstrap uses the one resolution chain.
         self.assertIs(_resolve_secrets_path, secrets_path)
         # Behaviour: explicit env var wins
         with mock.patch.dict(os.environ, {"BRIAR_SECRETS_FILE": "/forced/path.env"}, clear=False):
@@ -1632,34 +1417,6 @@ class Phase11FollowupTests(unittest.TestCase):
                 self.assertEqual(os.environ.get("ANTHROPIC_API_KEY"), "sk-real")
 
     # ── envfile value validation ─────────────────────────────────────
-
-    def test_envfile_write_rejects_newline_in_value(self) -> None:
-        """A value containing \\n would smuggle a second KEY=value line
-        on disk, effectively letting one credential write inject
-        another credential."""
-        import tempfile
-
-        from briar.credentials.envfile import EnvFileStore
-
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "secrets.env"
-            with mock.patch.dict(os.environ, {"BRIAR_SECRETS_FILE": str(path)}, clear=False):
-                store = EnvFileStore()
-                with self.assertRaises(ValueError) as ctx:
-                    store.write("TEST_NEWLINE", "value\nANOTHER_KEY=injected")
-                self.assertIn("control character", str(ctx.exception))
-
-    def test_envfile_write_rejects_null_byte(self) -> None:
-        import tempfile
-
-        from briar.credentials.envfile import EnvFileStore
-
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "secrets.env"
-            with mock.patch.dict(os.environ, {"BRIAR_SECRETS_FILE": str(path)}, clear=False):
-                store = EnvFileStore()
-                with self.assertRaises(ValueError):
-                    store.write("TEST_NULL", "value\x00trunc")
 
     # ── [AI] prefix on additional writers ────────────────────────────
 

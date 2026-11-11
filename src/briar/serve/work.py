@@ -306,9 +306,13 @@ class ServeCheck:
         problems = [problem for problem in (ModelLogin(self._environ).problem(), self._sandbox.problem()) if problem]
         if problems:
             raise CliError("\n".join(problems))
-        lines = [line for company in self._companies for line in self._company_lines(company)]
+        lines = self.lines()
         if not all(line.passed() for line in lines):
             raise LoginCheckFailed.from_results(lines)
+
+    def lines(self) -> List[CheckResult]:
+        """The read and write lines of every company (`doctor --runbooks` shows them, X2)."""
+        return [line for company in self._companies for line in self._company_lines(company)]
 
     def _company_lines(self, company: ServeCompany) -> List[CheckResult]:
         sources = WorkSources(company.logins)
@@ -336,7 +340,7 @@ class ServeCompanies:
         return found
 
     def _company(self, path: Path, name: str, entry: Any) -> ServeCompany:
-        scope = LoginScope(name, str(path), f"companies.{name}.auth", runbook=str(path))
+        scope = LoginScope(name, str(path), f"companies.{name}.auth")
         root = Path(entry.knowledge.root or "./knowledge")
         state = WorkState(make_store("file", file_root=root), name, asyncio.Lock())
         return ServeCompany(name, entry.serve, CompanyLogins(scope, entry.auth, self._environ), state, root)

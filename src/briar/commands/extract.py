@@ -117,7 +117,7 @@ class ExtractConfig:
 
     def command_line(self, company: str) -> argparse.Namespace:
         """`briar extract --company C` as the CLI parses it, with this config and the git
-        origin folded in (for `doctor` and `auth status`, J11)."""
+        origin folded in (for `doctor`, J11)."""
         from briar.config import apply_config_defaults
         from briar.infer import apply_inference_defaults
 

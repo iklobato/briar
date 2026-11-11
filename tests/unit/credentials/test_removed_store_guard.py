@@ -19,9 +19,7 @@ def test_a_command_stops_with_an_error_naming_the_store_and_the_fix(cli: Callabl
     run = cli("doctor", env={"BRIAR_DEFAULT_STORE": store})
 
     assert run.code == 1
-    assert run.err == (
-        f"error: credential store '{store}' was removed in briar 2.0; " "unset BRIAR_DEFAULT_STORE or move the keys to the env file (briar auth login)\n"
-    )
+    assert run.err == (f"error: credential store '{store}' was removed in briar 2.0; " "unset BRIAR_DEFAULT_STORE or move the keys to secrets.env\n")
 
 
 @pytest.mark.parametrize("argv", [("--version",), ("--help",), ("doctor", "--help")])

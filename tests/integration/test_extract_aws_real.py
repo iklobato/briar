@@ -278,6 +278,6 @@ def test_extract_aws_infra_missing_profile_stops_before_the_run(cli: Callable[..
     assert run.code == 1
     assert run.err.strip() == (
         "error: the login check failed; fix these, then run again:\n"
-        "  - aws (acme): the login was refused (The config profile (acme) could not be found); run `briar auth login aws --company acme`"
+        "  - aws (acme): the login was refused (The config profile (acme) could not be found); run `aws configure --profile acme`"
     )
     assert [path for path in (tmp_root / "knowledge").rglob("*") if path.is_file()] == []

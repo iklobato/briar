@@ -11,8 +11,7 @@ bootstrap finds every key already set and reports them all as
 ``skipped`` (no-op, as intended). On a laptop, the same file lives
 at ``$XDG_CONFIG_HOME/briar/secrets.env`` and nothing else loads
 it — that's where this bootstrap earns its keep, picking up
-credentials the operator persisted via
-``briar auth login --store envfile``.
+credentials the operator wrote there by hand.
 
 Today this is the only registered bootstrap; it runs first in the
 cascade (local, cheap, no network) so any future remote-vault
@@ -125,7 +124,7 @@ class EnvFileBootstrap(CredentialBootstrap):
         for raw_line in content.splitlines():
             # Drop blank lines + comments. A `#` mid-line is part of
             # the value (no shell-style trailing-comment stripping —
-            # `briar auth login` never writes one, and we don't want
+            # briar never wrote one, and we don't want
             # to surprise an operator who hand-edited their envfile
             # with a value that happens to contain `#`).
             line = raw_line.strip()
