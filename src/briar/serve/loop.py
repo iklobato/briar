@@ -2,40 +2,27 @@
 polls every `poll_minutes` (S10, S11) and runs up to `max_parallel` tasks at once (S16),
 never two on the same ticket; the scheduled extracts of the runbooks run beside it (S28).
 
-The ticket and review routines arrive in spec 003 PRs 2 and 3; until then `FoundRoutine`
-records a found ticket in the state and logs what it would do."""
+Each task runs the ticket routine (`briar.serve.ticket`); the review routine arrives in
+spec 003 PR 3."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import ClassVar, List, Protocol, Set
 
 from briar.iac.runbook.scheduler import RunbookScheduler
-from briar.serve.state import WorkState
-from briar.serve.work import ServeCompany, WorkFinder, WorkItem, WorkKind, WorkSources
+from briar.serve.agent import AgentRunner, BashGuard, ClaudeAgent
+from briar.serve.git import Shell
+from briar.serve.task import ServeCache, TaskContext, TaskPrep
+from briar.serve.work import ServeCompany, WorkFinder, WorkItem, WorkSources
 
 
 class Routine(Protocol):
     """What runs one task."""
 
     async def work_on(self, item: WorkItem) -> None: ...
-
-
-class FoundRoutine:
-    """Spec 003 PR 1: records a found ticket and logs it; reviews are only logged."""
-
-    LOG: ClassVar[logging.Logger] = logging.getLogger(__name__)
-
-    def __init__(self, state: WorkState) -> None:
-        self._state = state
-
-    async def work_on(self, item: WorkItem) -> None:
-        if item.kind is WorkKind.REVIEW:
-            self.LOG.info("serve: %d new comments on %s#%d (the review routine is not built yet)", len(item.comments), item.repo, item.pr)
-            return
-        self.LOG.info("serve: ticket %s for %s: %s (the ticket routine is not built yet)", item.key, item.repo, item.title)
-        await self._state.record(item.entry())
 
 
 class TaskSlots:
@@ -121,6 +108,17 @@ class ServeLoop:
             await asyncio.sleep(self.TICK_SECONDS)
 
 
+class AgentMaker:
+    """The agent of a task: the Claude Agent SDK with the model and the bash allowlist of
+    the company, kept inside the worktree of the task (S1, S5, S25)."""
+
+    def __init__(self, company: ServeCompany) -> None:
+        self._company = company
+
+    def agent(self, context: TaskContext) -> AgentRunner:
+        return ClaudeAgent(self._company.settings.model, BashGuard(context.worktree, self._company.settings.bash))
+
+
 class ServeLoops:
     """The loop of the companies of a folder, wired with their slots and routines."""
 
@@ -129,11 +127,17 @@ class ServeLoops:
         self._scheduler = scheduler
 
     def loop(self) -> ServeLoop:
-        watches = [CompanyWatch(company, self._slots(company), FoundRoutine(company.state)) for company in self._companies]
+        watches = [CompanyWatch(company, self._slots(company), self._routine(company)) for company in self._companies]
         return ServeLoop(watches, self._scheduler)
+
+    def _routine(self, company: ServeCompany) -> Routine:
+        from briar.serve.ticket import TicketRoutine
+
+        prep = TaskPrep(WorkSources(company.logins), Shell(), ServeCache(os.environ).root())
+        return TicketRoutine(company, AgentMaker(company).agent, prep)
 
     def _slots(self, company: ServeCompany) -> TaskSlots:
         return TaskSlots(asyncio.Semaphore(company.settings.max_parallel), set(), set())
 
 
-__all__ = ["CompanyWatch", "FoundRoutine", "Routine", "ServeLoop", "ServeLoops", "TaskSlots"]
+__all__ = ["AgentMaker", "CompanyWatch", "Routine", "ServeLoop", "ServeLoops", "TaskSlots"]

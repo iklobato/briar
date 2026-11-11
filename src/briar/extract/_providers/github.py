@@ -14,12 +14,14 @@ from __future__ import annotations
 import base64
 import logging
 import re
+from functools import partial
 from typing import Any, Dict, List, Optional
 
 from briar.auth.check import LoginRejected
 from briar.auth.logins import CompanyLogins, GithubLogin
 from briar.decorators import swallow_errors
 from briar.extract._gh import GithubApi
+from briar.extract._login_failures import GithubFailures
 from briar.extract._provider import (
     BranchProtection,
     CiFailure,
@@ -28,7 +30,9 @@ from briar.extract._provider import (
     Commit,
     Deployment,
     Environment,
+    CiState,
     PullRequest,
+    PullRequestDraft,
     Release,
     RepositoryProvider,
     ReviewComment,
@@ -51,6 +55,21 @@ def _validate_repo(repo: str) -> None:
         raise ValueError(f"github repo must match owner/repo: got {repo!r}")
 
 
+class CiStates:
+    """One CI state from the check runs (status, conclusion) and the commit statuses."""
+
+    FAILED_CONCLUSIONS = ("failure", "timed_out", "cancelled", "action_required")
+
+    def of(self, runs: List[tuple], statuses: List[str]) -> CiState:
+        if not runs and not statuses:
+            return CiState.NONE
+        if any(conclusion in self.FAILED_CONCLUSIONS for _, conclusion in runs) or any(state in ("failure", "error") for state in statuses):
+            return CiState.FAILED
+        if any(status != "completed" for status, _ in runs) or "pending" in statuses:
+            return CiState.PENDING
+        return CiState.PASSED
+
+
 class GithubProvider(RepositoryProvider):
     kind = "github"
     login_source = "github"
@@ -67,6 +86,44 @@ class GithubProvider(RepositoryProvider):
 
     def read(self, resource: str) -> None:
         self._api().read_repo(resource)
+
+    def open_pull(self, repo: str, draft: PullRequestDraft) -> int:
+        """Open a PR and give its number (`briar serve`, spec 003 S21). The writes and CI
+        reads of `serve` raise `LoginRejected` or `SourceUnreachable`, so a failed one
+        stops the task with a report instead of leaving it half done."""
+        _validate_repo(repo)
+        return GithubFailures().answer(partial(self._create_pull, repo, draft))
+
+    def comment(self, repo: str, number: int, text: str) -> None:
+        """A comment on an issue or a PR (the two share the comments of GitHub)."""
+        _validate_repo(repo)
+        GithubFailures().read(partial(self._comment, repo, number, text))
+
+    def make_draft(self, repo: str, number: int) -> None:
+        _validate_repo(repo)
+        GithubFailures().read(partial(self._convert_to_draft, repo, number))
+
+    def ci_state(self, repo: str, number: int) -> CiState:
+        """The check runs and statuses of the PR head: none yet, pending, passed or failed."""
+        _validate_repo(repo)
+        return GithubFailures().answer(partial(self._ci_state, repo, number))
+
+    def _comment(self, repo: str, number: int, text: str) -> None:
+        self._api().client().get_repo(repo).get_issue(number).create_comment(text)
+
+    def _convert_to_draft(self, repo: str, number: int) -> None:
+        self._api().client().get_repo(repo).get_pull(number).convert_to_draft()
+
+    def _create_pull(self, repo: str, draft: PullRequestDraft) -> int:
+        target = self._api().client().get_repo(repo)
+        return int(target.create_pull(draft.base, draft.head, title=draft.title, body=draft.body, draft=draft.draft).number)
+
+    def _ci_state(self, repo: str, number: int) -> CiState:
+        target = self._api().client().get_repo(repo)
+        commit = target.get_commit(target.get_pull(number).head.sha)
+        runs = [(run.status, run.conclusion) for run in commit.get_check_runs()]
+        statuses = [status.state for status in commit.get_combined_status().statuses]
+        return CiStates().of(runs, statuses)
 
     def can_write(self, repo: str) -> None:
         """Raise `LoginRejected` when the token cannot push to `repo` (`permissions.push` of

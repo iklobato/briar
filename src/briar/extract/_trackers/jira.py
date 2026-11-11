@@ -98,6 +98,14 @@ class JiraTracker(TrackerProvider):
         found = self._jira().post("rest/api/3/search/jql", data=payload)
         return [self._to_ticket(issue) for issue in (found or {}).get("issues", [])[:max_count]]
 
+    def comment(self, key: str, text: str) -> None:
+        """A comment on a ticket (`briar serve`, spec 003 S19)."""
+        RequestsFailures().read(partial(self._jira().issue_add_comment, key, text))
+
+    def move(self, key: str, status: str) -> None:
+        """Move a ticket to the status named in the runbook (S26)."""
+        RequestsFailures().read(partial(self._jira().set_issue_status, key, status))
+
     def can_write(self, project: str, permissions: Sequence[str]) -> None:
         """Raise `LoginRejected` when the login lacks one of `permissions` in `project`
         (`mypermissions`, nothing is written; spec 003 S29)."""

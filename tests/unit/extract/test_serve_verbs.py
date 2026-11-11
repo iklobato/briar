@@ -17,6 +17,7 @@ FAKE = "PLACEHOLDER-not-a-secret"
 MAX_TICKETS = 10
 ISSUE_NUMBER = 7
 PULL_NUMBER = 8
+UNPROCESSABLE = 422
 
 
 class Logins:
@@ -89,3 +90,17 @@ class TestGithub:
             assert make_provider("github", Logins().github()).can_write("acme/app") is None
 
         assert read.call_args.args == ("/repos/acme/app",)
+
+    def test_a_refused_pull_request_is_a_login_rejected_with_the_status(self) -> None:
+        """PyGithub raises `GithubException`; `serve` needs a `CliError` to stop the task with a report."""
+        from github import GithubException
+
+        from briar.extract._provider import PullRequestDraft
+
+        client = mock.MagicMock()
+        refusal = GithubException(UNPROCESSABLE, {"message": "Validation Failed"}, None)
+        client.get_repo.return_value.create_pull.side_effect = refusal
+
+        with mock.patch("briar.extract._gh.GithubApi.client", return_value=client):
+            with pytest.raises(LoginRejected, match=r'^HTTP 422: 422 \{"message": "Validation Failed"\}$'):
+                make_provider("github", Logins().github()).open_pull("acme/app", PullRequestDraft("briar/ENG-1", "main", "t", "b"))

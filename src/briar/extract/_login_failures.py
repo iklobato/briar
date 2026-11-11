@@ -6,10 +6,13 @@ matches its client; the check then sees only `LoginRejected` and
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Callable, Tuple, Type
+from typing import Callable, Tuple, Type, TypeVar
 
 from briar.auth.check import LoginRejected, SourceUnreachable
 from briar.errors import AuthError
+
+
+Answer = TypeVar("Answer")
 
 
 class LibraryFailures(ABC):
@@ -30,6 +33,13 @@ class LibraryFailures(ABC):
     def read(self, action: Callable[[], object]) -> None:
         try:
             action()
+        except self.caught() as error:
+            raise self.translated(error) from error
+
+    def answer(self, action: Callable[[], Answer]) -> Answer:
+        """The answer of a call that gives one (a PR number, a CI state; `briar serve`)."""
+        try:
+            return action()
         except self.caught() as error:
             raise self.translated(error) from error
 

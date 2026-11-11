@@ -36,6 +36,7 @@ dependencies = [
     "atlassian-python-api>=3.41,<4",  # Bitbucket Cloud — backs the BitbucketProvider adapter
     "sentry-sdk>=2.0,<3", # error + performance telemetry; on by default, opt-out via `briar telemetry off`
     "tomli>=2.0,<3; python_version < '3.11'",  # tomllib backport: `.briar.toml` parsing on 3.10
+    "claude-agent-sdk>=0.2.180,<0.3",
 ]
 
 [project.optional-dependencies]
