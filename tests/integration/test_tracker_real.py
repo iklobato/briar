@@ -7,6 +7,8 @@ Jira Cloud enhanced search: https://developer.atlassian.com/cloud/jira/platform/
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 pytestmark = pytest.mark.integration
@@ -41,7 +43,11 @@ def test_jira_tracker_real_client_lists_tickets(jira_at) -> None:
         },
     )
 
-    tracker = make_tracker("jira", company="acme")
+    from briar.auth.config import AuthTable
+    from briar.auth.logins import CompanyLogins, LoginScope
+
+    block = AuthTable({"auth": {"jira": {"site": jira_at.base_url}}}, ".briar.toml").block()
+    tracker = make_tracker("jira", CompanyLogins(LoginScope("acme"), block, os.environ))
     tickets = tracker.list_tickets("ENG", state="closed", max_count=10)
 
     # Real client really POSTed the JQL to the v3 enhanced-search endpoint.

@@ -1,197 +1,79 @@
-"""Jira auth strategies — Strategy + Registry over the auth envelope.
+"""Jira auth strategies, one per `[auth.jira] method` (spec 005).
 
-Same Jira REST API, swappable auth: token (HTTP Basic) or browser
-session cookies. Selection via ``JIRA_{COMPANY}_AUTH_KIND``
-(``token`` | ``session`` | empty → auto-detect; session wins when
-cookies are present, else token)."""
+Same Jira REST API, swappable auth: the Atlassian API token as HTTP Basic
+(`token`, the default), or the `Cookie:` header pasted from a logged-in
+browser (`cookie`, L9) sent with the headers Atlassian checks on cookie
+requests. Each strategy reads its values from the company `JiraLogin`."""
 
 from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar, Dict, List, Type
+from typing import Any, ClassVar, Dict, Mapping, Type
 
-from briar._registry import build_registry
-from briar.env_vars import CredEnv
-from briar.errors import CliError
-
+from briar.auth.logins import JiraLogin
 
 log = logging.getLogger(__name__)
 
 
-# Browser UA — overridable per-company via JIRA_{c}_USER_AGENT.
-_DEFAULT_UA = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
-)
-
-
 class JiraAuthStrategy(ABC):
-    """One instance per (company, auth_kind). Subclass declares its
-    ``kind`` (registry key), env-var requirements, and how to translate
-    company creds into ``atlassian.Jira(...)`` kwargs."""
+    """Turns a company login into the keyword arguments of `atlassian.Jira(...)`."""
 
-    kind: ClassVar[str] = ""
-
-    @classmethod
-    @abstractmethod
-    def required_env_vars(cls, *, company: str) -> List[str]:
-        """Env-var names the doctor should audit for this strategy."""
-
-    @classmethod
-    @abstractmethod
-    def is_available(cls, *, company: str) -> bool:
-        """True iff every required env var is set."""
+    method: ClassVar[str] = ""
 
     @abstractmethod
-    def configure(self, *, company: str, base_url: str) -> Dict[str, Any]:
+    def configure(self, login: JiraLogin) -> Dict[str, Any]:
         """Kwargs to splat into ``atlassian.Jira(...)``."""
 
 
 class JiraTokenAuth(JiraAuthStrategy):
     """Email + API token via HTTP Basic. Atlassian-recommended path."""
 
-    kind = "token"
+    method = "token"
 
-    @classmethod
-    def required_env_vars(cls, *, company: str) -> List[str]:
-        if not company:
-            return []
-        return [
-            CredEnv.JIRA_EMAIL.for_company(company),
-            CredEnv.JIRA_TOKEN.for_company(company),
-        ]
-
-    @classmethod
-    def is_available(cls, *, company: str) -> bool:
-        if not company:
-            return False
-        return bool(CredEnv.JIRA_EMAIL.read(company) and CredEnv.JIRA_TOKEN.read(company))
-
-    def configure(self, *, company: str, base_url: str) -> Dict[str, Any]:
-        email = CredEnv.JIRA_EMAIL.read(company)
-        token = CredEnv.JIRA_TOKEN.read(company)
-        if not (email and token):
-            raise CliError(
-                f"JiraTokenAuth: missing creds — set "
-                f"{CredEnv.JIRA_EMAIL.for_company(company)} + "
-                f"{CredEnv.JIRA_TOKEN.for_company(company)}"
-            )
-        return {"username": email, "password": token}
+    def configure(self, login: JiraLogin) -> Dict[str, Any]:
+        return {"username": login.secret("EMAIL"), "password": login.secret("TOKEN")}
 
 
-class JiraSessionAuth(JiraAuthStrategy):
-    """Browser-cookie auth. Either ``cloud.session.token`` or
-    ``tenant.session.token`` (or both) plus mimicked browser headers."""
+class JiraCookieAuth(JiraAuthStrategy):
+    """The pasted `Cookie:` header, plus the browser headers Atlassian's edge
+    inspects for CSRF (Origin, Referer) and for bots (User-Agent, client hints).
+    The set matches a Brave 147 / macOS browser, as 1.x sent it."""
 
-    kind = "session"
+    method = "cookie"
 
-    @classmethod
-    def required_env_vars(cls, *, company: str) -> List[str]:
-        if not company:
-            return []
-        # Either cookie suffices; doctor lists both so the operator
-        # knows the choices.
-        return [
-            CredEnv.JIRA_SESSION_TOKEN.for_company(company),
-            CredEnv.JIRA_TENANT_SESSION_TOKEN.for_company(company),
-        ]
+    BROWSER_HEADERS: ClassVar[Mapping[str, str]] = {
+        "Accept": "*/*",
+        "Accept-Language": "en;q=0.7",
+        "sec-ch-ua": '"Brave";v="147", "Not.A/Brand";v="8", "Chromium";v="147"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"macOS"',
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "cross-site",
+        "sec-gpc": "1",
+    }
+    XSRF_COOKIE = "atlassian.xsrf.token="
 
-    @classmethod
-    def is_available(cls, *, company: str) -> bool:
-        if not company:
-            return False
-        return bool(
-            CredEnv.JIRA_SESSION_TOKEN.read(company)
-            or CredEnv.JIRA_TENANT_SESSION_TOKEN.read(company)
-        )
-
-    def configure(self, *, company: str, base_url: str) -> Dict[str, Any]:
-        cloud_session = CredEnv.JIRA_SESSION_TOKEN.read(company)
-        tenant_session = CredEnv.JIRA_TENANT_SESSION_TOKEN.read(company)
-        if not (cloud_session or tenant_session):
-            raise CliError(
-                f"JiraSessionAuth: need at least one of "
-                f"{CredEnv.JIRA_SESSION_TOKEN.for_company(company)} (cloud.session.token) or "
-                f"{CredEnv.JIRA_TENANT_SESSION_TOKEN.for_company(company)} (tenant.session.token) "
-                f"— paste either cookie value from your browser's DevTools"
-            )
-        xsrf = CredEnv.JIRA_XSRF_TOKEN.read(company)
-        user_agent = CredEnv.JIRA_USER_AGENT.read(company) or _DEFAULT_UA
-
-        cookies: Dict[str, str] = {}
-        if cloud_session:
-            cookies["cloud.session.token"] = cloud_session
-        if tenant_session:
-            cookies["tenant.session.token"] = tenant_session
-        if xsrf:
-            cookies["atlassian.xsrf.token"] = xsrf
-
-        # Atlassian's edge inspects Origin + Referer for CSRF on cookie-
-        # authenticated requests, and UA is sniffed by anti-automation
-        # layers. The exact set matches a Brave 147 / macOS browser.
-        origin = base_url.rstrip("/")
-        headers = {
-            "Origin": origin,
-            "Referer": origin + "/",
-            "User-Agent": user_agent,
-            "Accept": "*/*",
-            "Accept-Language": "en;q=0.7",
-            "sec-ch-ua": '"Brave";v="147", "Not.A/Brand";v="8", "Chromium";v="147"',
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": '"macOS"',
-            "sec-fetch-dest": "empty",
-            "sec-fetch-mode": "cors",
-            "sec-fetch-site": "cross-site",
-            "sec-gpc": "1",
-        }
-        if xsrf:
-            headers["X-Atlassian-Token"] = "no-check"
-
-        # `requests.Session` is the only path stable across atlassian-
-        # python-api 3.41.x (no `header=` kwarg) and 4.x.
+    def configure(self, login: JiraLogin) -> Dict[str, Any]:
+        # `requests.Session` is the only path stable across atlassian-python-api 3.41.x
+        # (no `header=` kwarg) and 4.x.
         import requests
 
+        origin = login.site_url()
+        cookie = login.secret("COOKIE")
         session = requests.Session()
-        session.cookies.update(cookies)
-        session.headers.update(headers)
+        session.headers.update({**self.BROWSER_HEADERS, "Cookie": cookie, "Origin": origin, "Referer": f"{origin}/", "User-Agent": login.user_agent()})
+        if self.XSRF_COOKIE in cookie:
+            session.headers["X-Atlassian-Token"] = "no-check"
         return {"session": session}
 
 
-_JIRA_AUTHS: Dict[str, Type[JiraAuthStrategy]] = build_registry(
-    (JiraTokenAuth, JiraSessionAuth),
-    kind="jira auth strategy",
-    name_attr="kind",
-)
+class JiraAuths:
+    """The strategy for the method of a login."""
 
+    STRATEGIES: ClassVar[Mapping[str, Type[JiraAuthStrategy]]] = {strategy.method: strategy for strategy in (JiraTokenAuth, JiraCookieAuth)}
 
-def make_jira_auth(kind: str) -> JiraAuthStrategy:
-    strategy_cls = _JIRA_AUTHS.get(kind)
-    if strategy_cls is None:
-        known = ", ".join(sorted(_JIRA_AUTHS.keys()))
-        raise CliError(f"unknown jira auth strategy {kind!r}; known: {known}")
-    return strategy_cls()
-
-
-def autodetect_jira_auth(*, company: str) -> JiraAuthStrategy:
-    """Resolve strategy for a company.
-
-    Priority: explicit ``JIRA_{c}_AUTH_KIND`` → session (if any session
-    cookie env var set) → token. Returns an instance, never None;
-    callers must still call ``is_available`` before issuing API calls."""
-    if company:
-        forced = CredEnv.JIRA_AUTH_KIND.read(company)
-        if forced:
-            return make_jira_auth(forced)
-        if JiraSessionAuth.is_available(company=company):
-            return JiraSessionAuth()
-    return JiraTokenAuth()
-
-
-__all__ = [
-    "JiraAuthStrategy",
-    "JiraTokenAuth",
-    "JiraSessionAuth",
-    "make_jira_auth",
-    "autodetect_jira_auth",
-]
+    @classmethod
+    def for_login(cls, login: JiraLogin) -> JiraAuthStrategy:
+        return cls.STRATEGIES[login.method()]()

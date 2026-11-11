@@ -22,8 +22,8 @@ _SECRET_PLACEHOLDER = "ACCESS-TOKEN-PLACEHOLDER-not-a-secret"
 
 
 class _FakeAcquirer:
-    kind = "github-pat"
-    display_name = "GitHub PAT"
+    kind = "fake-acquirer"
+    display_name = "Fake acquirer"
 
     def __init__(self, *, entries=None, expires=None, acquire_exc=None, refresh_exc=None) -> None:
         self._entries = entries if entries is not None else {"GITHUB_ACME_TOKEN": _SECRET_PLACEHOLDER}
@@ -78,7 +78,7 @@ def install(mocker):
         inst = acquirer or acquirer_cls()
         mocker.patch.object(AcquirerRegistry, "make", return_value=inst)
         mocker.patch.object(AcquirerRegistry, "kinds", return_value=[inst.kind])
-        captured["make"] = mocker.patch("briar.commands.auth.make_credential_store", return_value=store)
+        captured["make"] = mocker.patch("briar.commands.auth.EnvFileStore", return_value=store)
         return store, inst
 
     _install.captured = captured
@@ -91,7 +91,7 @@ def install(mocker):
 class TestLogin:
     def test_login_persists_value_to_store_exit_0(self, cli, install) -> None:
         store, _ = install()
-        result = cli("auth", "login", "github-pat", "--company", "acme")
+        result = cli("auth", "login", "fake-acquirer", "--company", "acme")
         assert result.code == 0
         # The VALUE reached the store...
         assert store.writes == [("GITHUB_ACME_TOKEN", _SECRET_PLACEHOLDER)]
@@ -103,7 +103,7 @@ class TestLogin:
     def test_login_write_failure_exit_1_and_reports_reason(self, cli, install) -> None:
         store, _ = install()
         store.fail_writes = {"GITHUB_ACME_TOKEN"}
-        result = cli("auth", "login", "github-pat", "--company", "acme")
+        result = cli("auth", "login", "fake-acquirer", "--company", "acme")
         assert result.code == 1
         assert "persisted 0/1 entries" in result.out
         assert "FAIL  GITHUB_ACME_TOKEN" in result.out
@@ -113,7 +113,7 @@ class TestLogin:
     def test_login_prints_expiry_when_present(self, cli, install) -> None:
         expires = datetime.now(tz=timezone.utc) + timedelta(days=30)
         store, _ = install(acquirer=_FakeAcquirer(expires=expires))
-        result = cli("auth", "login", "github-pat", "--company", "acme")
+        result = cli("auth", "login", "fake-acquirer", "--company", "acme")
         assert result.code == 0
         assert f"expires: {expires.isoformat()}" in result.out
         # "+N.N days from now" — positive sign for a future expiry.
@@ -122,7 +122,7 @@ class TestLogin:
 
     def test_login_acquire_raises_credential_expired_exit_2(self, cli, install) -> None:
         store, _ = install(acquirer=_FakeAcquirer(acquire_exc=CredentialExpired("token lapsed")))
-        result = cli("auth", "login", "github-pat", "--company", "acme")
+        result = cli("auth", "login", "fake-acquirer", "--company", "acme")
         assert result.code == 2
         assert "credential expired: token lapsed" in result.out
         assert store.writes == []

@@ -132,9 +132,3 @@ class MeetingProvider(ABC):
         empty-MeetingDetail default that silently masked unimplemented
         providers as `meeting_id == ""` (callers couldn't distinguish
         "not found" from "provider didn't implement single-fetch")."""
-
-    @classmethod
-    def required_env_vars(cls, company: str = "") -> List[str]:
-        """Env vars the doctor reports as required for this provider
-        in the context of `company`. Mirrors `TrackerProvider`."""
-        return []

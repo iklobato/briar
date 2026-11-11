@@ -1,7 +1,7 @@
 """GitHub helpers shared by the extractors.
 
 `GithubApi` is a thin facade on top of PyGithub. The public surface
-(`auth_token`, `get_json`, `get_paginated`, `client`) keeps the
+(`get_json`, `get_paginated`, `client`) keeps the
 extractor call sites unchanged — they pass GitHub API paths like
 `/repos/{owner}/{repo}/pulls` and get back parsed JSON the same way as
 the previous httpx-based implementation.
@@ -10,15 +10,13 @@ Backed by PyGithub instead of raw httpx so we get its battle-tested
 retry / rate-limit / pagination / conditional-GET handling for free
 instead of maintaining a parallel implementation.
 
-Token resolution: `$GITHUB_TOKEN` only. The previous fallback that
-shelled out to `gh auth token` was removed — briar is meant to run
-headless (droplet, CI) where `gh` may not be installed, and the env
-var is the universal contract."""
+Token: the caller passes the token of the company login
+(`briar.auth.logins.GithubLogin`, spec 005). briar no longer reads
+`$GITHUB_TOKEN` (decision G25)."""
 
 from __future__ import annotations
 
 import logging
-import os
 import time
 from typing import Any, Dict, List
 
@@ -36,40 +34,35 @@ class GithubApi:
 
     BASE = "https://api.github.com"
 
-    @staticmethod
-    def auth_token() -> str:
-        """Return $GITHUB_TOKEN, stripped, or empty string."""
-        return os.environ.get("GITHUB_TOKEN", "").strip()
+    def __init__(self, token: str = "") -> None:
+        self._token = token
 
-    @classmethod
-    def _require_token(cls, token: str) -> str:
-        tok = token or cls.auth_token()
-        if not tok:
-            raise CliError("GitHub credentials missing — set $GITHUB_TOKEN in /etc/briar/secrets.env or env.")
-        return tok
+    def _require_token(self) -> str:
+        """The token of the company login (G11, G25: briar no longer reads $GITHUB_TOKEN)."""
+        if not self._token.strip():
+            raise CliError("no GitHub login: run `briar auth login github --company <company>`")
+        return self._token.strip()
 
-    @classmethod
-    def client(cls, token: str = ""):
+    def client(self):
         """Return a configured PyGithub `Github` client. Callers that
         want the high-level API (e.g. `client().get_repo(...)`)
         use this directly. The two convenience methods below build on
         the same client internally."""
         from github import Auth, Github
 
-        tok = cls._require_token(token)
+        tok = self._require_token()
         # timeout=30: PyGithub's default is 15s, but writes (PR creation,
         # comment posts) sometimes take longer on Atlassian-style migration
         # repos. Explicit so the boundary is obvious in code review.
         return Github(auth=Auth.Token(tok), per_page=100, retry=3, timeout=30)
 
-    @classmethod
-    def get_json(cls, path: str, token: str = "") -> Any:
+    def get_json(self, path: str) -> Any:
         """Single GET against api.github.com.
 
         Returns the parsed JSON payload. Tunnels through PyGithub's
         Requester so we benefit from its retry + rate-limit handling.
         """
-        gh = cls.client(token)
+        gh = self.client()
         started = time.perf_counter()
         log.debug("gh GET path=%s", path)
         # Don't wrap in try/log/re-raise — callers wrapped by
@@ -78,7 +71,7 @@ class GithubApi:
         # log aggregators.
         headers, payload = gh._Github__requester.requestJsonAndCheck("GET", path)
         elapsed_ms = int((time.perf_counter() - started) * 1000)
-        remaining = cls._extract_rate_remaining(headers, gh)
+        remaining = self._extract_rate_remaining(headers, gh)
         log.info(
             "gh GET ok path=%s elapsed_ms=%d ratelimit_remaining=%s",
             path,
@@ -87,15 +80,14 @@ class GithubApi:
         )
         return payload
 
-    @classmethod
-    def get_paginated(cls, path: str, per_page: int = 100, max_pages: int = 50, token: str = "") -> List[Dict[str, Any]]:
+    def get_paginated(self, path: str, per_page: int = 100, max_pages: int = 50) -> List[Dict[str, Any]]:
         """Walk GitHub's Link-header pagination via PyGithub's Requester.
 
         PyGithub exposes pagination internally through the same low-level
         `requestJsonAndCheck`; we follow `Link: rel="next"` manually
         because the extractor call sites pass raw paths (not typed
         objects) and we need to return the raw JSON pages."""
-        gh = cls.client(token)
+        gh = self.client()
         sep = "&" if "?" in path else "?"
         next_path: str = f"{path}{sep}per_page={per_page}"
         all_rows: List[Dict[str, Any]] = []
@@ -105,10 +97,10 @@ class GithubApi:
         log.debug("gh PAGINATED start path=%s per_page=%d max_pages=%d", path, per_page, max_pages)
         while next_path and visited < max_pages:
             headers, page = gh._Github__requester.requestJsonAndCheck("GET", next_path)
-            last_remaining = cls._extract_rate_remaining(headers, gh) or last_remaining
+            last_remaining = self._extract_rate_remaining(headers, gh) or last_remaining
             if isinstance(page, list):
                 all_rows.extend(page)
-            next_path = cls._next_link(headers.get("link", ""))
+            next_path = self._next_link(headers.get("link", ""))
             visited += 1
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         log.info(

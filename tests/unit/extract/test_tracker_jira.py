@@ -28,33 +28,41 @@ Doc URLs modelled:
 from __future__ import annotations
 
 import unittest
-from typing import Any, Dict, List
+from typing import Any, Dict, Optional
 from unittest import mock
 
 import pytest
 
 from briar.extract._tracker import Comment, Ticket
+from briar.auth.logins import JiraLogin
+from briar.errors import CliError
 from briar.extract._trackers._jira_auth import JiraAuthStrategy
 from briar.extract._trackers.jira import JiraTracker
+from tests.unit.fake_logins import FakeLogins
 
 
 class _FakeAuth(JiraAuthStrategy):
-    kind = "fake"
+    method = "fake"
 
-    @classmethod
-    def required_env_vars(cls, *, company: str) -> List[str]:
-        return []
-
-    @classmethod
-    def is_available(cls, *, company: str) -> bool:
-        return True
-
-    def configure(self, *, company: str, base_url: str) -> Dict[str, Any]:
+    def configure(self, login: JiraLogin) -> Dict[str, Any]:
         return {}
 
 
-def _tracker():
-    return JiraTracker(company="acme", auth=_FakeAuth())
+SITE = "acme.atlassian.net"
+FAKE_TOKEN = "PLACEHOLDER-not-a-secret"
+
+
+class TokenLogin:
+    """The Atlassian API token login of company acme, as the environment holds it."""
+
+    def environ(self) -> Dict[str, str]:
+        environ = {"BRIAR_ACME_JIRA_EMAIL": "bot@example.test", "BRIAR_ACME_JIRA_TOKEN": FAKE_TOKEN}
+        return environ
+
+
+def _tracker(auth: Optional[Dict[str, Any]] = None, environ: Optional[Dict[str, str]] = None, strategy: Optional[JiraAuthStrategy] = None):
+    logins = FakeLogins({"jira": {"site": SITE}} if auth is None else auth, environ or {}).logins()
+    return JiraTracker(logins=logins, auth=strategy or _FakeAuth())
 
 
 def _issue(**over):
@@ -371,27 +379,29 @@ class AdfAndAvailabilityTests(unittest.TestCase):
         # heading is a block node → trailing newline emitted.
         self.assertTrue(out.startswith("Title\n"))
 
-    def test_is_available_requires_url_and_auth(self) -> None:
-        with mock.patch.dict("os.environ", {"JIRA_ACME_URL": "https://acme.atlassian.net"}):
-            self.assertTrue(JiraTracker(company="acme", auth=_FakeAuth()).is_available())
+    def test_is_available_with_the_site_and_the_login(self) -> None:
+        self.assertTrue(_tracker(environ=TokenLogin().environ()).is_available())
 
-    def test_is_available_false_without_url(self) -> None:
-        with mock.patch.dict("os.environ", {}, clear=True):
-            self.assertFalse(JiraTracker(company="acme", auth=_FakeAuth()).is_available())
+    def test_is_not_available_without_a_login(self) -> None:
+        self.assertFalse(_tracker().is_available())
+
+    def test_a_login_without_the_site_stops(self) -> None:
+        with self.assertRaises(CliError) as caught:
+            _tracker(auth={}, environ=TokenLogin().environ()).is_available()
+        self.assertEqual(str(caught.exception), "set `site` under `auth.jira` in .briar.toml (briar jira login for acme)")
 
     def test_jira_client_built_lazily_with_auth_kwargs(self) -> None:
         # `_jira()` splats the auth strategy's configure() kwargs into
         # atlassian.Jira(url=..., cloud=True, timeout=30, **kwargs) and caches it.
         class _KwAuth(_FakeAuth):
-            def configure(self, *, company, base_url):
+            def configure(self, login: JiraLogin) -> Dict[str, Any]:
                 return {"username": "e@x.com", "password": "tok"}
 
-        with mock.patch.dict("os.environ", {"JIRA_ACME_URL": "https://acme.atlassian.net"}):
-            tracker = JiraTracker(company="acme", auth=_KwAuth())
-            with mock.patch("atlassian.Jira") as jira_cls:
-                jira_cls.return_value = "client-instance"
-                first = tracker._jira()
-                second = tracker._jira()  # cached — no second construction
+        tracker = _tracker(strategy=_KwAuth())
+        with mock.patch("atlassian.Jira") as jira_cls:
+            jira_cls.return_value = "client-instance"
+            first = tracker._jira()
+            second = tracker._jira()  # cached: no second construction
         self.assertEqual(first, "client-instance")
         self.assertIs(first, second)
         jira_cls.assert_called_once()

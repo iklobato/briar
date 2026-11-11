@@ -24,6 +24,7 @@ from briar.errors import ConfigError
 from briar.extract.base import ExtractedSection
 from briar.iac.runbook.executor import ExtractRow, RunbookExtractor, RunbookLoader
 from briar.iac.runbook.models import CompanyEntry, ExtractEntry, KnowledgeBinding, RunbookFile, ScheduleEntry
+from tests.unit.fake_logins import FakeLogins
 
 # ── Fakes ────────────────────────────────────────────────────────────
 
@@ -122,7 +123,7 @@ class TestRunScheduleHappyPath:
             composer=_FakeComposer,
             make_store=_make_store_returning(store),
             rows=rows,
-            company="acme",
+            logins=FakeLogins().logins(),
         )
 
         assert len(rows) == 1
@@ -147,7 +148,7 @@ class TestRunScheduleHappyPath:
             composer=_FakeComposer,
             make_store=_make_store_returning(store),
             rows=rows,
-            company="acme",
+            logins=FakeLogins().logins(),
         )
         assert rows[0].status == "skipped (unchanged, 99 bytes, hash=deadbeef)"
 
@@ -164,7 +165,7 @@ class TestRunScheduleHappyPath:
             composer=_FakeComposer,
             make_store=_make_store_returning(store),
             rows=rows,
-            company="acme",
+            logins=FakeLogins().logins(),
         )
         # ".md" base → "<base>.<task>.md"
         assert store.put_calls[0]["blob_name"] == "acme.nightly.md"
@@ -185,7 +186,7 @@ class TestRunScheduleInventory:
             composer=_FakeComposer,
             make_store=_make_store_returning(store),
             rows=rows,
-            company="acme",
+            logins=FakeLogins().logins(),
         )
         # No config.inventory → only the knowledge blob is written.
         assert len(store.put_calls) == 1
@@ -204,7 +205,7 @@ class TestRunScheduleInventory:
             composer=_FakeComposer,
             make_store=_make_store_returning(store),
             rows=rows,
-            company="acme",
+            logins=FakeLogins().logins(),
         )
         assert len(store.put_calls) == 2
         inv = store.put_calls[1]
@@ -227,7 +228,7 @@ class TestRunScheduleInventory:
             composer=_FakeComposer,
             make_store=_make_store_returning(store),
             rows=rows,
-            company="acme",
+            logins=FakeLogins().logins(),
         )
         assert store.put_calls[1]["blob_name"] == "inventory:acme"
 
@@ -256,7 +257,7 @@ class TestRunScheduleInventory:
             composer=_FakeComposer,
             make_store=_make_store_returning(store),
             rows=rows,
-            company="acme",
+            logins=FakeLogins().logins(),
         )
         # Main knowledge write still succeeded; inventory failure is its own row.
         assert rows[0].status == "wrote 10 bytes via store=file"
@@ -279,7 +280,7 @@ class TestRunScheduleEmptyAndFailures:
             composer=_FakeComposer,
             make_store=_make_store_returning(store),
             rows=rows,
-            company="acme",
+            logins=FakeLogins().logins(),
         )
         assert rows[0].status == "empty (no sections)"
         assert store.put_calls == []  # never opened/wrote
@@ -302,7 +303,7 @@ class TestRunScheduleEmptyAndFailures:
             composer=_FakeComposer,
             make_store=_make_store_returning(store),
             rows=rows,
-            company="acme",
+            logins=FakeLogins().logins(),
         )
         assert len(rows) == 1
         assert rows[0].status.startswith("failed (collect_sections raised")
@@ -323,7 +324,7 @@ class TestRunScheduleEmptyAndFailures:
             composer=_FakeComposer,
             make_store=_boom_make_store,
             rows=rows,
-            company="acme",
+            logins=FakeLogins().logins(),
         )
         assert rows[0].status.startswith("failed (store open raised: file")
 
@@ -340,7 +341,7 @@ class TestRunScheduleEmptyAndFailures:
             composer=_FakeComposer,
             make_store=_make_store_returning(store),
             rows=rows,
-            company="acme",
+            logins=FakeLogins().logins(),
         )
         assert rows[0].status.startswith("failed (put_if_changed raised: acme.md")
 
@@ -360,18 +361,18 @@ class TestCollectSections:
             b=_FakeExtractor(section=ExtractedSection()),  # empty → skipped
             c=_FakeExtractor(section=ExtractedSection(title="C")),
         )
-        sections = RunbookExtractor._collect_sections(entries, registry, company="acme")
+        sections = RunbookExtractor._collect_sections(entries, registry, logins=FakeLogins().logins())
         assert [s.title for s in sections] == ["A", "C"]
 
     def test_unknown_extractor_is_skipped(self) -> None:
         entries = [ExtractEntry.model_construct(name="missing", args={})]
         registry = _FakeRegistry()  # .get("missing") is None
-        assert RunbookExtractor._collect_sections(entries, registry) == []
+        assert RunbookExtractor._collect_sections(entries, registry, logins=FakeLogins().logins()) == []
 
     def test_unavailable_extractor_is_skipped(self) -> None:
         entries = [ExtractEntry.model_construct(name="a", args={})]
         registry = _FakeRegistry(a=_FakeExtractor(available=False))
-        assert RunbookExtractor._collect_sections(entries, registry) == []
+        assert RunbookExtractor._collect_sections(entries, registry, logins=FakeLogins().logins()) == []
 
     def test_extractor_raising_is_swallowed_and_others_continue(self) -> None:
         entries = [
@@ -382,7 +383,7 @@ class TestCollectSections:
             boom=_FakeExtractor(raises=RuntimeError("extract failed")),
             ok=_FakeExtractor(section=ExtractedSection(title="OK")),
         )
-        sections = RunbookExtractor._collect_sections(entries, registry)
+        sections = RunbookExtractor._collect_sections(entries, registry, logins=FakeLogins().logins())
         assert [s.title for s in sections] == ["OK"]
 
     def test_company_injected_into_namespace(self) -> None:
@@ -395,7 +396,7 @@ class TestCollectSections:
 
         entries = [ExtractEntry.model_construct(name="a", args={})]
         registry = _FakeRegistry(a=_CompanyAwareExtractor())
-        RunbookExtractor._collect_sections(entries, registry, company="globex")
+        RunbookExtractor._collect_sections(entries, registry, logins=FakeLogins(company="globex").logins())
         assert captured["company"] == "globex"
 
     def test_explicit_company_arg_overrides_injection(self) -> None:
@@ -409,7 +410,7 @@ class TestCollectSections:
         # args carry an explicit company → injection is skipped.
         entries = [ExtractEntry.model_construct(name="a", args={"company": "explicit"})]
         registry = _FakeRegistry(a=_CompanyAwareExtractor())
-        RunbookExtractor._collect_sections(entries, registry, company="globex")
+        RunbookExtractor._collect_sections(entries, registry, logins=FakeLogins(company="globex").logins())
         assert captured["company"] == "explicit"
 
 

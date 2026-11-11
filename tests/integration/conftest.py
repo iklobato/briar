@@ -107,18 +107,18 @@ def mock_api():
 @pytest.fixture
 def github_at(mock_api, monkeypatch):
     """Point the REAL PyGithub client at the mock server (keeps its requester,
-    retry, and pagination — only base_url changes). Sets a placeholder token."""
+    retry, and pagination — only base_url changes). Saves a placeholder GitHub
+    login for company `acme` (spec 005: `BRIAR_ACME_GITHUB_TOKEN`)."""
     from briar.extract import _gh
 
-    monkeypatch.setenv("GITHUB_TOKEN", "PLACEHOLDER-not-a-secret")
+    monkeypatch.setenv("BRIAR_ACME_GITHUB_TOKEN", "PLACEHOLDER-not-a-secret")
 
-    def client(cls, token: str = ""):
+    def client(self: _gh.GithubApi) -> object:
         from github import Auth, Github
 
-        tok = cls._require_token(token)
-        return Github(base_url=mock_api.base_url, auth=Auth.Token(tok), per_page=100, retry=0, timeout=10)
+        return Github(base_url=mock_api.base_url, auth=Auth.Token(self._require_token()), per_page=100, retry=0, timeout=10)
 
-    monkeypatch.setattr(_gh.GithubApi, "client", classmethod(client))
+    monkeypatch.setattr(_gh.GithubApi, "client", client)
     return mock_api
 
 
@@ -137,9 +137,10 @@ def bitbucket_at(mock_api, monkeypatch):
 
 @pytest.fixture
 def jira_at(mock_api, monkeypatch):
-    """Point the REAL atlassian Jira client at the mock server (its URL comes
-    from JIRA_<CO>_URL). Caller seeds the REST routes."""
-    monkeypatch.setenv("JIRA_ACME_URL", mock_api.base_url)
-    monkeypatch.setenv("JIRA_ACME_EMAIL", "bot@example.test")
-    monkeypatch.setenv("JIRA_ACME_TOKEN", "PLACEHOLDER-not-a-secret")
+    """Point the REAL atlassian Jira client at the mock server: its site goes in
+    `[auth.jira] site` (G4), so the test writes it with `jira_site_toml`. Saves a
+    placeholder Jira login for company `acme`. Caller seeds the REST routes."""
+    monkeypatch.setenv("BRIAR_ACME_JIRA_EMAIL", "bot@example.test")
+    monkeypatch.setenv("BRIAR_ACME_JIRA_TOKEN", "PLACEHOLDER-not-a-secret")
+    mock_api.jira_site_toml = f'[auth.jira]\nsite = "{mock_api.base_url}"\n'
     return mock_api

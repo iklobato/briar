@@ -2,10 +2,9 @@
 where `/etc/briar/secrets.env` lands once systemd reads it via
 ``EnvironmentFile=``).
 
-This is the only `CredentialStore` backend that needs to work today.
-It exposes the existing env-var surface through the new abstraction
-so `briar auth` and any future store-backed code can use
-one API regardless of where credentials live."""
+The only credential store of briar 2.0 (L3); there is no store interface
+since spec 005 (G16). `briar auth login` writes through it, `briar auth
+status` lists the names it holds."""
 
 from __future__ import annotations
 
@@ -15,7 +14,6 @@ import re
 from typing import List, Optional
 
 from briar.credentials._paths import secrets_path as _secrets_path
-from briar.credentials._store import CredentialStore
 
 
 log = logging.getLogger(__name__)
@@ -77,16 +75,21 @@ def _matcher_for(template: str) -> "re.Pattern[str]":
 
 
 def _derive_known_matchers() -> tuple:
-    from briar.env_vars import CredEnv  # local import to avoid cycle at module load
+    from briar.auth.logins import CompanyLogins  # local imports to avoid a cycle at module load
+    from briar.env_vars import CredEnv
 
-    return tuple(_matcher_for(member.value) for member in CredEnv)
+    # The 2.0 names `BRIAR_<COMPANY>_<SOURCE>_<FIELD>` (spec 005, G7), then the CredEnv
+    # names still in use (AWS, until spec 005 PR 2).
+    sources = "|".join(source.upper() for source in CompanyLogins.SOURCES)
+    return (re.compile(f"^BRIAR_[A-Z0-9_]+_(?:{sources})_[A-Z_]+$"),) + tuple(_matcher_for(member.value) for member in CredEnv)
 
 
 _KNOWN_MATCHERS: tuple = _derive_known_matchers()
 
 
-class EnvFileStore(CredentialStore):
-    kind = "envfile"
+class EnvFileStore:
+    """Reads credentials from the process environment (where the startup bootstrap
+    loaded `secrets.env`) and writes them to `secrets.env`."""
 
     def read(self, name: str) -> Optional[str]:
         return os.environ.get(name)
@@ -156,61 +159,5 @@ class EnvFileStore(CredentialStore):
 
         os.environ[name] = value
 
-    def delete(self, name: str) -> bool:
-        """Remove from both ``os.environ`` and the persisted file.
-        Returns True iff something was actually removed (from either
-        location). Logout-friendly: if neither has the value, return
-        False so the CLI can report "nothing to do"."""
-        _validate_name(name)
-        env_had = name in os.environ
-        if env_had:
-            del os.environ[name]
-
-        path = _secrets_path()
-        file_had = False
-        if path.exists():
-            try:
-                existing = path.read_text()
-            except OSError:
-                return env_had
-            pattern = re.compile(rf"^(?:export\s+)?{re.escape(name)}=.*\n?", re.MULTILINE)
-            if pattern.search(existing):
-                file_had = True
-                updated = pattern.sub("", existing, count=1)
-                tmp = path.with_suffix(path.suffix + ".tmp")
-                try:
-                    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-                    try:
-                        with os.fdopen(fd, "w") as f:
-                            f.write(updated)
-                    except Exception:
-                        try:
-                            os.unlink(str(tmp))
-                        except OSError:
-                            pass
-                        raise
-                    os.replace(str(tmp), str(path))
-                except OSError as exc:
-                    log.warning("envfile-store: could not persist deletion to %s: %s", path, exc)
-            else:
-                # Pattern matched in memory but file didn't actually have it;
-                # nothing to persist. (e.g. duplicate key was already collapsed.)
-                pass
-        elif env_had:
-            # File doesn't exist on disk but the in-memory env had it; only
-            # the env-side deletion happened. Log so operators tailing logs
-            # can tell apart "file never existed" from "file exists, no key
-            # matched" — both look like "nothing to remove" from outside.
-            log.info("envfile-store: secrets file %s does not exist; removed from os.environ only", path)
-
-        return env_had or file_had
-
     def list(self) -> List[str]:
         return sorted(k for k in os.environ if any(m.match(k) for m in _KNOWN_MATCHERS))
-
-    def expires_at(self, name: str) -> str:
-        """AWS STS session tokens carry expiry inside the token itself,
-        but parsing that requires the STS GetSessionToken API. For
-        env-file creds we can't tell — return ``""`` and let the
-        operator rotate based on the local SSO session timeout."""
-        return ""

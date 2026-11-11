@@ -4,8 +4,9 @@ one module + one entry."""
 
 from __future__ import annotations
 
-from typing import Dict, Tuple, Type
+from typing import Dict, Optional, Tuple, Type
 
+from briar.auth.logins import CompanyLogins
 from briar._registry import build_registry
 from briar.errors import CliError
 from briar.extract._tracker import TrackerProvider
@@ -30,12 +31,12 @@ class TrackerRegistry:
         return tuple(TRACKERS.keys())
 
     @classmethod
-    def make(cls, kind: str, company: str = "") -> TrackerProvider:
+    def make(cls, kind: str, logins: Optional[CompanyLogins] = None) -> TrackerProvider:
         tracker_cls = TRACKERS.get(kind)
         if tracker_cls is None:
             known = ", ".join(sorted(TRACKERS.keys()))
             raise CliError(f"unknown tracker {kind!r}; known: {known}")
-        return tracker_cls(company=company)
+        return tracker_cls(logins=logins)
 
 
 make_tracker = TrackerRegistry.make

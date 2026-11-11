@@ -1,34 +1,78 @@
-"""`briar auth`: interactive credential management.
+"""`briar auth`: log into a source and see which logins are set.
 
-Surface mirrors ``gh auth login``: the thing you're logging into is the
-**positional target**, not a named flag.
+The thing you log into is the **positional target**, a source name (spec 005, G9):
 
-  briar auth login github-pat --company acme   # acquire and save to secrets.env
-  briar auth status jira-token --company acme  # which keys that target needs, set or missing
-  briar auth status                            # every credential name held
+  briar auth login jira --company acme                            # asks what `[auth.jira] method` needs
+  briar auth login jira --company acme --runbook runbooks/a.yaml  # the choices of a runbook company (G6)
+  briar auth status jira --company acme                           # the names that login needs, set or missing
+  briar auth status                                               # every credential name held
 
-Two operations since 2.0 (decision C15): `logout`, `refresh` and `list`
-left, and so did `--cred-store`, since `secrets.env` is the only store
-(L3, F1). Dispatch via the ``_ACTIONS`` map (one entry per operation)."""
+The values go to `secrets.env`, the only store (L3, G16); the choices (`method`,
+`site`, `workspace`) come from the config, which briar never writes (H1). Two
+operations since 2.0 (decision C15). The AWS targets of 1.x (`aws-sso`,
+`aws-static`) stay until spec 005 PR 2."""
 
 from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import ClassVar, Dict, List
+from pathlib import Path
+from typing import ClassVar, Dict, List, Tuple
 
 import typer
 
 from briar.auth import AcquirerRegistry, CredentialExpired, Credentials, TerminalPromptIO
+from briar.auth.config import AuthTable
+from briar.auth.logins import CompanyLogins, LoginScope
 from briar.commands._enums import ExitCode
 from briar.commands.base import Command, CommandOptions, RegistryChoice, Route
-from briar.credentials import make_credential_store
+from briar.credentials import EnvFileStore
 from briar.errors import CliError
 
 log = logging.getLogger(__name__)
+
+
+class LoginTargets:
+    """What `briar auth` logs into: the sources of `briar.auth.logins`, then the AWS
+    acquirers of 1.x until spec 005 PR 2."""
+
+    @classmethod
+    def kinds(cls) -> Tuple[str, ...]:
+        return tuple(CompanyLogins.SOURCES) + tuple(AcquirerRegistry.kinds())
+
+
+class AuthChoices:
+    """The login choices of one company: `[auth]` of `.briar.toml`, or
+    `companies.<company>.auth` of the runbook named by `--runbook` (G6)."""
+
+    def __init__(self, company: str, runbook: str) -> None:
+        self._company = company
+        self._runbook = runbook
+
+    def logins(self) -> CompanyLogins:
+        if self._runbook:
+            return self._from_runbook(Path(self._runbook))
+        return self._from_project()
+
+    def _from_project(self) -> CompanyLogins:
+        from briar.config import find_config_file, load_project_config
+
+        path = find_config_file()
+        origin = str(path) if path else ".briar.toml"
+        return CompanyLogins(LoginScope(self._company, origin), AuthTable(load_project_config(), origin).block(), os.environ)
+
+    def _from_runbook(self, path: Path) -> CompanyLogins:
+        from briar.iac.runbook.executor import RunbookLoader
+
+        companies = RunbookLoader.load(path).companies
+        if self._company not in companies:
+            raise CliError(f"company {self._company!r} is not in {path} (companies: {', '.join(companies)})")
+        scope = LoginScope(self._company, str(path), f"companies.{self._company}.auth")
+        return CompanyLogins(scope, companies[self._company].auth, os.environ)
 
 
 class CommandAuth(Command):
@@ -37,12 +81,8 @@ class CommandAuth(Command):
     STORE = "envfile"
 
     OP_HELP = {
-        "login": (
-            "Log into a target. Positional `target` is the thing you're authenticating to: "
-            "a password manager bootstraps a connection; "
-            "a vendor (github-pat / aws-sso / jira-session) acquires credentials and stores them."
-        ),
-        "status": "With a target: the keys it needs and which are set. Without: every credential name held (names only, no values).",
+        "login": "Log into a source: asks what its `[auth.<source>]` method needs and saves it to secrets.env.",
+        "status": "With a source: the names its login needs and which are set. Without: every credential name held (names only, no values).",
     }
 
     _ACTIONS: ClassVar[Dict[str, str]] = {
@@ -68,30 +108,38 @@ class CommandAuth(Command):
     # ────────────────────────────── login ──────────────────────────────
 
     def _login(self, args: argparse.Namespace) -> int:
-        acquirer = AcquirerRegistry.make(args.target)
         log.info("auth-login: target=%s company=%s store=%s", args.target, args.company or "(none)", self.STORE)
-        creds = acquirer.acquire(company=args.company, prompt=TerminalPromptIO())
-        return _persist_and_report(creds, store=make_credential_store(self.STORE), store_kind=self.STORE)
+        if args.target in AcquirerRegistry.kinds():
+            creds = AcquirerRegistry.make(args.target).acquire(company=args.company, prompt=TerminalPromptIO())
+            return _persist_and_report(creds, store=EnvFileStore(), store_kind=self.STORE)
+        entries = AuthChoices(args.company, args.runbook).logins().source(args.target).login(TerminalPromptIO())
+        return _persist_and_report(Credentials(provider_kind=args.target, entries=entries), store=EnvFileStore(), store_kind=self.STORE)
 
     # ────────────────────────────── status ─────────────────────────────
 
     def _status(self, args: argparse.Namespace) -> int:
         if not args.target:
             return self._held(args.company)
-        names = type(AcquirerRegistry.make(args.target)).writes(company=args.company)
-        if not names:
-            self._say(f"auth-status: target={args.target} writes nothing for company={args.company or '(none)'}")
-            return 0
-        store = make_credential_store(self.STORE)
+        names, hint = self._needed(args)
+        store = EnvFileStore()
         self._say(f"auth-status: target={args.target} company={args.company or '(none)'} store={self.STORE}")
         missing = [name for name in names if not store.read(name)]
         for name in names:
             self._say(f"  {'MISS' if name in missing else 'ok  '}  {name}")
+        if hint:
+            self._say(f"  hint: {hint}")
         return 1 if missing else 0
+
+    def _needed(self, args: argparse.Namespace) -> Tuple[List[str], str]:
+        """The names the target's login needs, and the G8 hint when 1.x names stand in for them."""
+        if args.target in AcquirerRegistry.kinds():
+            return type(AcquirerRegistry.make(args.target)).writes(company=args.company), ""
+        login = AuthChoices(args.company, args.runbook).logins().source(args.target)
+        return login.names(), login.legacy_hint()
 
     def _held(self, company: str) -> int:
         """`auth status` with no target: every credential name held, as 1.x `auth list` did."""
-        names = make_credential_store(self.STORE).list()
+        names = EnvFileStore().list()
         token = company.upper().replace("-", "_")
         held = [name for name in names if not company or f"_{token}_" in f"_{name}_"]
         if not held:
@@ -108,7 +156,7 @@ class CommandAuth(Command):
 
 
 def _persist_and_report(creds: Credentials, *, store, store_kind: str) -> int:
-    """Common login/refresh tail: write every entry through the store
+    """Common login tail: write every entry through the store
     and print a summary. Values are NEVER printed — only the key
     names and counts."""
     log.info("auth-persist: store=%s count=%d provider=%s", store_kind, len(creds.entries), creds.provider_kind)
@@ -142,20 +190,23 @@ def _persist_and_report(creds: Credentials, *, store, store_kind: str) -> int:
 
 # ─── Options on Typer ──────────────────────────────────────────────
 
-TARGET_HELP = "What to log into: " + ", ".join(AcquirerRegistry.kinds()) + "."  # read once, for help only
+TARGET_HELP = "What to log into: " + ", ".join(LoginTargets.kinds()) + "."  # read once, for help only
+RUNBOOK_HELP = "Read the login choices from `companies.<company>.auth` of this runbook instead of `.briar.toml`."
 
 
 @dataclass(frozen=True)
 class AuthLoginOptions(CommandOptions):
     ROUTE = Route(CommandAuth.name, "auth_action", "login")
 
-    target: str = typer.Argument(..., metavar="TARGET", callback=RegistryChoice(AcquirerRegistry).check, help=TARGET_HELP)
-    company: str = typer.Option("", "--company", help="Per-company namespace (required for vendor targets).")
+    target: str = typer.Argument(..., metavar="TARGET", callback=RegistryChoice(LoginTargets).check, help=TARGET_HELP)
+    company: str = typer.Option("", "--company", help="The company the login is for (default: `company` in .briar.toml).")
+    runbook: str = typer.Option("", "--runbook", metavar="FILE", help=RUNBOOK_HELP)
 
 
 @dataclass(frozen=True)
 class AuthStatusOptions(CommandOptions):
     ROUTE = Route(CommandAuth.name, "auth_action", "status")
 
-    target: str = typer.Argument("", metavar="[TARGET]", callback=RegistryChoice(AcquirerRegistry).check, help=TARGET_HELP + " Leave it out to list every credential name held.")
-    company: str = typer.Option("", "--company", help="Per-company namespace; without a target, keeps only that company's names.")
+    target: str = typer.Argument("", metavar="[TARGET]", callback=RegistryChoice(LoginTargets).check, help=TARGET_HELP + " Leave it out to list every credential name held.")
+    company: str = typer.Option("", "--company", help="The company; without a target, keeps only that company's names.")
+    runbook: str = typer.Option("", "--runbook", metavar="FILE", help=RUNBOOK_HELP)

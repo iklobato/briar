@@ -13,8 +13,9 @@ inert there)."""
 
 from __future__ import annotations
 
-from typing import Dict, Tuple, Type
+from typing import Dict, Optional, Tuple, Type
 
+from briar.auth.logins import CompanyLogins
 from briar._registry import build_registry
 from briar.errors import CliError
 from briar.extract._provider import RepositoryProvider
@@ -40,12 +41,12 @@ class RepositoryProviderRegistry:
         return tuple(PROVIDERS.keys())
 
     @classmethod
-    def make(cls, kind: str, company: str = "") -> RepositoryProvider:
+    def make(cls, kind: str, logins: Optional[CompanyLogins] = None) -> RepositoryProvider:
         provider_cls = PROVIDERS.get(kind)
         if provider_cls is None:
             known = ", ".join(sorted(PROVIDERS.keys()))
             raise CliError(f"unknown repository provider {kind!r}; known: {known}")
-        return provider_cls(company=company)
+        return provider_cls(logins=logins)
 
 
 # Module-level alias kept stable.

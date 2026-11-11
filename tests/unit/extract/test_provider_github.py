@@ -30,6 +30,7 @@ from github import GithubException
 
 from briar.extract._provider import BranchProtection, CiRun, Commit, Deployment, Environment, PullRequest, Release, ScanAlert, SecurityAlert, TreeEntry
 from briar.extract._providers.github import GithubProvider, _validate_repo
+from tests.unit.fake_logins import FakeLogins
 
 # ---------------------------------------------------------------------------
 # _validate_repo — boundary input validation (NOT swallowed: ValueError)
@@ -342,10 +343,12 @@ class SeamTests(unittest.TestCase):
         self.assertEqual(GithubProvider().clone_url("acme", "app"), "https://github.com/acme/app.git")
 
     def test_is_available_tracks_token(self) -> None:
-        with mock.patch.dict("os.environ", {"GITHUB_TOKEN": "x"}):
-            self.assertTrue(GithubProvider().is_available())
-        with mock.patch.dict("os.environ", {}, clear=True):
-            self.assertFalse(GithubProvider().is_available())
+        self.assertTrue(GithubProvider(logins=FakeLogins(environ={"BRIAR_ACME_GITHUB_TOKEN": "PLACEHOLDER-not-a-secret"}).logins()).is_available())
+        self.assertFalse(GithubProvider(logins=FakeLogins().logins()).is_available())
+
+    def test_sends_the_company_token(self) -> None:
+        provider = GithubProvider(logins=FakeLogins(environ={"BRIAR_ACME_GITHUB_TOKEN": "PLACEHOLDER-not-a-secret"}).logins())
+        self.assertEqual(provider._api().client()._Github__requester.auth.token, "PLACEHOLDER-not-a-secret")
 
 
 # ---------------------------------------------------------------------------

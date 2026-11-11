@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
+from briar.auth.logins import CompanyLogins, GithubLogin
 from briar.decorators import swallow_errors
 from briar.extract._gh import GithubApi
 from briar.extract._tracker import Comment, Ticket, TrackerProvider
@@ -44,23 +45,25 @@ class GithubIssuesTracker(TrackerProvider):
     kind = "github-issues"
     project_is_repo_slug = True
 
-    def __init__(self, *, company: str = "") -> None:
-        # GITHUB_TOKEN is workspace-wide; company is ignored.
-        self._company = company
+    def __init__(self, *, logins: Optional[CompanyLogins] = None) -> None:
+        self._logins = logins
 
     def is_available(self) -> bool:
-        return bool(GithubApi.auth_token())
+        return self._login().ready()
 
-    @classmethod
-    def required_env_vars(cls, company: str = "") -> List[str]:
-        return ["GITHUB_TOKEN"]
+    def _login(self) -> GithubLogin:
+        """The GitHub login of the company (spec 005); with no logins, the defaults of no company."""
+        return (self._logins or CompanyLogins.defaults("")).github()
+
+    def _api(self) -> GithubApi:
+        return GithubApi(self._login().token())
 
     @swallow_errors(default=[], message="github-issues list_tickets")
     def list_tickets(self, project: str, *, state: str, max_count: int) -> List[Ticket]:
         gh_state = "closed" if state == "closed" else "open"
         pages_needed = max(1, (max_count // 100) + 1)
         # GitHub's /issues endpoint returns BOTH issues and PRs; filter out PRs.
-        rows = GithubApi.get_paginated(
+        rows = self._api().get_paginated(
             f"/repos/{project}/issues?state={gh_state}&sort=updated&direction=desc",
             max_pages=pages_needed,
         )
@@ -77,7 +80,7 @@ class GithubIssuesTracker(TrackerProvider):
     def list_comments(self, project: str, ticket_key: str) -> List[Comment]:
         # ticket_key may be "42", "#42", or "<owner>/<repo>#42" (PlanCard.key form)
         number = ticket_key.split("#")[-1]
-        rows = GithubApi.get_paginated(
+        rows = self._api().get_paginated(
             f"/repos/{project}/issues/{number}/comments",
             max_pages=2,
         )
@@ -91,7 +94,7 @@ class GithubIssuesTracker(TrackerProvider):
     @swallow_errors(default=None, message="github-issues get_ticket")
     def get_ticket(self, project: str, ticket_key: str) -> Ticket:
         number = ticket_key.split("#")[-1]
-        data = GithubApi.get_json(f"/repos/{project}/issues/{number}")
+        data = self._api().get_json(f"/repos/{project}/issues/{number}")
         if not isinstance(data, dict):
             return super().get_ticket(project, ticket_key)
         ticket = self._to_ticket(data, project)
@@ -103,7 +106,7 @@ class GithubIssuesTracker(TrackerProvider):
         # The "timeline" event API gives us the open/close history, which
         # is enough to surface "reopened twice" patterns.
         number = ticket_key.split("#")[-1]
-        events = GithubApi.get_paginated(
+        events = self._api().get_paginated(
             f"/repos/{project}/issues/{number}/events",
             max_pages=1,
         )

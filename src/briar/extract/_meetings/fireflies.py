@@ -20,8 +20,8 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from briar._http_retry import urlopen_with_retry
+from briar.auth.logins import CompanyLogins, FirefliesLogin
 from briar.decorators import swallow_errors
-from briar.env_vars import CredEnv
 from briar.extract._meeting import Meeting, MeetingDetail, MeetingProvider
 
 log = logging.getLogger(__name__)
@@ -38,18 +38,14 @@ _MAX_LIMIT = 50
 class FirefliesMeetingProvider(MeetingProvider):
     kind = "fireflies"
 
-    def __init__(self, *, company: str = "") -> None:
-        self._company = company
-        self._token = CredEnv.FIREFLIES_API_KEY.read(company=company) if company else ""
+    def __init__(self, *, logins: Optional[CompanyLogins] = None) -> None:
+        self._logins = logins
+
+    def _login(self) -> FirefliesLogin:
+        return (self._logins or CompanyLogins.defaults("")).fireflies()
 
     def is_available(self) -> bool:
-        return bool(self._token)
-
-    @classmethod
-    def required_env_vars(cls, company: str = "") -> List[str]:
-        if not company:
-            return []
-        return [CredEnv.FIREFLIES_API_KEY.for_company(company)]
+        return self._login().ready()
 
     @swallow_errors(default=[], message="fireflies list_meetings")
     def list_meetings(self, *, since_iso: str, until_iso: str, max_count: int, attendees: Optional[List[str]] = None) -> List[Meeting]:
@@ -111,7 +107,7 @@ class FirefliesMeetingProvider(MeetingProvider):
             _ENDPOINT,
             data=payload,
             headers={
-                "Authorization": f"Bearer {self._token}",
+                "Authorization": f"Bearer {self._login().api_key()}",
                 "Content-Type": "application/json",
             },
             method="POST",

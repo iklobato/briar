@@ -14,11 +14,11 @@ import json
 import logging
 import urllib.request
 from dataclasses import replace
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from briar._http_retry import urlopen_with_retry
+from briar.auth.logins import CompanyLogins, LinearLogin
 from briar.decorators import swallow_errors
-from briar.env_vars import CredEnv
 from briar.extract._tracker import Comment, Ticket, TrackerProvider
 
 
@@ -37,18 +37,14 @@ _STATE_TYPES_CLOSED = ("completed", "cancelled")
 class LinearTracker(TrackerProvider):
     kind = "linear"
 
-    def __init__(self, *, company: str = "") -> None:
-        self._company = company
-        self._token = CredEnv.LINEAR_TOKEN.read(company=company) if company else ""
+    def __init__(self, *, logins: Optional[CompanyLogins] = None) -> None:
+        self._logins = logins
+
+    def _login(self) -> LinearLogin:
+        return (self._logins or CompanyLogins.defaults("")).linear()
 
     def is_available(self) -> bool:
-        return bool(self._token)
-
-    @classmethod
-    def required_env_vars(cls, company: str = "") -> List[str]:
-        if not company:
-            return []
-        return [CredEnv.LINEAR_TOKEN.for_company(company)]
+        return self._login().ready()
 
     @swallow_errors(default=[], message="linear list_tickets")
     def list_tickets(self, project: str, *, state: str, max_count: int) -> List[Ticket]:
@@ -128,7 +124,7 @@ class LinearTracker(TrackerProvider):
             _ENDPOINT,
             data=payload,
             headers={
-                "Authorization": self._token,  # NO "Bearer " — Linear-specific
+                "Authorization": self._login().authorization(),
                 "Content-Type": "application/json",
             },
             method="POST",

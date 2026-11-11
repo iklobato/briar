@@ -73,11 +73,10 @@ class ClientConstructionTests(unittest.TestCase):
     def test_builds_github_with_token_and_tuning(self) -> None:
         # We patch the constructors PyGithub exposes so no real client is
         # built; assert the boundary config the facade pins (per_page/retry/timeout).
-        with mock.patch.dict("os.environ", {"GITHUB_TOKEN": "ghp_real"}):
-            with mock.patch("github.Github") as github_cls, mock.patch("github.Auth") as auth_mod:
-                auth_mod.Token.return_value = "auth-obj"
-                GithubApi.client()
-        auth_mod.Token.assert_called_once_with("ghp_real")
+        with mock.patch("github.Github") as github_cls, mock.patch("github.Auth") as auth_mod:
+            auth_mod.Token.return_value = "auth-obj"
+            GithubApi("fake-company-token").client()
+        auth_mod.Token.assert_called_once_with("fake-company-token")
         _, kwargs = github_cls.call_args
         self.assertEqual(kwargs["auth"], "auth-obj")
         self.assertEqual(kwargs["per_page"], 100)
@@ -85,39 +84,28 @@ class ClientConstructionTests(unittest.TestCase):
         self.assertEqual(kwargs["timeout"], 30)
 
     def test_client_raises_clierror_without_token(self) -> None:
-        with mock.patch.dict("os.environ", {}, clear=True):
-            with self.assertRaises(CliError):
-                GithubApi.client()
+        with self.assertRaises(CliError):
+            GithubApi("").client()
 
 
 # ---------------------------------------------------------------------------
-# auth_token / _require_token
+# The company token (spec 005)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.boundary
-class AuthTokenTests(unittest.TestCase):
-    def test_auth_token_strips_whitespace(self) -> None:
-        with mock.patch.dict("os.environ", {"GITHUB_TOKEN": "  ghp_abc  "}):
-            self.assertEqual(GithubApi.auth_token(), "ghp_abc")
+class CompanyTokenTests(unittest.TestCase):
+    def test_strips_whitespace_of_the_token(self) -> None:
+        with mock.patch("github.Github"), mock.patch("github.Auth") as auth_mod:
+            GithubApi("  fake-token  ").client()
+        auth_mod.Token.assert_called_once_with("fake-token")
 
-    def test_auth_token_empty_when_unset(self) -> None:
-        with mock.patch.dict("os.environ", {}, clear=True):
-            self.assertEqual(GithubApi.auth_token(), "")
-
-    def test_require_token_prefers_explicit_arg(self) -> None:
-        with mock.patch.dict("os.environ", {"GITHUB_TOKEN": "from_env"}):
-            self.assertEqual(GithubApi._require_token("explicit"), "explicit")
-
-    def test_require_token_falls_back_to_env(self) -> None:
-        with mock.patch.dict("os.environ", {"GITHUB_TOKEN": "from_env"}):
-            self.assertEqual(GithubApi._require_token(""), "from_env")
-
-    def test_require_token_raises_clierror_when_missing(self) -> None:
-        with mock.patch.dict("os.environ", {}, clear=True):
+    def test_never_reads_the_github_token_env_var(self) -> None:
+        """G25: a set $GITHUB_TOKEN does not stand in for a missing company login."""
+        with mock.patch.dict("os.environ", {"GITHUB_TOKEN": "fake-from-env"}):
             with self.assertRaises(CliError) as ctx:
-                GithubApi._require_token("")
-        self.assertIn("GitHub credentials missing", str(ctx.exception))
+                GithubApi("").client()
+        self.assertEqual(str(ctx.exception), "no GitHub login: run `briar auth login github --company <company>`")
 
 
 # ---------------------------------------------------------------------------
@@ -131,7 +119,7 @@ class GetJsonTests(unittest.TestCase):
         payload = {"id": 1, "title": "hi"}  # https://docs.github.com/en/rest/issues
         req = _FakeRequester([({"x-ratelimit-remaining": "4999"}, payload)])
         with _client_returning(req):
-            out = GithubApi.get_json("/repos/acme/app/issues/1")
+            out = GithubApi("fake-token").get_json("/repos/acme/app/issues/1")
         self.assertEqual(out, payload)
         self.assertEqual(req.calls, [("GET", "/repos/acme/app/issues/1")])
 
@@ -142,7 +130,7 @@ class GetJsonTests(unittest.TestCase):
         req = _FakeRequester([err])
         with _client_returning(req):
             with self.assertRaises(GithubException) as ctx:
-                GithubApi.get_json("/repos/acme/app/issues/999")
+                GithubApi("fake-token").get_json("/repos/acme/app/issues/999")
         self.assertEqual(ctx.exception.status, 404)
 
     def test_propagates_auth_exception_on_401(self) -> None:
@@ -150,7 +138,7 @@ class GetJsonTests(unittest.TestCase):
         req = _FakeRequester([err])
         with _client_returning(req):
             with self.assertRaises(GithubException) as ctx:
-                GithubApi.get_json("/repos/acme/app/issues/1")
+                GithubApi("fake-token").get_json("/repos/acme/app/issues/1")
         self.assertEqual(ctx.exception.status, 401)
 
 
@@ -165,7 +153,7 @@ class GetPaginatedTests(unittest.TestCase):
         rows = [{"number": 1}, {"number": 2}]
         req = _FakeRequester([({"x-ratelimit-remaining": "4998"}, rows)])
         with _client_returning(req):
-            out = GithubApi.get_paginated("/repos/acme/app/issues")
+            out = GithubApi("fake-token").get_paginated("/repos/acme/app/issues")
         self.assertEqual(out, rows)
         # per_page appended; first path gets the ? separator.
         self.assertEqual(req.calls, [("GET", "/repos/acme/app/issues?per_page=100")])
@@ -185,7 +173,7 @@ class GetPaginatedTests(unittest.TestCase):
             ]
         )
         with _client_returning(req):
-            out = GithubApi.get_paginated("/repos/acme/app/issues")
+            out = GithubApi("fake-token").get_paginated("/repos/acme/app/issues")
         self.assertEqual([r["number"] for r in out], [1, 2, 3])
         # Second call uses the relative path stripped of the api.github.com base.
         self.assertEqual(req.calls[0], ("GET", "/repos/acme/app/issues?per_page=100"))
@@ -194,7 +182,7 @@ class GetPaginatedTests(unittest.TestCase):
     def test_empty_page_yields_empty_list(self) -> None:
         req = _FakeRequester([({"x-ratelimit-remaining": "5000"}, [])])
         with _client_returning(req):
-            out = GithubApi.get_paginated("/repos/acme/app/issues")
+            out = GithubApi("fake-token").get_paginated("/repos/acme/app/issues")
         self.assertEqual(out, [])
 
     def test_non_list_payload_is_skipped_not_appended(self) -> None:
@@ -202,13 +190,13 @@ class GetPaginatedTests(unittest.TestCase):
         # `isinstance(page, list)` guards against polluting the result.
         req = _FakeRequester([({"x-ratelimit-remaining": "1"}, {"message": "weird"})])
         with _client_returning(req):
-            out = GithubApi.get_paginated("/repos/acme/app/issues")
+            out = GithubApi("fake-token").get_paginated("/repos/acme/app/issues")
         self.assertEqual(out, [])
 
     def test_appends_per_page_with_ampersand_when_query_present(self) -> None:
         req = _FakeRequester([({}, [])])
         with _client_returning(req):
-            GithubApi.get_paginated("/repos/acme/app/issues?state=open", per_page=50)
+            GithubApi("fake-token").get_paginated("/repos/acme/app/issues?state=open", per_page=50)
         self.assertEqual(req.calls[0], ("GET", "/repos/acme/app/issues?state=open&per_page=50"))
 
     def test_respects_max_pages_and_warns_on_truncation(self) -> None:
@@ -224,7 +212,7 @@ class GetPaginatedTests(unittest.TestCase):
             ]
         )
         with _client_returning(req):
-            out = GithubApi.get_paginated("/repos/acme/app/issues", max_pages=2)
+            out = GithubApi("fake-token").get_paginated("/repos/acme/app/issues", max_pages=2)
         self.assertEqual([r["number"] for r in out], [1, 2])
         self.assertEqual(len(req.calls), 2)
 
@@ -235,7 +223,7 @@ class GetPaginatedTests(unittest.TestCase):
         req = _FakeRequester([err])
         with _client_returning(req):
             with self.assertRaises(GithubException) as ctx:
-                GithubApi.get_paginated("/repos/acme/app/issues")
+                GithubApi("fake-token").get_paginated("/repos/acme/app/issues")
         self.assertEqual(ctx.exception.status, 403)
 
 

@@ -71,35 +71,14 @@ class TestWrite:
             EnvFileStore().write(name, "value")
 
 
-class TestDelete:
-    def test_delete_removes_from_env_and_file(self, envfile_root) -> None:
-        s = EnvFileStore()
-        s.write("MY_VAR", "value")
-        assert s.delete("MY_VAR") is True
-        assert "MY_VAR" not in os.environ
-        assert "MY_VAR=" not in envfile_root.read_text()
-
-    def test_delete_missing_returns_false(self, envfile_root) -> None:
-        assert EnvFileStore().delete("NEVER_SET") is False
-
-    def test_delete_env_only_returns_true(self, envfile_root, monkeypatch) -> None:
-        # In env but not in file
-        monkeypatch.setenv("MY_VAR", "value")
-        assert EnvFileStore().delete("MY_VAR") is True
-
-
 class TestList:
     def test_list_returns_known_prefix_keys_only(self, envfile_root, monkeypatch) -> None:
         monkeypatch.setenv("AWS_X_ACCESS_KEY_ID", "x")
-        monkeypatch.setenv("GITHUB_TOKEN", "ghp_x")
+        monkeypatch.setenv("BRIAR_X_JIRA_TOKEN", "PLACEHOLDER-not-a-secret")
+        monkeypatch.setenv("GITHUB_TOKEN", "ghp_x")  # a 1.x name briar no longer reads
         monkeypatch.setenv("UNRELATED_VAR", "x")  # not a credential prefix
         names = EnvFileStore().list()
         assert "AWS_X_ACCESS_KEY_ID" in names
-        assert "GITHUB_TOKEN" in names
+        assert "BRIAR_X_JIRA_TOKEN" in names
+        assert "GITHUB_TOKEN" not in names
         assert "UNRELATED_VAR" not in names
-
-
-class TestExpiresAt:
-    def test_expires_at_returns_empty_string(self, envfile_root) -> None:
-        # EnvFileStore doesn't track expiry; returns empty.
-        assert EnvFileStore().expires_at("MY_VAR") == ""

@@ -6,27 +6,22 @@ library handles auth, pagination, retry, and typed PR / Pipeline /
 Environment models — the work in this file is one thing: translate
 its objects into the `_provider` dataclasses the extractors consume.
 
-Auth: per-company. ``BITBUCKET_<COMPANY>_USERNAME`` +
-``BITBUCKET_<COMPANY>_APP_PASSWORD`` + ``BITBUCKET_<COMPANY>_WORKSPACE``
-(see ``CredEnv``). Empty company means generic provider —
-``is_available()`` returns False and the extractor short-circuits.
-
-For Bitbucket workspace/repository access tokens (``ATCTT…`` prefix), set
-``BITBUCKET_<COMPANY>_USERNAME=x-token-auth`` and put the token in
-``BITBUCKET_<COMPANY>_APP_PASSWORD``. The provider auto-detects the sentinel
-and switches to Bearer auth (workspace tokens reject HTTP basic).
+Auth: the company login (`[auth.bitbucket]`, spec 005): an Atlassian API
+token with the account email (HTTP Basic, the default), a workspace or
+repository access token (Bearer, `method = "access-token"`), or the pasted
+browser `Cookie:` header (read only). See `briar.auth.logins.BitbucketLogin`.
 
 Repo address convention: callers pass ``<workspace>/<repo_slug>`` to
 match the GitHub convention; if a bare ``<repo_slug>`` is supplied,
-the env-var workspace is used as the prefix."""
+the `workspace` of `[auth.bitbucket]` is used as the prefix."""
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
+from briar.auth.logins import BitbucketLogin, CompanyLogins
 from briar.decorators import swallow_errors
-from briar.env_vars import CredEnv
 from briar.extract._provider import (
     CiFailure,
     CiRun,
@@ -81,12 +76,12 @@ class BitbucketProvider(RepositoryProvider):
     kind = "bitbucket"
     BASE = "https://api.bitbucket.org/"
 
-    def __init__(self, *, company: str = "") -> None:
-        self._company = company
-        self._username = CredEnv.BITBUCKET_USERNAME.read(company=company) if company else ""
-        self._app_password = CredEnv.BITBUCKET_APP_PASSWORD.read(company=company) if company else ""
-        self._workspace_slug = CredEnv.BITBUCKET_WORKSPACE.read(company=company) if company else ""
+    def __init__(self, *, logins: Optional[CompanyLogins] = None) -> None:
+        self._logins = logins
         self._client = None
+
+    def _login(self) -> BitbucketLogin:
+        return (self._logins or CompanyLogins.defaults("")).bitbucket()
 
     def _cloud(self):
         """Lazy-construct the Cloud client. The library doesn't
@@ -95,24 +90,13 @@ class BitbucketProvider(RepositoryProvider):
         if self._client is None:
             from atlassian.bitbucket.cloud import Cloud
 
-            if self._username == "x-token-auth":
-                # Workspace/repository access tokens reject basic auth.
-                self._client = Cloud(url=self.BASE, token=self._app_password, timeout=30)
-            else:
-                self._client = Cloud(
-                    url=self.BASE,
-                    username=self._username,
-                    password=self._app_password,
-                    timeout=30,
-                )
+            self._client = Cloud(url=self.BASE, timeout=30, **self._login().client_kwargs())
         return self._client
 
     # ---- clone + auth seam (lifted from former BitbucketRepoCloner) ------
 
     def resolve_token(self) -> str:
-        if not self._company:
-            return ""
-        return (CredEnv.BITBUCKET_APP_PASSWORD.read(company=self._company) or "").strip()
+        return self._login().push_token()
 
     def clone_url(self, owner: str, repo: str) -> str:
         return f"https://bitbucket.org/{owner}/{repo}.git"
@@ -122,12 +106,12 @@ class BitbucketProvider(RepositoryProvider):
         return f"https://x-token-auth:{token}@bitbucket.org/{owner}/{repo}.git"
 
     def pr_creation_recipe(self, *, owner: str, repo: str, branch: str, base: str = "") -> str:
-        # The agent's bash tool blocks curl, so the agent writes this script
-        # under `.git/` (never committed) and runs it with python3. Auth
-        # matches `_cloud`: workspace tokens need Bearer, app passwords Basic.
+        # The agent's bash tool blocks curl: it saves this script under `.git/` (never committed)
+        # and runs it with python3. Bearer for an access token, Basic for the API token.
+        user_env, token_env = self._login().push_env_names()
         script = (
-            _PR_SCRIPT.replace("__USER_ENV__", CredEnv.BITBUCKET_USERNAME.for_company(self._company))
-            .replace("__TOKEN_ENV__", CredEnv.BITBUCKET_APP_PASSWORD.for_company(self._company))
+            _PR_SCRIPT.replace("__USER_ENV__", user_env)
+            .replace("__TOKEN_ENV__", token_env)
             .replace("__URL__", f"{self.BASE}2.0/repositories/{owner}/{repo}/pullrequests")
             .replace("__BRANCH__", branch)
             .replace("__BASE__", base)
@@ -146,30 +130,20 @@ class BitbucketProvider(RepositoryProvider):
         """Split ``repo`` into ``(workspace_slug, repo_slug)``. Accepts
         either ``<workspace>/<slug>`` (matches GitHub `owner/repo`
         convention) or a bare ``<slug>`` (uses the configured workspace
-        env var)."""
+        `workspace` of `[auth.bitbucket]`)."""
         if "/" in repo:
             workspace_slug, _, repo_slug = repo.partition("/")
             return workspace_slug, repo_slug
-        if not self._workspace_slug:
-            raise RuntimeError(f"BitbucketProvider: repo {repo!r} is bare and no BITBUCKET_<COMPANY>_WORKSPACE is set")
-        return self._workspace_slug, repo
+        if not self._login().workspace():
+            raise RuntimeError(f"BitbucketProvider: repo {repo!r} is bare and `[auth.bitbucket] workspace` is not set")
+        return self._login().workspace(), repo
 
     def _repo(self, repo: str):
         workspace_slug, repo_slug = self._resolve_addr(repo)
         return self._cloud().workspaces.get(workspace_slug).repositories.get(repo_slug)
 
     def is_available(self) -> bool:
-        return bool(self._username and self._app_password and self._workspace_slug)
-
-    @classmethod
-    def required_env_vars(cls, company: str = "") -> List[str]:
-        if not company:
-            return []
-        return [
-            CredEnv.BITBUCKET_USERNAME.for_company(company),
-            CredEnv.BITBUCKET_APP_PASSWORD.for_company(company),
-            CredEnv.BITBUCKET_WORKSPACE.for_company(company),
-        ]
+        return self._login().ready()
 
     @swallow_errors(default=[], message="bitbucket list_pulls")
     def list_pulls(self, repo: str, *, state: str, max_count: int) -> List[PullRequest]:

@@ -6,19 +6,17 @@ and normalises the response into the dataclasses defined in
 stays inside `GithubApi` (PyGithub-backed) — this file is pure
 translation.
 
-Auth: `$GITHUB_TOKEN`, workspace-wide. The `company` constructor
-parameter is accepted for the abstract contract but ignored — GitHub
-PATs span every org the token has access to, so there's no per-tenant
-env-var lookup. (Compare with `BitbucketProvider`, where `company`
-drives `CredEnv.BITBUCKET_<COMPANY>_*`.)"""
+Auth: the GitHub login of the company (`briar.auth.logins.GithubLogin`,
+spec 005), one account per company (L2)."""
 
 from __future__ import annotations
 
 import base64
 import logging
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
+from briar.auth.logins import CompanyLogins, GithubLogin
 from briar.decorators import swallow_errors
 from briar.extract._gh import GithubApi
 from briar.extract._provider import (
@@ -55,23 +53,23 @@ def _validate_repo(repo: str) -> None:
 class GithubProvider(RepositoryProvider):
     kind = "github"
 
-    def __init__(self, *, company: str = "") -> None:
-        # `company` is part of the abstract signature but inert here —
-        # GitHub credentials are workspace-wide.
-        self._company = company
+    def __init__(self, *, logins: Optional[CompanyLogins] = None) -> None:
+        self._logins = logins
 
     def is_available(self) -> bool:
-        return bool(GithubApi.auth_token())
+        return self._login().ready()
 
-    @classmethod
-    def required_env_vars(cls, company: str = "") -> List[str]:
-        # GITHUB_TOKEN is workspace-wide; the company arg is inert.
-        return ["GITHUB_TOKEN"]
+    def _login(self) -> GithubLogin:
+        """The GitHub login of the company (spec 005); with no logins, the defaults of no company."""
+        return (self._logins or CompanyLogins.defaults("")).github()
+
+    def _api(self) -> GithubApi:
+        return GithubApi(self._login().token())
 
     # ---- clone + auth seam (lifted from former GithubRepoCloner) ---------
 
     def resolve_token(self) -> str:
-        return GithubApi.auth_token()
+        return self._login().token()
 
     def clone_url(self, owner: str, repo: str) -> str:
         return f"https://github.com/{owner}/{repo}.git"
@@ -102,14 +100,14 @@ class GithubProvider(RepositoryProvider):
         gh_state = "closed" if state == "merged" else state
         pages_needed = max(1, (max_count // 100) + 1)
         path = f"/repos/{repo}/pulls?state={gh_state}&sort=updated&direction=desc"
-        rows = GithubApi.get_paginated(path, max_pages=pages_needed)
+        rows = self._api().get_paginated(path, max_pages=pages_needed)
         if state == "merged":
             rows = [r for r in rows if r.get("merged_at") is not None]
         return [self._to_pull(r) for r in rows[:max_count]]
 
     def list_environments(self, repo: str) -> List[Environment]:
         _validate_repo(repo)
-        envelope = GithubApi.get_json(f"/repos/{repo}/environments")
+        envelope = self._api().get_json(f"/repos/{repo}/environments")
         envs = envelope.get("environments", []) if isinstance(envelope, dict) else []
         out: List[Environment] = []
         for e in envs:
@@ -124,7 +122,7 @@ class GithubProvider(RepositoryProvider):
 
     def list_deployments(self, repo: str, *, limit: int) -> List[Deployment]:
         _validate_repo(repo)
-        rows = GithubApi.get_paginated(
+        rows = self._api().get_paginated(
             f"/repos/{repo}/deployments",
             max_pages=1,
             per_page=min(limit, 100),
@@ -144,7 +142,7 @@ class GithubProvider(RepositoryProvider):
 
     def list_ci_runs(self, repo: str, *, limit: int) -> List[CiRun]:
         _validate_repo(repo)
-        envelope = GithubApi.get_json(f"/repos/{repo}/actions/runs?per_page={limit}")
+        envelope = self._api().get_json(f"/repos/{repo}/actions/runs?per_page={limit}")
         runs = envelope.get("workflow_runs", []) if isinstance(envelope, dict) else []
         out: List[CiRun] = []
         for r in runs[:limit]:
@@ -164,7 +162,7 @@ class GithubProvider(RepositoryProvider):
     def read_file(self, repo: str, path: str) -> str:
         _validate_repo(repo)
         try:
-            resp = GithubApi.get_json(f"/repos/{repo}/contents/{path}")
+            resp = self._api().get_json(f"/repos/{repo}/contents/{path}")
         except Exception:  # noqa: BLE001 — 404 is the common case
             return ""
         if not isinstance(resp, dict) or resp.get("type") != "file":
@@ -181,7 +179,7 @@ class GithubProvider(RepositoryProvider):
     @swallow_errors(default=None, message="github get_pull")
     def get_pull(self, repo: str, number: int) -> PullRequest:
         _validate_repo(repo)
-        data = GithubApi.get_json(f"/repos/{repo}/pulls/{number}")
+        data = self._api().get_json(f"/repos/{repo}/pulls/{number}")
         if not isinstance(data, dict):
             return super().get_pull(repo, number)
         return self._to_pull(data)
@@ -196,9 +194,9 @@ class GithubProvider(RepositoryProvider):
         "Request changes" with their body) — return different shapes;
         this method merges them into one ReviewComment list."""
         _validate_repo(repo)
-        inline = GithubApi.get_paginated(f"/repos/{repo}/pulls/{number}/comments", max_pages=2) or []
-        top_level = GithubApi.get_paginated(f"/repos/{repo}/issues/{number}/comments", max_pages=2) or []
-        reviews = GithubApi.get_paginated(f"/repos/{repo}/pulls/{number}/reviews", max_pages=2) or []
+        inline = self._api().get_paginated(f"/repos/{repo}/pulls/{number}/comments", max_pages=2) or []
+        top_level = self._api().get_paginated(f"/repos/{repo}/issues/{number}/comments", max_pages=2) or []
+        reviews = self._api().get_paginated(f"/repos/{repo}/pulls/{number}/reviews", max_pages=2) or []
         out: List[ReviewComment] = []
         for c in inline:
             out.append(
@@ -253,11 +251,11 @@ class GithubProvider(RepositoryProvider):
         gives status; the log requires a second call against
         `/actions/jobs/{job_id}/logs` (text, not JSON)."""
         _validate_repo(repo)
-        pr = GithubApi.get_json(f"/repos/{repo}/pulls/{number}")
+        pr = self._api().get_json(f"/repos/{repo}/pulls/{number}")
         head_sha = (pr.get("head") or {}).get("sha") if isinstance(pr, dict) else ""
         if not head_sha:
             return []
-        envelope = GithubApi.get_json(f"/repos/{repo}/commits/{head_sha}/check-runs?per_page=50")
+        envelope = self._api().get_json(f"/repos/{repo}/commits/{head_sha}/check-runs?per_page=50")
         runs = envelope.get("check_runs", []) if isinstance(envelope, dict) else []
         out: List[CiFailure] = []
         for run in runs:
@@ -281,11 +279,10 @@ class GithubProvider(RepositoryProvider):
             )
         return out
 
-    @staticmethod
-    def _tail_check_run_log(repo: str, run_id: Any) -> str:
+    def _tail_check_run_log(self, repo: str, run_id: Any) -> str:
         if not run_id:
             return ""
-        gh = GithubApi.client()
+        gh = self._api().client()
         try:
             headers, body = gh._Github__requester.requestJsonAndCheck("GET", f"/repos/{repo}/actions/jobs/{run_id}/logs")
         except Exception:  # noqa: BLE001
@@ -306,12 +303,11 @@ class GithubProvider(RepositoryProvider):
     # code-hotspots use case where N>50 adds no signal.
     _COMMIT_FILE_DETAIL_CAP = 50
 
-    @staticmethod
-    def _fetch_commit_files(repo: str, sha: str) -> List[str]:
+    def _fetch_commit_files(self, repo: str, sha: str) -> List[str]:
         """Per-commit file-list fetch. Extracted from `list_recent_commits`
         so the per-commit IO is named and one-liner-callable. Returns
         empty list on any shape that isn't a dict-with-files."""
-        detail = GithubApi.get_json(f"/repos/{repo}/commits/{sha}")
+        detail = self._api().get_json(f"/repos/{repo}/commits/{sha}")
         if not isinstance(detail, dict):
             return []
         return [f.get("filename") or "" for f in (detail.get("files") or []) if f.get("filename")]
@@ -325,7 +321,7 @@ class GithubProvider(RepositoryProvider):
 
         since = (datetime.now(timezone.utc) - timedelta(days=since_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
         pages = max(1, (max_count // 100) + 1)
-        rows = GithubApi.get_paginated(f"/repos/{repo}/commits?since={since}", max_pages=pages)
+        rows = self._api().get_paginated(f"/repos/{repo}/commits?since={since}", max_pages=pages)
         out: List[Commit] = []
         for r in rows[:max_count]:
             sha = str(r.get("sha") or "")
@@ -350,7 +346,7 @@ class GithubProvider(RepositoryProvider):
     def list_dependabot_alerts(self, repo: str, *, max_count: int = 200) -> List[SecurityAlert]:
         _validate_repo(repo)
         pages = max(1, (max_count // 100) + 1)
-        rows = GithubApi.get_paginated(f"/repos/{repo}/dependabot/alerts?state=open", max_pages=pages)
+        rows = self._api().get_paginated(f"/repos/{repo}/dependabot/alerts?state=open", max_pages=pages)
         out: List[SecurityAlert] = []
         for a in rows[:max_count]:
             advisory = a.get("security_advisory") or {}
@@ -371,7 +367,7 @@ class GithubProvider(RepositoryProvider):
     def list_code_scanning_alerts(self, repo: str, *, max_count: int = 200) -> List[ScanAlert]:
         _validate_repo(repo)
         pages = max(1, (max_count // 100) + 1)
-        rows = GithubApi.get_paginated(f"/repos/{repo}/code-scanning/alerts?state=open", max_pages=pages)
+        rows = self._api().get_paginated(f"/repos/{repo}/code-scanning/alerts?state=open", max_pages=pages)
         out: List[ScanAlert] = []
         for a in rows[:max_count]:
             rule = a.get("rule") or {}
@@ -390,7 +386,7 @@ class GithubProvider(RepositoryProvider):
     @swallow_errors(default=None, message="github default_branch")
     def default_branch(self, repo: str) -> str:
         _validate_repo(repo)
-        data = GithubApi.get_json(f"/repos/{repo}")
+        data = self._api().get_json(f"/repos/{repo}")
         return (data.get("default_branch") or "") if isinstance(data, dict) else ""
 
     @swallow_errors(default=None, message="github get_branch_protection")
@@ -398,7 +394,7 @@ class GithubProvider(RepositoryProvider):
         _validate_repo(repo)
         branch = branch or self.default_branch(repo) or "main"
         try:
-            data = GithubApi.get_json(f"/repos/{repo}/branches/{branch}/protection")
+            data = self._api().get_json(f"/repos/{repo}/branches/{branch}/protection")
         except Exception:  # noqa: BLE001 — 404 = no protection rule, the common case
             return BranchProtection(branch=branch, exists=False)
         if not isinstance(data, dict):
@@ -417,7 +413,7 @@ class GithubProvider(RepositoryProvider):
     def list_releases(self, repo: str, *, max_count: int = 100) -> List[Release]:
         _validate_repo(repo)
         pages = max(1, (max_count // 100) + 1)
-        rows = GithubApi.get_paginated(f"/repos/{repo}/releases", max_pages=pages)
+        rows = self._api().get_paginated(f"/repos/{repo}/releases", max_pages=pages)
         out: List[Release] = []
         for r in rows[:max_count]:
             out.append(
@@ -435,7 +431,7 @@ class GithubProvider(RepositoryProvider):
         _validate_repo(repo)
         # GitHub code-search is its own endpoint with a tight rate limit
         # (10 req/min); one page is plenty for a density signal.
-        envelope = GithubApi.get_json(f"/search/code?q={query}+repo:{repo}&per_page={min(max_count, 100)}")
+        envelope = self._api().get_json(f"/search/code?q={query}+repo:{repo}&per_page={min(max_count, 100)}")
         items = envelope.get("items", []) if isinstance(envelope, dict) else []
         counts: Dict[str, int] = {}
         for it in items[:max_count]:
@@ -448,7 +444,7 @@ class GithubProvider(RepositoryProvider):
     def list_tree(self, repo: str, *, max_count: int = 5000) -> List[TreeEntry]:
         _validate_repo(repo)
         branch = self.default_branch(repo) or "main"
-        data = GithubApi.get_json(f"/repos/{repo}/git/trees/{branch}?recursive=1")
+        data = self._api().get_json(f"/repos/{repo}/git/trees/{branch}?recursive=1")
         nodes = data.get("tree", []) if isinstance(data, dict) else []
         out: List[TreeEntry] = []
         for n in nodes[:max_count]:

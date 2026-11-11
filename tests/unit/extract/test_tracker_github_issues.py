@@ -28,6 +28,7 @@ from github import GithubException
 
 from briar.extract._tracker import Comment, Ticket
 from briar.extract._trackers.github_issues import GithubIssuesTracker, _kind_priority_from_labels
+from tests.unit.fake_logins import FakeLogins
 
 
 def _issue_row(**over):
@@ -266,15 +267,10 @@ class ListStatusTransitionsTests(unittest.TestCase):
 @pytest.mark.boundary
 class AvailabilityAndLabelTests(unittest.TestCase):
     def test_is_available_true_with_token(self) -> None:
-        with mock.patch.dict("os.environ", {"GITHUB_TOKEN": "ghp_x"}):
-            self.assertTrue(GithubIssuesTracker().is_available())
+        self.assertTrue(GithubIssuesTracker(logins=FakeLogins(environ={"BRIAR_ACME_GITHUB_TOKEN": "PLACEHOLDER-not-a-secret"}).logins()).is_available())
 
     def test_is_available_false_without_token(self) -> None:
-        with mock.patch.dict("os.environ", {}, clear=True):
-            self.assertFalse(GithubIssuesTracker().is_available())
-
-    def test_required_env_vars(self) -> None:
-        self.assertEqual(GithubIssuesTracker.required_env_vars("acme"), ["GITHUB_TOKEN"])
+        self.assertFalse(GithubIssuesTracker(logins=FakeLogins().logins()).is_available())
 
     def test_kind_priority_first_match_wins(self) -> None:
         kind, priority = _kind_priority_from_labels(["story", "bug", "P1", "priority/low"])

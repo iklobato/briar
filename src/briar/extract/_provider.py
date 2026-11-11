@@ -376,13 +376,3 @@ class RepositoryProvider(ABC):
         """Full file tree of the default branch. Empty default. Used by
         the `test-discipline` extractor."""
         return []
-
-    @classmethod
-    def required_env_vars(cls, company: str = "") -> List[str]:
-        """Canonical env-var names this provider needs to be usable for
-        the given company. A credential coverage check uses this (1.x
-        `briar secrets doctor`; in 2.0 the spec 005 pre-run check); the
-        values are never read here.
-        Default: empty (provider needs no env vars — ambient credential
-        chain handles auth)."""
-        return []

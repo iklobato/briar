@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +15,7 @@ from typing import Any, Dict, List, Optional
 import yaml
 from pydantic import ValidationError
 
+from briar.auth.logins import CompanyLogins, LoginScope
 from briar.errors import ConfigError
 from briar.extract.base import ExtractedSection
 from briar.extract.canonical import apply_canonical
@@ -145,6 +147,9 @@ class RunbookExtractor:
                 binding = cls._binding_for(company, company_name)
                 log.debug("runbook-extract: knowledge binding store=%s name=%s root=%s", binding.store, binding.name, binding.root or "(default)")
 
+                logins = CompanyLogins(
+                    LoginScope(company_name, "the runbook", f"companies.{company_name}.auth"), runbook_file.companies[company_name].auth, os.environ
+                )
                 for schedule in schedules:
                     with log_context(task=schedule.task):
                         cls._run_schedule(
@@ -155,7 +160,7 @@ class RunbookExtractor:
                             composer=KnowledgeComposer,
                             make_store=make_store,
                             rows=rows,
-                            company=company_name,
+                            logins=logins,
                         )
         log.info("runbook-extract: finished total_rows=%d", len(rows))
         return rows
@@ -171,7 +176,7 @@ class RunbookExtractor:
         composer: Any,
         make_store: Any,
         rows: List[ExtractRow],
-        company: str = "",
+        logins: CompanyLogins,
     ) -> None:
         """Execute one schedule entry. Phases:
           1. Collect sections from the configured extractors
@@ -184,7 +189,7 @@ class RunbookExtractor:
         failure = _FailureCtx(company_name=company_name, task=schedule.task, rows=rows)
 
         try:
-            sections = cls._collect_sections(schedule.extract, registry, company=company)
+            sections = cls._collect_sections(schedule.extract, registry, logins=logins)
         except Exception as exc:  # noqa: BLE001
             failure.record(reason="collect_sections raised", blob_name=binding.name, exc=exc)
             return
@@ -364,7 +369,7 @@ class RunbookExtractor:
         extract_list: List[ExtractEntry],
         registry: Any,
         *,
-        company: str = "",
+        logins: CompanyLogins,
     ) -> List[ExtractedSection]:
         sections: List[ExtractedSection] = []
         for entry in extract_list:
@@ -376,11 +381,11 @@ class RunbookExtractor:
                 seed = argparse.ArgumentParser(add_help=False)
                 extractor.add_arguments(seed)
                 ns = seed.parse_args([])
-                # Inject the current company so RepoBackedExtractor._provider
-                # can resolve per-tenant creds (BITBUCKET_<COMPANY>_*, etc.).
-                # Overridable via the YAML args dict — explicit beats implicit.
-                if company and "company" not in entry.args:
-                    setattr(ns, "company", company)
+                # The company and its logins (spec 005), so each adapter reads the
+                # login of this runbook company. `company` stays overridable via the
+                # YAML args dict: explicit beats implicit.
+                setattr(ns, "company", logins.company)
+                setattr(ns, "logins", logins)
                 for k, v in entry.args.items():
                     setattr(ns, k, v)
                 # Let runbook YAML use the canonical keys (repo/max/top_n/…)

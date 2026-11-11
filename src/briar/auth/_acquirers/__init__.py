@@ -12,27 +12,14 @@ from briar._registry import build_registry
 from briar.auth._acquirer import CredentialAcquirer
 from briar.auth._acquirers.aws_sso import AwsSsoAcquirer
 from briar.auth._acquirers.aws_static import AwsStaticAcquirer
-from briar.auth._acquirers.bitbucket import BitbucketAppPasswordAcquirer
-from briar.auth._acquirers.fireflies import FirefliesApiKeyAcquirer
-from briar.auth._acquirers.github_device import GithubDeviceAcquirer
-from briar.auth._acquirers.github_pat import GithubPatAcquirer
-from briar.auth._acquirers.jira_session import JiraSessionAcquirer
-from briar.auth._acquirers.jira_token import JiraTokenAcquirer
-from briar.auth._acquirers.linear import LinearApiKeyAcquirer
 from briar.errors import CliError
 
 
 ACQUIRERS: Dict[str, Type[CredentialAcquirer]] = build_registry(
+    # Spec 005 PR 1 moved the pasted logins to `briar.auth.logins`; the AWS ones move in PR 2.
     (
-        GithubDeviceAcquirer,
-        GithubPatAcquirer,
-        BitbucketAppPasswordAcquirer,
         AwsStaticAcquirer,
         AwsSsoAcquirer,
-        JiraTokenAcquirer,
-        JiraSessionAcquirer,
-        LinearApiKeyAcquirer,
-        FirefliesApiKeyAcquirer,
     ),
     kind="credential acquirer",
     name_attr="kind",

@@ -25,16 +25,29 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
+from typing import Dict, Optional
 from unittest import mock
 
 import pytest
 
 from briar.extract._provider import CiRun, Commit, Deployment, Environment, PullRequest, ReviewComment
 from briar.extract._providers.bitbucket import BitbucketProvider
+from tests.unit.fake_logins import FakeLogins
+
+FAKE_TOKEN = "PLACEHOLDER-not-a-secret"
 
 
-def _provider():
-    return BitbucketProvider(company="acme")
+class TokenLogin:
+    """The Atlassian API token login of company acme, as the environment holds it."""
+
+    def environ(self) -> Dict[str, str]:
+        environ = {"BRIAR_ACME_BITBUCKET_EMAIL": "bot@example.test", "BRIAR_ACME_BITBUCKET_TOKEN": FAKE_TOKEN}
+        return environ
+
+
+def _provider(method: str = "token", environ: Optional[Dict[str, str]] = None, workspace: str = "ws"):
+    auth = {"bitbucket": {"workspace": workspace, "method": method}}
+    return BitbucketProvider(logins=FakeLogins(auth, environ or {}).logins())
 
 
 def _patch_repo(repo):
@@ -69,15 +82,12 @@ class ResolveAddrTests(unittest.TestCase):
         self.assertEqual(_provider()._resolve_addr("ws/repo"), ("ws", "repo"))
 
     def test_bare_uses_workspace(self) -> None:
-        p = _provider()
-        p._workspace_slug = "myws"
-        self.assertEqual(p._resolve_addr("repo"), ("myws", "repo"))
+        self.assertEqual(_provider(workspace="myws")._resolve_addr("repo"), ("myws", "repo"))
 
     def test_bare_without_workspace_raises(self) -> None:
-        p = _provider()
-        p._workspace_slug = ""
-        with self.assertRaises(RuntimeError):
-            p._resolve_addr("repo")
+        with self.assertRaises(RuntimeError) as caught:
+            _provider(workspace="")._resolve_addr("repo")
+        self.assertEqual(str(caught.exception), "BitbucketProvider: repo 'repo' is bare and `[auth.bitbucket] workspace` is not set")
 
 
 # ---------------------------------------------------------------------------
@@ -425,44 +435,41 @@ class SeamTests(unittest.TestCase):
     def test_resolve_token_empty_without_company(self) -> None:
         self.assertEqual(BitbucketProvider().resolve_token(), "")
 
+    def test_resolve_token_is_the_api_token_or_the_access_token(self) -> None:
+        self.assertEqual(_provider(environ=TokenLogin().environ()).resolve_token(), FAKE_TOKEN)
+        self.assertEqual(_provider("access-token", {"BRIAR_ACME_BITBUCKET_ACCESS_TOKEN": "fake-access"}).resolve_token(), "fake-access")
+
     def test_is_available_requires_all_creds(self) -> None:
-        env = {"BITBUCKET_ACME_USERNAME": "u", "BITBUCKET_ACME_APP_PASSWORD": "p", "BITBUCKET_ACME_WORKSPACE": "w"}
-        with mock.patch.dict("os.environ", env):
-            self.assertTrue(BitbucketProvider(company="acme").is_available())
+        self.assertTrue(_provider(environ=TokenLogin().environ()).is_available())
 
     def test_is_available_false_when_incomplete(self) -> None:
-        with mock.patch.dict("os.environ", {"BITBUCKET_ACME_USERNAME": "u"}, clear=True):
-            self.assertFalse(BitbucketProvider(company="acme").is_available())
+        self.assertFalse(_provider(environ={"BRIAR_ACME_BITBUCKET_EMAIL": "bot@example.test"}).is_available())
 
 
 @pytest.mark.boundary
 class CloudConstructionTests(unittest.TestCase):
-    """`_cloud()` picks basic-auth vs Bearer based on the x-token-auth sentinel."""
+    """`_cloud()` takes basic auth or Bearer from the `[auth.bitbucket] method` (H2)."""
 
-    def test_basic_auth_when_normal_username(self) -> None:
-        env = {"BITBUCKET_ACME_USERNAME": "alice", "BITBUCKET_ACME_APP_PASSWORD": "pw", "BITBUCKET_ACME_WORKSPACE": "ws"}
-        with mock.patch.dict("os.environ", env):
-            provider = BitbucketProvider(company="acme")
-            with mock.patch("atlassian.bitbucket.cloud.Cloud") as cloud_cls:
-                cloud_cls.return_value = "client"
-                first = provider._cloud()
-                second = provider._cloud()  # cached
+    def test_basic_auth_for_the_api_token(self) -> None:
+        provider = _provider(environ=TokenLogin().environ())
+        with mock.patch("atlassian.bitbucket.cloud.Cloud") as cloud_cls:
+            cloud_cls.return_value = "client"
+            first = provider._cloud()
+            second = provider._cloud()  # cached
         self.assertIs(first, second)
         cloud_cls.assert_called_once()
         _, kwargs = cloud_cls.call_args
-        self.assertEqual(kwargs["username"], "alice")
-        self.assertEqual(kwargs["password"], "pw")
+        self.assertEqual(kwargs["username"], "bot@example.test")
+        self.assertEqual(kwargs["password"], FAKE_TOKEN)
         self.assertNotIn("token", kwargs)
 
-    def test_bearer_auth_for_x_token_auth_sentinel(self) -> None:
-        # Workspace/repository access tokens reject basic auth → Bearer.
-        env = {"BITBUCKET_ACME_USERNAME": "x-token-auth", "BITBUCKET_ACME_APP_PASSWORD": "ATCTTtok", "BITBUCKET_ACME_WORKSPACE": "ws"}
-        with mock.patch.dict("os.environ", env):
-            provider = BitbucketProvider(company="acme")
-            with mock.patch("atlassian.bitbucket.cloud.Cloud") as cloud_cls:
-                provider._cloud()
+    def test_bearer_auth_for_an_access_token(self) -> None:
+        # Workspace/repository access tokens reject basic auth: Bearer.
+        provider = _provider("access-token", {"BRIAR_ACME_BITBUCKET_ACCESS_TOKEN": "fake-access"})
+        with mock.patch("atlassian.bitbucket.cloud.Cloud") as cloud_cls:
+            provider._cloud()
         _, kwargs = cloud_cls.call_args
-        self.assertEqual(kwargs["token"], "ATCTTtok")
+        self.assertEqual(kwargs["token"], "fake-access")
         self.assertNotIn("username", kwargs)
 
 
@@ -494,9 +501,9 @@ class TestPrCreationRecipeRunsUnderTheBashTool:
         return sent
 
     def test_workspace_token_uses_bearer_and_targets_the_base(self) -> None:
-        recipe = _provider().pr_creation_recipe(owner="o", repo="r", branch="feat/x", base="feat/a")
+        recipe = _provider("access-token").pr_creation_recipe(owner="o", repo="r", branch="feat/x", base="feat/a")
 
-        sent = self._run(recipe, {"BITBUCKET_ACME_APP_PASSWORD": "tok", "BITBUCKET_ACME_USERNAME": "x-token-auth"})
+        sent = self._run(recipe, {"BRIAR_ACME_BITBUCKET_ACCESS_TOKEN": "tok"})
 
         assert sent["url"] == "https://api.bitbucket.org/2.0/repositories/o/r/pullrequests"
         assert sent["method"] == "POST"
@@ -505,12 +512,12 @@ class TestPrCreationRecipeRunsUnderTheBashTool:
         assert sent["body"]["destination"] == {"branch": {"name": "feat/a"}}
         assert sent["body"]["draft"] is True
 
-    def test_app_password_uses_basic_auth_and_no_base_means_no_destination(self) -> None:
+    def test_api_token_uses_basic_auth_and_no_base_means_no_destination(self) -> None:
         import base64
 
         recipe = _provider().pr_creation_recipe(owner="o", repo="r", branch="feat/x")
 
-        sent = self._run(recipe, {"BITBUCKET_ACME_APP_PASSWORD": "pw", "BITBUCKET_ACME_USERNAME": "alice"})
+        sent = self._run(recipe, {"BRIAR_ACME_BITBUCKET_TOKEN": "pw", "BRIAR_ACME_BITBUCKET_EMAIL": "alice"})
 
         assert sent["auth"] == "Basic " + base64.b64encode(b"alice:pw").decode()
         assert "destination" not in sent["body"]

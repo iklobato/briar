@@ -15,6 +15,8 @@ from briar.extract.base import ExtractedSection
 from briar.extract.composer import render_markdown
 from briar.extract.language_detectors import LANGUAGE_DETECTORS
 
+from tests.unit.fake_logins import FakeLogins
+
 
 class RegistryTests(unittest.TestCase):
     def test_all_extractors_registered(self) -> None:
@@ -68,7 +70,7 @@ class ExtractPrArchaeologyTests(unittest.TestCase):
                 return True
 
             def resolve_token(self) -> str:
-                return "fake-token"
+                return "PLACEHOLDER-not-a-secret"
 
             def clone_url(self, owner, repo):
                 return f"https://fake/{owner}/{repo}.git"
@@ -227,46 +229,30 @@ class RepositoryProviderTests(unittest.TestCase):
         from briar.extract._providers import make_provider
 
         with self.assertRaises(CliError):
-            make_provider("perforce", company="acme")
+            make_provider("perforce", FakeLogins().logins())
 
-    def test_github_provider_uses_workspace_token(self) -> None:
+    def test_github_provider_uses_the_company_token(self) -> None:
         from briar.extract._providers import make_provider
 
-        with mock.patch.dict("os.environ", {"GITHUB_TOKEN": "ghp_test"}):
-            provider = make_provider("github", company="anything")
-            self.assertTrue(provider.is_available())
+        provider = make_provider("github", FakeLogins(environ={"BRIAR_ACME_GITHUB_TOKEN": "PLACEHOLDER-not-a-secret"}).logins())
+        self.assertTrue(provider.is_available())
 
     def test_github_provider_unavailable_without_token(self) -> None:
         from briar.extract._providers import make_provider
 
-        with mock.patch.dict("os.environ", {}, clear=True):
-            provider = make_provider("github", company="acme")
-            self.assertFalse(provider.is_available())
+        self.assertFalse(make_provider("github", FakeLogins().logins()).is_available())
 
     def test_bitbucket_provider_reads_per_company_creds(self) -> None:
         from briar.extract._providers import make_provider
 
-        env = {
-            "BITBUCKET_ACME_USERNAME": "machine-user",
-            "BITBUCKET_ACME_APP_PASSWORD": "ATBB-secret",
-            "BITBUCKET_ACME_WORKSPACE": "acme",
-        }
-        with mock.patch.dict("os.environ", env):
-            provider = make_provider("bitbucket", company="acme")
-            self.assertTrue(provider.is_available())
+        environ = {"BRIAR_ACME_BITBUCKET_EMAIL": "bot@example.test", "BRIAR_ACME_BITBUCKET_TOKEN": "PLACEHOLDER-not-a-secret"}
+        provider = make_provider("bitbucket", FakeLogins({"bitbucket": {"workspace": "acme"}}, environ).logins())
+        self.assertTrue(provider.is_available())
 
     def test_bitbucket_provider_unavailable_without_company_creds(self) -> None:
         from briar.extract._providers import make_provider
 
-        with mock.patch.dict("os.environ", {}, clear=True):
-            provider = make_provider("bitbucket", company="acme")
-            self.assertFalse(provider.is_available())
-
-    def test_bitbucket_provider_unavailable_for_empty_company(self) -> None:
-        from briar.extract._providers import make_provider
-
-        provider = make_provider("bitbucket", company="")
-        self.assertFalse(provider.is_available())
+        self.assertFalse(make_provider("bitbucket", FakeLogins({"bitbucket": {"workspace": "acme"}}).logins()).is_available())
 
     def test_pull_request_dataclass_is_provider_neutral(self) -> None:
         """The PR shape extractors consume must NOT carry provider-specific
@@ -317,7 +303,7 @@ class ExtractCodebaseConventionsTests(unittest.TestCase):
                 return True
 
             def resolve_token(self) -> str:
-                return "fake-token"
+                return "PLACEHOLDER-not-a-secret"
 
             def clone_url(self, owner, repo):
                 return f"https://fake/{owner}/{repo}.git"
@@ -390,10 +376,7 @@ companies:
                     }
                 ],
             ),
-            mock.patch(
-                "briar.extract._gh.GithubApi.auth_token",
-                return_value="fake",
-            ),
+            mock.patch.dict("os.environ", {"BRIAR_ACME_GITHUB_TOKEN": "PLACEHOLDER-not-a-secret"}),
         ):
             rb = load_runbook_file(Path(f.name))
             with tempfile.TemporaryDirectory() as td:

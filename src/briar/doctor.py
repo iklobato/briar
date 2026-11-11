@@ -1,7 +1,7 @@
 """Environment health checks for `briar doctor`.
 
 Lightweight and offline: inspects the Python/briar version, project config,
-git inference, and the presence of the credentials the common flows need.
+git inference, and whether the company GitHub login is saved.
 No network, no store read: just "is this machine set up to run
 briar?". Each check is a `Check`; the command renders them and exits
 non-zero if any is a hard ``fail``.
@@ -57,14 +57,24 @@ def _git_check() -> Check:
     return Check("git remote", OK, f"{slug[0]}/{slug[1]} (inferred)")
 
 
-def _env_present(*names: str) -> bool:
-    return any(os.environ.get(n) for n in names)
-
-
 def _github_check() -> Check:
-    if _env_present("GITHUB_TOKEN"):
-        return Check("github token", OK, "GITHUB_TOKEN set")
-    return Check("github token", WARN, "GITHUB_TOKEN not set: the GitHub extractors need it")
+    """The GitHub login of the company (spec 005 PR 1); PR 3 checks every source live."""
+    from briar.auth.config import AuthTable
+    from briar.auth.logins import CompanyLogins, LoginScope
+    from briar.config import load_project_config
+    from briar.settings import SettingsResolver
+
+    project_config = load_project_config()
+    company = SettingsResolver.from_project(project_config).settings().company or ""
+    if not company:
+        return Check("github login", WARN, "no company: set `company` in .briar.toml to check its logins")
+    login = CompanyLogins(LoginScope(company), AuthTable(project_config, ".briar.toml").block(), os.environ).github()
+    hint = login.legacy_hint()
+    if hint:
+        return Check("github login", WARN, hint)
+    if login.missing_secrets():
+        return Check("github login", WARN, f"run `briar auth login github --company {company}`: the GitHub extractors need it")
+    return Check("github login", OK, f"{', '.join(login.names())} set")
 
 
 _CHECKS = (
