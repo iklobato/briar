@@ -78,3 +78,12 @@ class MeetingChoice(str, Enum):
 
     FIREFLIES = "fireflies"
 
+
+
+class LlmChoice(str, Enum):
+    """`--llm` choices; a test keeps them equal to `LLMRegistry.kinds()`."""
+
+    ANTHROPIC = "anthropic"
+    OPENAI = "openai"
+    GEMINI = "gemini"
+    BEDROCK = "bedrock"
