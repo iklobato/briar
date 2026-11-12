@@ -611,7 +611,7 @@ as 1.x shipped it, in tag `v1.1.101`. Read one with
   #103); each commit passes alone; mypy 25 (same); `python tools/mutation_test.py` 22 of 22
   killed; CI green on #104.
 
-### Spec 008: work selection, part 1 of 4 (branch `select/01-selector`, PR not open yet)
+### Spec 008: work selection, part 1 of 4 (PR #105)
 
 - Decisions: `docs/decisions/2026-11-12-briar-2-work-selection.md` (N1 to N17) and
   `docs/decisions/2026-11-12-briar-2-work-selection-pr1.md` (Q1 to Q4).
@@ -634,6 +634,23 @@ as 1.x shipped it, in tag `v1.1.101`. Read one with
 - Numbers, 2026-11-12, Python 3.13.2: 1595 tests pass (unit and integration); mypy 25
   (same); ruff 5 (the same old ones). Not run yet: a full `serve` poll that starts a picked
   ticket, and a Jira project with dependencies and due dates.
+
+### Spec 008: work selection, part 2 of 4 (branch `select/02-chat`, PR not open yet)
+
+- Decisions: `docs/decisions/2026-11-12-briar-2-work-selection-pr2.md` (C1 to C14).
+- `[auth.slack]` login (user token, or session token and cookie; no bot token);
+  `serve.chat.slack.channels`; `briar.serve.chat` (`ChatReader`, `Citations`, `ChatAsks`,
+  `TitleWords`) and `briar.serve.slack` (`SlackApi` with retries, `SlackSource`).
+- Real run 1, 2026-11-12, read only, on a real company Slack and its Jira project (39
+  tickets assigned to the owner, 19 workable): the login check passed (`auth.test`,
+  `conversations.info`); the key searches took 2 s and found 12 assigned tickets cited by a
+  person; one ticket moved into the top 5 because of chat. For the 5 best, 38 threads (113,095
+  characters, 20 s); the selector call cost US$ 0.26 (0.037 without chat in PR 1). Nothing was
+  written anywhere.
+- Not run yet: real run 2 (a new message in a test workspace channel, sent by hand), and
+  the check of a ServeCheck line for Slack in a unit test (covered by the real run only).
+- Numbers, 2026-11-12, Python 3.13.2: 1623 tests pass (unit and integration); mypy no new
+  error; ruff 5 (the same old ones).
 
 ### Spec 005: real runs on the accounts of the maintainer (G20)
 
