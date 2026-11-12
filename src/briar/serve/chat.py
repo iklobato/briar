@@ -29,8 +29,10 @@ class ChatMessage:
     # A direct or group direct message.
     direct: bool = False
 
-    def line(self) -> str:
-        return f"{self.name or self.author} in {self.channel}: {self.text}"
+    def line(self, owner: str) -> str:
+        """The owner is marked: the model read an owner ask as "a teammate asked" (real run 2)."""
+        mark = " (owner)" if self.author == owner else ""
+        return f"{self.name or self.author}{mark} in {self.channel}: {self.text}"
 
 
 class ChatSource(Protocol):
@@ -98,14 +100,25 @@ class TitleWords:
         "the and for from with into over via not are was its this that can cannot should does when after before using add fix update new".split()
     )
     WORD: ClassVar["re.Pattern[str]"] = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{2,}")
+    # Slack ORs the words of a search: one shared word let unrelated DMs in (real run 2).
+    SHARED: ClassVar[int] = 2
 
     def __init__(self, title: str) -> None:
         self._title = title
 
     def query(self, since: date) -> str:
         """The search, or "" when the title has no strong word."""
-        words = [word for word in self.WORD.findall(self._title) if word.lower() not in self.STOP]
+        words = self._words()
         return f"{' '.join(words)} after:{since.isoformat()}" if words else ""
+
+    def shared(self, text: str) -> bool:
+        """The text holds two strong words of the title (the one, for a title with one)."""
+        title = {word.lower() for word in self._words()}
+        found = title & {word.lower() for word in self.WORD.findall(text)}
+        return len(found) >= min(self.SHARED, len(title))
+
+    def _words(self) -> List[str]:
+        return [word for word in self.WORD.findall(self._title) if word.lower() not in self.STOP]
 
 
 class ChatReader:
@@ -135,18 +148,19 @@ class ChatReader:
     def talk(self, items: Sequence[WorkItem], asks: ChatAsks) -> Dict[str, List[str]]:
         """For each ticket: the lines of every thread that cites it or talks about its title (C4, C13)."""
         owner = self._source.owner()
-        return {item.key: self._threads([*asks.messages.get(item.key, ()), *self._related(item, owner)]) for item in items}
+        return {item.key: self._threads([*asks.messages.get(item.key, ()), *self._related(item, owner)], owner) for item in items}
 
     def _related(self, item: WorkItem, owner: str) -> List[ChatMessage]:
-        query = TitleWords(item.title).query(self._since())
-        hits = self._source.search_top(query) if query else []
+        words = TitleWords(item.title)
+        query = words.query(self._since())
+        hits = [hit for hit in self._source.search_top(query) if words.shared(hit.text)] if query else []
         channels = self._settings.chat.slack.channels if self._settings.chat.slack else []
         return [hit for hit in hits if hit.direct or f"<@{owner}>" in hit.text or hit.channel in channels][: self.RELATED]
 
-    def _threads(self, messages: Sequence[ChatMessage]) -> List[str]:
+    def _threads(self, messages: Sequence[ChatMessage], owner: str) -> List[str]:
         roots = list(dict.fromkeys((message.channel, message.thread) for message in messages))
         firsts = {(message.channel, message.thread): message for message in reversed(messages)}
-        return ["\n".join(reply.line() for reply in self._source.thread(firsts[root])) for root in roots]
+        return ["\n".join(reply.line(owner) for reply in self._source.thread(firsts[root])) for root in roots]
 
     def _citations(self) -> Citations:
         return Citations(list(self._settings.jira), self._settings.repos)

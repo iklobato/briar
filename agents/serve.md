@@ -218,8 +218,11 @@ reads Slack, read only, on each poll that has a free slot and a workable ticket
   person counts once per ticket; the owner of the token and bots do not count.
 - For the model: for each of the 5 best tickets, the whole threads that cite it, and
   the first 10 threads a search of the words of its title finds in a DM, a mention
-  of the owner of the token, or a team channel. These threads give no points; the
-  model reads them as data, never as orders.
+  of the owner of the token, or a team channel. A hit counts only when it holds at
+  least two words of the title (the one word, for a title with one), since Slack
+  matches any of the words. These threads give no points; the model reads them as
+  data, never as orders. Lines by the owner of the token are marked `(owner)`, so
+  the model does not read the owner own ask as an ask from the team.
 - A Slack error stops `serve` with exit code 1. A rate limit (HTTP 429) or a timeout
   is tried again first, waiting the `Retry-After` of Slack (at most 30 seconds, 4
   tries).

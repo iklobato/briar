@@ -89,6 +89,15 @@ class TestTitleWords:
     def test_a_title_with_no_strong_word_gives_no_search(self) -> None:
         assert TitleWords("Fix it").query(SINCE_DAY) == ""
 
+    def test_a_text_must_hold_two_strong_words_of_the_title(self) -> None:
+        """Real run 2: Slack ORs the words, so a DM with only "error" came back for a title about error output."""
+        words = TitleWords("Show the notes of a ClickException in its error output")
+
+        assert (words.shared("got the error again"), words.shared("the error output is empty")) == (False, True)
+
+    def test_a_title_with_one_strong_word_needs_only_that_word(self) -> None:
+        assert TitleWords("Fix lambda").shared("Lambda is down") is True
+
 
 class TestTalk:
     def test_a_related_thread_counts_only_in_a_dm_a_mention_or_a_team_channel(self, tmp_path: Path) -> None:
@@ -101,7 +110,26 @@ class TestTalk:
 
         talk = Reader(tmp_path).of(chat).talk([says.ticket("ENG-1", "Lambda node is down")], ChatAsks())
 
-        assert talk == {"ENG-1": [dm.line(), mention.line(), team.line()]}
+        assert talk == {"ENG-1": [dm.line(OWNER), mention.line(OWNER), team.line(OWNER)]}
+
+    def test_a_related_hit_with_one_word_of_the_title_is_left_out(self, tmp_path: Path) -> None:
+        says = Says()
+        loose = says.said("U2", "the node is fine")
+        close = says.said("U3", "lambda node down again")
+
+        talk = Reader(tmp_path).of(FakeChat([], related=[loose, close])).talk([says.ticket("ENG-1", "Lambda node is down")], ChatAsks())
+
+        assert talk == {"ENG-1": [close.line(OWNER)]}
+
+    def test_a_line_by_the_token_owner_says_so(self, tmp_path: Path) -> None:
+        """Real run 2: the model read the owner ask as "a teammate explicitly asked"."""
+        says = Says()
+        mine = ChatMessage(OWNER, "CTEAM01", "1.0", "ENG-1 first please", "me")
+        asks = ChatAsks({}, {"ENG-1": (mine,)})
+
+        talk = Reader(tmp_path).of(FakeChat([])).talk([says.ticket("ENG-1", "Fix it")], asks)
+
+        assert talk == {"ENG-1": ["me (owner) in CTEAM01: ENG-1 first please"]}
 
     def test_a_key_citation_and_a_related_hit_of_the_same_thread_give_the_thread_once(self, tmp_path: Path) -> None:
         says = Says()
@@ -112,7 +140,7 @@ class TestTalk:
 
         talk = Reader(tmp_path).of(chat).talk([says.ticket("ENG-1", "Lambda node is down")], asks)
 
-        assert talk == {"ENG-1": [f"{root.line()}\n{reply.line()}"]}
+        assert talk == {"ENG-1": [f"{root.line(OWNER)}\n{reply.line(OWNER)}"]}
 
     def test_at_most_10_related_hits_per_ticket(self, tmp_path: Path) -> None:
         says = Says()

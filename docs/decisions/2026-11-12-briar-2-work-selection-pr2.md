@@ -32,6 +32,9 @@ Facts checked before the questions:
 | C13 | Conversations about a ticket that do not cite its key | After the score, for each of the 5 best tickets, one search with the strong words of its title (stop words dropped) and `after:` 14 days, sorted by relevance; the first 10 hits that are in a DM, mention the token owner, or are in a team channel of C9 are kept, and their whole threads go to the model with the key citations of C1 | the maintainer asked for related conversations, not only the ones with the key. Measured on 39 real tickets: Slack does not AND the words (0 to 86 hits each); of the 24 hits that also cite the key, 22 are in the first 10 by relevance and all 24 in the first 20; a cut by the share of title words would drop half of them (the share of those 24 goes down to 0.11) | C1, C4, C9 |
 | C14 | Points for the conversations of C13 | None: they go to the model as text only; the points of C3 come from key citations alone | on the same 39 tickets, almost every one of the 5 best would reach the +50 cap from title hits, so the points would not change the order | C3, C13 |
 
+| C15 | Lines of the token owner in the threads the model reads | Marked `(owner)`, and the prompt says the owner own ask is what they want, not an ask from the team | real run 2: one owner message (0 points by C3) made the model pick the ticket and write "a teammate explicitly asked" | C3, C4 |
+| C16 | A title search hit (C13) that shares few words with the title | Kept only when it holds at least two strong words of the title (the one word, for a title with one) | real run 2: two unrelated DMs came back for a title about error output on the word "error" alone. On the 591 saved hits of real run 1 the rule keeps 397, and 21 of the 24 hits that cite the key (the 3 it drops still count through C1) | C13 |
+
 ## Open risks
 
 - C5: a very long thread goes whole into the selector prompt. The SDK stops the call at the
