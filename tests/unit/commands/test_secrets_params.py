@@ -31,7 +31,7 @@ from briar.credentials._bootstraps import HydrateResult
 
 # Documented choices, mirrored from the manifest so a registry change that
 # drops a kind surfaces as a test failure here.
-_STORE_CHOICES = ["envfile", "aws-secretsmanager", "ssm", "vault"]
+_STORE_CHOICES = ["envfile"]
 _BOOTSTRAP_KINDS = ["envfile"]
 
 

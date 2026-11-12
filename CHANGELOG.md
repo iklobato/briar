@@ -41,6 +41,13 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`.
   flag and `BRIAR_NO_DEFAULT_MCP` (also dropped from the Docker image). An
   agent now gets exactly the MCP servers its runbook's `mcp:` block names.
   They needed `npx` and `uvx` on every host and two extra programs per run.
+- The AWS Secrets Manager, SSM and Vault credential stores, the startup
+  loader that read the store named by `BRIAR_DEFAULT_STORE`, and the
+  `vault` extra (`hvac`). They were only ever run in tests. The env file is
+  the one credential store. If `BRIAR_DEFAULT_STORE` still names a removed
+  store, every command except `--help` and `version` stops with an error
+  that names the store and the fix. The test dependency `moto` drops its
+  `secretsmanager` and `ssm` extras.
 - The `jinja2` dependency (only the dashboard used it).
 - The `requires_github` / `requires_aws` markers on extractors (only the
   dashboard read them).

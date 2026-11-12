@@ -9,18 +9,12 @@ Three abstractions:
   and returns a ``Credentials`` bundle.
 
 - ``CredentialStore`` (``briar.credentials._store``) — the
-  *persistence* side: file, AWS Secrets Manager, SSM, Vault. The
-  ``briar auth login`` command pairs any acquirer with any store.
+  *persistence* side. 2.0 has one store, the owner-only env file
+  (1.x also had AWS Secrets Manager, SSM and Vault).
 
 - ``CredentialBootstrap`` (``briar.credentials._bootstraps``) — the
-  *bulk-hydrate* side: pull a whole environment from a remote vault
-  at process startup. Orthogonal to acquisition; meant for
-  already-provisioned secrets.
-
-Each axis is independent: acquire via GitHub OAuth → persist to
-Vault; or acquire via paste-a-token → persist to env-file; or skip
-acquisition entirely and let CredentialBootstrap hydrate from
-a configured source at startup."""
+  *bulk-hydrate* side: load the env file into the environment at
+  process startup. Orthogonal to acquisition."""
 
 from __future__ import annotations
 

@@ -52,13 +52,6 @@ briar secrets doctor --examples runbooks/ | grep MISSING
 
 You get one line per extractor or channel that lacks a key.
 
-```bash
-# Check the keys stored in AWS SSM instead of the local environment.
-briar secrets doctor --examples runbooks/ --cred-store ssm
-```
-
-You get the same report, but each key is looked up in SSM under `/briar/<NAME>`.
-
 ### What each row means
 
 | Row | Meaning |
@@ -76,7 +69,7 @@ You get the same report, but each key is looked up in SSM under `/briar/<NAME>`.
 | Parameter | What it means | Default | Example |
 |---|---|---|---|
 | `--examples` | The folder with your runbook YAML files. briar reads the `*.yaml` files directly in it (not `.yml`, not subfolders). | `./examples`. If that folder does not exist, briar prints `no runbooks to check` and exits 0. | `--examples runbooks/` |
-| `--cred-store` | Where to look the keys up: `envfile`, `aws-secretsmanager`, `ssm` or `vault`. `envfile` means the process environment, which holds your shell vars plus `secrets.env`. `--store` still works as an old name, but prints a note. | `envfile` | `--cred-store vault` |
+| `--cred-store` | Where to look the keys up. Only `envfile` since 2.0: the process environment, which holds your shell vars plus `secrets.env`. `--store` still works as an old name, but prints a note. | `envfile` | `--cred-store envfile` |
 
 ### Good to know
 
@@ -157,6 +150,6 @@ You get the same report, or `bootstrap kind=envfile not configured` and exit cod
   case), and the TLS trust vars (`SSL_CERT_FILE`, `SSL_CERT_DIR`,
   `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`). Set those in your shell if you
   need them.
-- Only `secrets.env` is loaded at start. Keys saved with
-  `briar auth login --cred-store vault` (or `ssm`, or
-  `aws-secretsmanager`) are not loaded for you.
+- Only `secrets.env` is loaded at start. 2.0 removed the AWS Secrets
+  Manager, SSM and Vault stores; see [auth.md](auth.md) for how to move
+  keys saved there.

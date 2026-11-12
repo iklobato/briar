@@ -19,16 +19,21 @@ network.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+from typing import Any, Callable
+
 import pytest
 
 from briar.auth import Credentials
+from briar.commands._enums import ExitCode
 from briar.auth._acquirer import DestinationPolicy
 
 # Obvious placeholder — never a real-format secret (GitGuardian-safe).
 _SECRET_PLACEHOLDER = "ACCESS-TOKEN-PLACEHOLDER-not-a-secret"
 
-# Documented choices from the manifest.
-_STORE_CHOICES = ["envfile", "aws-secretsmanager", "ssm", "vault"]
+# Documented choices from the manifest (2.0 removed the remote stores).
+_STORE_CHOICES = ["envfile"]
+REMOVED_STORES = ("aws-secretsmanager", "ssm", "vault")
 _TARGET_CHOICES = [
     "github-device",
     "github-pat",
@@ -158,6 +163,13 @@ class TestStoreChoiceFlag:
         assert result.code == 2
         assert "invalid choice" in result.err
 
+    @pytest.mark.parametrize("store_kind", REMOVED_STORES)
+    def test_removed_store_is_no_longer_a_choice(self, cli: Callable[..., SimpleNamespace], auth_seam: Callable[..., Any], store_kind: str) -> None:
+        auth_seam()
+        listing = cli("auth", "list", "--store", store_kind)
+        assert listing.code == ExitCode.USAGE_ERROR
+        assert f"invalid choice: '{store_kind}'" in listing.err
+
     @pytest.mark.parametrize("store_kind", _STORE_CHOICES, ids=_STORE_CHOICES)
     def test_cred_store_canonical_reaches_factory(self, cli, auth_seam, store_kind) -> None:
         # `--cred-store` is the canonical name; its value must reach the
@@ -281,20 +293,19 @@ class TestLogoutYesFlag:
 
 class TestStoreOnLoginRefresh:
     def test_login_store_reaches_factory(self, cli, auth_seam) -> None:
-        # External-policy acquirer → requested store honoured verbatim.
         state = auth_seam()
-        result = cli("auth", "login", "github-pat", "--store", "vault")
+        result = cli("auth", "login", "github-pat", "--store", "envfile")
         assert result.code == 0
-        assert state.store_kinds == ["vault"]
+        assert state.store_kinds == ["envfile"]
 
     def test_refresh_store_reaches_factory(self, cli, auth_seam) -> None:
         state = auth_seam()
-        result = cli("auth", "refresh", "github-pat", "--store", "ssm")
+        result = cli("auth", "refresh", "github-pat", "--store", "envfile")
         assert result.code == 0
-        assert state.store_kinds == ["ssm"]
+        assert state.store_kinds == ["envfile"]
 
     def test_status_store_label_reflects_flag(self, cli, auth_seam) -> None:
         auth_seam(present={"GITHUB_TOKEN": "v"})
-        result = cli("auth", "status", "github-pat", "--store", "aws-secretsmanager")
+        result = cli("auth", "status", "github-pat", "--store", "envfile")
         assert result.code == 0
-        assert "store=aws-secretsmanager" in result.out
+        assert "store=envfile" in result.out

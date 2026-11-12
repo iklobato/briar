@@ -77,7 +77,7 @@ briar saves knowledge as named markdown blobs in a store.
 
 | `--store` | Where blobs live | Default for |
 |---|---|---|
-| `file` | `./knowledge/<prefix>/<rest>.md`, so `knowledge:acme` is `./knowledge/knowledge/acme.md`. Change the folder with `--root`. | Every command when `BRIAR_DATABASE_URL` is not set. `context`, `mcp serve` and `chat` even when it is set. |
+| `file` | `./knowledge/<prefix>/<rest>.md`, so `knowledge:acme` is `./knowledge/knowledge/acme.md`. Change the folder with `--root`. | Every command when `BRIAR_DATABASE_URL` is not set. `context` even when it is set. |
 | `postgres` | The database in `BRIAR_DATABASE_URL`. A runbook can pick another one per company. | `extract`, `agent` and `plan` when `BRIAR_DATABASE_URL` is set. |
 
 `BRIAR_STORE=postgres`, or `store = "postgres"` in `.briar.toml`, makes

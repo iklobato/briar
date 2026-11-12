@@ -48,18 +48,6 @@ class _FakeAcquirer:
         return ["GITHUB_ACME_TOKEN"]
 
 
-class _BootstrapAcquirer(_FakeAcquirer):
-    kind = "fake-bootstrap"
-    destination_policy = DestinationPolicy.BOOTSTRAP_LOCAL
-
-    def __init__(self, **kw) -> None:
-        super().__init__(entries={"FAKE_BOOTSTRAP_TOKEN": _SECRET_PLACEHOLDER}, **kw)
-
-    @classmethod
-    def writes(cls, *, company) -> list[str]:
-        return ["FAKE_BOOTSTRAP_TOKEN"]
-
-
 class _FakeStore:
     """Records writes/reads/deletes; raises on names registered to fail."""
 
@@ -140,15 +128,6 @@ class TestLogin:
         assert result.code == 2
         assert "credential expired: token lapsed" in result.out
         assert store.writes == []
-
-    def test_login_bootstrap_target_forces_envfile_store(self, cli, install, caplog_briar) -> None:
-        # Requesting a non-envfile store for a bootstrap flow must be overridden.
-        store, _ = install(acquirer=_BootstrapAcquirer())
-        result = cli("auth", "login", "fake-bootstrap", "--store", "vault")
-        assert result.code == 0
-        # The store factory was asked for envfile, not the requested vault.
-        assert install.captured["make"].call_args.args[0] == "envfile"
-        assert any("forcing store=envfile" in r.getMessage() for r in caplog_briar.records)
 
 
 # ─────────────────────────── refresh ───────────────────────────────

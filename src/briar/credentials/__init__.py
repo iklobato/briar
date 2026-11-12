@@ -1,6 +1,7 @@
-"""Credential store registry. All four backends (EnvFileStore,
-AwsSecretsManagerStore, SsmParameterStore, VaultStore) are live; pick
-one per company via `CredentialStoreRegistry.make(kind)`."""
+"""Credential store registry. 2.0 has one backend, `EnvFileStore`
+(the owner-only env file). 1.x also had AWS Secrets Manager, SSM and
+Vault; a `BRIAR_DEFAULT_STORE` that still names one is stopped by
+`briar.credentials._removed_stores`."""
 
 from __future__ import annotations
 
@@ -8,15 +9,11 @@ from typing import Dict, Tuple, Type
 
 from briar._registry import build_registry
 from briar.credentials._store import CredentialStore
-from briar.credentials.aws_secrets import AwsSecretsManagerStore
 from briar.credentials.envfile import EnvFileStore
-from briar.credentials.ssm import SsmParameterStore
-from briar.credentials.vault import VaultStore
 from briar.errors import CliError
 
-
 STORES: Dict[str, Type[CredentialStore]] = build_registry(
-    (EnvFileStore, AwsSecretsManagerStore, SsmParameterStore, VaultStore),
+    (EnvFileStore,),
     kind="credential store",
     name_attr="kind",
 )

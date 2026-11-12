@@ -321,7 +321,6 @@ all = [
     { name = "google-cloud-pubsub" },
     { name = "google-cloud-run" },
     { name = "google-generativeai" },
-    { name = "hvac" },
     { name = "mcp" },
     { name = "openai" },
 ]
@@ -357,7 +356,7 @@ openai = [
 test = [
     { name = "hypothesis" },
     { name = "mcp" },
-    { name = "moto", extra = ["ssm"] },
+    { name = "moto" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-httpx" },
@@ -367,9 +366,6 @@ test = [
     { name = "pytest-timeout" },
     { name = "pytest-xdist" },
     { name = "time-machine" },
-]
-vault = [
-    { name = "hvac" },
 ]
 
 [package.metadata]
@@ -384,7 +380,7 @@ requires-dist = [
     { name = "azure-mgmt-subscription", marker = "extra == 'azure'", specifier = ">=3.1,<4" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=25,<26" },
     { name = "boto3", specifier = ">=1.34,<2" },
-    { name = "briar-cli", extras = ["openai", "gemini", "mcp", "vault", "gcp", "azure"], marker = "extra == 'all'" },
+    { name = "briar-cli", extras = ["openai", "gemini", "mcp", "gcp", "azure"], marker = "extra == 'all'" },
     { name = "gitpython", specifier = ">=3.1,<4" },
     { name = "google-api-python-client", marker = "extra == 'gcp'", specifier = ">=2.100,<3" },
     { name = "google-auth", marker = "extra == 'gcp'", specifier = ">=2.20,<3" },
@@ -393,11 +389,10 @@ requires-dist = [
     { name = "google-cloud-run", marker = "extra == 'gcp'", specifier = ">=0.10,<1" },
     { name = "google-generativeai", marker = "extra == 'gemini'", specifier = ">=0.7,<1" },
     { name = "httpx", specifier = ">=0.27,<1" },
-    { name = "hvac", marker = "extra == 'vault'", specifier = ">=2.0,<3" },
     { name = "hypothesis", marker = "extra == 'test'", specifier = ">=6.110,<7" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.0,<2" },
     { name = "mcp", marker = "extra == 'test'", specifier = ">=1.0,<2" },
-    { name = "moto", extras = ["secretsmanager", "ssm"], marker = "extra == 'test'", specifier = ">=5,<6" },
+    { name = "moto", marker = "extra == 'test'", specifier = ">=5,<6" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13,<2" },
     { name = "openai", marker = "extra == 'openai'", specifier = ">=1.40,<2" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1,<4" },
@@ -421,7 +416,7 @@ requires-dist = [
     { name = "time-machine", marker = "extra == 'test'", specifier = ">=2.14,<3" },
     { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0,<3" },
 ]
-provides-extras = ["test", "dev", "openai", "gemini", "mcp", "vault", "gcp", "azure", "all"]
+provides-extras = ["test", "dev", "openai", "gemini", "mcp", "gcp", "azure", "all"]
 
 [[package]]
 name = "certifi"
@@ -1341,18 +1336,6 @@ wheels = [
 ]
 
 [[package]]
-name = "hvac"
-version = "2.4.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "requests" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/e2/57/b46c397fb3842cfb02a44609aa834c887f38dd75f290c2fc5a34da4b2fee/hvac-2.4.0.tar.gz", hash = "sha256:e0056ad9064e7923e874e6769015b032580b639e29246f5ab1044f7959c1c7e0", size = 332543, upload-time = "2025-10-30T12:57:47.512Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/55/33/71e45a6bd6875f44a26f99da31c63b6840123e88bedf2c0b1ce429b8be12/hvac-2.4.0-py3-none-any.whl", hash = "sha256:008db5efd8c2f77bd37d2368ea5f713edceae1c65f11fd608393179478649e0f", size = 155921, upload-time = "2025-10-30T12:57:46.253Z" },
-]
-
-[[package]]
 name = "hypothesis"
 version = "6.152.9"
 source = { registry = "https://pypi.org/simple" }
@@ -1764,11 +1747,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f6/e9/c38202162db2e76623176be9f1dbc9aa41228ffa91ee8da2d3986082c3e3/moto-5.2.1.tar.gz", hash = "sha256:ccb2f3e1dfa82e50e054bda98b0be708d244d2668364dcc1d45e8d3de6091bde", size = 8634437, upload-time = "2026-05-10T19:11:57.286Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/15/79/8085b7c1ecd48d0535c3c8444a1d8df2926e457dce8e55fabc332a382c9c/moto-5.2.1-py3-none-any.whl", hash = "sha256:19d2fbd6e613aa5b4e364c52cd5d3cea371643a0f4210689a703227bd2924c5c", size = 6671379, upload-time = "2026-05-10T19:11:53.543Z" },
-]
-
-[package.optional-dependencies]
-ssm = [
-    { name = "pyyaml" },
 ]
 
 [[package]]

@@ -71,8 +71,9 @@ In pyproject.toml, put the same keys under `[tool.briar]`, with
   set `--store` and `--root` on `briar journal`, which only knows the
   `file` store and the `./journal` folder. Pass
   `--store file --root ./journal` to `journal` if you set them.
-- `BRIAR_STORE` sets the **knowledge** store. The **credential** store
-  for `briar auth` is set by `BRIAR_DEFAULT_STORE`. They are different.
+- `BRIAR_STORE` sets the **knowledge** store. The **credential** store is
+  always the env file in 2.0; a `BRIAR_DEFAULT_STORE` left from 1.x that
+  names a removed store stops the command (see [auth.md](auth.md)).
 
 ## `briar init`
 

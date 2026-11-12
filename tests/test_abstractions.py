@@ -247,12 +247,11 @@ class NotificationRegistryTests(unittest.TestCase):
 
 
 class CredentialStoreTests(unittest.TestCase):
-    def test_all_kinds_registered(self) -> None:
+    def test_only_the_envfile_store_is_registered(self) -> None:
+        # 2.0 removed the AWS Secrets Manager, SSM and Vault stores.
         from briar.credentials import CredentialStoreRegistry
 
-        kinds = CredentialStoreRegistry.kinds()
-        for expected in ("envfile", "aws-secretsmanager", "ssm", "vault"):
-            self.assertIn(expected, kinds)
+        self.assertEqual(CredentialStoreRegistry.kinds(), ("envfile",))
 
     def test_envfile_read_round_trip(self) -> None:
         from briar.credentials import make_credential_store
@@ -284,62 +283,6 @@ class CredentialStoreTests(unittest.TestCase):
         with mock.patch.dict("os.environ", {"GITHUB_TOKEN": "ghp_xxx"}, clear=False):
             expected = hashlib.blake2b(b"ghp_xxx", key=_fingerprint_salt(), digest_size=16).hexdigest()
             self.assertEqual(store.fingerprint("GITHUB_TOKEN"), expected)
-
-    def test_aws_secrets_read_uses_boto3_and_caches(self) -> None:
-        from briar.credentials import make_credential_store
-
-        store = make_credential_store("aws-secretsmanager")
-        fake_client = mock.MagicMock()
-        # Return DIFFERENT values on each backend call. If the cache were
-        # broken (re-fetching every time), the second read would surface
-        # "second". Asserting both reads are "first" proves the cached value
-        # is actually served — a call_count==1 check alone would pass even
-        # if read() returned a fresh (but coincidentally equal) value.
-        fake_client.get_secret_value.side_effect = [
-            {"SecretString": "first"},
-            {"SecretString": "second"},
-        ]
-        with mock.patch("boto3.client", return_value=fake_client):
-            self.assertEqual(store.read("GITHUB_TOKEN"), "first")
-            self.assertEqual(store.read("GITHUB_TOKEN"), "first")  # served from cache, not "second"
-            self.assertEqual(fake_client.get_secret_value.call_count, 1)
-            # A different key must NOT be served the first key's cache entry.
-            self.assertEqual(store.read("OTHER_TOKEN"), "second")
-            self.assertEqual(fake_client.get_secret_value.call_count, 2)
-        # Composite JSON secret: `{"value": "..."}` is extracted.
-        store2 = make_credential_store("aws-secretsmanager")
-        fake_client2 = mock.MagicMock()
-        fake_client2.get_secret_value.return_value = {"SecretString": '{"value": "from-json"}'}
-        with mock.patch("boto3.client", return_value=fake_client2):
-            self.assertEqual(store2.read("GITHUB_TOKEN"), "from-json")
-
-    def test_vault_unavailable_without_addr_or_token(self) -> None:
-        from briar.credentials import make_credential_store
-
-        store = make_credential_store("vault")
-        with mock.patch.dict("os.environ", {}, clear=True):
-            self.assertIsNone(store.read("ANYTHING"))  # silent miss, no SDK call attempted
-
-    def test_vault_read_raises_when_hvac_missing(self) -> None:
-        from briar.credentials import make_credential_store
-
-        with mock.patch.dict("os.environ", {"VAULT_ADDR": "http://x", "VAULT_TOKEN": "t"}):
-            store = make_credential_store("vault")
-            with mock.patch("briar.credentials.vault._import_hvac", return_value=None):
-                with self.assertRaises(RuntimeError) as ctx:
-                    store.read("ANYTHING")
-                self.assertIn("briar-cli[vault]", str(ctx.exception))
-
-    def test_ssm_read_uses_boto3(self) -> None:
-        from briar.credentials import make_credential_store
-
-        store = make_credential_store("ssm")
-        fake_client = mock.MagicMock()
-        fake_client.get_parameter.return_value = {"Parameter": {"Value": "secret-val"}}
-        with mock.patch("boto3.client", return_value=fake_client):
-            self.assertEqual(store.read("GITHUB_TOKEN"), "secret-val")
-            # Path prefix is applied
-            fake_client.get_parameter.assert_called_with(Name="/briar/GITHUB_TOKEN", WithDecryption=True)
 
 
 class ExecutorNotificationTests(unittest.TestCase):
@@ -602,11 +545,11 @@ class CredentialBootstrapTests(unittest.TestCase):
     addition stays in shape."""
 
     def test_registry_lists_envfile(self) -> None:
-        """envfile runs first (local keys win), then default-store (the
-        remote store `auth login` saves to by default)."""
+        """2.0 has one bootstrap, the envfile (the remote default-store
+        loader went with the remote stores)."""
         from briar.credentials._bootstraps import BOOTSTRAPS
 
-        self.assertEqual(list(BOOTSTRAPS.keys()), ["envfile", "default-store"])
+        self.assertEqual(list(BOOTSTRAPS.keys()), ["envfile"])
 
     def test_auto_bootstrap_no_backend_configured(self) -> None:
         """No backend is available → empty list. Startup must be
@@ -2239,58 +2182,6 @@ class Phase1CredentialHardeningTests(unittest.TestCase):
          a keyed digest so an attacker with the hash cannot brute-force
          against common-secret rainbow tables."""
 
-    # ── auth-vs-not-found propagation ──────────────────────────────
-
-    def test_aws_secrets_auth_failure_propagates(self) -> None:
-        """A revoked IAM role used to look identical to 'secret missing'
-        because the broad except cached empty. Now AccessDenied raises."""
-        from briar.credentials import make_credential_store
-
-        class _AccessDenied(Exception):
-            pass
-
-        class _NotFound(Exception):
-            pass
-
-        store = make_credential_store("aws-secretsmanager")
-        fake_client = mock.MagicMock()
-        fake_client.exceptions.ResourceNotFoundException = _NotFound
-        fake_client.get_secret_value.side_effect = _AccessDenied("AccessDeniedException: not authorized")
-        with mock.patch("boto3.client", return_value=fake_client):
-            with self.assertRaises(_AccessDenied):
-                store.read("GITHUB_TOKEN")
-
-    def test_aws_secrets_not_found_returns_none(self) -> None:
-        """Confirmed-missing returns None (distinct from empty-string)."""
-        from briar.credentials import make_credential_store
-
-        class _NotFound(Exception):
-            pass
-
-        store = make_credential_store("aws-secretsmanager")
-        fake_client = mock.MagicMock()
-        fake_client.exceptions.ResourceNotFoundException = _NotFound
-        fake_client.get_secret_value.side_effect = _NotFound("ResourceNotFoundException")
-        with mock.patch("boto3.client", return_value=fake_client):
-            self.assertIsNone(store.read("ABSENT_KEY"))
-
-    def test_ssm_auth_failure_propagates(self) -> None:
-        from briar.credentials import make_credential_store
-
-        class _AccessDenied(Exception):
-            pass
-
-        class _NotFound(Exception):
-            pass
-
-        store = make_credential_store("ssm")
-        fake_client = mock.MagicMock()
-        fake_client.exceptions.ParameterNotFound = _NotFound
-        fake_client.get_parameter.side_effect = _AccessDenied("AccessDeniedException")
-        with mock.patch("boto3.client", return_value=fake_client):
-            with self.assertRaises(_AccessDenied):
-                store.read("ABSENT_KEY")
-
     # ── envfile write atomicity + permissions ──────────────────────
 
     def test_envfile_write_creates_0o600_file(self) -> None:
@@ -3334,23 +3225,6 @@ class Phase11FollowupTests(unittest.TestCase):
 
         src = inspect.getsource(JiraTransitionWriter.send)
         self.assertIn("with_ai_prefix", src)
-
-    # ── Vault name validation ────────────────────────────────────────
-
-    def test_vault_store_rejects_path_traversal_name(self) -> None:
-        """`read("../foo")` would build Vault path `briar/../foo` and
-        could read a sibling mount. Same _NAME_RE as EnvFileStore."""
-        from briar.credentials.vault import VaultStore
-
-        store = VaultStore()
-        with self.assertRaises(ValueError):
-            store.read("../escape")
-        with self.assertRaises(ValueError):
-            store.read("lowercase")
-        # Valid name → not a name-validation raise (may raise other
-        # errors due to missing VAULT_ADDR, but not ValueError)
-        with mock.patch.dict(os.environ, {}, clear=True):
-            self.assertIsNone(store.read("VALID_NAME"))
 
     # ── Shim cleanup ─────────────────────────────────────────────────
 

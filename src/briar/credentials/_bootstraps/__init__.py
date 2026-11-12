@@ -11,11 +11,9 @@ bulk-fetch, …) = one module here + one entry in the tuple. The
 registry order — earlier backends "win" because later ones can
 only set vars not yet present in ``os.environ``.
 
-Registry order is the precedence order: envfile (laptop default
-+ droplet via systemd) runs FIRST so locally-persisted creds beat
-any later remote-vault values on conflict. `default-store` then loads
-the remote store named by ``$BRIAR_DEFAULT_STORE`` (where `auth login`
-saves by default), filling only keys still unset."""
+Registry order is the precedence order. 2.0 has one backend, the
+envfile; 1.x also loaded the remote store named by
+``$BRIAR_DEFAULT_STORE`` (removed with the remote stores)."""
 
 from __future__ import annotations
 
@@ -24,7 +22,6 @@ from typing import Dict, List, Tuple, Type
 
 from briar._registry import build_registry
 from briar.credentials._bootstrap import CredentialBootstrap, HydrateResult
-from briar.credentials._bootstraps.default_store import DefaultStoreBootstrap
 from briar.credentials._bootstraps.envfile import EnvFileBootstrap
 from briar.errors import CliError
 
@@ -32,10 +29,8 @@ from briar.errors import CliError
 log = logging.getLogger(__name__)
 
 
-# Order matters — see module docstring. EnvFileBootstrap first so
-# locally-persisted creds always win.
 BOOTSTRAPS: Dict[str, Type[CredentialBootstrap]] = build_registry(
-    (EnvFileBootstrap, DefaultStoreBootstrap),
+    (EnvFileBootstrap,),
     kind="credential bootstrap",
     name_attr="kind",
 )

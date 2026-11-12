@@ -48,8 +48,9 @@ only in the private site repo.
 | `src/briar/agent/` | `runner.py` (the tool loop), `tools.py` (bash allowlist and forbidden tokens), persona and prompt building |
 | `src/briar/plan/` | Board readers (`_boards/`), selector, store, run loop |
 | `src/briar/iac/runbook/` | Runbook loader, executor, `scheduler.py` (`runbook serve`) |
-| `src/briar/credentials/` | Credential stores: env file, AWS Secrets Manager, SSM, Vault |
+| `src/briar/credentials/` | The env-file credential store (2.0 removed AWS Secrets Manager, SSM and Vault) and `_removed_stores.py`, which stops a run whose `BRIAR_DEFAULT_STORE` names a removed one |
 | `agents/*.md` | The user manual, one file per command (linked from the README) |
+| `docs/decisions/` | The agreed 2.0 scope (D1-D36), the reference for every 2.0 PR |
 | `docs/diagrams/`, `docs/demo/` | README images (section 9) |
 | `examples/` | Runbook YAML examples |
 
@@ -189,7 +190,7 @@ Full detail per version is in `CHANGELOG.md`. In short:
    blob, not from the run's sections.
 3. The plan-run findings in section 8, branch-name slug first.
 4. The untested paths in section 8 that need real credentials (Bitbucket,
-   Jira or Linear over MCP, remote credential stores, Postgres).
+   Jira or Linear over MCP, Postgres).
 5. The MCP registry stays at 1.1.94; 2.0 has no MCP server.
 
 ## 8. What is still open
@@ -225,10 +226,9 @@ criteria in each):**
 - `auth refresh` supports no target: a real GitHub refresh needs a GitHub
   App and its client secret. Help text and docs say it is not supported.
 
-**Never run for real (unit tests only):** a successful Bitbucket PR, the
-remote default credential store against real SSM, Secrets Manager or
-Vault, Jira and Linear over MCP, Postgres for the extract merge, a full
-MCP client run that writes data.
+**Never run for real (unit tests only):** a successful Bitbucket PR, Jira
+and Linear over MCP, Postgres for the extract merge, a full MCP client run
+that writes data.
 
 ## 9. What to watch
 
