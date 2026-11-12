@@ -22,3 +22,9 @@ copy of the commit, so without it the work cannot be verified. Reject it only wh
 failure (skipped or removed tests, lowered checks), and then say what to do instead. Reject
 too a change that only adapts the repo to the machine it runs on: a plugin turned off in the
 config, a path added to `sys.path` or `PYTHONPATH`, an environment variable set in a test.
+
+Earlier rounds of this review asked for:
+{earlier}
+
+The change was made for them. Do not ask for the opposite of an earlier ask; when an earlier
+ask was wrong, say so and why in your finding.

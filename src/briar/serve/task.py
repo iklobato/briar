@@ -8,7 +8,7 @@ from __future__ import annotations
 import importlib.resources
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, ClassVar, List, Mapping, Tuple
+from typing import Any, ClassVar, List, Mapping, Sequence, Tuple
 
 from briar.errors import CliError
 from briar.extract._provider import ReviewComment
@@ -258,8 +258,9 @@ class AgentSteps:
         prompt = Prompts().text("comments", {**self._fields(), "comments": listed, "verify": self._verify()})
         return Answers.from_answer(await self._ask(prompt, Answers.SCHEMA, Access.EDIT))
 
-    async def review(self, plan: Plan, diff: str) -> Review:
-        prompt = Prompts().text("review", {**self._fields(), "plan": plan.markdown(), "diff": diff[: self.DIFF_LIMIT]})
+    async def review(self, plan: Plan, diff: str, asked: Sequence[str]) -> Review:
+        earlier = "\n".join(f"- {finding}" for finding in asked) or "- (none: this is the first round)"
+        prompt = Prompts().text("review", {**self._fields(), "plan": plan.markdown(), "diff": diff[: self.DIFF_LIMIT], "earlier": earlier})
         return Review.from_answer(await self._ask(prompt, Review.SCHEMA, Access.READ))
 
     def _listed(self, comment: ReviewComment) -> str:

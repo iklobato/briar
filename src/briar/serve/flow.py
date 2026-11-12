@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, ClassVar, Mapping
+from typing import Any, ClassVar, List, Mapping
 
 from briar.errors import CliError
 from briar.extract._provider import CiState, PullRequestDraft
@@ -83,12 +83,19 @@ class TaskFlow:
     async def reviewed(self, plan: Plan, revisions: str) -> None:
         """The self-review of the change in `revisions` against `plan`, fixed until it
         approves (S20)."""
-        review = await self._steps.review(plan, await asyncio.to_thread(self._context.checkout.changes, self._context.worktree, revisions))
+        asked: List[str] = []
+        review = await self._steps.review(plan, await asyncio.to_thread(self._context.checkout.changes, self._context.worktree, revisions), asked)
         while not review.approved:
-            self._budget.next_loop("the self-review")
-            await self._steps.fix("the self-review found problems", "\n".join(f"- {finding}" for finding in review.findings))
+            listed = "\n".join(f"- {finding}" for finding in review.findings)
+            try:
+                self._budget.next_loop("the self-review")
+            except LimitHit as stop:
+                raise LimitHit(f"{stop}\n\nThe self-review still asks for:\n{listed}") from stop
+            await self._steps.fix("the self-review found problems", listed)
             await self.verified("fix the self-review")
-            review = await self._steps.review(plan, await asyncio.to_thread(self._context.checkout.changes, self._context.worktree, revisions))
+            # A real run flip-flopped (add a line, drop it, add it): each round sees the asks before it.
+            asked.extend(review.findings)
+            review = await self._steps.review(plan, await asyncio.to_thread(self._context.checkout.changes, self._context.worktree, revisions), asked)
 
     def spent(self) -> str:
         return self._budget.summary()
@@ -100,7 +107,8 @@ class TaskFlow:
         """S23: push what there is, a draft PR with the report, the report on the ticket.
         The ticket is blocked even when posting fails (else the next cycle would redo it,
         and pay again): the failure joins the report in the state and the log."""
-        text = f"briar stopped: {report}. Spent {self._budget.summary()}."
+        head, _, detail = report.partition("\n\n")
+        text = f"briar stopped: {head}. Spent {self._budget.summary()}." + (f"\n\n{detail}" if detail else "")
         known = self._context.company.state.book().entry(self._context.item.key)
         number = known.pr if known is not None else 0
         try:

@@ -143,6 +143,18 @@ class TestLoops:
         assert "- feature.txt: say why" in agent.requests[FOURTH_STEP].prompt
         assert setup.entry("ENG-1").status is WorkStatus.DONE
 
+    def test_a_later_self_review_sees_what_the_earlier_ones_asked(self, setups: Setups) -> None:
+        """Real run, 2026-11-12: three self-reviews asked to add a change log line, then to drop
+        it, then to add it again, and the task stopped at max_loops."""
+        setup = setups.make({})
+        fix = Step(writes={"feature.txt": "done, see ENG-1\n"})
+        agent = ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().rejected("feature.txt: say why"), fix, Plans().approved()])
+
+        setup.work_on(agent, Items().jira())
+
+        second_review = agent.requests[FOURTH_STEP + 1].prompt
+        assert "Earlier rounds of this review asked for:\n- feature.txt: say why" in second_review
+
     def test_a_failed_ci_is_fixed_and_pushed(self, setups: Setups) -> None:
         setup = setups.make({})
         setup.sources.github_side.ci[:] = [CiState.FAILED, CiState.PASSED]
@@ -159,6 +171,15 @@ class TestLoops:
 
 class TestLimits:
     """S23: on a limit, push, a draft PR with the report, the report on the ticket."""
+
+    def test_a_self_review_that_never_approves_says_what_it_still_asks(self, setups: Setups) -> None:
+        """Real run, 2026-11-12: the report said only "max_loops reached while fixing: the self-review"."""
+        setup = setups.make({"max_loops": 1})
+        steps = [Plans().plan(), Step(writes=Files().feature()), Plans().rejected("a.py: add a test"), Step(), Plans().rejected("a.py: add a test")]
+
+        setup.work_on(ScriptedAgent(steps), Items().jira())
+
+        assert setup.sources.github_side.pulls[0][1].body.endswith("The self-review still asks for:\n- a.py: add a test")
 
     def test_verify_that_never_passes_hits_max_loops(self, setups: Setups) -> None:
         setup = setups.make({"max_loops": 1, "verify": [NO_OTHER]})
