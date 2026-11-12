@@ -78,9 +78,11 @@ class ReviewRun:
             head = await asyncio.to_thread(self._context.checkout.head, self._context.worktree)
         commit = head[: self.SHORT_SHA] if head != start else ""
         await asyncio.to_thread(ReviewReplies(self._context, answers, commit).post, merged)
+        # Saved before the CI wait: a stop there must not answer the same comments again.
+        await self._flow.record(WorkStatus.PR_OPEN if head != start else WorkStatus.DONE, {"answered": self._answered()})
         if head != start:
             await self._flow.ci(item.pr)
-        await self._flow.record(WorkStatus.DONE, {"answered": self._answered()})
+            await self._flow.record(WorkStatus.DONE, {})
 
     async def _start(self) -> str:
         """V11: count the round, or stop when the PR had `max_review_rounds` already."""

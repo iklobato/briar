@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Callable, ClassVar, Tuple
+from dataclasses import dataclass
+from typing import Callable, ClassVar, Tuple, Type
 
 from briar.errors import CliError
 from briar.serve.agent import AgentRunner
@@ -19,11 +20,23 @@ from briar.serve.ticket import TicketRun
 from briar.serve.work import ServeCompany, WorkItem, WorkKind
 
 
+@dataclass(frozen=True)
+class TaskParts:
+    """What one task runs with."""
+
+    context: TaskContext
+    steps: AgentSteps
+    flow: TaskFlow
+
+
 class ServeRoutine:
     """Runs one task of a company."""
 
     LOG: ClassVar[logging.Logger] = logging.getLogger(__name__)
     ENDED: ClassVar[Tuple[Tuple[WorkKind, WorkStatus], ...]] = ((WorkKind.MERGED, WorkStatus.MERGED), (WorkKind.CLOSED, WorkStatus.CLOSED))
+    # What stops a task with its report. Beyond `CliError` (git, GitHub, Jira, limits): a
+    # task left `planned` by any other failure is taken again, and paid for, every poll.
+    TASK_FAILURES: ClassVar[Tuple[Type[Exception], ...]] = (CliError, OSError, RuntimeError, ValueError, LookupError)
 
     def __init__(self, company: ServeCompany, agents: Callable[[TaskContext], AgentRunner], prep: TaskPrep) -> None:
         self._company = company
@@ -35,16 +48,22 @@ class ServeRoutine:
         if ended is not None:
             await self._ended(item, ended)
             return
-        review = item.kind is WorkKind.REVIEW
-        context = await asyncio.to_thread(self._prep.review_context if review else self._prep.context, self._company, item)
+        on_pull = item.kind is not WorkKind.TICKET
+        context = await asyncio.to_thread(self._prep.review_context if on_pull else self._prep.context, self._company, item)
         budget = Budget(self._company.settings.max_usd, self._company.settings.max_loops)
         steps = AgentSteps(self._agents(context), context, budget)
-        flow = TaskFlow(context, steps, budget)
-        run = ReviewRun(context, steps, flow) if review else TicketRun(context, steps, flow)
+        parts = TaskParts(context, steps, TaskFlow(context, steps, budget))
         try:
-            await run.work()
-        except CliError as stop:
-            await flow.blocked(str(stop))
+            await self._run(item, parts)
+        except self.TASK_FAILURES as stop:
+            await parts.flow.blocked(str(stop) or type(stop).__name__)
+
+    async def _run(self, item: WorkItem, parts: TaskParts) -> None:
+        if item.kind is WorkKind.REVIEW:
+            await ReviewRun(parts.context, parts.steps, parts.flow).work()
+            return
+        ticket = TicketRun(parts.context, parts.steps, parts.flow)
+        await (ticket.finish(item.pr) if item.kind is WorkKind.READY else ticket.work())
 
     async def _ended(self, item: WorkItem, status: WorkStatus) -> None:
         known = self._company.state.book().entry(item.key)

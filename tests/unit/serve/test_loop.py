@@ -11,6 +11,8 @@ from typing import List
 
 import pytest
 
+from briar.auth.check import SourceUnreachable
+from briar.extract._tracker import Ticket
 from briar.serve.loop import CompanyWatch, TaskSlots
 from briar.serve.state import WorkState
 from briar.serve.state import WorkEntry, WorkSource, WorkStatus
@@ -101,7 +103,34 @@ class TestTaskSlots:
         assert "serve: task ENG-1 failed: broke on ENG-1" in caplog.text
 
 
+@dataclass(frozen=True)
+class FlakyJira:
+    """Jira that is down for the first poll, then answers with one ticket."""
+
+    calls: List[str] = field(default_factory=list)
+
+    def assigned(self, project: str, limit: int) -> List[Ticket]:
+        self.calls.append(project)
+        if len(self.calls) == 1:
+            raise SourceUnreachable("jira (acme): could not reach the source (HTTP 502)")
+        return [Tickets().jira("ENG-1", "High", "2026-01-03")]
+
+
 class TestCycle:
+    def test_a_failed_poll_is_logged_and_the_next_poll_works(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+        """One Jira or GitHub error must not stop `serve` for every company and task."""
+        jira = FlakyJira()
+        monkeypatch.setattr("briar.serve.loop.WorkSources", lambda logins: FakeSources(jira_adapter=jira))
+        company = Companies(tmp_path / "knowledge").company({"jira": {"ENG": "acme/app"}})
+        slots = TaskSlots(asyncio.Semaphore(TWO_SLOTS), set(), set())
+        watch = CompanyWatch(company, slots, RecordingRoutine(company.state))
+
+        async def scenario() -> List[int]:
+            return [await watch.cycle(), await watch.cycle()]
+
+        assert asyncio.run(scenario()) == [0, 1]
+        assert "serve: acme: the poll failed, trying again next poll: jira (acme): could not reach the source (HTTP 502)" in caplog.text
+
     def test_a_ticket_with_a_pr_is_not_started_again(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         jira = FakeJira({"ENG": [Tickets().jira("ENG-1", "High", "2026-01-03")]})
         monkeypatch.setattr("briar.serve.loop.WorkSources", lambda logins: FakeSources(jira_adapter=jira))

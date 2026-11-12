@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
@@ -14,7 +15,7 @@ from briar.auth.check import CheckState, LoginCheckFailed
 from briar.errors import CliError
 from briar.extract._provider import CommentKind, PullState, ReviewComment
 from briar.serve.state import WorkEntry, WorkSource, WorkStatus
-from briar.serve.work import AgentSandbox, Marker, ModelLogin, PriorityRank, ServeCheck, ServeCompany, WorkFinder, WorkKind, WriteCheck
+from briar.serve.work import AgentSandbox, Marker, ModelLogin, PriorityRank, ServeCheck, ServeCompanies, ServeCompany, WorkFinder, WorkKind, WriteCheck
 from tests.unit.serve.fakes import Companies, FakeGithub, FakeIssues, FakeJira, FakeSources, Tickets
 
 PR_NUMBER = 12
@@ -72,6 +73,16 @@ class Comments:
         return ReviewComment(id=ident, author=f"user-{ident}", body=body, kind=CommentKind.INLINE, association=association, updated_at="t1")
 
 
+@dataclass(frozen=True)
+class FakeDrift:
+    """`BaseDrift`: what the merge of the moved base in the clone would say."""
+
+    conflict: bool
+
+    def conflicts(self, entry: WorkEntry, pull: PullState) -> bool:
+        return self.conflict
+
+
 class Watched:
     """A company `acme` whose ticket ENG-9 has the briar PR 12 in `status`."""
 
@@ -115,6 +126,31 @@ class TestReviewFinder:
         items = WorkFinder(company, FakeSources(FakeGithub(comments={("acme/app", PR_NUMBER): [edited]}), jira_adapter=FakeJira({"ENG": []}))).find()
 
         assert [comment.id for comment in items[0].comments] == ["4"]
+
+    def test_a_draft_pr_left_while_waiting_for_ci_is_found_to_finish(self, companies: Companies) -> None:
+        """`serve` stopped during the CI wait: the PR is still a draft and `pr-open`."""
+        company = Watched(companies).company({}, {"status": WorkStatus.PR_OPEN})
+        github = FakeGithub(pulls={("acme/app", PR_NUMBER): PullState(True, False, False, "main", draft=True)})
+
+        items = WorkFinder(company, FakeSources(github, jira_adapter=FakeJira({"ENG": []}))).find()
+
+        assert [(item.kind, item.pr) for item in items] == [(WorkKind.READY, PR_NUMBER)]
+
+    def test_a_draft_pr_of_a_finished_task_is_left_to_people(self, companies: Companies) -> None:
+        """A person turned a `done` PR back into a draft: briar does not mark it ready again."""
+        company = Watched(companies).company({}, {})
+        github = FakeGithub(pulls={("acme/app", PR_NUMBER): PullState(True, False, False, "main", draft=True)})
+
+        assert WorkFinder(company, FakeSources(github, jira_adapter=FakeJira({"ENG": []}))).find() == []
+
+    def test_a_conflict_github_did_not_see_starts_a_round(self, companies: Companies) -> None:
+        """GitHub said `CLEAN` with a base 40 minutes old; the merge in the clone conflicts."""
+        company = Watched(companies).company({}, {})
+        github = FakeGithub(pulls={("acme/app", PR_NUMBER): PullState(True, False, False, "main", base_sha="old")})
+
+        items = WorkFinder(company, FakeSources(github, jira_adapter=FakeJira({"ENG": []})), FakeDrift(True)).find()
+
+        assert [(item.kind, item.conflict) for item in items] == [(WorkKind.REVIEW, True)]
 
     def test_a_conflict_alone_starts_a_round(self, companies: Companies) -> None:
         company = Watched(companies).company({}, {})
@@ -238,3 +274,21 @@ class TestServeCheck:
 
     def test_the_model_login_takes_either_name(self) -> None:
         assert [ModelLogin({"CLAUDE_CODE_OAUTH_TOKEN": "x"}).problem(), ModelLogin({"ANTHROPIC_API_KEY": " "}).problem() != ""] == ["", True]
+
+
+class TestServeCompanies:
+    RUNBOOK = (
+        "version: 1\ncompanies:\n  acme:\n    knowledge:\n      store: file\n      name: knowledge:acme\n"
+        "    serve:\n      repos: [acme/app]\n      model: claude-test\n      max_usd: 1\n      max_loops: 1\n"
+        "      ci_wait_minutes: 1\n      max_review_rounds: 1\n"
+    )
+
+    def test_the_knowledge_path_is_absolute_so_the_agent_finds_it_from_its_worktree(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The agent runs in the worktree: a path relative to where `serve` started points nowhere there."""
+        (tmp_path / "runbooks").mkdir()
+        (tmp_path / "runbooks" / "acme.yaml").write_text(self.RUNBOOK)
+        monkeypatch.chdir(tmp_path)
+
+        (company,) = ServeCompanies(Path("runbooks"), {}).load()
+
+        assert company.knowledge_file() == tmp_path.resolve() / "knowledge" / "knowledge" / "acme.md"

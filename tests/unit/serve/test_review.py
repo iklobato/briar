@@ -9,7 +9,8 @@ from typing import Any, Dict, List, Sequence
 
 import pytest
 
-from briar.extract._provider import CommentKind, ReviewComment, ThreadReply
+from briar.extract._provider import CiState, CommentKind, ReviewComment, ThreadReply
+from briar.serve.flow import TaskFlow
 from briar.serve.git import Shell
 from briar.serve.state import WorkSource, WorkStatus
 from briar.serve.task import Answers
@@ -161,6 +162,20 @@ class TestConflict:
 
 
 class TestLimits:
+    def test_replies_are_recorded_before_the_ci_wait(self, opened: Opened, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A stop during the CI wait must not make the next poll answer the same comments."""
+        setup = opened.make({})
+        monkeypatch.setattr(TaskFlow, "SECONDS_PER_MINUTE", 0)
+        setup.sources.github_side.ci[:] = [CiState.PENDING]
+        reviews = Reviews()
+        rows = [{"id": "inline:1", "changed": True, "reply": "Added the ticket key."}]
+        agent = ScriptedAgent([Step(writes={"feature.txt": "done, see ENG-1\n"}, structured=reviews.answers(rows)), Plans().approved()])
+
+        setup.work_on(agent, reviews.item([reviews.inline()]))
+
+        entry = setup.entry("ENG-1")
+        assert (entry.status, entry.answered) == (WorkStatus.BLOCKED, {"inline:1": "t1"})
+
     def test_the_round_limit_stops_with_a_report(self, opened: Opened) -> None:
         """V11: a bot that comments on every push cannot make rounds without end."""
         setup = opened.make({"max_review_rounds": 1})

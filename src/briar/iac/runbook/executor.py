@@ -284,9 +284,13 @@ class RunbookExtractor:
             failure.record(reason=f"store open raised: {binding.store}", blob_name=binding.name, exc=exc)
             return
 
-        blob_name = binding.name if schedule.task == _DEFAULT_TASK else cls._task_blob_name(binding.name, schedule.task)
+        # K9: every task writes the company blob, the one the agent of `serve` reads, and keeps
+        # the sections of the extractors it did not run (as `briar extract` does).
+        blob_name = binding.name
 
         try:
+            existing = store.get(blob_name)
+            md = composer.merge_markdown(company=company_name, existing=existing, fresh=md, refreshed=composer.split_sections(md)) if existing else md
             outcome = store.put_if_changed(blob_name, md, category="knowledge")
         except Exception as exc:  # noqa: BLE001
             failure.record(reason=f"put_if_changed raised: {blob_name}", blob_name=blob_name, exc=exc)
@@ -385,13 +389,6 @@ class RunbookExtractor:
             return KnowledgeBinding(store="file", name=company.knowledge_file)
         # Same name `briar extract` writes.
         return KnowledgeBinding(store="file", name=f"knowledge:{company_name}")
-
-    @staticmethod
-    def _task_blob_name(base_name: str, task: str) -> str:
-        """For non-default tasks, suffix the blob name with `.<task>`."""
-        if base_name.endswith(".md"):
-            return f"{base_name[:-3]}.{task}.md"
-        return f"{base_name}.{task}"
 
     @staticmethod
     def _inventory_enabled(binding: KnowledgeBinding) -> bool:

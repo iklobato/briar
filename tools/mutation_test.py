@@ -42,7 +42,7 @@ _LEAF_TESTS = [
     "tests/unit/test_pagination.py",
     "tests/unit/test_decorators.py",
     "tests/unit/test_errors.py",
-    "tests/unit/test_env_vars.py",
+    "tests/unit/auth/test_logins.py",
     "tests/unit/test_log_context.py",
 ]
 
@@ -120,27 +120,27 @@ MUTATIONS: List[Mutant] = [
         "stripped[:8].lower()",
         ["tests/unit/test_errors.py"],
     ),
-    # ── env_vars ──────────────────────────────────────────────────────
+    # ── logins: the BRIAR_<COMPANY>_ names (env_vars.py moved here in spec 005 part 2) ──
     Mutant(
-        "env_vars:str.upper → str.lower in for_company",
-        "src/briar/env_vars.py",
-        'normalised = company.upper().replace("-", "_")',
-        'normalised = company.lower().replace("-", "_")',
-        ["tests/unit/test_env_vars.py"],
+        "logins:str.upper → str.lower in the company token",
+        "src/briar/auth/logins.py",
+        'return self.company.upper().replace("-", "_")',
+        'return self.company.lower().replace("-", "_")',
+        ["tests/unit/auth/test_logins.py"],
     ),
     Mutant(
-        "env_vars:dash→underscore swapped (would never match operator env)",
-        "src/briar/env_vars.py",
-        'normalised = company.upper().replace("-", "_")',
-        'normalised = company.upper().replace("_", "-")',
-        ["tests/unit/test_env_vars.py"],
+        "logins:dash→underscore swapped (would never match operator env)",
+        "src/briar/auth/logins.py",
+        'return self.company.upper().replace("-", "_")',
+        'return self.company.upper().replace("_", "-")',
+        ["tests/unit/auth/test_logins.py"],
     ),
     Mutant(
-        "env_vars:read empty-company guard returns key instead of '' ",
-        "src/briar/env_vars.py",
-        '            if not company:\n                return ""  # templated var without company → not configured',
-        "            if not company:\n                return self.value  # templated var without company → not configured",
-        ["tests/unit/test_env_vars.py"],
+        "logins:no-company guard dropped (would read BRIAR__ names)",
+        "src/briar/auth/logins.py",
+        "        if not self.company:\n            raise CliError(",
+        "        if False:\n            raise CliError(",
+        ["tests/unit/auth/test_logins.py"],
     ),
     # ── log_context ───────────────────────────────────────────────────
     Mutant(

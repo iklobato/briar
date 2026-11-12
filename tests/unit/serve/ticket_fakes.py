@@ -6,12 +6,12 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Mapping, Sequence, Tuple
+from typing import Any, ClassVar, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import pytest
 
 from briar.auth.check import LoginRejected
-from briar.extract._provider import CiFailure, CiState, PullRequestDraft, ThreadReply
+from briar.extract._provider import BranchPull, CiFailure, CiState, PullRequestDraft, ThreadReply
 from briar.extract._tracker import Ticket
 from briar.serve.agent import AgentAnswer, AgentRequest
 from briar.serve.flow import TaskFlow
@@ -104,9 +104,12 @@ class FakeGithubSide:
     pulls: List[Tuple[str, PullRequestDraft]] = field(default_factory=list)
     comments: List[Tuple[str, int, str]] = field(default_factory=list)
     drafts: List[int] = field(default_factory=list)
+    readies: List[int] = field(default_factory=list)
     replies: List[ThreadReply] = field(default_factory=list)
     # A PR refusal of GitHub, raised by every `open_pull` while set.
     refusals: List[str] = field(default_factory=list)
+    # The PRs that already exist for a branch (`branch_pull`).
+    branch_pulls: Dict[str, BranchPull] = field(default_factory=dict)
     login_source: ClassVar[str] = "github"
     NUMBER: ClassVar[int] = 41
 
@@ -128,6 +131,12 @@ class FakeGithubSide:
     def make_draft(self, repo: str, number: int) -> None:
         self.drafts.append(number)
 
+    def make_ready(self, repo: str, number: int) -> None:
+        self.readies.append(number)
+
+    def branch_pull(self, repo: str, branch: str) -> Optional[BranchPull]:
+        return self.branch_pulls.get(branch)
+
     def reply_in_thread(self, repo: str, reply: ThreadReply) -> None:
         self.replies.append(reply)
 
@@ -144,6 +153,8 @@ class FakeTrackerSide:
 
     comments: List[Tuple[str, str]] = field(default_factory=list)
     moves: List[Tuple[str, str]] = field(default_factory=list)
+    # A comment that starts with one of these is refused by the tracker.
+    refused_prefixes: List[str] = field(default_factory=list)
 
     def get_ticket(self, project: str, key: str) -> Ticket:
         return Ticket(
@@ -151,6 +162,8 @@ class FakeTrackerSide:
         )
 
     def comment(self, key: str, text: str) -> None:
+        if any(text.startswith(prefix) for prefix in self.refused_prefixes):
+            raise LoginRejected("HTTP 403: the comment was refused")
         self.comments.append((key, text))
 
     def move(self, key: str, status: str) -> None:
@@ -220,3 +233,6 @@ class Items:
 
     def issue(self) -> WorkItem:
         return WorkItem(WorkKind.TICKET, f"acme/app#{ISSUE}", WorkSource.GITHUB, "acme/app", "Add the feature")
+
+    def ready(self, pr: int) -> WorkItem:
+        return WorkItem(WorkKind.READY, "ENG-1", WorkSource.JIRA, "acme/app", "Add the feature", pr=pr)

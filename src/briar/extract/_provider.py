@@ -139,6 +139,21 @@ class PullState:
     merged: bool
     conflict: bool
     base: str
+    draft: bool = False
+    # The base commit GitHub computed `conflict` against; older than the base branch head
+    # when the base moved on and nothing touched the PR since (GitHub does not recompute).
+    base_sha: str = ""
+
+
+@dataclass(frozen=True)
+class BranchPull:
+    """The PR whose head is a task branch, open or not: briar checks it before building, so
+    a lost state or a PR a person closed never leads to the same work twice."""
+
+    number: int
+    open: bool
+    merged: bool
+    draft: bool
 
 
 @dataclass(frozen=True)

@@ -10,13 +10,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import ClassVar, List, Protocol, Set
+from typing import ClassVar, List, Protocol, Set, Tuple, Type
 
+from briar.errors import CliError
 from briar.iac.runbook.scheduler import RunbookScheduler
 from briar.serve.agent import AgentRunner, BashGuard, ClaudeAgent
 from briar.serve.git import Shell
 from briar.serve.task import ServeCache, TaskContext, TaskPrep
-from briar.serve.work import ServeCompany, WorkFinder, WorkItem, WorkSources
+from briar.serve.work import BaseDrift, ServeCompany, WorkFinder, WorkItem, WorkSources
 
 
 class Routine(Protocol):
@@ -67,6 +68,8 @@ class CompanyWatch:
 
     LOG: ClassVar[logging.Logger] = logging.getLogger(__name__)
     SECONDS_PER_MINUTE = 60
+    # What one failed poll raises: an adapter error (`CliError`) or the network.
+    POLL_FAILURES: ClassVar[Tuple[Type[Exception], ...]] = (CliError, OSError, RuntimeError, ValueError, LookupError)
 
     def __init__(self, company: ServeCompany, slots: TaskSlots, routine: Routine) -> None:
         self._company = company
@@ -74,8 +77,16 @@ class CompanyWatch:
         self._routine = routine
 
     async def cycle(self) -> int:
-        """One poll: find the work (in a thread: the clients are blocking) and dispatch it."""
-        items: List[WorkItem] = await asyncio.to_thread(WorkFinder(self._company, WorkSources(self._company.logins)).find)
+        """One poll: find the work (in a thread: the clients are blocking) and dispatch it.
+        A failed poll (GitHub or Jira down) is logged and tried again next poll: it must not
+        stop the other companies and the tasks that are running."""
+        sources = WorkSources(self._company.logins)
+        drift = BaseDrift(self._company, sources, ServeCache(os.environ).root())
+        try:
+            items: List[WorkItem] = await asyncio.to_thread(WorkFinder(self._company, sources, drift).find)
+        except self.POLL_FAILURES as failure:
+            self.LOG.error("serve: %s: the poll failed, trying again next poll: %s", self._company.name, failure)
+            return 0
         started = sum(self._slots.dispatch(item, self._routine) for item in items)
         self.LOG.info("serve: %s: %d found, %d started", self._company.name, len(items), started)
         return started

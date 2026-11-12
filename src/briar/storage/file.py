@@ -7,6 +7,7 @@ a name without a colon goes to ``./knowledge/<name>.md``."""
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import List, Optional
 
@@ -60,9 +61,13 @@ class StoreFile(KnowledgeStore):
     def put(self, blob_name: str, content: str, category: str = "") -> KnowledgeRef:
         path = self._path_for(blob_name)
         path.parent.mkdir(parents=True, exist_ok=True)
+        # A temp file then a rename: a reader (the `serve` poll) never sees a half-written file.
+        staging = path.with_name(f".{path.name}.{os.getpid()}.tmp")
         try:
-            path.write_text(content)
+            staging.write_text(content)
+            os.replace(staging, path)
         except OSError:
+            staging.unlink(missing_ok=True)
             log.exception("file-store put failed: blob=%s path=%s", blob_name, path)
             raise
         log.debug("file-store put: blob=%s path=%s bytes=%d", blob_name, path, len(content))

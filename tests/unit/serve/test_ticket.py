@@ -4,12 +4,13 @@ what briar writes."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
 import pytest
 
-from briar.extract._provider import CiState
+from briar.extract._provider import BranchPull, CiState
 from briar.serve.flow import TaskFlow
 from briar.serve.state import WorkStatus
 from tests.unit.serve.ticket_fakes import ISSUE, FakeGithubSide, Files, Items, Plans, ScriptedAgent, Setups, Step
@@ -44,7 +45,8 @@ class TestHappyPath:
         assert tracker.comments[1][1] == f"briar opened https://github.com/acme/app/pull/{PR}"
         assert tracker.moves == [("ENG-1", "In Progress"), ("ENG-1", "In Review")]
         repo, draft = github.pulls[0]
-        assert (repo, draft.head, draft.base, draft.title, draft.draft) == ("acme/app", "briar/ENG-1", "main", "ENG-1: Add the feature", False)
+        assert (repo, draft.head, draft.base, draft.title, draft.draft) == ("acme/app", "briar/ENG-1", "main", "ENG-1: Add the feature", True)
+        assert github.readies == [PR]
         assert "Ticket: ENG-1" in draft.body
         assert "briar/ENG-1" in setup.origin.branches()
         entry = setup.entry("ENG-1")
@@ -86,6 +88,20 @@ class TestLoops:
         assert "`test -f feature.txt` failed (exit 1)" in agent.requests[THIRD_STEP].prompt
         assert setup.entry("ENG-1").status is WorkStatus.DONE
 
+    def test_verify_checks_the_commit_not_the_files_git_ignores(self, setups: Setups) -> None:
+        """A file the agent leaves that git ignores passes verify in its folder but is not
+        pushed (first real run: a `pytest.ini` the global gitignore dropped)."""
+        setup = setups.make({})
+        ignored_build = Step(writes={"feature.txt": "done\n", ".gitignore": "feature.txt\n"})
+        agent = ScriptedAgent([Plans().plan(), ignored_build, Step(writes={".gitignore": ""}), Plans().approved()])
+
+        setup.work_on(agent, Items().jira())
+
+        fix = agent.requests[THIRD_STEP].prompt
+        assert "`test -f feature.txt` failed (exit 1)" in fix
+        assert "git ignores these files of your folder, so they are not in the commit: feature.txt" in fix
+        assert setup.entry("ENG-1").status is WorkStatus.DONE
+
     def test_a_self_review_finding_is_fixed(self, setups: Setups) -> None:
         setup = setups.make({})
         fix = Step(writes={"feature.txt": "done, see ENG-1\n"})
@@ -104,7 +120,10 @@ class TestLoops:
         setup.work_on(agent, Items().jira())
 
         assert "1 failed: test_feature" in agent.requests[FOURTH_STEP].prompt
+        # A CI check may name the PR (the click copy asked for {pr}`4`): the agent must know it.
+        assert f"CI fails on the pull request #{PR} (https://github.com/acme/app/pull/{PR})" in agent.requests[FOURTH_STEP].prompt
         assert setup.entry("ENG-1").status is WorkStatus.DONE
+        assert setup.sources.github_side.readies == [PR]
 
 
 class TestLimits:
@@ -130,6 +149,7 @@ class TestLimits:
 
         github = setup.sources.github_side
         assert (github.drafts, [repo for repo, _ in github.pulls]) == ([PR], ["acme/app"])
+        assert github.readies == []
         assert github.comments[-1][TEXT].startswith("briar stopped: CI did not pass within ci_wait_minutes (30)")
         assert setup.entry("ENG-1").status is WorkStatus.BLOCKED
 
@@ -156,4 +176,70 @@ class TestLimits:
         assert (entry.status, entry.taken(), entry.pr) == (WorkStatus.BLOCKED, True, 0)
         assert entry.report == f"{report} The draft PR failed: HTTP 422: A pull request already exists."
         assert setup.sources.tracker_side.comments[-1][1] == entry.report
+
+
+class TestNoDoubleWork:
+    """Found in the validation run of 2026-11-11: work done twice after a stop or a lost state."""
+
+    def test_a_failure_that_is_not_a_cli_error_blocks_the_ticket(self, setups: Setups) -> None:
+        """Left `planned`, the ticket would be planned, posted and paid for again every poll."""
+        setup = setups.make({})
+
+        setup.work_on(ScriptedAgent([Plans().plan()]), Items().jira())
+
+        entry = setup.entry("ENG-1")
+        assert (entry.status, entry.taken()) == (WorkStatus.BLOCKED, True)
+        assert entry.report.startswith("briar stopped: pop from empty list.")
+
+    def test_a_refused_ticket_comment_after_the_pr_keeps_the_pr(self, setups: Setups) -> None:
+        setup = setups.make({})
+        setup.sources.tracker_side.refused_prefixes.append("briar opened")
+
+        setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()]), Items().jira())
+
+        entry = setup.entry("ENG-1")
+        assert (entry.status, entry.pr, len(setup.sources.github_side.pulls)) == (WorkStatus.BLOCKED, PR, 1)
+
+    def test_a_ticket_planned_before_a_stop_is_not_announced_twice(self, setups: Setups) -> None:
+        setup = setups.make({})
+        first = ScriptedAgent([Plans().plan(), Step(cost=MAX_USD)])
+        setup.work_on(first, Items().jira())
+        planned = [text for _, text in setup.sources.tracker_side.comments if text.startswith("briar plan for")]
+        asyncio.run(setup.company.state.record(setup.entry("ENG-1").model_copy(update={"status": WorkStatus.PLANNED})))
+
+        setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()]), Items().jira())
+
+        again = [text for _, text in setup.sources.tracker_side.comments if text.startswith("briar plan for")]
+        assert (len(planned), len(again)) == (1, 1)
+
+    @pytest.mark.parametrize(
+        "found, status",
+        [
+            (BranchPull(PR, open=True, merged=False, draft=False), WorkStatus.PR_OPEN),
+            (BranchPull(PR, open=True, merged=False, draft=True), WorkStatus.BLOCKED),
+            (BranchPull(PR, open=False, merged=False, draft=False), WorkStatus.CLOSED),
+            (BranchPull(PR, open=False, merged=True, draft=False), WorkStatus.MERGED),
+        ],
+        ids=["open", "draft", "closed by a person", "merged"],
+    )
+    def test_a_pr_of_the_branch_is_recorded_and_nothing_is_built(self, setups: Setups, found: BranchPull, status: WorkStatus) -> None:
+        setup = setups.make({})
+        setup.sources.github_side.branch_pulls["briar/ENG-1"] = found
+        agent = ScriptedAgent([])
+
+        setup.work_on(agent, Items().jira())
+
+        entry = setup.entry("ENG-1")
+        assert (entry.status, entry.pr, agent.requests, setup.sources.github_side.pulls) == (status, PR, [], [])
+
+    def test_a_draft_left_during_the_ci_wait_is_finished(self, setups: Setups) -> None:
+        setup = setups.make({})
+        setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()]), Items().jira())
+        github = setup.sources.github_side
+        github.readies.clear()
+        asyncio.run(setup.company.state.record(setup.entry("ENG-1").model_copy(update={"status": WorkStatus.PR_OPEN})))
+
+        setup.work_on(ScriptedAgent([]), Items().ready(PR))
+
+        assert (github.readies, setup.entry("ENG-1").status) == ([PR], WorkStatus.DONE)
         assert "briar/ENG-1" in setup.origin.branches()

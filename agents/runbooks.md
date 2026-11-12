@@ -61,8 +61,8 @@ companies:
 ```
 
 This file gives you three tasks. Once a day, at 03:17 UTC, the `extractors`
-task writes `knowledge:acme`. Every hour, `prs` writes `knowledge:acme.prs`.
-Every two hours, `tickets` writes `knowledge:acme.tickets`.
+task refreshes its sections of `knowledge:acme`. Every hour, `prs` refreshes
+its own, and every two hours, `tickets` does the same.
 
 ### The keys, one by one
 
@@ -87,10 +87,10 @@ Every two hours, `tickets` writes `knowledge:acme.tickets`.
 
 ### Where each task writes
 
-- The task named `extractors` writes the blob in `knowledge.name`.
-- Every other task writes `<name>.<task>`. For `knowledge:acme` and the task
-  `prs`, that is `knowledge:acme.prs`. For `./knowledge/acme.md`, it is
-  `./knowledge/acme.prs.md`.
+- Every task writes the blob in `knowledge.name`, the one the agent of
+  `briar serve` reads. A task replaces only the sections of the extractors it
+  ran; the sections of other tasks and of `briar extract` stay. (Earlier builds
+  wrote a task not named `extractors` to `<name>.<task>`, which the agent never read.)
 - briar only writes when the text changed. Otherwise the result says
   `skipped (unchanged, ...)`.
 
@@ -133,7 +133,7 @@ exactly that time.
   first runs at its next scheduled time. `briar doctor --runbooks DIR` runs the
   same check without starting.
 - At each run you get the log lines `fire task=prs company=acme yaml=acme.yaml`
-  and `result task=prs company=acme status=... output=knowledge:acme.prs`.
+  and `result task=prs company=acme status=... output=knowledge:acme`.
 - Tasks run one at a time. A slow task delays the next one.
 - At each run, briar reads the file of that task again. So changes to `args`
   apply at the next run. New tasks, removed tasks and new `every:` values need a

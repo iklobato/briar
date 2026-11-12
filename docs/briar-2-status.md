@@ -7,6 +7,14 @@ Agent SDK; GitHub and Jira only). The decisions are
 `docs/decisions/2026-11-11-briar-2-serve-pipeline.md` (S1 to S35), which also list the
 earlier decisions they change. Spec 003 builds it in 4 PRs; part 1 is #100, part 2 is #101, part 3 is #102, part 4 is #103.
 
+**Validated for real on 2026-11-11 and 2026-11-12:** the first real `serve` runs (a small
+test repo and a private copy of `pallets/click` with real CI) and real `extract` runs found
+17 bugs; 15 are fixed in https://github.com/iklobato/briar/pull/104 (on top of #103). What
+ran, what it showed, what is fixed and what is open: `docs/briar-2-validation.md`. The
+decisions: `docs/decisions/2026-11-11-briar-2-serve-knowledge-draft.md` (W1 to W9, built) and
+`docs/decisions/2026-11-11-briar-2-extract-sources.md` (E1 to E27, the plan of spec 007 for
+AWS, Azure, GCP, Fireflies, Bitbucket and Linear, not built).
+
 The handoff file for briar 2.0. Read it before you touch the `v2` branch or
 any 2.0 PR. It says where the work is, what is done, how the code works
 now, what was found on the way, what is left and what to watch.
@@ -83,6 +91,7 @@ now, what was found on the way, what is left and what to watch.
 | https://github.com/iklobato/briar/pull/101 | `serve/02-ticket-routine` | Spec 003 part 2: the ticket routine (Claude Agent SDK in a worktree per ticket; plan, build, verify and self-review loops, PR, CI wait, limits with a draft PR and a report) |
 | https://github.com/iklobato/briar/pull/102 | `serve/03-review-routine` | Spec 003 part 3: the review routine (writers and listed bots, marker, edits, resolved threads, base merge, replies, `max_review_rounds`), the agent sandbox and read limit, `ServeRoutine` |
 | https://github.com/iklobato/briar/pull/103 | `serve/04-cleanup` | Spec 003 part 4: `briar auth` and `briar runbook` leave; `serve` runs extract-only folders, `doctor --runbooks`, `init` writes an example runbook; the hints, manuals, README and CHANGELOG |
+| https://github.com/iklobato/briar/pull/104 | `serve/05-knowledge-draft` | The fixes from the first real runs: absolute knowledge path, PR as a draft until CI passes, verify on a clean copy, CI pending while Actions runs are queued, scheduled tasks into the company blob, no ticket done twice, a failed poll retried, the clone lock, conflicts GitHub has not computed, the mutation tool; `docs/briar-2-validation.md` |
 
 ### A local test build (not a release)
 
@@ -111,7 +120,10 @@ git -C <repo> worktree remove --force /tmp/briar-build
 - Built and checked on 2026-11-11 from `748d1d2` (PR #103): `--version`, the 4
   commands in `--help`, `claude-agent-sdk` 0.2.180, `init` writing both files,
   `doctor --runbooks` stopping on `Field required` for the commented model and
-  limits. The maintainer tests it locally next; no real `serve` run yet.
+  limits.
+- The real `serve` runs of 2026-11-11 and 2026-11-12 used this build first, then the
+  editable install of the PR #104 branch (`.venv/bin/briar` of its worktree; it still prints
+  1.1.101). See `docs/briar-2-validation.md` section 1.
 
 ## 2. What is done
 
@@ -574,6 +586,31 @@ as 1.x shipped it, in tag `v1.1.101`. Read one with
   `make smoke` ok on 4 commands; mypy 27 before, 25 after (the two of the
   removed files); `src` 17,051 lines before, 16,321 after.
 
+### The first real runs and their fixes (PR #104)
+
+- Decisions: `docs/decisions/2026-11-11-briar-2-serve-knowledge-draft.md` (W1 to W9).
+  Detail, evidence and how to run it again: `docs/briar-2-validation.md`.
+- The first real ticket (2026-11-11, `iklobato/briar-plan-test` issue #1, PR #5) worked end to
+  end, but the agent never read the knowledge (relative path) and verify passed only in the
+  task folder (a `pytest.ini` the global gitignore kept out of the commit).
+- 16 commits: `9ab6dc3` absolute knowledge path; `b1e8d18` PR as a draft, ready after CI;
+  `0d25930` verify on a clean copy; `9d599b6` atomic file store write; `7220294` CI pending
+  while Actions runs are queued; `3a04aee` every scheduled task into the company blob (K9);
+  `6988bb5` a failed poll is logged and retried; `5a6c05b` answered comments saved before the
+  CI wait; `fe4b292` no ticket done twice (PR of the branch recorded first, any failure
+  blocks, PR number saved at once, plan posted once, a draft left by a stop is finished);
+  `06e802a` self-review accepts a change that makes verify pass; `09cea4b` the CI fix prompt
+  names the PR; `a723896` one lock per clone; `6887b6a` `BaseDrift` finds a conflict GitHub
+  has not computed; `2b11d3a` the mutation tool targets `auth/logins.py`; plus the docs
+  commits.
+- Real runs: 17 serve cases on the small test repo and 11 flows on a private copy of
+  `pallets/click` with real CI (bug fixes, a feature, review rounds, a CI failure fixed by
+  the agent, a conflict plus a reviewer commit, parallel tasks, scheduled extracts); extract
+  on GitHub, AWS and Azure checked against `gh`, `aws` and `az`.
+- Numbers, 2026-11-12, Python 3.13.2: 1549 unit and 25 integration tests pass (1530 and 25 on
+  #103); each commit passes alone; mypy 25 (same); `python tools/mutation_test.py` 22 of 22
+  killed; CI green on #104.
+
 ### Spec 005: real runs on the accounts of the maintainer (G20)
 
 Read only, on the machine of the maintainer, 2026-11-11, with
@@ -743,23 +780,30 @@ briar serve DIR                                   (commands/serve.py)
                TicketRun.work() or ReviewRun.work(); any CliError -> TaskFlow.blocked()
 ```
 
-- **The ticket routine** (`serve/ticket.py`, S18 to S27): plan (structured output,
-  read only) -> comment the plan on the ticket, move it to `status.started` -> build
-  (edits) -> `TaskFlow.verified` (commit, run `verify`, fix until green) ->
-  `TaskFlow.reviewed` (read-only self-review against the plan, fix until approved) ->
-  push -> open the PR ready (`Closes #n` for an issue) -> comment the link, move to
-  `status.review` -> `TaskFlow.ci` (poll every 30 s, fix a failed run, stop after
-  `ci_wait_minutes`).
+- **The ticket routine** (`serve/ticket.py`, S18 to S27, W1 to W7): a PR of the task
+  branch that already exists is recorded and nothing is built (`branch_pull`) -> plan
+  (structured output, read only) -> comment the plan on the ticket once, move it to
+  `status.started` -> build (edits) -> `TaskFlow.verified` (commit, run `verify` on a clean
+  detached worktree of HEAD, fix until green) -> `TaskFlow.reviewed` (read-only self-review
+  against the plan, fix until approved) -> push -> open the PR **as a draft** (`Closes #n`
+  for an issue), save `pr-open` with its number -> comment the link, move to
+  `status.review` -> `TaskFlow.ci` (poll every 30 s; check runs, statuses and Actions
+  workflow runs; fix a failed run with the PR number in the prompt; stop after
+  `ci_wait_minutes`) -> mark the PR ready -> `done`. A draft left in `pr-open` by a stop is
+  found again (`WorkKind.READY`) and finished. Changes of PR #104: `docs/briar-2-validation.md`
+  section 2.
 - **A review round** (`serve/review.py`, V6 to V11): stop at `max_review_rounds`,
-  else count the round -> merge `origin/<base>` when `dirty` (the agent resolves the
-  conflict; a merge it cannot finish is aborted) -> one `AgentSteps.answer` call over
-  every new comment (`{"answers": [{id, changed, reply}]}`) -> commit; if the head
-  moved: verify, self-review against the comments, push -> `ReviewReplies`: a reply in
-  each inline thread (`create_review_comment_reply` on the first comment of the
-  thread) and one comment quoting the others -> CI wait if the head moved -> record
-  `answered`.
-- **A stop** (`TaskFlow.blocked`, S23): a limit (`LimitHit`) or any git, GitHub or
-  Jira failure (`CliError`; `GithubFailures` turns PyGithub errors into one). briar
+  else count the round -> merge `origin/<base>` when `dirty`, or when `BaseDrift` finds a
+  conflict GitHub has not computed (the agent resolves the conflict; a merge it cannot
+  finish is aborted) -> one `AgentSteps.answer` call over every new comment
+  (`{"answers": [{id, changed, reply}]}`) -> commit; if the head moved: verify,
+  self-review against the comments, push -> `ReviewReplies`: a reply in each inline thread
+  (`create_review_comment_reply` on the first comment of the thread) and one comment
+  quoting the others -> record `answered` (before the CI wait) -> CI wait if the head
+  moved.
+- **A stop** (`TaskFlow.blocked`, S23): a limit (`LimitHit`), any git, GitHub or Jira
+  failure (`CliError`; `GithubFailures` turns PyGithub errors into one), or an `OSError`,
+  `RuntimeError`, `ValueError` or `LookupError` (`ServeRoutine.TASK_FAILURES`). briar
   commits "work so far", pushes, turns the PR into a draft (or opens one) with the
   report, comments the report on the ticket, and records `blocked`. Posting failures
   join the report; the ticket is blocked anyway, so no poll pays for it again.
@@ -785,7 +829,12 @@ briar serve DIR                                   (commands/serve.py)
   `planned`, `pr-open`, `done`, `blocked`, `merged`, `closed` (`found` exists but no
   routine writes it). Taken again: a ticket left `found` or `planned` (a crash before
   the PR). Read each poll: PRs in `pr-open` or `done`. `TaskFlow.record` keeps what
-  the entry already holds.
+  the entry already holds. The file store writes a temp file and renames it, so a poll
+  never reads half a state. The state is not the only guard any more: a PR of the task
+  branch on GitHub is recorded before any build.
+- **The poll** (`CompanyWatch.cycle`): a failed find (GitHub or Jira error) is logged and
+  tried again next poll; a failed login check of a scheduled extract still stops `serve`
+  (J8). The tasks of one repo share its clone under one lock (`RepoCheckout.CLONE_LOCKS`).
 - **The checks** (`ServeCheck`, `AgentSandbox`, `WriteCheck`): `ANTHROPIC_API_KEY` or
   `CLAUDE_CODE_OAUTH_TOKEN`; `sandbox-exec` on macOS, `bwrap` and `socat` on Linux;
   the read check of spec 005 per company, then GitHub `permissions.push` per repo and
@@ -963,7 +1012,7 @@ Found in spec 003 (`briar serve`, 2026-11-11):
 
 ## 5. Next steps, in order
 
-1. **Review and merge #79 to #103 into `v2`**, in order, as merge commits.
+1. **Review and merge #79 to #104 into `v2`**, in order, as merge commits.
    Re-check `gh pr checks <n>` before each merge; after the last one, check
    that the `v2` CI run is green.
 2. **Decide how 2.0 is released before `v2` merges to `main`.**
@@ -1016,17 +1065,13 @@ Found in spec 003 (`briar serve`, 2026-11-11):
      - Local spec-kit state: `specs/005-source-logins/tasks.md` has T001 to
        T017 done (PRs 1 to 3; T017a, the real runs, open) and T018 to T023
        left.
-6. **The first real run of `briar serve`** (task T015 of the local plan, not
-   done; it spends model money and writes to GitHub, so ask first). A small
-   setup: the private test repo `iklobato/briar-plan-test`, one issue
-   assigned to the PAT owner, a runbook from `briar init` with `repos:` set to
-   that repo, a low `max_usd` (for example 1) and `max_review_rounds: 1`, the
-   model login, then `briar doctor --runbooks runbooks/` and `briar serve
-   runbooks/`. Watch for: the plan comment on the issue, the PR, the CI wait,
-   then a review comment by the owner and the reply. It also shows for the
-   first time bash running inside the SDK sandbox and the real cost of one
-   ticket. A local build for it exists since 2026-11-11 (section 1, "A
-   local test build"); the maintainer tests it next.
+6. **The first real runs of `briar serve`: done** (2026-11-11 and 2026-11-12, on
+   `iklobato/briar-plan-test` and `iklobato/briar-oss-click`; cost US$ 0.19 to 1.03 per
+   ticket). Their fixes are PR #104; what is left of them: `docs/briar-2-validation.md`
+   sections 5 to 7. In short: spec 007 for the extract sources (decisions E1 to E27 in
+   `docs/decisions/2026-11-11-briar-2-extract-sources.md`, a grill before each PR), B13
+   (`doctor --runbooks` accepts a model id that does not exist), B11 proven live, Jira
+   through `serve`, Linux and Docker.
 7. **The review questions on #100 to #103**, none answered yet: the 152 MB
    wheel of `claude-agent-sdk` as a required dependency (#100); a failed poll
    stopping `serve` (#100); bash reads outside the worktree and a failure
@@ -1086,14 +1131,26 @@ Found in spec 003 (`briar serve`, 2026-11-11):
   - Bash of the agent can still read any file of the user (`cat`); Read, Glob
     and Grep are limited (V12). A secret read that way can only leave in a file
     of the PR diff (no network in the sandbox).
-  - Not tested: bash inside the sandbox, `bwrap` in the Docker image (user
-    namespaces), a full ticket or review round with the model.
+  - Not tested: `bwrap` in the Docker image (user namespaces), Linux. Bash inside the
+    macOS sandbox and full tickets and review rounds with the model ran for real on
+    2026-11-11 and 2026-11-12 (`docs/briar-2-validation.md`).
   - A failure before a task starts is logged and tried again on the next poll
     (V15), so a branch that cannot fast forward logs every cycle.
   - `allowed_domains` is a way out for data (V13).
   - The example model of the `init` runbook template and `agents/serve.md` is
-    `claude-sonnet-4-5`, an older id than the current Claude models; it was
-    not checked against the model list. Pick a current id when testing.
+    `claude-sonnet-4-5`, an older id than the current Claude models; the real runs used
+    `claude-sonnet-5-5`. `doctor --runbooks` does not check the id (B13).
+- Open after PR #104 (detail: `docs/briar-2-validation.md` sections 4 and 6):
+  - B13 `doctor` accepts any model id; B14 the Azure title shows an AWS region; B11 (the
+    self-review against a verify fix) changed in the prompt only, not proven live.
+  - Every extract source but GitHub has a known bug (D1 to D15, G, L, BB items); the plan
+    is E1 to E27 (spec 007), nothing built.
+  - `serve` takes every open issue assigned to the token owner (S9): a repo where that
+    person has other assigned issues needs a label filter, which does not exist.
+  - Jira through `serve`, a CI failure that needs a code change, and a network drop during
+    a poll did not run for real.
+  - After a stop in the second between the PR and the ticket comment, the "briar opened"
+    comment is missing.
 - Spec 005, open after PRs #97 to #99:
   - `briar serve` (the scheduled extracts, as `runbook serve` before #103)
     stops for every company when one check fails, a short network drop
@@ -1178,6 +1235,13 @@ Found in spec 003 (`briar serve`, 2026-11-11):
   bundles its own Claude Code CLI, whose version follows the SDK (S1 risk).
   `ClaudeAgent` reads `ResultMessage` fields and `ResultError.subtype`; re-run
   `tests/unit/serve/test_agent.py` and one real call after an upgrade.
+- **What the validation run of PR #104 says to watch** (`docs/briar-2-validation.md`
+  section 7): the cost of `BaseDrift` (one fetch and `merge-tree` per watched PR per poll
+  once the base moves), GitHub keeping `mergeable_state` stale, private repo Actions runs
+  that stay `queued` (now a `blocked` task after `ci_wait_minutes`, not a ready PR), a
+  machine whose Python fails pytest in a clean folder (verify runs on a clean copy now),
+  issues assigned to the token owner that are not for briar, and model spend (US$ 0.19 to
+  1.03 per ticket so far).
 - **One `serve` per knowledge folder**: two processes write the same
   `work:<company>` file (the lock is per process).
 - **A new extractor or adapter must join the check**: an extractor gives
@@ -1221,8 +1285,14 @@ none is merged or released (section 1).
 | 24 | Status of the running task | Given at the time |
 | 25 to 28 | Keep this file and `CLAUDE.md` current, readable by any agent, in the repo, for the session only | Done (PR #90, a commit on #98, `748d1d2` and this commit on #103) |
 | 29 | List every ask of the session | Given in the session |
+| 30 | Plan tests of every feature; say what to remove or improve so `extract` and `serve` reach their goal | Done: `docs/briar-2-validation.md` |
+| 31 | Analyse the deep consequences, not only the output; connect Fireflies, AWS, Azure and GitHub | Done for real on GitHub, AWS and Azure; Fireflies broken for everyone (D7); GCP not readable with the login of the machine |
+| 32 | A fix plan to make AWS, Azure, GCP, Fireflies, Bitbucket and Linear work, decided interactively | Decided (E1 to E27), not built: spec 007 |
+| 33 | Fix `serve` to read the knowledge, open a draft, fix the PR and justify on review comments | Done: PR #104 (W1 to W4), proven on real PRs |
+| 34 | Validate `extract` and `serve` relentlessly in complex flows with the logins at hand | Done: 17 bugs found, 15 fixed in PR #104 (section 2, "The first real runs and their fixes") |
+| 35 | Do not use the infra of a client company for the tests | Done: the validation used private test repos of the maintainer only |
+| 36 | Fix the mutation tool before `v2` merges to `main` | Done: `2b11d3a`, mutation 22 of 22 |
 
-Left before any of it counts as live: the first real `serve` run (section 5,
-item 6), the review and merge of #79 to #103 into `v2`, the answers to the
-review questions on #100 to #103, the 2.0 release decision (S32), then the
+Left before any of it counts as live: the review and merge of #79 to #104 into `v2`, the
+answers to the review questions on #100 to #103, the 2.0 release decision (S32), then the
 site (X6).

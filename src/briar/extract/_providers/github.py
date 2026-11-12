@@ -24,6 +24,7 @@ from briar.extract._gh import GithubApi
 from briar.extract._login_failures import GithubFailures
 from briar.extract._provider import (
     BranchProtection,
+    BranchPull,
     CiFailure,
     CiRun,
     CodeSearchHit,
@@ -112,6 +113,11 @@ class GithubProvider(RepositoryProvider):
         _validate_repo(repo)
         GithubFailures().read(partial(self._convert_to_draft, repo, number))
 
+    def make_ready(self, repo: str, number: int) -> None:
+        """Take a draft PR out of draft, so its reviewers are asked."""
+        _validate_repo(repo)
+        GithubFailures().read(partial(self._mark_ready, repo, number))
+
     def ci_state(self, repo: str, number: int) -> CiState:
         """The check runs and statuses of the PR head: none yet, pending, passed or failed."""
         _validate_repo(repo)
@@ -123,13 +129,34 @@ class GithubProvider(RepositoryProvider):
     def _convert_to_draft(self, repo: str, number: int) -> None:
         self._api().client().get_repo(repo).get_pull(number).convert_to_draft()
 
+    def _mark_ready(self, repo: str, number: int) -> None:
+        self._api().client().get_repo(repo).get_pull(number).mark_ready_for_review()
+
     def pull_state(self, repo: str, number: int) -> PullState:
         """Open or not, merged, in conflict with its base (`mergeable_state` `dirty`; GitHub
         computes it late, so a new PR can read `unknown` once)."""
         _validate_repo(repo)
         found = GithubFailures().answer(partial(self._api().get_json, f"/repos/{repo}/pulls/{number}"))
-        base = (found.get("base") or {}).get("ref") or ""
-        return PullState(found.get("state") == "open", bool(found.get("merged")), found.get("mergeable_state") == "dirty", base)
+        base = found.get("base") or {}
+        conflict = found.get("mergeable_state") == "dirty"
+        return PullState(found.get("state") == "open", bool(found.get("merged")), conflict, base.get("ref") or "", bool(found.get("draft")), base.get("sha") or "")
+
+    def branch_head(self, repo: str, branch: str) -> str:
+        """The commit at the head of `branch` of `repo`."""
+        _validate_repo(repo)
+        found = GithubFailures().answer(partial(self._api().get_json, f"/repos/{repo}/branches/{branch}"))
+        return str((found.get("commit") or {}).get("sha") or "")
+
+    def branch_pull(self, repo: str, branch: str) -> Optional[BranchPull]:
+        """The newest PR, open or not, whose head is `branch` of `repo` (briar checks it before
+        it builds a ticket, so a lost state never opens a second PR)."""
+        _validate_repo(repo)
+        owner = repo.split("/")[0]
+        found = GithubFailures().answer(partial(self._api().get_json, f"/repos/{repo}/pulls?head={owner}:{branch}&state=all&sort=created&direction=desc"))
+        if not found:
+            return None
+        newest = found[0]
+        return BranchPull(int(newest["number"]), newest.get("state") == "open", bool(newest.get("merged_at")), bool(newest.get("draft")))
 
     def review_comments(self, repo: str, number: int) -> List[ReviewComment]:
         """Every comment of a PR for `briar serve` (V1, V4, V9): whole, with who wrote it and
@@ -181,10 +208,13 @@ class GithubProvider(RepositoryProvider):
 
     def _ci_state(self, repo: str, number: int) -> CiState:
         target = self._api().client().get_repo(repo)
-        commit = target.get_commit(target.get_pull(number).head.sha)
-        runs = [(run.status, run.conclusion) for run in commit.get_check_runs()]
+        sha = target.get_pull(number).head.sha
+        commit = target.get_commit(sha)
+        # A queued Actions run has no check run yet: read the workflow runs too, or a fast
+        # check of another app that passed first reads as "CI passed".
+        checks = [*commit.get_check_runs(), *target.get_workflow_runs(head_sha=sha)]
         statuses = [status.state for status in commit.get_combined_status().statuses]
-        return CiStates().of(runs, statuses)
+        return CiStates().of([(run.status, run.conclusion) for run in checks], statuses)
 
     def can_write(self, repo: str) -> None:
         """Raise `LoginRejected` when the token cannot push to `repo` (`permissions.push` of

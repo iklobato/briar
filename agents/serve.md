@@ -28,22 +28,32 @@ and `docs/decisions/2026-11-11-briar-2-review-routine.md`.
    merged or closed one is recorded and left; one with new comments or a conflict gets
    a review round), then the open tickets assigned to the account of the token,
    highest priority first, then the oldest. A ticket briar already took is not taken again,
-   unless it stopped before the PR (then the next cycle tries again).
+   unless it stopped before the PR (then the next cycle tries again, without posting the
+   plan a second time). Before it builds a ticket, briar looks for a PR of the task branch:
+   one that exists (the state file was lost, or a person closed the PR) is recorded and
+   nothing is built; an open draft is left `blocked` for a person. A PR still a draft in
+   `pr-open` (`serve` stopped during the CI wait) gets the CI wait again, then is marked
+   ready. A failed poll (GitHub or Jira down) is logged and tried again next poll.
 4. Runs up to `max_parallel` tasks of a company at once (default 3), never two on the
-   same ticket. A task that fails is logged; the others go on.
+   same ticket. A task that fails, for any reason, is `blocked` with its report; the
+   others go on.
 5. Works each ticket in its own git worktree, on the branch `branch` (default
    `briar/{key}`), with the Claude Agent SDK and the `model` of the company:
    1. the agent reads the ticket, the knowledge of the company and the repo, and
       writes a plan; briar comments the plan on the ticket and moves it to
       `status.started`;
-   2. the agent builds the plan; briar commits and runs the `verify` commands, and
-      the agent fixes them until they pass;
+   2. the agent builds the plan; briar commits and runs the `verify` commands on a
+      clean copy of the commit (a detached worktree of HEAD, so a file git ignores
+      does not count: it would not be pushed), and the agent fixes them until they
+      pass. Verify commands must install what they need (`npm ci && npm test`): the
+      clean copy has no `node_modules` or virtualenv of the task folder;
    3. a second, read-only agent call reviews the diff against the plan; the agent
       fixes what it finds, and the verify commands run again;
-   4. briar pushes the branch, opens the PR (ready, not a draft), comments the PR link
-      on the ticket and moves it to `status.review`;
+   4. briar pushes the branch, opens the PR as a draft, comments the PR link on the
+      ticket and moves it to `status.review`;
    5. briar waits for CI on the PR and, when it fails, gives the agent the failed job
-      logs, then pushes the fix.
+      logs, then pushes the fix; when CI passes (or the repo has no CI), briar marks
+      the PR ready for review, so reviewers are asked only for work that passed.
 
    The agent only edits files in the worktree and runs the allowed commands: the
    commits, the push, the PR, the comments and the status moves are done by briar.
