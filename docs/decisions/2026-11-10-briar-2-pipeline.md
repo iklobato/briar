@@ -41,7 +41,7 @@ Format: `ID. Decision: chosen answer. Why. (depends on)`
 - D18. Prompts: the archetype Python classes (`iac/scaffold/archetypes/`) become `.md` prompt files in the package. Shared rules become includes. The YAML points at a prompt file. (D11)
 - D19. Board selection: keep the LLM selector (today's `plan/_selector.py`). (D7)
 - D20. Board parallelism: independent cards run in parallel worktrees, `max_parallel` default 3. This default was the maintainer's choice, not measured. (D7, D19)
-- D21. Checkpoint store: SQLite by default, Postgres when the knowledge store is Postgres (`langgraph-checkpoint-sqlite` / `-postgres`). (D8, D9)
+- D21. Checkpoint store: SQLite by default, Postgres when the knowledge store is Postgres (`langgraph-checkpoint-sqlite` / `-postgres`). (D8, D9) Changed by C11 (core cleanup): the Postgres knowledge store left in spec 006 part 3, so checkpoints use SQLite only.
 - D22. Human gates: none until the PR is ready. (D4)
 - D23. CI wait: no time limit. (D4)
 - D24. Bot loop: bots are listed in the pipeline YAML, and the pipeline waits for every listed bot with no time limit. (D6, D23)

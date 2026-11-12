@@ -18,7 +18,7 @@ include/storage/json wiring). This file pins EVERY flag in
 * AWS knobs (``--aws-extract-region`` / ``--aws-extract-profile`` /
   ``--aws-extract-service``) → assert they reach ``make_cloud`` /
   ``list_subsections``.
-* meta flags (``--company`` / ``--include`` / ``--store`` /
+* meta flags (``--company`` / ``--include`` /
   ``--blob-name`` / ``--root`` / ``--out-json``) → assert title, file
   path, and json sidecar.
 
@@ -31,6 +31,9 @@ assertion FAIL. No network, no SDKs imported at module scope.
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Callable
 from unittest.mock import MagicMock
 
 import pytest
@@ -207,8 +210,6 @@ def _run(cli, tmp_root, include, *extra, company="acme", out_json=None):
         company,
         "--include",
         include,
-        "--store",
-        "file",
         "--root",
         str(tmp_root / "knowledge"),
         *extra,
@@ -228,7 +229,7 @@ def _blob_text(tmp_root, company="acme") -> str:
 
 class TestMetaFlags:
     def test_company_required_omission_exits_2(self, cli, tmp_root) -> None:
-        result = cli("extract", "--store", "file", "--root", str(tmp_root / "knowledge"))
+        result = cli("extract", "--root", str(tmp_root / "knowledge"))
         assert result.code == 2
         assert "company" in result.err.lower()
 
@@ -238,30 +239,13 @@ class TestMetaFlags:
         text = _blob_text(tmp_root, company="globex")
         assert "# Briar knowledge base — globex" in text
 
-    def test_storage_invalid_choice_exits_2(self, cli, tmp_root, seam) -> None:
-        result = _run(cli, tmp_root, "pr-archaeology", "--pr-repo", "o/r", "--store", "carrier-pigeon")
-        # the explicit --store in extra overrides the helper's earlier one
-        assert result.code == 2
-        assert "invalid choice" in result.err
+    USAGE_ERROR = 2
 
-    def test_store_canonical_writes_blob(self, cli, tmp_root, seam) -> None:
-        # `--store` (dest `storage`) drives the file write; the 1.x alias
-        # `--storage` was removed in 2.0.
-        result = cli(
-            "extract",
-            "--company",
-            "acme",
-            "--include",
-            "pr-archaeology",
-            "--pr-repo",
-            "o/r",
-            "--store",
-            "file",
-            "--root",
-            str(tmp_root / "knowledge"),
-        )
-        assert result.code == 0
-        assert (tmp_root / "knowledge" / "knowledge" / "acme.md").exists()
+    def test_store_flag_is_gone_exits_2(self, cli: Callable[..., SimpleNamespace], tmp_root: Path, seam: SimpleNamespace) -> None:
+        # 2.0 has one knowledge store (decision C11), so `--store` left.
+        run = _run(cli, tmp_root, "pr-archaeology", "--pr-repo", "o/r", "--store", "file")
+        assert run.code == self.USAGE_ERROR
+        assert "unrecognized arguments: --store" in run.err
 
     def test_include_invalid_choice_exits_2(self, cli, tmp_root, seam) -> None:
         result = cli(
@@ -270,8 +254,6 @@ class TestMetaFlags:
             "acme",
             "--include",
             "not-a-real-extractor",
-            "--store",
-            "file",
             "--root",
             str(tmp_root / "knowledge"),
         )
@@ -295,8 +277,6 @@ class TestMetaFlags:
             "pr-archaeology",
             "--pr-repo",
             "o/r",
-            "--store",
-            "file",
             "--root",
             str(alt),
         )

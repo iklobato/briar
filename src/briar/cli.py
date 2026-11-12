@@ -247,13 +247,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     # them, and ships an error event — then re-raises into the
     # existing CliError / KeyboardInterrupt / catch-all flow.
     from briar import telemetry
+    from briar.config import find_config_file
     from briar.credentials._removed_stores import RemovedCredentialStoreGuard
+    from briar.settings import RemovedSettingGuard
 
     try:
         with telemetry.command_span(args.command, args):
             # A 1.x setup may still name a removed remote store: stop with
             # the fix instead of running without the keys it used to load.
             RemovedCredentialStoreGuard(os.environ).check()
+            RemovedSettingGuard(project_config or {}, find_config_file()).check()
             rc = commands[args.command].run(args)
         _notify_update(log)
         return rc

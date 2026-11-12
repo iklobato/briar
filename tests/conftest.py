@@ -11,7 +11,7 @@ import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Callable, Iterator
+from typing import Any, Callable
 
 import pytest
 
@@ -161,21 +161,9 @@ def file_store(tmp_root: Path) -> Any:
     return StoreFile(root=tmp_root / "knowledge")
 
 
-@pytest.fixture
-def pg_store() -> Iterator[Any]:
-    """A `StorePostgres` against `BRIAR_TEST_PG_DSN` (skip if unset)."""
-    dsn = os.environ.get("BRIAR_TEST_PG_DSN")
-    if not dsn:
-        pytest.skip("BRIAR_TEST_PG_DSN not set")
-    from briar.storage.postgres import StorePostgres  # type: ignore[import-not-found]
-
-    store = StorePostgres(dsn=dsn)
-    yield store
-
-
 @pytest.fixture(params=["file"])
 def store(request: pytest.FixtureRequest, file_store: Any) -> Any:
-    """Parametrized store. Postgres lane added by tests that opt in."""
+    """Parametrized store; `file` is the only backend since 2.0 (decision C11)."""
     return file_store
 
 

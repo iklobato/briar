@@ -18,7 +18,7 @@ _FULL = {
     "version": 1,
     "companies": {
         "acme": {
-            "knowledge": {"store": "postgres", "name": "knowledge:acme", "config": {"dsn_env": "ACME_DATABASE_URL"}},
+            "knowledge": {"store": "file", "name": "knowledge:acme", "config": {"inventory": "true"}},
             "extract": [{"name": "pr-archaeology", "args": {"pr_repo": ["acme/web"]}}],
         }
     },
@@ -36,7 +36,7 @@ def test_load_save_load_roundtrips(tmp_path) -> None:
     # defaults the same way, so equal dumps == semantically identical config.
     assert reloaded.model_dump(exclude_defaults=True) == rb.model_dump(exclude_defaults=True)
     acme = reloaded.companies["acme"]
-    assert acme.knowledge.config["dsn_env"] == "ACME_DATABASE_URL"
+    assert acme.knowledge.config["inventory"] == "true"
     assert acme.extract[0].args == {"pr_repo": ["acme/web"]}
 
 
@@ -50,7 +50,7 @@ def test_returns_resolved_path(tmp_path) -> None:
 
 def test_literal_secret_in_dsn_env_config_is_rejected(tmp_path) -> None:
     rb = RunbookFile.model_validate(
-        {"companies": {"acme": {"knowledge": {"store": "postgres", "name": "k:acme", "config": {"dsn_env": "postgres://user:pw@host/db"}}}}}
+        {"companies": {"acme": {"knowledge": {"store": "file", "name": "k:acme", "config": {"token_env": "literal-value-PLACEHOLDER-not-a-secret"}}}}}
     )
     out = tmp_path / "rb.yaml"
     with pytest.raises(ConfigError, match="env-var NAME"):

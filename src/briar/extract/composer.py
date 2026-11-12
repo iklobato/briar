@@ -65,9 +65,8 @@ class KnowledgeComposer:
         Unlike `json()`, this OMITS the volatile `generated_at`
         timestamp and sorts keys, so the output is byte-stable when the
         underlying resources are unchanged. That lets `put_if_changed`
-        dedup it — the postgres history table then gains a row only when
-        the estate actually drifts, turning the inventory blob into a
-        change log rather than a per-run append."""
+        dedup it: the inventory blob is rewritten only when the estate
+        actually drifts, not on every run."""
         payload: Dict[str, Any] = {
             "company": company,
             "sections": [cls._section_to_dict(s) for s in sections],

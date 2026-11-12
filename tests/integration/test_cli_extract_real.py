@@ -41,8 +41,6 @@ def test_extract_pr_archaeology_real_github(cli, github_at, tmp_root) -> None:
         "pr-archaeology",
         "--pr-repo",
         "acme/app",
-        "--store",
-        "file",
         "--root",
         str(tmp_root / "knowledge"),
     )

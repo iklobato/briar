@@ -7,13 +7,13 @@
 # provider abstractions compose:
 #
 #   acme       GitHub repos + AWS infra + Jira tickets
-#              File-backed knowledge store, Telegram alerts.
+#              File-backed knowledge store.
 #
 #   bitspark   Bitbucket repos + AWS infra + Linear tickets
-#              Postgres-backed knowledge store, Slack alerts.
+#              File-backed knowledge store.
 #
 #   datacore   GitHub repos + GCP infra + Bitbucket Issues tickets
-#              File-backed knowledge store, PagerDuty alerts.
+#              File-backed knowledge store.
 #
 # Per-company secrets live in `/etc/briar/secrets.env`. See
 # `examples/multi_company.env.example` for the full schema.
@@ -116,13 +116,10 @@ companies:
   #   `tracker: linear` routes ticket extractors onto LinearTracker
   #   (stdlib GraphQL via urllib).
   #
-  # Knowledge goes to Postgres so the agents + scheduler can share one
-  # source of truth without file-locking. `BRIAR_DATABASE_URL` must be set.
   # --------------------------------------------------------------------------
   bitspark:
     knowledge:
-      store: postgres
-      # Blob name in the briar_knowledge table.
+      store: file
       name: knowledge:bitspark
 
     schedules:

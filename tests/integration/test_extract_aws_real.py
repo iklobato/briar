@@ -147,8 +147,6 @@ def test_extract_aws_infra_happy_path_real(cli, tmp_root, monkeypatch) -> None:
             "aws-infra",
             "--aws-extract-region",
             region,
-            "--store",
-            "file",
             "--root",
             str(root),
         )
@@ -206,8 +204,6 @@ def test_extract_aws_infra_service_filter_real(cli, tmp_root, monkeypatch) -> No
             "aws-infra",
             "--aws-extract-service",
             "rds",
-            "--store",
-            "file",
             "--root",
             str(root),
         )
@@ -242,8 +238,6 @@ def test_extract_aws_infra_empty_real(cli, tmp_root, monkeypatch) -> None:
             "acme",
             "--include",
             "aws-infra",
-            "--store",
-            "file",
             "--root",
             str(root),
         )
@@ -288,8 +282,6 @@ def test_extract_aws_infra_unreachable_real(cli, tmp_root, monkeypatch) -> None:
         "acme",
         "--include",
         "aws-infra",
-        "--store",
-        "file",
         "--root",
         str(root),
     )

@@ -53,14 +53,6 @@ class CredEnv(str, Enum):
     # billed separately and each owns its own transcript corpus.
     FIREFLIES_API_KEY = "FIREFLIES_{c}_API_KEY"
 
-    BRIAR_DATABASE_URL = "BRIAR_DATABASE_URL"
-    # Per-company override read by `StorePostgres.from_binding`. Resolution
-    # order: explicit `config.dsn_env` (YAML) → this per-company var →
-    # `BRIAR_DATABASE_URL` (global fallback). Lets two companies on the
-    # same scheduler write to two different databases without putting any
-    # DSN string into version-controlled YAML.
-    BRIAR_DATABASE_URL_FOR_COMPANY = "BRIAR_{c}_DATABASE_URL"
-
     def for_company(self, company: str) -> str:
         if "{c}" in self.value and not company:
             # Empty company on a templated var used to silently produce

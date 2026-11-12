@@ -16,8 +16,8 @@ A command-line tool, package `briar-cli`, command `briar`. It runs on the
 user's machine and does two things:
 
 1. **Collects facts** ("knowledge") from a team's tools with extractors
-   and writes them as markdown blobs to a file store (`./knowledge/`) or
-   Postgres.
+   and writes them as markdown blobs to a file store (`./knowledge/`); 1.x
+   could also write to Postgres.
 2. **Runs AI coding agents** that read those facts. In 1.x (`main`) that
    is `agent implement` (ticket to draft PR), `agent prfix` (answers review
    comments on a PR) and `plan` (works a whole board card by card). 2.0
@@ -34,10 +34,10 @@ only in the private site repo.
 | Latest version | 1.1.101 (PyPI and GitHub Release `v1.1.101` = latest) |
 | Python | 3.10, 3.11, 3.12 (CI unit jobs); the integration job runs on whatever `uv` picks (3.14 in CI) |
 | Release trigger | every push to `main`, except `chore(release):` commits; it bumps the patch only |
-| 2.0 | in progress on branch `v2` (still equal to `main`); 14 stacked PRs open, #79 to #92. Status and handoff: `docs/briar-2-status.md` |
+| 2.0 | in progress on branch `v2` (still equal to `main`); 15 stacked PRs open, #79 to #93. Status and handoff: `docs/briar-2-status.md` |
 | MCP registry | `io.github.iklobato/briar`, latest 1.1.94; stays there, 2.0 has no MCP server |
 | Open issues | #76, #77 (section 8) |
-| Open PRs | #79 to #92, all into `v2`, not reviewed |
+| Open PRs | #79 to #93, all into `v2`, not reviewed |
 | Stars / forks | 3 / 0 |
 
 ## 3. Repo layout
@@ -68,7 +68,7 @@ only in the private site repo.
   `briar/main`.
 - **2.0 work goes to `v2`, not `main`** (decision D27). The open 2.0 PRs are
   stacked: branch a new 2.0 PR from the top of the stack (now
-  `core/02-small-commands`, PR #92) and target `v2`. Read
+  `core/03-file-store-only`, PR #93) and target `v2`. Read
   `docs/briar-2-status.md` first.
 - **A merge to `main` is a public release.** `.github/workflows/release.yml`
   runs the unit tests (`uv run pytest -n auto -m "not integration"`),
@@ -181,12 +181,13 @@ Full detail per version is in `CHANGELOG.md`. In short:
   only they used removed, the personas and rules moved to
   `src/briar/prompts/`; PR #92: `context`, `secrets`, `journal`,
   `telemetry`, `version`, `messaging`, `notify` removed, `--format
-  table|json`, `-v` only, telemetry tier from env or `.briar.toml`.
+  table|json`, `-v` only, telemetry tier from env or `.briar.toml`; PR #93:
+  the Postgres store, `--store` and the `store` setting removed.
   Details and numbers: `docs/briar-2-status.md`.
 
 ## 7. Next steps (in order)
 
-0. **2.0**: review and merge PRs #79 to #92 into `v2` in order; decide how
+0. **2.0**: review and merge PRs #79 to #93 into `v2` in order; decide how
    2.0 is released before `v2` merges to `main` (the workflow would publish
    1.1.102); then specs 003, 004, 005. Order and detail:
    `docs/briar-2-status.md` section 5.
@@ -200,7 +201,7 @@ Full detail per version is in `CHANGELOG.md`. In short:
 3. The plan-run findings in section 8, branch-name slug first (1.x only:
    2.0 has no `plan`).
 4. The untested paths in section 8 that need real credentials (Bitbucket,
-   Jira or Linear over MCP, Postgres).
+   Jira or Linear over MCP, Postgres; 1.x only).
 5. The MCP registry stays at 1.1.94; 2.0 has no MCP server.
 
 ## 8. What is still open
@@ -242,9 +243,9 @@ criteria in each):**
 - `auth refresh` supports no target: a real GitHub refresh needs a GitHub
   App and its client secret. Help text and docs say it is not supported.
 
-**Never run for real (unit tests only):** Postgres for the extract merge;
-in 1.x also a successful Bitbucket PR, Jira and Linear over MCP, and a full
-MCP client run that writes data.
+**Never run for real (unit tests only), all 1.x:** Postgres for the extract
+merge, a successful Bitbucket PR, Jira and Linear over MCP, and a full MCP
+client run that writes data.
 
 ## 9. What to watch
 

@@ -108,15 +108,14 @@ You get `.briar/knowledge/acme.md` with the full detail. `CLAUDE.md` gets
 a short index between `<!-- BEGIN briar-knowledge -->` and
 `<!-- END briar-knowledge -->`. Running it again replaces only that block.
 
-Save to Postgres under a different name, so the main blob stays as is:
+Save under a different name, so the main blob stays as is:
 
 ```bash
 briar extract --company acme --repo acme-co/acme-app \
-    --store postgres --blob-name knowledge:acme.snapshot-2026q3
+    --blob-name knowledge:acme.snapshot-2026q3
 ```
 
-This needs `BRIAR_DATABASE_URL`. You get a blob named
-`knowledge:acme.snapshot-2026q3` in the database.
+You get `./knowledge/knowledge/acme.snapshot-2026q3.md`.
 
 ## The 23 extractors
 
@@ -242,9 +241,8 @@ briar extract --company acme --include meeting-digest --since-days 14 --meeting-
 |---|---|---|---|
 | `--company` | Company name. It names the blob and picks per-company credentials like `JIRA_ACME_TOKEN`. Required, unless `BRIAR_COMPANY` or `company` in `.briar.toml` sets it. | None. | `--company acme` |
 | `--include` | Run only this extractor. Repeat it to run several. Since 1.1.82 the other sections already in the blob are kept; only the sections of the extractors that ran are replaced (one that ran and found nothing loses its old section; one that is not set up keeps it). | All 23. Ones that are not set up are skipped. | `--include stale-prs` |
-| `--store` | Where to save the blob: `file` or `postgres`. The 1.x name `--storage` was removed in 2.0. | `postgres` if `BRIAR_DATABASE_URL` is set, else `file`. `BRIAR_STORE` or `store` in `.briar.toml` change it. | `--store postgres` |
 | `--blob-name` | Name to save the blob under. | `knowledge:<company>`. | `--blob-name knowledge:acme.old` |
-| `--root` | Folder for the file store. The blob goes to `<root>/knowledge/<company>.md`. Ignored for Postgres. | `./knowledge` | `--root ./kb` |
+| `--root` | Folder of the knowledge store. The blob goes to `<root>/knowledge/<company>.md`. 1.x also had `--store` (and `--storage`) to pick Postgres; 2.0 removed both (exit code 2). | `./knowledge`, or `root` in `.briar.toml`. | `--root ./kb` |
 | `--out-json` | Also write all sections as JSON to this path. JSON keeps the full detail that the markdown leaves out. | Empty (no JSON). | `--out-json ./acme.json` |
 | `--merge-claude-md` | Also write `.briar/knowledge/<company>.md` and put a short index of it into `CLAUDE.md`. | Off. | `--merge-claude-md` |
 | `--claude-md-path` | Which `CLAUDE.md` to update. Used only with `--merge-claude-md`. | `./CLAUDE.md` | `--claude-md-path docs/CLAUDE.md` |
@@ -385,7 +383,7 @@ Progress goes to stderr, so stdout stays empty for scripts:
   skipped meeting-digest  (not available in this env)
   stale-prs: no data
 
-wrote blob 'knowledge:acme' (18342 bytes, 5 sections) via store=file
+wrote blob 'knowledge:acme' (18342 bytes, 5 sections) under ./knowledge
 ```
 
 - `skipped`: credentials or the repo list are missing for that extractor.

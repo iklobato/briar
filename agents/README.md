@@ -55,7 +55,7 @@ Check the exit code before you read the output.
 briar looks up each setting in this order and takes the first one it finds:
 
 1. The flag you typed.
-2. An environment variable (`BRIAR_COMPANY`, `BRIAR_STORE`).
+2. An environment variable (`BRIAR_COMPANY`).
 3. The project file `.briar.toml`, or `[tool.briar]` in `pyproject.toml`.
    briar looks in the current folder, then each parent folder.
 4. The git `origin` remote, for the repo owner and name only.
@@ -64,17 +64,14 @@ briar looks up each setting in this order and takes the first one it finds:
 `briar config show` prints each setting and where it came from. See
 [setup.md](setup.md).
 
-## Knowledge stores and blob names
+## The knowledge store and blob names
 
-briar saves knowledge as named markdown blobs in a store.
-
-| `--store` | Where blobs live | Default for |
-|---|---|---|
-| `file` | `./knowledge/<prefix>/<rest>.md`, so `knowledge:acme` is `./knowledge/knowledge/acme.md`. Change the folder with `--root`. | Every command when `BRIAR_DATABASE_URL` is not set. |
-| `postgres` | The database in `BRIAR_DATABASE_URL`. A runbook can pick another one per company. | `extract` when `BRIAR_DATABASE_URL` is set. |
-
-`BRIAR_STORE=postgres`, or `store = "postgres"` in `.briar.toml`, makes
-every command use Postgres.
+briar saves knowledge as named markdown blobs in one store, a folder of
+files: a blob is `./knowledge/<prefix>/<rest>.md`, so `knowledge:acme`
+is `./knowledge/knowledge/acme.md`. Change the folder with `--root` (or
+`root` in `.briar.toml`). 1.x could also use Postgres; 2.0 removed it,
+and `store` in `.briar.toml` (or `store: postgres` in a runbook) now
+stops the command with exit code 1.
 
 | Blob name | Written by | Read by |
 |---|---|---|

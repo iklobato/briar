@@ -109,6 +109,15 @@ class TestRemovedRunbookBlocks:
         assert run.code == CLI_ERROR
         assert f"`{block}` was removed in briar 2.0" in run.err
 
+    def test_runbook_with_the_postgres_store_is_one_naming_it(self, cli: Callable[..., SimpleNamespace], tmp_path: Path) -> None:
+        runbook = tmp_path / "runbook.yaml"
+        runbook.write_text("version: 1\ncompanies:\n  acme:\n    knowledge:\n      store: postgres\n")
+
+        run = cli("runbook", "extract", str(runbook))
+
+        assert run.code == CLI_ERROR
+        assert "`store: postgres` was removed in briar 2.0" in run.err
+
 
 class TestHelpDoesNoIo:
     @pytest.mark.parametrize("argv", [("--help",), ("-h",), ("runbook", "--help"), ("auth", "login", "-h"), ("runbook", "extract", "--help")], ids=" ".join)
