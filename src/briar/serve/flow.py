@@ -27,7 +27,7 @@ class TicketSide:
 
     def comment(self, item: WorkItem, text: str) -> None:
         if item.source is WorkSource.GITHUB:
-            self._sources.github().comment(item.repo, int(item.number()), Marker().mark(text))
+            self._sources.code_host().comment(item.repo, int(item.number()), Marker().mark(text))
             return
         self._sources.jira().comment(item.key, text)
 
@@ -69,7 +69,7 @@ class TaskFlow:
         deadline = time.monotonic() + minutes * self.SECONDS_PER_MINUTE
         started = time.monotonic()
         while True:
-            state = await asyncio.to_thread(self._context.sources.github().ci_state, self._context.item.repo, number)
+            state = await asyncio.to_thread(self._context.sources.code_host().ci_state, self._context.item.repo, number)
             if state is CiState.PASSED or (state is CiState.NONE and time.monotonic() - started > self.CI_GRACE_SECONDS):
                 return
             if state is CiState.FAILED:
@@ -119,7 +119,7 @@ class TaskFlow:
         base = known or item.entry()
         entry = base.model_copy(update={**changes, "status": status, "branch": self._context.branch})
         await self._context.company.state.record(entry)
-        link = f" https://github.com/{item.repo}/pull/{entry.pr}" if entry.pr else ""
+        link = f" {self._context.sources.style().pull_url(item.repo, entry.pr)}" if entry.pr else ""
         self.LOG.info("serve: %s is %s%s %s", item.ref(), status.value, link, entry.report if status is WorkStatus.BLOCKED else "")
 
     def commit(self, what: str) -> bool:
@@ -127,10 +127,10 @@ class TaskFlow:
 
     async def _fix_ci(self, number: int) -> None:
         self._budget.next_loop("CI")
-        failures = await asyncio.to_thread(self._context.sources.github().list_ci_failures, self._context.item.repo, number)
+        failures = await asyncio.to_thread(self._context.sources.code_host().list_ci_failures, self._context.item.repo, number)
         details = "\n\n".join(f"{failure.job} / {failure.step} ({failure.url}):\n{failure.log_tail}" for failure in failures)
-        repo = self._context.item.repo
-        await self._steps.fix(f"CI fails on the pull request #{number} (https://github.com/{repo}/pull/{number})", details or "(no failure log was found)")
+        style = self._context.sources.style()
+        await self._steps.fix(f"CI fails on the {style.noun()} #{number} ({style.pull_url(self._context.item.repo, number)})", details or "(no failure log was found)")
         await self.verified("fix CI")
         await self.push()
 
@@ -140,7 +140,7 @@ class TaskFlow:
         if not self.commit("work so far") and not known:
             return 0
         self._context.checkout.push(self._context.worktree, self._context.branch, self._context.token)
-        github = self._context.sources.github()
+        github = self._context.sources.code_host()
         if known is not None and known.pr:
             github.make_draft(self._context.item.repo, known.pr)
             github.comment(self._context.item.repo, known.pr, Marker().mark(text))

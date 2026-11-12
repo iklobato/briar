@@ -101,7 +101,7 @@ class CompanyWatch:
         """One poll: find the work (in a thread: the clients are blocking) and dispatch it.
         A failed poll (GitHub or Jira down) is logged and tried again next poll: it must not
         stop the other companies and the tasks that are running."""
-        sources = WorkSources(self._company.logins)
+        sources = WorkSources(self._company.logins, self._company.settings.code_host)
         drift = BaseDrift(self._company, sources, ServeCache(os.environ).root())
         try:
             items: List[WorkItem] = await asyncio.to_thread(WorkFinder(self._company, sources, drift).find)
@@ -188,7 +188,7 @@ class ServeLoops:
     def _routine(self, company: ServeCompany) -> Routine:
         from briar.serve.routine import ServeRoutine
 
-        prep = TaskPrep(WorkSources(company.logins), Shell(), ServeCache(os.environ).root())
+        prep = TaskPrep(WorkSources(company.logins, company.settings.code_host), Shell(), ServeCache(os.environ).root())
         return ServeRoutine(company, AgentMaker(company).agent, prep)
 
     def _slots(self, company: ServeCompany) -> TaskSlots:

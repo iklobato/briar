@@ -63,7 +63,7 @@ class BashGuard:
     )  # fmt: skip
     FORBIDDEN: ClassVar[Tuple[str, ...]] = (
         "rm -rf", "sudo", "su ", "ssh ", "scp ", "curl", "wget", "shutdown", "reboot", "chmod 777", "mkfs", "dd if=",
-        "--force", "-f origin", "--amend", "rebase", "squash", "filter-branch", "reset --hard", "git push", "gh ",
+        "--force", "-f origin", "--amend", "rebase", "squash", "filter-branch", "reset --hard", "git push", "gh ", "glab ",
     )  # fmt: skip
     READ_TOOLS: ClassVar[Tuple[str, ...]] = ("Read", "Glob", "Grep", "LS")
     FREE_TOOLS: ClassVar[Tuple[str, ...]] = ("TodoWrite",)

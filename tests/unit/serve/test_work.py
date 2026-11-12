@@ -244,14 +244,14 @@ class TestServeCheck:
         assert str(caught.value) == "no model login: set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN (in the environment or secrets.env)"
 
     def test_a_missing_login_stops_with_every_line(self, companies: Companies, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("briar.serve.work.WorkSources", lambda logins: FakeSources())
+        monkeypatch.setattr("briar.serve.work.WorkSources", lambda logins, kind: FakeSources())
 
         with pytest.raises(LoginCheckFailed, match=r"  - github \(acme\): no login saved \(BRIAR_ACME_GITHUB_TOKEN\)"):
             ServeCheck([companies.company({"repos": ["acme/app"]})], {"ANTHROPIC_API_KEY": "PLACEHOLDER-not-a-secret"}, Sandboxes().ready()).require()
 
     def test_a_company_with_chat_checks_its_slack_login(self, companies: Companies, monkeypatch: pytest.MonkeyPatch) -> None:
         """C11: a missing Slack login shows before the first poll, as the other logins do."""
-        monkeypatch.setattr("briar.serve.work.WorkSources", lambda logins: FakeSources())
+        monkeypatch.setattr("briar.serve.work.WorkSources", lambda logins, kind: FakeSources())
         company = companies.company({"repos": ["acme/app"], "chat": {"slack": {"channels": ["CTEAM01"]}}})
 
         lines = ServeCheck([company], {}, Sandboxes().ready()).lines()

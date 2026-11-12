@@ -22,8 +22,9 @@ from briar.auth.logins import CompanyLogins, LoginScope
 from briar.errors import CliError
 from briar.extract._provider import CommentKind, PullState, ReviewComment
 from briar.extract._tracker import Ticket
-from briar.iac.runbook.models import ServeSettings
+from briar.iac.runbook.models import CodeHostKind, ServeSettings
 from briar.serve.git import RepoCheckout, Shell
+from briar.serve.host import GithubStyle, GitlabStyle, HostStyle
 from briar.serve.state import WorkBook, WorkEntry, WorkSource, WorkState, WorkStatus
 from briar.storage import make_store
 
@@ -128,15 +129,26 @@ class ServeCompany:
 
 
 class WorkSources:
-    """The adapters `serve` reads through, built with the company logins."""
+    """The adapters `serve` reads through, built with the company logins; the code host is
+    GitHub or GitLab (G1)."""
 
-    def __init__(self, logins: CompanyLogins) -> None:
+    def __init__(self, logins: CompanyLogins, kind: CodeHostKind = CodeHostKind.GITHUB) -> None:
         self._logins = logins
+        self._kind = kind
 
-    def github(self) -> Any:
+    def code_host(self) -> Any:
+        """A `CodeHost` (`briar.serve.host`)."""
         from briar.extract._providers import make_provider
+        from briar.extract._providers.gitlab_host import GitlabHost
 
+        if self._kind is CodeHostKind.GITLAB:
+            return GitlabHost(self._logins.gitlab())
         return make_provider("github", self._logins)
+
+    def style(self) -> HostStyle:
+        if self._kind is CodeHostKind.GITLAB:
+            return GitlabStyle(self._logins.gitlab().url(), self.code_host())
+        return GithubStyle(self.code_host())
 
     def issues(self) -> Any:
         from briar.extract._trackers import make_tracker
@@ -169,7 +181,7 @@ class WorkFinder:
 
     def find(self) -> List[WorkItem]:
         book = self._company.state.book()
-        login = self._sources.github().who_am_i() if self._company.settings.repos else ""
+        login = self._sources.code_host().who_am_i() if self._company.settings.repos else ""
         tickets = [item for item in [*self._jira(), *self._issues(login)] if not book.taken(item.key)]
         return sorted([*self._pulls(book), *tickets], key=WorkItem.order)
 
@@ -203,7 +215,7 @@ class WorkFinder:
         return [item for item in found if item is not None]
 
     def _pull(self, entry: WorkEntry) -> Optional[WorkItem]:
-        github = self._sources.github()
+        github = self._sources.code_host()
         pull = github.pull_state(entry.repo, entry.pr)
         if not pull.open:
             return WorkItem(WorkKind.MERGED if pull.merged else WorkKind.CLOSED, entry.key, entry.source, entry.repo, entry.title, pr=entry.pr)
@@ -227,10 +239,10 @@ class BaseDrift:
         self._cache = cache
 
     def conflicts(self, entry: WorkEntry, pull: PullState) -> bool:
-        if not pull.base_sha or self._sources.github().branch_head(entry.repo, pull.base) == pull.base_sha:
+        if not pull.base_sha or self._sources.code_host().branch_head(entry.repo, pull.base) == pull.base_sha:
             return False
-        checkout = RepoCheckout(Shell(), self._cache, entry.repo)
-        return not checkout.merges_clean(pull.base, entry.branch, self._company.logins.github().token())
+        checkout = RepoCheckout(Shell(), self._cache, self._sources.style().remote(entry.repo))
+        return not checkout.merges_clean(pull.base, entry.branch, self._sources.code_host().resolve_token())
 
 
 class ReviewFilter:
@@ -314,8 +326,8 @@ class WriteCheck:
         self._sources = sources
 
     def results(self) -> List[CheckResult]:
-        github = self._sources.github()
-        lines = [self._line("github", repo, partial(github.can_write, repo)) for repo in self._company.settings.all_repos()]
+        host = self._sources.code_host()
+        lines = [self._line(host.login_source, repo, partial(host.can_write, repo)) for repo in self._company.settings.all_repos()]
         if self._company.settings.jira:
             jira = self._sources.jira()
             lines += [self._line("jira", project, partial(jira.can_write, project, self._jira_permissions())) for project in self._company.settings.jira]
@@ -358,8 +370,8 @@ class ServeCheck:
         return [line for company in self._companies for line in self._company_lines(company)]
 
     def _company_lines(self, company: ServeCompany) -> List[CheckResult]:
-        sources = WorkSources(company.logins)
-        targets = [LoginTarget(sources.github(), tuple(company.settings.all_repos()))]
+        sources = WorkSources(company.logins, company.settings.code_host)
+        targets = [LoginTarget(sources.code_host(), tuple(company.settings.all_repos()))]
         if company.settings.jira:
             targets.append(LoginTarget(sources.jira(), tuple(company.settings.jira.keys())))
         slack = company.settings.chat.slack

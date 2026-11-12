@@ -15,12 +15,12 @@ from briar.extract._provider import BranchPull, CiFailure, CiState, PullRequestD
 from briar.extract._tracker import Ticket
 from briar.serve.agent import AgentAnswer, AgentRequest
 from briar.serve.flow import TaskFlow
-from briar.serve.git import RepoCheckout, Shell
+from briar.serve.git import Shell
 from briar.serve.routine import ServeRoutine
 from briar.serve.state import WorkSource
 from briar.serve.task import TaskPrep
 from briar.serve.work import ServeCompany, WorkItem, WorkKind
-from tests.unit.serve.fakes import Companies
+from tests.unit.serve.fakes import Companies, FakeStyle
 
 ISSUE = 7
 
@@ -116,6 +116,9 @@ class FakeGithubSide:
     def who_am_i(self) -> str:
         return "octo"
 
+    def resolve_token(self) -> str:
+        return "PLACEHOLDER-not-a-secret"
+
     def default_branch(self, repo: str) -> str:
         return "main"
 
@@ -172,11 +175,17 @@ class FakeTrackerSide:
 
 @dataclass(frozen=True)
 class RoutineSources:
+    """The routine sources over a local origin: `base` is its `file://` folder."""
+
+    base: str = "https://github.com"
     github_side: FakeGithubSide = field(default_factory=FakeGithubSide)
     tracker_side: FakeTrackerSide = field(default_factory=FakeTrackerSide)
 
-    def github(self) -> FakeGithubSide:
+    def code_host(self) -> FakeGithubSide:
         return self.github_side
+
+    def style(self) -> FakeStyle:
+        return FakeStyle(self.base, self.github_side)
 
     def issues(self) -> FakeTrackerSide:
         return self.tracker_side
@@ -221,10 +230,10 @@ class Setups:
 
     def make(self, extra: Dict[str, Any]) -> Setup:
         origin = LocalOrigin(self._tmp_path)
-        self._monkeypatch.setattr(RepoCheckout, "HOST", f"file://{origin.create()}")
+        base = f"file://{origin.create()}"
         self._monkeypatch.setattr(TaskFlow, "CI_POLL_SECONDS", 0)
         company = Companies(self._tmp_path / "knowledge").company({**Settings().block(["test -f feature.txt"]), **extra})
-        return Setup(company, RoutineSources(), origin, self._tmp_path / "cache")
+        return Setup(company, RoutineSources(base), origin, self._tmp_path / "cache")
 
 
 class Items:

@@ -1,4 +1,4 @@
-New review comments arrived on the pull request of ticket {key} ({title}). The people who
+New review comments arrived on the pull request (or merge request) of ticket {key} ({title}). The people who
 wrote them read your replies.
 
 {comments}

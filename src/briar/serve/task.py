@@ -102,7 +102,7 @@ class TaskPrep:
         """A ticket: a new branch from the base."""
         fields = {"key": item.ref(), "title": item.title, "number": item.number()}
         branch = self.UNSAFE.sub("-", company.settings.branch.format_map(fields)).strip("-")
-        base = self._sources.github().default_branch(item.repo)
+        base = self._sources.code_host().default_branch(item.repo)
         return self._made(company, item, TaskRefs(branch, base, base))
 
     def review_context(self, company: ServeCompany, item: WorkItem) -> TaskContext:
@@ -110,19 +110,19 @@ class TaskPrep:
         known = company.state.book().entry(item.key)
         if known is None or not known.branch:
             raise CliError(f"serve: no branch recorded for {item.key}; cannot work on PR #{item.pr}")
-        base = self._sources.github().default_branch(item.repo)
+        base = self._sources.code_host().default_branch(item.repo)
         context = self._made(company, item, TaskRefs(known.branch, base, known.branch))
         context.checkout.sync(context.worktree, known.branch)
         return context
 
     def _made(self, company: ServeCompany, item: WorkItem, refs: TaskRefs) -> TaskContext:
-        github = self._sources.github()
-        token = company.logins.github().token()
-        checkout = RepoCheckout(self._shell, self._cache, item.repo)
+        style = self._sources.style()
+        token = self._sources.code_host().resolve_token()
+        checkout = RepoCheckout(self._shell, self._cache, style.remote(item.repo))
         checkout.update(token)
         worktree = checkout.worktree(refs.branch, refs.start, self._cache / "worktrees" / company.name / refs.branch.replace("/", "__"))
         title = company.settings.title.format_map({"key": item.ref(), "title": item.title, "number": item.number()})
-        identity = GitIdentity(github.who_am_i())
+        identity = style.identity()
         return TaskContext(item, company, worktree, checkout, refs.base, refs.branch, title, self._describe(item), identity, token, self._sources)
 
     def _describe(self, item: WorkItem) -> str:

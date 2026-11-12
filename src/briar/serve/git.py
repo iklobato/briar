@@ -53,38 +53,52 @@ class GitFailed(CliError):
 
 @dataclass(frozen=True)
 class GitIdentity:
-    """Who the commits are from: the owner of the GitHub token (S2)."""
+    """Who the commits are from: the owner of the token (S2). No email: the GitHub noreply one;
+    GitLab gives the commit email of the profile (G9)."""
 
     login: str
+    email: str = ""
 
     def args(self) -> Sequence[str]:
-        return ("-c", f"user.name={self.login}", "-c", f"user.email={self.login}@users.noreply.github.com")
+        return ("-c", f"user.name={self.login}", "-c", f"user.email={self.email or f'{self.login}@users.noreply.github.com'}")
+
+
+@dataclass(frozen=True)
+class Remote:
+    """Where a repo is cloned from and the git user its token goes with (GitHub
+    `x-access-token`, GitLab `oauth2`)."""
+
+    name: str
+    base: str = "https://github.com"
+    user: str = "x-access-token"
+
+    def address(self) -> str:
+        return f"{self.base}/{self.name}.git"
 
 
 class RepoCheckout:
     """The clone of one repo in `cache` and the worktrees of its tasks."""
 
-    HOST = "https://github.com"
     # The token file is readable by its owner only.
     SECRET_MODE = 0o600
     # The tail of a failed git output kept in the error.
     OUTPUT_TAIL = 500
     # A line git leaves in a file with a conflict.
     CONFLICT_MARK: ClassVar["re.Pattern[str]"] = re.compile(r"^(<{7}|>{7})( |$)", re.MULTILINE)
-    HELPER: ClassVar[str] = "!f() {{ echo username=x-access-token; printf 'password='; cat {path}; echo; }}; f"
+    HELPER: ClassVar[str] = "!f() {{ echo username={user}; printf 'password='; cat {path}; echo; }}; f"
     # The prefix of an ignored file in `git status --porcelain --ignored`.
     IGNORED = "!! "
     # One lock per clone folder, for every task of the process (they run in threads).
     CLONE_LOCKS: ClassVar[Dict[str, threading.Lock]] = {}
     CLONE_LOCKS_GUARD: ClassVar[threading.Lock] = threading.Lock()
 
-    def __init__(self, shell: Shell, cache: Path, repo: str) -> None:
+    def __init__(self, shell: Shell, cache: Path, remote: Remote) -> None:
         self._shell = shell
         self._cache = cache
-        self._repo = repo
+        self._remote = remote
 
     def clone_dir(self) -> Path:
-        return self._cache / "repos" / self._repo.replace("/", "__")
+        return self._cache / "repos" / self._remote.name.replace("/", "__")
 
     def update(self, token: str) -> None:
         """Clone the repo the first time, then fetch it."""
@@ -93,7 +107,7 @@ class RepoCheckout:
                 self._git(["fetch", "origin", "--prune"], self.clone_dir(), token)
                 return
             self.clone_dir().parent.mkdir(parents=True, exist_ok=True)
-            self._git(["clone", f"{self.HOST}/{self._repo}.git", str(self.clone_dir())], self._cache, token)
+            self._git(["clone", self._remote.address(), str(self.clone_dir())], self._cache, token)
 
     def worktree(self, branch: str, base: str, path: Path) -> Path:
         """The worktree of a task on `branch`, made from `origin/<base>` the first time."""
@@ -196,7 +210,7 @@ class RepoCheckout:
             secret = Path(scratch) / "token"
             secret.write_text(token)
             secret.chmod(self.SECRET_MODE)
-            helper = self.HELPER.format(path=shlex.quote(str(secret)))
+            helper = self.HELPER.format(user=self._remote.user, path=shlex.quote(str(secret)))
             return self._checked(["git", "-c", "credential.helper=", "-c", f"credential.helper={helper}"], args, cwd)
 
     def _checked(self, prefix: Sequence[str], args: Sequence[str], cwd: Path) -> ShellResult:
@@ -207,4 +221,4 @@ class RepoCheckout:
         return answer
 
 
-__all__ = ["GitFailed", "GitIdentity", "RepoCheckout", "Shell", "ShellResult"]
+__all__ = ["GitFailed", "GitIdentity", "Remote", "RepoCheckout", "Shell", "ShellResult"]
