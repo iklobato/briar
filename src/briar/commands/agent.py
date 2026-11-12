@@ -89,11 +89,6 @@ def _add_common_agent_arguments(parser: argparse.ArgumentParser) -> None:
         help="git config user.email on the worktree. Falls back to the runbook's git_identity.email, then your local git config (outside CI).",
     )
     parser.add_argument("--keep-worktree", action="store_true", help="Leave the worktree in /tmp after the run for inspection")
-    parser.add_argument(
-        "--no-default-mcp",
-        action="store_true",
-        help="Skip briar's built-in default MCP servers (think/time). Also disabled by BRIAR_NO_DEFAULT_MCP. " "Use on hosts without npx/uvx.",
-    )
 
 
 def _resolve_ticket_project(*, tracker: str, ticket_key: str, owner: str, repo: str) -> str:
@@ -573,34 +568,6 @@ class CommandAgent(SubcommandCommand):
         return dict(getattr(company, "messages", {}) or {})
 
     @staticmethod
-    def _load_mcp_block(args: argparse.Namespace) -> Tuple[Dict[str, Any], Tuple[str, ...]]:
-        """Resolve the MCP servers for this run and which are always-on.
-
-        Returns ``(servers, always_on)`` where `servers` is the company's
-        runbook `mcp:` block merged on top of briar's built-in defaults
-        (think/time), and `always_on` is the handles of the defaults that
-        survived (the runbook can override one by reusing its handle).
-        Built-in defaults are skipped entirely when the operator opts out
-        via `--no-default-mcp` or `BRIAR_NO_DEFAULT_MCP`, and when the `mcp`
-        SDK is not installed: they are optional helpers and must not abort a
-        plain `pip install briar-cli` run. Runbook-declared servers are kept
-        either way, so asking for one without the SDK still fails loudly."""
-        runbook_servers = CommandAgent._load_runbook_mcp(args)
-        if CommandAgent._default_mcp_disabled(args):
-            return runbook_servers, ()
-        from briar.mcp import sdk_installed
-
-        if not sdk_installed():
-            log.warning("mcp: the `mcp` package is not installed, so the built-in think/time servers are skipped; " "install 'briar-cli[mcp]' to enable them")
-            return runbook_servers, ()
-        from briar.mcp.defaults import DEFAULT_MCP_SERVERS
-
-        merged: Dict[str, Any] = dict(DEFAULT_MCP_SERVERS)
-        merged.update(runbook_servers)  # runbook overrides a default by handle
-        always_on = tuple(handle for handle in DEFAULT_MCP_SERVERS if handle not in runbook_servers)
-        return merged, always_on
-
-    @staticmethod
     def _load_runbook_mcp(args: argparse.Namespace) -> Dict[str, Any]:
         """Read the company's `mcp:` block from the optional --runbook YAML.
         Empty dict on any failure — MCP servers are purely additive tools."""
@@ -622,16 +589,10 @@ class CommandAgent(SubcommandCommand):
 
     @staticmethod
     def _mcp_config(args: argparse.Namespace) -> Dict[str, Any]:
-        """Resolved MCP servers + always-on handles as AgentRunConfig kwargs,
-        splatted with `**` so the orchestrator methods stay one line."""
-        servers, always_on = CommandAgent._load_mcp_block(args)
-        return {"mcp_servers": servers, "mcp_always_on": always_on}
-
-    @staticmethod
-    def _default_mcp_disabled(args: argparse.Namespace) -> bool:
-        if getattr(args, "no_default_mcp", False):
-            return True
-        return os.environ.get("BRIAR_NO_DEFAULT_MCP", "").strip().lower() in {"1", "true", "yes", "on"}
+        """The runbook's MCP servers as AgentRunConfig kwargs, splatted with
+        `**` so the orchestrator methods stay one line. There are no built-in
+        servers: an agent gets exactly what the runbook's `mcp:` block names."""
+        return {"mcp_servers": CommandAgent._load_runbook_mcp(args)}
 
     @staticmethod
     def _resolve_git_identity(args: argparse.Namespace) -> Tuple[str, str]:

@@ -37,11 +37,6 @@ RUN apt-get update \
     && ln -s /usr/bin/gh /usr/local/bin/gh \
     && ln -s /usr/bin/gh /opt/homebrew/bin/gh
 
-# The built-in think/time MCP servers need npx and uvx, which the image does
-# not ship; skip them instead of warning on every run. `-e
-# BRIAR_NO_DEFAULT_MCP=0` turns them back on for a derived image that adds them.
-ENV BRIAR_NO_DEFAULT_MCP=1
-
 # Drop privileges — the CLI never needs root.
 RUN useradd --create-home --uid 1000 briar
 USER briar

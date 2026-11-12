@@ -21,8 +21,10 @@ No real LLM, git, or network. Every external boundary is mocked.
 from __future__ import annotations
 
 import argparse
+import sys
+from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List
 
 import pytest
 
@@ -472,3 +474,52 @@ class TestImplementWithoutCommitsIsNotSuccess:
     def test_prfix_without_commits_still_ok(self, cli, agent_seam) -> None:
         # prfix may rightly change nothing (approved PR, only replies).
         assert cli(*_PRFIX).code == ExitCode.OK
+
+
+_RUNBOOK_WITH_AWS = """
+companies:
+  acme:
+    mcp:
+      aws:
+        transport: stdio
+        command: uvx
+        args: ["awslabs.aws-api-mcp-server@latest"]
+        purpose: "AWS"
+"""
+
+
+class TestMcpServersHandedToTheRunner:
+    """2.0 has no built-in MCP servers: the agent gets exactly the servers
+    the runbook's `mcp:` block names (1.x added `think` and `time`)."""
+
+    @pytest.fixture
+    def aws_runbook(self, tmp_path: Path) -> Path:
+        runbook = tmp_path / "rb.yaml"
+        runbook.write_text(_RUNBOOK_WITH_AWS, encoding="utf-8")
+        return runbook
+
+    @pytest.fixture
+    def aws_runbook_without_mcp_sdk(self, aws_runbook: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        """A plain `pip install briar-cli` (no `[mcp]` extra): `import mcp` fails."""
+        monkeypatch.setitem(sys.modules, "mcp", None)
+        return aws_runbook
+
+    def test_no_runbook_means_no_mcp_servers(self, cli: Callable[..., SimpleNamespace], agent_seam: SimpleNamespace) -> None:
+        assert cli(*_IMPL).code == ExitCode.OK
+        assert dict(agent_seam.runner.captured["config"].mcp_servers) == {}
+
+    def test_runbook_servers_are_the_only_servers(self, cli: Callable[..., SimpleNamespace], agent_seam: SimpleNamespace, aws_runbook: Path) -> None:
+        assert cli(*_IMPL, "--runbook", str(aws_runbook)).code == ExitCode.OK
+
+        servers = agent_seam.runner.captured["config"].mcp_servers
+        assert list(servers) == ["aws"]
+        assert servers["aws"].command == "uvx"
+
+    def test_runbook_servers_stay_when_the_mcp_sdk_is_missing(
+        self, cli: Callable[..., SimpleNamespace], agent_seam: SimpleNamespace, aws_runbook_without_mcp_sdk: Path
+    ) -> None:
+        # The servers still reach the runner, whose client then fails with the
+        # one-line install hint instead of silently running without them.
+        assert cli(*_IMPL, "--runbook", str(aws_runbook_without_mcp_sdk)).code == ExitCode.OK
+
+        assert list(agent_seam.runner.captured["config"].mcp_servers) == ["aws"]

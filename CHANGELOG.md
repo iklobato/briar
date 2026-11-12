@@ -26,6 +26,10 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`.
   Agents still use the MCP servers a runbook's `mcp:` block names (the
   `[mcp]` extra). These commands are still in 1.x:
   `pip install 'briar-cli<2'`.
+- The built-in `think` and `time` MCP servers, the `agent --no-default-mcp`
+  flag and `BRIAR_NO_DEFAULT_MCP` (also dropped from the Docker image). An
+  agent now gets exactly the MCP servers its runbook's `mcp:` block names.
+  They needed `npx` and `uvx` on every host and two extra programs per run.
 - The `jinja2` dependency (only the dashboard used it).
 - The `requires_github` / `requires_aws` markers on extractors (only the
   dashboard read them).
