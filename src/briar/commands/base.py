@@ -76,8 +76,6 @@ class CommandOptions:
     # option is not given: a choice whose 1.x default ("") is not one of its choices, or a
     # default read from the environment at run time.
     UNSET_AS: ClassVar[Mapping[str, Callable[[], object]]] = {}
-    # Options the operation shares with its group; see `InheritingOptions`.
-    INHERITED: ClassVar[Tuple[str, ...]] = ()
 
     def namespace(self, source: NamespaceSource) -> argparse.Namespace:
         return source.from_options(self.ROUTE, self.values())
@@ -92,24 +90,6 @@ class CommandOptions:
             make_default = self.UNSET_AS.get(name)
             return make_default() if make_default else None
         return value.value if isinstance(value, Enum) else value
-
-
-@dataclass(frozen=True)
-class InheritingOptions(CommandOptions):
-    """Options of an operation whose group takes some of the same options, so both
-    `briar context --store postgres get x` and `briar context get x --store postgres`
-    work. The operation declares them with a None default: a value given on the
-    operation wins, else the group's value (its own default included)."""
-
-    ctx: typer.Context
-
-    def values(self) -> Dict[str, object]:
-        named = super().values()
-        group = self.ctx.parent.params if self.ctx.parent else {}
-        for name in self.INHERITED:
-            if named.get(name) is None:
-                named[name] = self._plain(name, group.get(name))
-        return named
 
 
 class Command(ABC):

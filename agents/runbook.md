@@ -82,8 +82,7 @@ This file gives you three tasks. Once a day, at 03:17 UTC, the
 | `extract[].name` | The extractor name, such as `pr-archaeology`. A wrong name stops the file from loading. |
 | `extract[].args` | Settings for that extractor. The same names as its `briar extract` flags, with `_` in place of `-`. The short shared names work too: `repo`, `since_days`, `max`, `top_n`, `sample`, `authors_allow`, `authors_block`, `assignees_allow`, `assignees_block`. |
 | `extract` (on the company) | Older form: a plain list of extractors with no `schedules`. briar treats it as a task named `extractors` that runs `"day at 03:17"`. |
-| `messages` | Named message channels. `briar agent` posted to them; it is gone in briar 2.0. `briar secrets doctor` still checks their credentials. |
-| `mcp`, `git_identity` | Removed in briar 2.0 (only `briar agent` read them). A runbook that still has one stops with exit code 1 and names the key: delete the block. |
+| `messages`, `mcp`, `git_identity` | Removed in briar 2.0 (only `briar agent` read them). A runbook that still has one stops with exit code 1 and names the key: delete the block. |
 
 ### Where each task writes
 
@@ -104,8 +103,8 @@ saves the full raw data of its extractors as JSON. The markdown blob
 drops much of that detail. The copy for `knowledge:acme` is
 `inventory:acme`. The copy for a path like `./knowledge/acme.md` is
 `./knowledge/acme.inventory.json`. It is only written when it changed,
-so in `postgres` its history shows what changed over time. Read it with
-`briar context get inventory:acme`.
+so in `postgres` its history shows what changed over time. In the `file`
+store it is `./knowledge/inventory/acme.md`.
 
 ## The `every:` format
 
@@ -290,7 +289,6 @@ You get the log in `/var/log/briar/scheduler.log`.
 - A bad file or a bad `every:` value stops `serve` at start. `extract`
   and `sweep` do not check `every:`, so test a new value with `serve`.
 - If a task fails while running, `serve` logs `FAILED task=...` and keeps going.
-- `serve` does not write journal sessions.
 - `serve` never goes to the background on its own. Run it under a
   process manager such as systemd.
 
@@ -312,55 +310,16 @@ relative to it. Use the path that `which briar` prints in `ExecStart`.
 
 ## Failure alerts
 
-briar can send an alert when a task fails. Set `BRIAR_NOTIFY_SINKS` to a
-comma separated list of channels. This works for `extract`, `sweep` and
-`serve`.
-
-```bash
-export BRIAR_NOTIFY_SINKS=slack,email
-```
-
-| Channel | Env vars it needs |
-|---|---|
-| `slack` | `SLACK_ACME_WEBHOOK_URL` (a Slack incoming webhook URL). |
-| `telegram` | `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ACME_CHAT_ID`. |
-| `email` | `SMTP_HOST`, `EMAIL_FROM` (default: `SMTP_USER`) and `EMAIL_ACME_TO` (comma separated). Also `SMTP_PORT` (default `587`), `SMTP_USER`, `SMTP_PASSWORD`, and `SMTP_STARTTLS` (default `true`; set `false` for plain SMTP). |
-| `pagerduty` | `PAGERDUTY_ACME_ROUTING_KEY` (Events API v2). |
-
-`ACME` stands for the company name in capitals. The alert title is
-`briar: acme / prs failed`. The body has the reason and the start of
-the error.
-
-An alert is sent when a task cannot open its store or cannot write its
-blob. No alert is sent when one extractor fails or lacks keys. briar
-only logs that and skips the extractor. A channel whose env vars are
-missing is skipped without an error.
-
-Do not mix this up with `messages:` in the runbook. `messages:` lists
-channels an **agent** may post to. `BRIAR_NOTIFY_SINKS` is for task
-failure alerts only.
-
-## The `messages:` block
-
-Each entry maps a name you pick to a channel kind. An agent run with
-`--runbook runbooks/acme.yaml` gets a `send_message` tool that can post
-to these names.
-
-| Kind | Posts to | Env vars |
-|---|---|---|
-| `github-pr-comment` | A GitHub pull request. | `GITHUB_TOKEN` |
-| `bitbucket-pr-comment` | A Bitbucket pull request. | `BITBUCKET_ACME_USERNAME`, `BITBUCKET_ACME_APP_PASSWORD`, `BITBUCKET_ACME_WORKSPACE` |
-| `jira-comment` | A comment on a Jira issue. | The `JIRA_ACME_*` keys. |
-| `jira-transition` | Moves a Jira issue to a new status. `config.status` sets the default status. | The `JIRA_ACME_*` keys. |
-| `slack-channel` | A Slack webhook. `config.webhook_env` can name another env var. | `SLACK_ACME_WEBHOOK_URL` |
-| `telegram-chat` | A Telegram chat. `config.chat_env` can name another env var. | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ACME_CHAT_ID` |
-
-`briar secrets doctor --examples runbooks/` checks these keys for you.
+2.0 sends no alert when a task fails: the traceback goes to the log (stderr),
+and the row says `failed (...)`. 1.x sent one to the channels in
+`BRIAR_NOTIFY_SINKS`; that variable is no longer read. Alerts come back with
+the ticket pipeline (spec 003).
 
 ## Good to know
 
 - Check your keys before you schedule anything:
-  `briar secrets doctor --examples runbooks/` (see [creds.md](creds.md)).
+  `briar auth status <target> --company <name>` for each source (see
+  [auth.md](auth.md)).
 - `extract` exits with code 0 even when a task fails. Read the `status`
   column, or use `--format json` and check it in your script.
 - An extractor with missing keys is skipped with a warning in the log.

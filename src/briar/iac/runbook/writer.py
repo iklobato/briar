@@ -54,10 +54,6 @@ def _guard_secrets(rb: RunbookFile) -> None:
         for key, value in (company.knowledge.config or {}).items():
             if key.endswith("_env"):
                 _reject_literal(f"{loc}.knowledge.config.{key}", str(value))
-        for handle, binding in company.messages.items():
-            for key, value in (binding.config or {}).items():
-                if key.endswith("_env"):
-                    _reject_literal(f"{loc}.messages.{handle}.config.{key}", str(value))
 
 
 def _serialize(rb: RunbookFile) -> str:

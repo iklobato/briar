@@ -34,10 +34,10 @@ only in the private site repo.
 | Latest version | 1.1.101 (PyPI and GitHub Release `v1.1.101` = latest) |
 | Python | 3.10, 3.11, 3.12 (CI unit jobs); the integration job runs on whatever `uv` picks (3.14 in CI) |
 | Release trigger | every push to `main`, except `chore(release):` commits; it bumps the patch only |
-| 2.0 | in progress on branch `v2` (still equal to `main`); 13 stacked PRs open, #79 to #91. Status and handoff: `docs/briar-2-status.md` |
+| 2.0 | in progress on branch `v2` (still equal to `main`); 14 stacked PRs open, #79 to #92. Status and handoff: `docs/briar-2-status.md` |
 | MCP registry | `io.github.iklobato/briar`, latest 1.1.94; stays there, 2.0 has no MCP server |
 | Open issues | #76, #77 (section 8) |
-| Open PRs | #79 to #91, all into `v2`, not reviewed |
+| Open PRs | #79 to #92, all into `v2`, not reviewed |
 | Stars / forks | 3 / 0 |
 
 ## 3. Repo layout
@@ -47,7 +47,7 @@ only in the private site repo.
 | `src/briar/cli.py` | Entry point `main()`: global flags (`--format`, `-v`, `--version` anywhere), startup work (skipped for help, completion and `--version`), then runs the parsed command with exit codes 0/1/2/130. On `main` (1.x) it still builds the whole argparse parser |
 | `src/briar/cli_app.py` | The Typer app (2.0, spec 002). Each command declares its options as a `CommandOptions` dataclass in its own module; only `extract` still goes through `PassThrough` to its argparse parser (until spec 004), and `config.py` keeps the argparse shim it needs |
 | `src/briar/settings.py` | Where a setting comes from: env > `.briar.toml` / `[tool.briar]` > git origin > default; feeds `config show` and the Typer default map |
-| `src/briar/commands/` | One module per top-level command (`extract`, `runbook`, `context`, `auth`, ...) |
+| `src/briar/commands/` | One module per top-level command (`extract`, `runbook`, `auth`, `init`, `config`, `doctor`) |
 | `tests/unit/cli/` | The CLI contract from 1.x (`flags_1x.json`, precedence, global flags, exit codes); must pass unchanged through the Typer move |
 | `src/briar/extract/` | The extractors: the 23 in `EXTRACTORS` (`extract/__init__.py`). The 4 task-scoped ones of 1.x left in spec 006. Providers in `_providers/`, `_trackers/`, `_clouds/`, `_meetings/` |
 | `src/briar/extract/composer.py` | `KnowledgeComposer`: writes `## <heading> - <detail>` sections, `split_sections` parses them, `merge_markdown` merges a run into a stored blob (called from `CommandExtract._write_blob`, the one write path of `briar extract`) |
@@ -68,7 +68,7 @@ only in the private site repo.
   `briar/main`.
 - **2.0 work goes to `v2`, not `main`** (decision D27). The open 2.0 PRs are
   stacked: branch a new 2.0 PR from the top of the stack (now
-  `core/01-remove-plan-agent`, PR #91) and target `v2`. Read
+  `core/02-small-commands`, PR #92) and target `v2`. Read
   `docs/briar-2-status.md` first.
 - **A merge to `main` is a public release.** `.github/workflows/release.yml`
   runs the unit tests (`uv run pytest -n auto -m "not integration"`),
@@ -126,24 +126,23 @@ only in the private site repo.
   so teams do not call GitHub together; jobs with `at` (for example
   `"day at 03:17"`) are not shifted. Jobs run one after another in one
   thread. Ctrl+C prints `interrupted` and exits 130.
-- **Logging**: quiet by default (WARNING). `runbook extract` and `runbook
-  serve` call `daemon_logging()` and always print INFO progress;
-  `BRIAR_LOG_LEVEL=WARNING` does not quiet them.
+- **Logging**: quiet by default (WARNING), `-v` for DEBUG; on `v2` no
+  env var changes the level (`BRIAR_VERBOSE`, `BRIAR_LOG_LEVEL` left).
+  `runbook extract` and `runbook serve` call `daemon_logging()` and always
+  print INFO progress.
 - **`briar init`** reads `git remote get-url origin` for owner and repo.
   Settings resolve as flag > env var > `.briar.toml` (or `[tool.briar]` in
   `pyproject.toml`) > git origin (owner and repo) > default; only one config
   file is read, never a merge (`briar config show` prints the source of
   each). Pinned by `tests/unit/cli/test_settings_precedence.py` on `v2`.
-- **`context` commands** default to the file store even when
-  `BRIAR_DATABASE_URL` is set; `BRIAR_STORE=postgres` switches them.
-- **`briar journal`**: on `v2` no command writes a session (1.x `plan run`
-  was the only writer); the command only reads old ones.
-- **Message channels** (`messages:` in a runbook): on `v2` only
-  `briar secrets doctor` reads them, to list missing credentials (the 1.x
-  `send_message` agent tool is gone); failure alerts are
-  `BRIAR_NOTIFY_SINKS`.
-- **A runbook with `mcp:` or `git_identity:`** stops with exit 1 and
-  names the block (`CompanyEntry.REMOVED_KEYS` in `iac/runbook/models.py`).
+- **Telemetry tier** on `v2`: `DO_NOT_TRACK=1` > `BRIAR_TELEMETRY` >
+  `telemetry` in the project config > `off`. `main()` reads the project
+  config before `telemetry.install(project_config)`; no state file.
+- **`runbook` failure alerts**: none on `v2` (`notify/` and
+  `BRIAR_NOTIFY_SINKS` left, C20); a failed task is only logged.
+- **A runbook with `messages:`, `mcp:` or `git_identity:`** stops with
+  exit 1 and names the block (`CompanyEntry.REMOVED_KEYS` in
+  `iac/runbook/models.py`).
 - **Docker image** (`iklob1/briar`): has `git`, `gh`,
   `safe.directory '*'`, `gh` also linked at `/usr/local/bin/gh` and
   `/opt/homebrew/bin/gh` (Mac gitconfigs), `linux/amd64` only, runs as uid 1000. The git login is set up for GitHub
@@ -180,11 +179,14 @@ Full detail per version is in `CHANGELOG.md`. In short:
   `run()`, the 1.x aliases and `briar completion` removed, Typer completion
   added), then spec 006 (core cleanup) PR #91: `agent`, `plan` and the code
   only they used removed, the personas and rules moved to
-  `src/briar/prompts/`. Details and numbers: `docs/briar-2-status.md`.
+  `src/briar/prompts/`; PR #92: `context`, `secrets`, `journal`,
+  `telemetry`, `version`, `messaging`, `notify` removed, `--format
+  table|json`, `-v` only, telemetry tier from env or `.briar.toml`.
+  Details and numbers: `docs/briar-2-status.md`.
 
 ## 7. Next steps (in order)
 
-0. **2.0**: review and merge PRs #79 to #91 into `v2` in order; decide how
+0. **2.0**: review and merge PRs #79 to #92 into `v2` in order; decide how
    2.0 is released before `v2` merges to `main` (the workflow would publish
    1.1.102); then specs 003, 004, 005. Order and detail:
    `docs/briar-2-status.md` section 5.
@@ -230,7 +232,8 @@ criteria in each):**
   that says "no rebase" would be refused; not seen in a run); the selector
   trusts the plan notes blob over card status.
 - `briar context list` prints `updated_at` as a raw epoch float
-  (`1793282842.3368032`), from `commands/context.py` line 109 (2026-10-29).
+  (`1793282842.3368032`), from `commands/context.py` line 109 (2026-10-29;
+  1.x only, `context` is gone on `v2`).
 - `briar extract` with no `--include` ran all 23 extractors in about 4
   minutes on this repo and wrote an "AWS infrastructure (UNREACHABLE)"
   section on a machine with an AWS default chain whose

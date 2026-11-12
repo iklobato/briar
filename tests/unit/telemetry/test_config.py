@@ -1,4 +1,4 @@
-"""Telemetry config resolution tests — env precedence + persistence."""
+"""Telemetry config resolution tests: env and project-config precedence, install id."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from unittest import mock
 
 import pytest
 
-from briar.telemetry._config import TelemetryTier, reset_install_id, resolve, save_tier, state_path
+from briar.telemetry._config import TelemetryTier, resolve
 
 
 @pytest.fixture(autouse=True)
@@ -15,8 +15,8 @@ def _isolated_config_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Every test gets its own XDG_CONFIG_HOME so we don't touch the
     real user config, and a fresh in-memory install-id cache so the
     module-level `_INSTALL_ID_CACHE` can't leak an id from a prior test
-    (which would mask whether `resolve()`/`reset_install_id()` actually
-    read this test's isolated config dir)."""
+    (which would mask whether `resolve()` actually read this test's
+    isolated config dir)."""
     import briar.telemetry._config as _cfg_mod
 
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
@@ -32,17 +32,25 @@ class TestPrecedence:
         assert cfg.tier is TelemetryTier.OFF
         assert cfg.source == "do-not-track"
 
-    def test_env_var_wins_over_config_file(self) -> None:
-        save_tier(TelemetryTier.OFF)
-        cfg = resolve(env={"BRIAR_TELEMETRY": "full"})
+    def test_do_not_track_beats_the_project_config(self) -> None:
+        cfg = resolve(env={"DO_NOT_TRACK": "1"}, project_config={"telemetry": "full"})
+        assert cfg.tier is TelemetryTier.OFF
+        assert cfg.source == "do-not-track"
+
+    def test_env_var_wins_over_the_project_config(self) -> None:
+        cfg = resolve(env={"BRIAR_TELEMETRY": "full"}, project_config={"telemetry": "off"})
         assert cfg.tier is TelemetryTier.FULL
         assert cfg.source == "env"
 
-    def test_config_file_used_when_no_env(self) -> None:
-        save_tier(TelemetryTier.ERRORS_ONLY)
-        cfg = resolve(env={})
+    def test_project_config_used_when_no_env(self) -> None:
+        cfg = resolve(env={}, project_config={"telemetry": "errors-only"})
         assert cfg.tier is TelemetryTier.ERRORS_ONLY
-        assert cfg.source == "config-file"
+        assert cfg.source == "project-config"
+
+    def test_invalid_project_config_value_falls_through_to_default(self) -> None:
+        cfg = resolve(env={}, project_config={"telemetry": "supercharged"})
+        assert cfg.tier is TelemetryTier.OFF
+        assert cfg.source == "default"
 
     def test_default_is_off(self) -> None:
         cfg = resolve(env={})
@@ -63,6 +71,15 @@ class TestPrecedence:
         assert cfg.tier is TelemetryTier.OFF
         assert cfg.source == "default"
 
+    def test_state_file_of_the_removed_telemetry_command_is_ignored(self, tmp_path: Path) -> None:
+        # Before decision C7 `briar telemetry full` saved the tier here; 2.0
+        # no longer reads it, so the project config is the only file source.
+        (tmp_path / "briar").mkdir()
+        (tmp_path / "briar" / "telemetry.v2.json").write_text('{"tier": "full"}')
+        cfg = resolve(env={})
+        assert cfg.tier is TelemetryTier.OFF
+        assert cfg.source == "default"
+
 
 class TestInstallId:
     def test_install_id_is_generated_and_persisted(self) -> None:
@@ -72,12 +89,6 @@ class TestInstallId:
         again = resolve(env={})
         assert again.install_id == cfg.install_id
 
-    def test_reset_rotates_id(self) -> None:
-        first = resolve(env={}).install_id
-        new = reset_install_id()
-        assert new != first
-        assert resolve(env={}).install_id == new
-
     def test_hashed_form_is_stable(self) -> None:
         cfg = resolve(env={})
         h = cfg.hashed_install_id
@@ -86,25 +97,7 @@ class TestInstallId:
         assert cfg.hashed_install_id == h
 
 
-class TestSaveTier:
-    def test_save_writes_the_2x_state_file(self, tmp_path: Path) -> None:
-        save_tier(TelemetryTier.ERRORS_ONLY)
-        assert state_path() == tmp_path / "briar" / "telemetry.v2.json"
-        assert state_path().read_text() == '{\n  "tier": "errors-only"\n}'
-        # Round-trip via resolve.
-        cfg = resolve(env={})
-        assert cfg.tier is TelemetryTier.ERRORS_ONLY
-        assert cfg.source == "config-file"
-
-
 class TestBrokenConfig:
-    def test_corrupted_state_falls_back_to_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        state_path().parent.mkdir(parents=True, exist_ok=True)
-        state_path().write_text("not json {")
-        cfg = resolve(env={})
-        assert cfg.tier is TelemetryTier.OFF
-        assert cfg.source == "default"
-
     def test_unreadable_install_id_path_still_returns_uuid(self) -> None:
         # When the parent dir can't be created (read-only HOME),
         # _load_or_create_install_id still returns a one-shot id.

@@ -7,19 +7,16 @@ and stdout bytes — exactly what a user gets on a terminal.
 
 Safety:
   * A clean, minimal env so the developer's real credentials / config are
-    never read. `BRIAR_TELEMETRY=off` + `BRIAR_JOURNAL=off` keep startup
-    side-effect-free; `BRIAR_SECRETS_FILE` + `XDG_CONFIG_HOME` point at a
+    never read. `BRIAR_TELEMETRY=off` keeps startup side-effect-free; `BRIAR_SECRETS_FILE` + `XDG_CONFIG_HOME` point at a
     per-test tmp dir; credential-shaped vars are dropped so no bootstrap
     reaches the network.
-  * Only read-only / stdout-only commands (version, --help, telemetry
-    status, scaffold to stdout).
+  * Only read-only / stdout-only invocations (--version, --help).
   * Every call has a hard timeout (<= 30s, well under the suite's per-test
     cap).
 """
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import sys
@@ -57,7 +54,6 @@ def _run(tmp_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
     env.update(
         {
             "BRIAR_TELEMETRY": "off",
-            "BRIAR_JOURNAL": "off",
             "BRIAR_SECRETS_FILE": str(tmp_path / "secrets.env"),  # nonexistent -> bootstrap no-op
             "XDG_CONFIG_HOME": str(tmp_path / "xdg"),
         }
@@ -74,7 +70,7 @@ def _run(tmp_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 class TestSmokeVersionAndHelp:
     def test_version_exit_0_prints_version(self, tmp_path) -> None:
-        result = _run(tmp_path, "version")
+        result = _run(tmp_path, "--version")
         assert result.returncode == 0, result.stderr
         # Output shape: `briar-cli <version>`; version is non-empty.
         assert result.stdout.startswith("briar-cli ")
@@ -85,31 +81,20 @@ class TestSmokeVersionAndHelp:
         result = _run(tmp_path, "--help")
         assert result.returncode == 0, result.stderr
         # The help text enumerates the command surface.
-        for command in ("context", "telemetry", "journal", "runbook", "secrets"):
+        for command in ("extract", "runbook", "auth", "init", "doctor"):
             assert command in result.stdout
 
     @pytest.mark.parametrize(
         "command",
-        ["context", "telemetry", "journal", "runbook", "secrets", "version"],
+        ["runbook", "auth", "init", "doctor"],
         ids=lambda c: f"help-{c}",
     )
     def test_per_command_help_exit_0(self, tmp_path, command) -> None:
         result = _run(tmp_path, command, "--help")
         assert result.returncode == 0, result.stderr
-        # argparse prints a usage line naming the command.
+        # Typer prints a usage line naming the command.
         assert command in result.stdout
         assert "usage:" in result.stdout.lower()
-
-
-class TestSmokeTelemetryStatus:
-    def test_telemetry_status_exit_0(self, tmp_path) -> None:
-        result = _run(tmp_path, "--format", "json", "telemetry", "status")
-        assert result.returncode == 0, result.stderr
-        status = json.loads(result.stdout)
-        # BRIAR_TELEMETRY=off in the env -> resolved tier is off, source env.
-        assert status["tier"] == "off"
-        assert status["source"] == "env"
-        assert status["enabled"] is False
 
 
 class TestSmokeScaffold:

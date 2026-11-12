@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import logging
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Dict, List, Optional
@@ -23,10 +22,7 @@ class Tripwire:
         self.calls.append("credential bootstrap")
         return []
 
-    def journal(self, log: logging.Logger) -> None:
-        self.calls.append("journal")
-
-    def telemetry(self, version: str = "") -> None:
+    def telemetry(self, project_config: Optional[Dict[str, object]] = None) -> None:
         self.calls.append("telemetry")
 
     def config(self, start: Optional[Path] = None) -> Dict[str, object]:
@@ -39,7 +35,6 @@ def tripwire(cli: Callable[..., SimpleNamespace], monkeypatch: pytest.MonkeyPatc
     """Runs after `cli`, so its config stub is replaced by the tripwire's."""
     wire = Tripwire()
     monkeypatch.setattr("briar.credentials._bootstraps.auto_bootstrap", wire.bootstrap)
-    monkeypatch.setattr("briar.cli._install_default_journal", wire.journal)
     monkeypatch.setattr("briar.telemetry.install", wire.telemetry)
     monkeypatch.setattr("briar.config.load_project_config", wire.config)
     return wire

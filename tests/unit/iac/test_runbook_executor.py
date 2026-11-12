@@ -22,7 +22,7 @@ from pytest_mock import MockerFixture
 
 from briar.errors import ConfigError
 from briar.extract.base import ExtractedSection
-from briar.iac.runbook.executor import ExtractRow, RunbookExtractor, RunbookLoader, _notify_failure
+from briar.iac.runbook.executor import ExtractRow, RunbookExtractor, RunbookLoader
 from briar.iac.runbook.models import CompanyEntry, ExtractEntry, KnowledgeBinding, RunbookFile, ScheduleEntry
 
 # ── Fakes ────────────────────────────────────────────────────────────
@@ -586,74 +586,6 @@ class TestRunbookLoader:
         path.write_text("version: 1\ncompanies: {}\n")
         with pytest.raises(ConfigError, match="invalid runbook"):
             RunbookLoader.load(path)
-
-
-# ── _notify_failure: sink fan-out ────────────────────────────────────
-
-
-class _FakeSink:
-    def __init__(self, *, available: bool = True, send_result: bool = True, send_raises: Optional[Exception] = None) -> None:
-        self._available = available
-        self._send_result = send_result
-        self._send_raises = send_raises
-        self.sent: List[Dict[str, str]] = []
-
-    def is_available(self) -> bool:
-        return self._available
-
-    def send(self, *, title: str, body: str) -> bool:
-        if self._send_raises is not None:
-            raise self._send_raises
-        self.sent.append({"title": title, "body": body})
-        return self._send_result
-
-
-class TestNotifyFailure:
-    def test_no_sinks_env_is_silent_noop(self, monkeypatch, mocker) -> None:
-        monkeypatch.delenv("BRIAR_NOTIFY_SINKS", raising=False)
-        make_sink = mocker.patch("briar.notify.make_sink")
-        _notify_failure("acme", "extractors", "boom", "trace")
-        make_sink.assert_not_called()
-
-    def test_dispatches_to_each_available_sink_with_title_and_body(self, monkeypatch, mocker) -> None:
-        monkeypatch.setenv("BRIAR_NOTIFY_SINKS", "slack, email")
-        sink = _FakeSink()
-        mocker.patch("briar.notify.make_sink", return_value=sink)
-        _notify_failure("acme", "extractors", "collect raised", "stacktrace-detail")
-        # Two sink kinds → two sends; title carries company/task, body the reason.
-        assert len(sink.sent) == 2
-        assert sink.sent[0]["title"] == "briar: acme / extractors failed"
-        assert "collect raised" in sink.sent[0]["body"]
-        assert "stacktrace-detail" in sink.sent[0]["body"]
-
-    def test_unavailable_sink_is_skipped(self, monkeypatch, mocker) -> None:
-        monkeypatch.setenv("BRIAR_NOTIFY_SINKS", "slack")
-        sink = _FakeSink(available=False)
-        mocker.patch("briar.notify.make_sink", return_value=sink)
-        _notify_failure("acme", "extractors", "boom", "trace")
-        assert sink.sent == []  # never sent — no creds
-
-    def test_unknown_sink_kind_is_skipped_not_fatal(self, monkeypatch, mocker) -> None:
-        monkeypatch.setenv("BRIAR_NOTIFY_SINKS", "bogus, slack")
-        good = _FakeSink()
-
-        def _make_sink(kind, *, company):  # noqa: ANN001
-            if kind == "bogus":
-                raise ValueError("unknown sink kind")
-            return good
-
-        mocker.patch("briar.notify.make_sink", side_effect=_make_sink)
-        # The bad kind is skipped; the good one still fires.
-        _notify_failure("acme", "extractors", "boom", "trace")
-        assert len(good.sent) == 1
-
-    def test_sink_send_raising_is_swallowed(self, monkeypatch, mocker, caplog_briar) -> None:
-        monkeypatch.setenv("BRIAR_NOTIFY_SINKS", "slack")
-        sink = _FakeSink(send_raises=RuntimeError("network down"))
-        mocker.patch("briar.notify.make_sink", return_value=sink)
-        # A sink failure must not propagate out of the fire-and-forget path.
-        _notify_failure("acme", "extractors", "boom", "trace")
-        assert any("raised" in r.message for r in caplog_briar.records)
 
 
 class TestDefaultKnowledgeBlob:

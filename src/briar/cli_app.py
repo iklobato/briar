@@ -19,29 +19,10 @@ import typer
 from briar.commands.auth import AuthListOptions, AuthLoginOptions, AuthLogoutOptions, AuthRefreshOptions, AuthStatusOptions
 from briar.commands.base import Command, CommandOptions, Route
 from briar.commands.config import ConfigShowOptions
-from briar.commands.context import (
-    ContextCategoriesOptions,
-    ContextDeleteOptions,
-    ContextGetOptions,
-    ContextGroupOptions,
-    ContextListOptions,
-    ContextPutOptions,
-)
 from briar.commands.doctor import DoctorOptions
 from briar.commands.init import InitOptions
-from briar.commands.journal import JournalExportOptions, JournalListOptions, JournalShowOptions
 from briar.commands.runbook import RunbookExtractOptions, RunbookServeOptions, RunbookSweepOptions
-from briar.commands.secrets import SecretsBootstrapOptions, SecretsDoctorOptions
-from briar.commands.telemetry import (
-    TelemetryErrorsOnlyOptions,
-    TelemetryFullOptions,
-    TelemetryOffOptions,
-    TelemetryPreviewOptions,
-    TelemetryResetOptions,
-    TelemetryStatusOptions,
-)
 from briar.commands._enums import OutputFormat
-from briar.commands.version import VersionOptions
 from briar.config import apply_config_defaults
 from briar.infer import apply_inference_defaults
 
@@ -49,32 +30,14 @@ ROUTES: Sequence[Type[CommandOptions]] = (
     RunbookExtractOptions,
     RunbookSweepOptions,
     RunbookServeOptions,
-    ContextGroupOptions,
-    ContextPutOptions,
-    ContextGetOptions,
-    ContextListOptions,
-    ContextDeleteOptions,
-    ContextCategoriesOptions,
     AuthLoginOptions,
     AuthLogoutOptions,
     AuthRefreshOptions,
     AuthListOptions,
     AuthStatusOptions,
-    SecretsDoctorOptions,
-    SecretsBootstrapOptions,
-    JournalListOptions,
-    JournalShowOptions,
-    JournalExportOptions,
-    VersionOptions,
     InitOptions,
     ConfigShowOptions,
     DoctorOptions,
-    TelemetryStatusOptions,
-    TelemetryPreviewOptions,
-    TelemetryOffOptions,
-    TelemetryErrorsOnlyOptions,
-    TelemetryFullOptions,
-    TelemetryResetOptions,
 )
 
 
@@ -87,7 +50,7 @@ class GlobalOptions:
     output_format: OutputFormat = typer.Option(
         OutputFormat.TABLE, "--format", expose_value=False, help="output format (default: table for lists, json for single records)"
     )
-    debug_logging: bool = typer.Option(False, "--verbose", "-v", expose_value=False, help="enable DEBUG-level logging (also honours BRIAR_VERBOSE=1 env var)")
+    debug_logging: bool = typer.Option(False, "--verbose", "-v", expose_value=False, help="enable DEBUG-level logging")
     print_version: bool = typer.Option(False, "--version", "-V", expose_value=False, help="print client version and exit")
 
 
@@ -168,10 +131,7 @@ class DefaultMap:
         return tree
 
     def _filled(self, options_cls: Type[CommandOptions]) -> Dict[str, str]:
-        """An option shared with the group is filled on the group only, or the setting
-        would beat a value given on the group (`briar context --store postgres get x`)."""
-        names = [field.name for field in fields(options_cls) if field.name not in options_cls.INHERITED]
-        return {name: self._defaults[name] for name in names if name in self._defaults}
+        return {field.name: self._defaults[field.name] for field in fields(options_cls) if field.name in self._defaults}
 
 
 class BriarApp:
@@ -221,8 +181,6 @@ class BriarApp:
             app.command(name, help=command.help)(routes[0])
             return
         group = typer.Typer(rich_markup_mode=None)
-        for group_options in [options_cls for options_cls in routes if not options_cls.ROUTE.op]:
-            group.callback()(group_options)
         for options_cls in operations:
             group.command(options_cls.ROUTE.op, help=command.help_for(options_cls.ROUTE.op))(options_cls)
         app.add_typer(group, name=name, help=command.help)

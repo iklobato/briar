@@ -13,10 +13,17 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`.
 ### Changed
 
 - Telemetry is opt-in: the default tier is `off`, and nothing is sent until
-  you run `briar telemetry errors-only` or `briar telemetry full`. The tier
-  is saved in `telemetry.v2.json`; the 1.x `telemetry.json` is not read
-  (1.x saved `full` for everyone who saw its first-run notice), so a 1.x
-  user starts at `off` too. The first-run notice is gone.
+  `telemetry = "errors-only"` (or `"full"`) in `.briar.toml`, or
+  `BRIAR_TELEMETRY`, says otherwise; `DO_NOT_TRACK=1` beats both. No state
+  file is read or written: the 1.x `telemetry.json` is ignored (1.x saved
+  `full` for everyone who saw its first-run notice), so a 1.x user starts
+  at `off` too. The first-run notice is gone.
+- `--format` takes `table` or `json` only (`yaml`, `csv` and `quiet` are
+  usage errors, exit 2). Logs go up with `-v` / `--verbose` only:
+  `BRIAR_VERBOSE` and `BRIAR_LOG_LEVEL` are no longer read.
+- `briar runbook` sends no alert when a task fails (the error is logged):
+  `BRIAR_NOTIFY_SINKS` and its Slack, Telegram, email and PagerDuty
+  channels are gone until the ticket pipeline brings alerts back.
 - Telemetry events carry their fields as Sentry "extra" data instead of
   tags, so the Sentry library's own scrubber also filters secret-named
   keys. briar's allow-list and secret and path scrubbing are unchanged.
@@ -83,7 +90,18 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`.
   them). A runbook that still has one stops with exit code 1 and names the
   block.
 - The `[agent]` table of `.briar.toml` (`model`, `git_user_name`,
-  `git_user_email`) and the `llm key` check of `briar doctor`.
+  `git_user_email`), its commented copy in the `briar init` template, and
+  the `llm key` check of `briar doctor`.
+- `briar context` (read the blob file: `knowledge:acme` is
+  `./knowledge/knowledge/acme.md`), `briar secrets` (use
+  `briar auth status <target>`), `briar journal` (nothing writes sessions
+  since `plan` left), `briar telemetry` (see the telemetry change above)
+  and `briar version` (use `briar --version`). Each now gets the usual
+  `No such command` error. The `journal`, `messaging` and `notify`
+  packages go with them.
+- A runbook's `messages:` block (only `briar agent` posted to it). A
+  runbook that still has one stops with exit code 1 and names the block,
+  like `mcp:` and `git_identity:`.
 
 ### Tests
 

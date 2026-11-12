@@ -19,9 +19,8 @@ deployments where secrets live in a remote vault and the operator
 only wants to bake the machine-identity credentials onto the host —
 everything else is fetched at start.
 
-Strategy + Registry behind `_bootstraps/`; constructed by
-`make_bootstrap(kind)` or auto-selected by `auto_bootstrap()` (called
-from `briar.cli.main` before any command logic runs)."""
+Strategy + Registry behind `_bootstraps/`; run by `auto_bootstrap()`
+(called from `briar.cli.main` before any command logic runs)."""
 
 from __future__ import annotations
 
@@ -75,8 +74,8 @@ class CredentialBootstrap(ABC):
         value.
 
         `dry_run=True` performs the remote fetch but does NOT write —
-        useful for `briar secrets bootstrap --dry-run` to see what
-        WOULD be set without leaking values into the process env.
+        a caller sees what WOULD be set without leaking values into
+        the process env.
         Returns the same HydrateResult shape; `written` lists what
         the non-dry-run would have written."""
 
@@ -84,6 +83,7 @@ class CredentialBootstrap(ABC):
     def required_env_vars(cls) -> List[str]:
         """The machine-identity env vars this bootstrap needs to
         authenticate (NOT the secrets it fetches — those are
-        per-deployment). Used by `briar secrets doctor` to check
-        whether the bootstrap itself is configured."""
+        per-deployment). A credential coverage check (1.x `briar secrets
+        doctor`) reads it to see whether the bootstrap itself is
+        configured."""
         return []

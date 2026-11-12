@@ -38,16 +38,12 @@ store   = "file"
 root    = "./knowledge"
 tracker = "jira"
 repos   = ["acme-co/acme-app", "acme-co/acme-shared"]
+telemetry = "errors-only"
 
 [repo]
 owner    = "acme-co"
 repo     = "acme-app"
 provider = "github"
-
-[agent]
-model          = "claude-sonnet-4-6"
-git_user_name  = "acme-bot"
-git_user_email = "bot@acme.com"
 ```
 
 | Key | Fills these flags | Env var that beats it |
@@ -57,20 +53,16 @@ git_user_email = "bot@acme.com"
 | `root` | Every `--root`. | none |
 | `tracker` | Every `--tracker`. | none |
 | `repos` | The repeatable `--repo` list on `extract`. | none |
+| `telemetry` | No flag: the telemetry tier, `off` (the default), `errors-only` or `full`. See [Telemetry](#telemetry). | `BRIAR_TELEMETRY`; `DO_NOT_TRACK=1` beats both |
 | `[repo] owner`, `repo` | Every `--owner` and `--repo`. On `extract`, they form one `owner/repo` entry when `repos` is not set. | none |
 | `[repo] provider` | Every `--provider`. | none |
-| `[agent] model` | Every `--model` (on `agent` and `plan`). | none |
-| `[agent] git_user_name`, `git_user_email` | `--git-user-name` and `--git-user-email` on `agent` and `plan run`. | none |
 
 In pyproject.toml, put the same keys under `[tool.briar]`, with
-`[tool.briar.repo]` and `[tool.briar.agent]` for the two tables.
+`[tool.briar.repo]` for the `[repo]` table.
 
 ### Watch out
 
-- A key fills **every** flag with that name. So `store` and `root` also
-  set `--store` and `--root` on `briar journal`, which only knows the
-  `file` store and the `./journal` folder. Pass
-  `--store file --root ./journal` to `journal` if you set them.
+- A key fills **every** flag with that name.
 - `BRIAR_STORE` sets the **knowledge** store. The **credential** store is
   always the env file in 2.0; a `BRIAR_DEFAULT_STORE` left from 1.x that
   names a removed store stops the command (see [auth.md](auth.md)).
@@ -130,8 +122,8 @@ You get `../.briar.toml`. Commands run in any folder below it find it.
   `.briar.toml already exists`, and exit code 1.
 - briar only finds a file named `.briar.toml` (or a `pyproject.toml`).
   A file written with another `--path` name is not read.
-- The file also has a commented-out `[agent]` table. Remove the `#`
-  marks to use it.
+- The file also has a commented-out `telemetry` line. Remove the `#`
+  to send error reports (see [Telemetry](#telemetry)).
 - If a config file already exists above the current folder, its values
   become the defaults for `init` too.
 - Since 1.1.75 the Docker image `iklob1/briar` has `git`, so briar can
@@ -148,8 +140,7 @@ You get `../.briar.toml`. Commands run in any folder below it find it.
 ### What it does
 
 Prints each project setting, its value, and its source: `env (BRIAR_COMPANY)`,
-`config (.briar.toml)` (with `[repo]` or `[agent]` for keys in those
-tables), `inferred (git origin)`, or `-` for `(unset)`. It prints the config file
+`config (.briar.toml)` (with `[repo]` for keys in that table), `inferred (git origin)`, or `-` for `(unset)`. It prints the config file
 path on stderr first.
 
 The settings are `company`, `store`, `root`, `tracker`, `owner`, `repo`,
@@ -210,8 +201,7 @@ use it in CI.
 | `briar` | Always. Shows the briar version. | |
 | `project config` | A `.briar.toml` (or `[tool.briar]`) is found. | `warn`: run `briar init`. |
 | `git remote` | An `origin` remote gives an owner and repo. | `warn`: pass `--owner` and `--repo`, or set them in the config. |
-| `llm key` | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` or `GEMINI_API_KEY` is set. | `warn`: `agent` and `plan` need one. |
-| `github token` | `GITHUB_TOKEN` is set. | `warn`: GitHub extractors and agents need it. |
+| `github token` | `GITHUB_TOKEN` is set. | `warn`: the GitHub extractors need it. |
 | `store` | The store is `file`, or it is `postgres` and a database URL is set (`BRIAR_DATABASE_URL` or any `BRIAR_<NAME>_DATABASE_URL`). | `fail` |
 
 ### Use it when
@@ -250,10 +240,8 @@ You get `doctor.csv` with a header row and one row per check.
 ### Good to know
 
 - `doctor` only checks that keys are set, not that they work.
-- The `llm key` check does not count `CLAUDE_CODE_OAUTH_TOKEN`. If you
-  use that token for Anthropic, the `warn` there is safe to ignore.
-- For the keys each runbook needs, use `briar secrets doctor` (see
-  [creds.md](creds.md)).
+- For the keys one source needs, use `briar auth status <target>
+  --company <name>` (see [auth.md](auth.md)).
 
 ## Shell completion
 
@@ -270,7 +258,7 @@ global flags below replace it.
 
 ### Use it when
 
-- You want `briar <Tab>` to list commands, and `briar context --<Tab>` to list flags.
+- You want `briar <Tab>` to list commands, and `briar auth login --<Tab>` to list flags.
 
 ### Examples
 
@@ -313,29 +301,23 @@ same thing.
 
 | Parameter | What it means | Default | Example |
 |---|---|---|---|
-| `--format` | The output format: `table`, `json`, `yaml`, `csv` or `quiet`. | `table` (a single record still prints as JSON) | `--format json` |
-| `--verbose`, `-v` | Show DEBUG logs on stderr. `BRIAR_VERBOSE=1` does the same. | off | `--verbose` |
+| `--format` | The output format: `table` or `json`. 1.x also had `yaml`, `csv` and `quiet`; 2.0 removed them (exit code 2). | `table` (a single record still prints as JSON) | `--format json` |
+| `--verbose`, `-v` | Show DEBUG logs on stderr. | off | `--verbose` |
 | `--version`, `-V` | Print `briar-cli <version>` and stop, with no other work. | off | `--version` |
 
 ### `--format`
 
-- `table` prints a table for lists. One record (such as `telemetry status`)
-  prints as JSON instead.
-- `json`, `yaml` and `csv` print the same data in those formats.
-- `quiet` prints only the `id` field of each row, one per line. Most
-  briar rows have no `id`, so it often prints nothing. Use it when you
-  only care about the exit code.
+- `table` prints a table for lists. One record prints as JSON instead.
+- `json` prints the same data as JSON.
 - Only these commands use `--format`: `config show`, `doctor`,
-  `context put`, `context list`, `context categories`, `runbook extract`,
-  `runbook sweep`, the `telemetry` subcommands except `preview`, and the
-  `plan` subcommands. Other commands ignore it.
+  `runbook extract` and `runbook sweep`. Other commands ignore it.
 
 ```bash
-# Read the context list as JSON with jq.
-briar --format json context list | jq '.[].name'
+# Read the doctor checks as JSON with jq.
+briar --format json doctor | jq '.[].check'
 ```
 
-You get one blob name per line.
+You get one check name per line.
 
 ### `--verbose`
 
@@ -348,8 +330,8 @@ You get the normal output, plus DEBUG lines on stderr: the arguments,
 and which flags the config file and git filled in.
 
 - Logs always go to stderr, so `--format json` output on stdout stays clean.
-- Without `--verbose`, briar logs warnings and errors only.
-  `BRIAR_LOG_LEVEL` (`DEBUG`, `INFO`, `WARNING` or `ERROR`) changes that.
+- Without `--verbose`, briar logs warnings and errors only. 1.x also read
+  `BRIAR_VERBOSE` and `BRIAR_LOG_LEVEL`; 2.0 reads neither.
 - `runbook` commands log at INFO level even without `--verbose`.
 - Logs from HTTP and AWS libraries stay quiet even with `--verbose`.
   Set `BRIAR_LIB_DEBUG=1` to see them too.
@@ -359,10 +341,33 @@ and which flags the config file and git filled in.
 Before any command runs (but not for `-h` or `--version`), briar:
 
 1. Loads `secrets.env` into the environment (see [auth.md](auth.md)).
-2. Sets up the decision journal (see [journal.md](journal.md)).
-3. Sets up telemetry, which is off unless you turned it on (see [telemetry.md](telemetry.md)).
-4. Reads `.briar.toml` and your git remote for default values.
+2. Reads `.briar.toml` and your git remote for default values.
+3. Sets up telemetry, which is off unless you turned it on (see [Telemetry](#telemetry)).
 
 After a command ends, briar may print a "new version available" note on
 stderr. It checks PyPI at most once a day. `BRIAR_NO_UPDATE_CHECK=1`
 turns that off.
+
+## Telemetry
+
+briar sends nothing by default. You can turn on error reports, or error
+reports and usage counts, so bugs get fixed faster. 1.x had a
+`briar telemetry` command for this; 2.0 removed it.
+
+| Source, first wins | Example | Effect |
+|---|---|---|
+| `DO_NOT_TRACK=1` | `export DO_NOT_TRACK=1` | Off, whatever else says. |
+| `BRIAR_TELEMETRY` | `export BRIAR_TELEMETRY=errors-only` | `off`, `errors-only` or `full`. |
+| `telemetry` in `.briar.toml` | `telemetry = "full"` | Same values. A value briar does not know is ignored with a warning. |
+| Built-in default | | `off` |
+
+- `errors-only` sends crash reports. `full` also sends one usage event per
+  command (its name, how long it took, whether it worked).
+- No prompts, file contents, ticket keys, repo names, paths or secret
+  values leave your machine. Each event carries a hashed random install
+  id, never your name, host or IP. The id lives in
+  `$XDG_CONFIG_HOME/briar/install_id` (usually
+  `~/.config/briar/install_id`); delete the file for a new one.
+- 1.x saved its choice in `telemetry.json`, and the 2.0 betas in
+  `telemetry.v2.json`. 2.0 reads neither, so set the tier again if you
+  want it on.

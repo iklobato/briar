@@ -3,8 +3,9 @@
 Precedence (highest first):
 1. `DO_NOT_TRACK=1` env var — industry standard, wins over everything.
 2. `BRIAR_TELEMETRY` env var — `off`, `errors-only`, `full`.
-3. Persisted config at `<XDG_CONFIG_HOME>/briar/telemetry.v2.json` — set by
-   `briar telemetry off / errors-only / full`. The 1.x file
+3. `telemetry = "<tier>"` in the project config (`.briar.toml`, or
+   `[tool.briar]` in `pyproject.toml`). Decision C7: there is no
+   `briar telemetry` command and no state file in 2.0. The 1.x file
    `telemetry.json` is never read: 1.x saved `full` for everyone who saw
    its first-run banner, so it holds no real choice.
 4. Default: `off`. Telemetry is opt-in since 2.0.
@@ -19,14 +20,13 @@ UUID, so even our own Sentry project can't link back to your home dir."""
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import os
 import uuid
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Mapping, Optional
 
 log = logging.getLogger(__name__)
 
@@ -63,7 +63,7 @@ class TelemetryConfig:
     tier: TelemetryTier
     install_id: str
     dsn: str = ""
-    source: str = ""  # "env" / "do-not-track" / "config-file" / "default"
+    source: str = ""  # "env" / "do-not-track" / "project-config" / "default"
 
     @property
     def enabled(self) -> bool:
@@ -76,9 +76,10 @@ class TelemetryConfig:
         return hashlib.sha256(self.install_id.encode("utf-8")).hexdigest()[:16]
 
 
-def resolve(env: Optional[dict] = None) -> TelemetryConfig:
+def resolve(env: Optional[dict] = None, project_config: Optional[Mapping[str, object]] = None) -> TelemetryConfig:
     """Resolve the effective config. `env` defaults to `os.environ` —
-    overridable for tests."""
+    overridable for tests. `project_config` is the already-read project
+    config section (`briar.config.load_project_config`), or None."""
     env = env if env is not None else dict(os.environ)
     if env.get("DO_NOT_TRACK", "").strip() == "1":
         return _build_config(TelemetryTier.OFF, source="do-not-track")
@@ -90,13 +91,12 @@ def resolve(env: Optional[dict] = None) -> TelemetryConfig:
         except ValueError:
             log.warning("telemetry: BRIAR_TELEMETRY=%r is not a valid tier; ignoring", env_tier)
 
-    saved = _read_saved_config()
-    if saved is not None:
-        tier_str = saved.get("tier") or ""
+    file_tier = str((project_config or {}).get("telemetry") or "").strip().lower()
+    if file_tier:
         try:
-            return _build_config(TelemetryTier(tier_str), source="config-file")
+            return _build_config(TelemetryTier(file_tier), source="project-config")
         except ValueError:
-            log.warning("telemetry: saved tier %r invalid; falling back to default", tier_str)
+            log.warning("telemetry: telemetry=%r in the project config is not a valid tier; ignoring", file_tier)
 
     return _build_config(TelemetryTier.OFF, source="default")
 
@@ -111,15 +111,6 @@ def _build_config(tier: TelemetryTier, *, source: str) -> TelemetryConfig:
 
 
 # ─── persistence ────────────────────────────────────────────────────
-
-
-# 2.0 name. 1.x wrote `telemetry.json`, which stays on disk unread (a user
-# who goes back to 1.x keeps their 1.x state).
-_STATE_FILE_NAME = "telemetry.v2.json"
-
-
-def _telemetry_state_path() -> Path:
-    return _config_dir() / _STATE_FILE_NAME
 
 
 def _install_id_path() -> Path:
@@ -170,57 +161,3 @@ def _persist_new_install_id(path: Path) -> str:
     except OSError:
         log.debug("telemetry: could not persist install_id at %s", path)
     return new_id
-
-
-def _read_saved_config() -> Optional[dict]:
-    path = _telemetry_state_path()
-    try:
-        return json.loads(path.read_text())
-    except FileNotFoundError:
-        return None
-    except (OSError, json.JSONDecodeError) as exc:
-        log.warning("telemetry: saved config at %s unreadable: %s", path, exc)
-        return None
-
-
-def save_tier(tier: TelemetryTier) -> Path:
-    """Write the chosen tier to the on-disk state file. Called by the
-    `briar telemetry` subcommand."""
-    path = _telemetry_state_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"tier": tier.value}, indent=2))
-    try:
-        path.chmod(0o600)
-    except OSError:
-        pass
-    return path
-
-
-def reset_install_id() -> str:
-    """Regenerate the install_id (called by `briar telemetry reset`).
-    Returns the new id."""
-    global _INSTALL_ID_CACHE
-    path = _install_id_path()
-    try:
-        if path.exists():
-            path.unlink()
-    except OSError:
-        pass
-    # Invalidate the in-memory cache BEFORE regenerating. Without this,
-    # `_load_or_create_install_id()` returns the value `resolve()` already
-    # cached this process — so `reset` deleted the file but handed back the
-    # OLD id and never persisted a new one (a no-op rotation in any process
-    # that touched telemetry first).
-    _INSTALL_ID_CACHE = None
-    return _load_or_create_install_id()
-
-
-# Exposed paths for the `briar telemetry status` subcommand. Tests
-# can monkey-patch by setting XDG_CONFIG_HOME.
-config_dir = _config_dir
-state_path = _telemetry_state_path
-install_id_path = _install_id_path
-
-
-def default_dsn() -> str:
-    return _DEFAULT_DSN

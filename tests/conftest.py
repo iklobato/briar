@@ -127,10 +127,10 @@ def cli(
     monkeypatch.setattr("briar.config.load_project_config", lambda *a, **k: {})
     # No network / cache I/O for the update nudge during tests.
     monkeypatch.setattr("briar.update_check.maybe_notify", lambda *a, **k: None)
-    # Telemetry state (tier file, install id) lives under XDG_CONFIG_HOME.
-    # Point it at an empty tmp dir so tests never read or write the real
-    # home; with nothing saved the tier is the 2.0 default, off. Telemetry
-    # tests repoint it with their own fixture.
+    # The telemetry install id lives under XDG_CONFIG_HOME. Point it at an
+    # empty tmp dir so tests never read or write the real home. With the
+    # project config stubbed to {} above, the tier is the 2.0 default, off.
+    # Telemetry tests repoint it with their own fixture.
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path_factory.mktemp("xdg")))
 
     def invoke(*argv: str, env: dict[str, str] | None = None) -> SimpleNamespace:

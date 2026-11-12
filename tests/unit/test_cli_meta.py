@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 
+import pytest
+
 import briar.cli as cli_module
 from briar import __version__
 
@@ -28,19 +30,20 @@ def _boom(*a, **k):
     raise AssertionError("--version must not configure logging or do any I/O")
 
 
-def test_quiet_by_default_then_env_and_verbose(monkeypatch):
+def test_quiet_by_default_and_debug_with_verbose() -> None:
     from briar.logging import _resolve_level
 
-    monkeypatch.delenv("BRIAR_VERBOSE", raising=False)
-    monkeypatch.delenv("BRIAR_LOG_LEVEL", raising=False)
     assert _resolve_level(False) == logging.WARNING  # quiet default
     assert _resolve_level(True) == logging.DEBUG  # --verbose
 
-    monkeypatch.setenv("BRIAR_LOG_LEVEL", "info")
-    assert _resolve_level(False) == logging.INFO  # explicit env override
 
+def test_log_level_env_vars_are_not_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    """2.0 dropped BRIAR_VERBOSE and BRIAR_LOG_LEVEL (decision C18): only -v turns logs up."""
+    from briar.logging import _resolve_level
+
+    monkeypatch.setenv("BRIAR_LOG_LEVEL", "info")
     monkeypatch.setenv("BRIAR_VERBOSE", "1")
-    assert _resolve_level(False) == logging.DEBUG  # verbose beats BRIAR_LOG_LEVEL
+    assert _resolve_level(False) == logging.WARNING
 
 
 def test_daemon_logging_raises_to_info(monkeypatch):

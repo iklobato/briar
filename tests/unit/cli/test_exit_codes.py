@@ -15,7 +15,7 @@ from typing import Callable, List, Tuple
 
 import pytest
 
-from briar.commands.version import CommandVersion
+from briar.commands.doctor import CommandDoctor
 from briar.errors import CliError
 
 from .conftest import Tripwire
@@ -39,10 +39,18 @@ class UsageErrors:
     CASES: Tuple[Tuple[Tuple[str, ...], str], ...] = (
         ((), ""),
         (("nope",), "nope"),
-        (("context",), ""),
+        (("runbook",), ""),
         (("config", "show", "--nope"), "--nope"),
         (("extract",), "--company"),
-        (("--format", "xml", "version"), "xml"),
+        (("--format", "xml", "doctor"), "xml"),
+        # Commands briar 2.0 removed get the usual unknown-command error (decision C22).
+        (("agent", "implement"), "No such command 'agent'"),
+        (("plan", "list"), "No such command 'plan'"),
+        (("context", "list"), "No such command 'context'"),
+        (("secrets", "doctor"), "No such command 'secrets'"),
+        (("journal", "list"), "No such command 'journal'"),
+        (("telemetry", "status"), "No such command 'telemetry'"),
+        (("version",), "No such command 'version'"),
     )
 
     def ids(self) -> List[str]:
@@ -51,18 +59,18 @@ class UsageErrors:
 
 class TestExitCodes:
     def test_success_is_zero(self, cli: Callable[..., SimpleNamespace]) -> None:
-        assert cli("version").code == OK
+        assert cli("doctor").code == OK
 
     def test_cli_error_is_one_with_the_error_line(self, cli: Callable[..., SimpleNamespace], monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(CommandVersion, "run", RaisingRun(CliError("the runbook is missing")).raise_error)
+        monkeypatch.setattr(CommandDoctor, "run", RaisingRun(CliError("the runbook is missing")).raise_error)
 
-        run = cli("version")
+        run = cli("doctor")
 
         assert run.code == CLI_ERROR
         assert "error: the runbook is missing" in run.err.splitlines()
 
     def test_global_flag_without_value_is_one(self, cli: Callable[..., SimpleNamespace]) -> None:
-        run = cli("version", "--format")
+        run = cli("doctor", "--format")
 
         assert (run.code, run.err) == (CLI_ERROR, "error: --format requires a value\n")
 
@@ -75,14 +83,14 @@ class TestExitCodes:
         assert token in run.err
 
     def test_unexpected_crash_is_two(self, cli: Callable[..., SimpleNamespace], monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(CommandVersion, "run", RaisingRun(RuntimeError("bug")).raise_error)
+        monkeypatch.setattr(CommandDoctor, "run", RaisingRun(RuntimeError("bug")).raise_error)
 
-        assert cli("version").code == USAGE_ERROR
+        assert cli("doctor").code == USAGE_ERROR
 
     def test_ctrl_c_is_130(self, cli: Callable[..., SimpleNamespace], monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(CommandVersion, "run", RaisingRun(KeyboardInterrupt()).raise_error)
+        monkeypatch.setattr(CommandDoctor, "run", RaisingRun(KeyboardInterrupt()).raise_error)
 
-        run = cli("version")
+        run = cli("doctor")
 
         assert run.code == INTERRUPTED
         assert "interrupted" in run.err.splitlines()
@@ -91,7 +99,7 @@ class TestExitCodes:
 class TestRemovedRunbookBlocks:
     """Only the 1.x agent read these blocks (spec 006, FR-006a): a runbook that still has one stops."""
 
-    @pytest.mark.parametrize("block", ["mcp", "git_identity"])
+    @pytest.mark.parametrize("block", ["mcp", "git_identity", "messages"])
     def test_runbook_with_a_removed_block_is_one_naming_it(self, cli: Callable[..., SimpleNamespace], tmp_path: Path, block: str) -> None:
         runbook = tmp_path / "runbook.yaml"
         runbook.write_text(f"version: 1\ncompanies:\n  acme:\n    {block}: {{}}\n")
@@ -103,7 +111,7 @@ class TestRemovedRunbookBlocks:
 
 
 class TestHelpDoesNoIo:
-    @pytest.mark.parametrize("argv", [("--help",), ("-h",), ("context", "--help"), ("context", "put", "-h"), ("runbook", "extract", "--help")], ids=" ".join)
+    @pytest.mark.parametrize("argv", [("--help",), ("-h",), ("runbook", "--help"), ("auth", "login", "-h"), ("runbook", "extract", "--help")], ids=" ".join)
     def test_help_exits_zero_without_startup_io(self, cli: Callable[..., SimpleNamespace], tripwire: Tripwire, argv: Tuple[str, ...]) -> None:
         run = cli(*argv)
 

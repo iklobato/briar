@@ -72,7 +72,8 @@ class KnowledgeExtractor(ABC):
     def provider_class_for(self, args: argparse.Namespace):
         """Return the provider CLASS this extractor uses for the given
         runbook args, or None if it's not provider-backed (file/local
-        extractors). Used by ``briar secrets doctor`` to query
+        extractors). Used by a credential coverage check (1.x
+        ``briar secrets doctor``; in 2.0 the spec 005 pre-run check) to query
         ``provider_class.required_env_vars(company)`` without having
         to maintain a parallel (extractor × provider) cred table.
         Default: None. Each ``*BackedExtractor`` base overrides."""

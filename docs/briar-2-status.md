@@ -30,7 +30,7 @@ now, what was found on the way, what is left and what to watch.
   PRs under it until those merge. Merge them **in order, #79 first, as
   merge commits**.
 - CI runs on every PR into `main` or `v2` (`.github/workflows/tests.yml`).
-  PRs #79 to #90 had green CI on their last commit. Nobody has reviewed
+  PRs #79 to #91 had green CI on their last commit. Nobody has reviewed
   them (the maintainer is the only reviewer).
 
 | PR | Branch | What it does |
@@ -48,6 +48,7 @@ now, what was found on the way, what is left and what to watch.
 | https://github.com/iklobato/briar/pull/89 | `cli/06-removals-docs` | Removes `extract --storage`, `briar completion` and its templates; Typer completion; docs; the spec 002 success checks |
 | https://github.com/iklobato/briar/pull/90 | `docs/v2-status` | This file, the four 2026-11-10 decision files, the CLAUDE.md and CONTRIBUTING updates (docs only) |
 | https://github.com/iklobato/briar/pull/91 | `core/01-remove-plan-agent` | Spec 006 part 1: removes `plan`, `agent` and the code only they used; moves the personas and rules to `src/briar/prompts/` |
+| https://github.com/iklobato/briar/pull/92 | `core/02-small-commands` | Spec 006 part 2: removes `context`, `secrets`, `journal`, `telemetry`, `version`, `messaging`, `notify`; `--format table|json`; `-v` only; telemetry tier from env or `.briar.toml` |
 
 ## 2. What is done
 
@@ -137,6 +138,34 @@ as 1.x shipped it, in tag `v1.1.101`. Read one with
 | Task-scoped extractors | `src/briar/extract/{ticket_context,pr_review_context,meeting_context,slack_context}.py`, `src/briar/extract/_chat.py`, `src/briar/extract/_chats/` | spec 003 context (P1, P3) |
 | Archetypes and knowledge splicer | `src/briar/iac/scaffold/` | already moved to `src/briar/prompts/` |
 
+### Spec 006: core cleanup, part 2 of 5 (PR #92)
+
+- Removed: the commands `context`, `secrets`, `journal`, `telemetry`,
+  `version` (each now gets `No such command`, exit 2, pinned in
+  `tests/unit/cli/test_exit_codes.py`); the packages `journal/`,
+  `messaging/`, `notify/` and the default-journal install in `cli.py`;
+  the formatters `yaml`, `csv`, `quiet`; the bootstrap factory only
+  `secrets bootstrap` used; `InheritingOptions` (only `context` had a
+  group option); the `BRIAR_VERBOSE` and `BRIAR_LOG_LEVEL` reads; the
+  notify env names; `_notify_failure` in the runbook executor (a failed
+  task is only logged now, C20).
+- A runbook company with `messages:` stops like `mcp:` and
+  `git_identity:` (`CompanyEntry.REMOVED_KEYS`).
+- Telemetry (C7): `resolve()` reads `DO_NOT_TRACK`, `BRIAR_TELEMETRY`,
+  then `telemetry` in the project config, then `off`; no state file is
+  read or written. `main()` now reads the project config before it
+  installs telemetry and passes it in (`telemetry.install(project_config)`).
+  The `briar init` template has a commented `telemetry` line (and lost the
+  `[agent]` block part 1 missed).
+- `agents/creds.md` was deleted, not updated: it only described `briar
+  secrets`. Its replacement in the docs is `briar auth status <target>`.
+- Numbers on the branch (2026-11-10): `src` 18,423 lines to 15,557;
+  `briar --help` lists 6 commands; mypy 39 errors to 31;
+  `pytest -n auto -m "not integration"` 1631 passed; `pytest -m
+  integration` 37 passed; `make smoke` ok for all 6. Startup, CPU median
+  of 7 (load average 12): `import briar.cli` 759 ms on 1.x, 728 ms here;
+  `main(['--help'])` 40 ms vs 15 ms.
+
 ## 3. How the command line works now
 
 ```
@@ -144,8 +173,8 @@ briar.cli.main(argv)
   1. pre-parse: take --format, -v/--verbose, -V/--version out of argv (anywhere)
   2. --version: print and return, no other work
   3. "metadata only" (help, no command, --show/--install-completion, a TAB):
-     skip credential bootstrap, journal, telemetry, config, git
-  4. else: bootstrap env file, journal, telemetry, read the project config once
+     skip credential bootstrap, telemetry, config, git
+  4. else: bootstrap env file, read the project config once, install telemetry with it
   5. CommandLine.parse(...)   (cli_app.py)  ->  ParseOutcome(args or None, exit code)
   6. telemetry span + removed-store guard + commands[name].run(args)
      CliError -> 1 with "error: <msg>", KeyboardInterrupt -> 130, crash -> 2
@@ -164,8 +193,6 @@ briar.cli.main(argv)
   maintainer's code rules (at most 3 parameters).
   - `UNSET_AS`: a None default turned into the 1.x value at run time
     (`secrets bootstrap --kind` keeps `""`).
-  - `InheritingOptions`: `context --store x get y` and `context get y --store x`
-    both work; a setting fills only the group, so it never beats a group flag.
   - `RegistryChoice`: `auth` targets are checked against the registry when
     the command runs (tests add fake targets). Other choices are `str`
     Enums in `commands/_enums.py`, each with a test that keeps it equal to
@@ -218,7 +245,7 @@ Each item was reproduced in this work; the PR named holds the evidence.
 
 ## 5. Next steps, in order
 
-1. **Review and merge #79 to #91 into `v2`**, in order, as merge commits.
+1. **Review and merge #79 to #92 into `v2`**, in order, as merge commits.
    Re-check `gh pr checks <n>` before each merge; after the last one, check
    that the `v2` CI run is green.
 2. **Decide how 2.0 is released before `v2` merges to `main`.**
@@ -236,7 +263,7 @@ Each item was reproduced in this work; the PR named holds the evidence.
    personas moved to `src/briar/prompts/*.md` first (done: PR #91, section
    2); (2) `context`,
    `secrets`, `journal`, `telemetry`, `version`, `messaging`, `notify`,
-   `--format table|json`, `-v` only; (3) file store only; (4) `extract`
+   `--format table|json`, `-v` only (done: PR #92); (3) file store only; (4) `extract`
    with three flags and the rest from `[extract]` / `[extract.<name>]`;
    (5) `auth`, `runbook`, `doctor`/`init` trims, docs and the success checks.
    A 1.x key that left (`store`, runbook `messages:`/`mcp:`, an unknown
@@ -278,7 +305,10 @@ Each item was reproduced in this work; the PR named holds the evidence.
 - Startup: spec 002 left it about 60 ms slower than 1.x (section 4); spec
   006 part 1 brought `import briar.cli` back to within 5 ms (section 2).
 - The README overview (the top sections) still describes `agent` and
-  `plan`; spec 006 part 5 rewrites it.
+  `plan`; spec 006 part 5 rewrites it. The demo GIF
+  `docs/demo/01-setup-and-extract.gif` shows `briar context get`, which
+  2.0 removed; re-record it with the README rewrite.
+- `runbook serve` has no failure alert until Apprise (C20, K4).
 - Unit tests in `tests/unit/test_http_retry.py` and `tests/test_abstractions.py`
   still leak their own `HTTPError` objects on Python 3.14. CI does not run
   unit tests on 3.14, so nothing fails today.

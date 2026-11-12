@@ -9,11 +9,8 @@ from typing import Any, Dict, List, Sequence
 
 from briar.errors import CliError
 from briar.formatting.base import Formatter
-from briar.formatting.csv import FormatCsv
 from briar.formatting.json import FormatJson
-from briar.formatting.quiet import FormatQuiet
 from briar.formatting.table import FormatTable
-from briar.formatting.yaml import FormatYaml
 
 
 class FormatterRegistry:
@@ -23,9 +20,6 @@ class FormatterRegistry:
     FORMATTERS: Dict[str, Formatter] = {
         "table": FormatTable(),
         "json": FormatJson(),
-        "yaml": FormatYaml(),
-        "csv": FormatCsv(),
-        "quiet": FormatQuiet(),
     }
 
     @classmethod
@@ -35,7 +29,7 @@ class FormatterRegistry:
     @classmethod
     def get(cls, format_name: str) -> Formatter:
         """Resolve a format by name. Unknown name raises CliError so a
-        typo (``--format yam``) is loud at dispatch instead of silently
+        typo (``--format jsn``) is loud at dispatch instead of silently
         falling back to the table renderer."""
         formatter = cls.FORMATTERS.get(format_name)
         if formatter is None:

@@ -166,6 +166,6 @@ class EnvFileBootstrap(CredentialBootstrap):
     @classmethod
     def required_env_vars(cls) -> List[str]:
         # The envfile bootstrap doesn't need machine-identity creds —
-        # it's just a local file read. `briar secrets doctor` reports
+        # it's just a local file read, so a coverage check reports
         # no requirements, which is correct.
         return []

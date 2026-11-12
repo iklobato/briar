@@ -7,14 +7,13 @@ observable behavior: exit code, parsed stdout, files written on disk
 (read back), and config/store state changed.
 
 The `cli` fixture invokes the full startup path (credential bootstrap,
-default-journal install, telemetry install). `env_sandbox` (autouse in
+telemetry install). `env_sandbox` (autouse in
 tests/conftest.py) strips every credential-shaped env var, so:
   * No remote bootstrap configured -> no network.
   * provider-backed extractors report missing creds deterministically.
 `BRIAR_SECRETS_FILE` is already redirected per-test by `env_sandbox`.
 
-These cover: secrets (envfile store + bootstrap), telemetry off/full/status, context put/get/list/delete,
-journal list/show/export, runbook extract/sweep.
+These cover: the envfile credential store, runbook extract/sweep.
 """
 
 from __future__ import annotations
@@ -35,20 +34,16 @@ def _local_env(tmp_path: Path) -> dict[str, str]:
     the test's tmp dir so nothing leaks to the developer's real config.
 
     - BRIAR_TELEMETRY=off keeps the telemetry installer from doing work
-      (and from reading the real ~/.config). The telemetry *commands*
-      under test write to XDG_CONFIG_HOME, which we also pin.
-    - BRIAR_JOURNAL=off disables the auto-installed default journal for
-      commands where we don't want a stray session file; tests that
-      assert journaling re-enable it explicitly.
+      (and from reading the real ~/.config); its install id goes under
+      XDG_CONFIG_HOME, which we also pin.
     """
     return {
         "XDG_CONFIG_HOME": str(tmp_path / "xdg"),
         "BRIAR_TELEMETRY": "off",
-        "BRIAR_JOURNAL": "off",
     }
 
 
-# ════════════════════════════ secrets ═══════════════════════════════
+# ═════════════════════════ credential store ═════════════════════════
 
 
 class TestSecretsEnvfileStoreReal:
@@ -98,252 +93,6 @@ class TestSecretsEnvfileStoreReal:
         assert removed is True
         assert "AWS_ACME_KEY" not in secrets_file.read_text()
         assert store.read("AWS_ACME_KEY") is None
-
-    def test_bootstrap_envfile_real_file_preserves_already_set_no_value_leak(self, cli, tmp_path, monkeypatch) -> None:
-        """`briar secrets bootstrap --kind envfile --dry-run` against a REAL
-        seeded secrets.env. The CLI's startup auto_bootstrap hydrates the
-        keys into os.environ first, so the command's own bootstrap reports
-        them as preserved (already-set) — assert that real behavior and
-        that NO value ever reaches stdout."""
-        secrets_file = tmp_path / "secrets.env"
-        secrets_file.write_text("MYAPP_TOKEN=VALUE-PLACEHOLDER-not-a-secret\n" "MYAPP_OTHER=SECOND-PLACEHOLDER-not-a-secret\n")
-        monkeypatch.setenv("BRIAR_SECRETS_FILE", str(secrets_file))
-
-        result = cli(
-            "secrets",
-            "bootstrap",
-            "--kind",
-            "envfile",
-            "--dry-run",
-            env=_local_env(tmp_path),
-        )
-        assert result.code == 0, result.err
-        # Startup hydrated both -> command sees them already-set.
-        assert "would write 0 env vars (preserved 2 already-set)" in result.out
-        # Values are NEVER echoed; key names may be, values must not.
-        assert "VALUE-PLACEHOLDER-not-a-secret" not in result.out
-        assert "SECOND-PLACEHOLDER-not-a-secret" not in result.out
-
-
-# ════════════════════════════ telemetry ═════════════════════════════
-
-
-class TestTelemetryRealConfigFile:
-    def _state_path(self, tmp_path: Path) -> Path:
-        return tmp_path / "xdg" / "briar" / "telemetry.v2.json"
-
-    def test_off_writes_off_tier_to_disk(self, cli, tmp_path) -> None:
-        # `off` must explicitly be the chosen tier (not BRIAR_TELEMETRY=off
-        # from the env helper, which the command overrides on disk).
-        env = _local_env(tmp_path)
-        env.pop("BRIAR_TELEMETRY")  # let the on-disk file be the source of truth
-        result = cli("telemetry", "off", env=env)
-        assert result.code == 0, result.err
-        state = json.loads(self._state_path(tmp_path).read_text())
-        assert state["tier"] == "off"
-
-    def test_full_then_off_flips_tier_on_disk(self, cli, tmp_path) -> None:
-        env = _local_env(tmp_path)
-        env.pop("BRIAR_TELEMETRY")
-        assert cli("telemetry", "full", env=env).code == 0
-        assert json.loads(self._state_path(tmp_path).read_text())["tier"] == "full"
-        assert cli("telemetry", "errors-only", env=env).code == 0
-        assert json.loads(self._state_path(tmp_path).read_text())["tier"] == "errors-only"
-        assert cli("telemetry", "off", env=env).code == 0
-        assert json.loads(self._state_path(tmp_path).read_text())["tier"] == "off"
-
-    def test_status_reads_the_persisted_tier(self, cli, tmp_path) -> None:
-        env = _local_env(tmp_path)
-        env.pop("BRIAR_TELEMETRY")
-        cli("telemetry", "off", env=env)
-        result = cli("--format", "json", "telemetry", "status", env=env)
-        assert result.code == 0, result.err
-        status = json.loads(result.out)
-        assert status["tier"] == "off"
-        assert status["source"] == "config-file"
-        assert status["enabled"] is False
-        # The reported state_path points inside our tmp XDG dir.
-        assert str(tmp_path / "xdg") in status["state_path"]
-
-
-# ════════════════════════════ context ═══════════════════════════════
-
-
-class TestContextRealFileStore:
-    def test_put_get_list_delete_roundtrip_on_disk(self, cli, tmp_path) -> None:
-        root = tmp_path / "knowledge"
-        env = _local_env(tmp_path)
-
-        # put -> file written at <root>/<category>/<rest>.md
-        put = cli(
-            "--format",
-            "json",
-            "context",
-            "--root",
-            str(root),
-            "put",
-            "knowledge:acme",
-            "--content",
-            "# Acme\nhello world\n",
-            env=env,
-        )
-        assert put.code == 0, put.err
-        blob_path = root / "knowledge" / "acme.md"
-        assert blob_path.read_text() == "# Acme\nhello world\n"
-        meta = json.loads(put.out)
-        assert meta["name"] == "knowledge:acme"
-        assert meta["category"] == "knowledge"
-        assert meta["byte_count"] == len("# Acme\nhello world\n")
-
-        # get -> the markdown body to stdout
-        got = cli("context", "--root", str(root), "get", "knowledge:acme", env=env)
-        assert got.code == 0, got.err
-        assert got.out == "# Acme\nhello world\n"
-
-        # list -> the blob appears
-        listed = cli("--format", "json", "context", "--root", str(root), "list", env=env)
-        assert listed.code == 0, listed.err
-        names = [r["name"] for r in json.loads(listed.out)]
-        assert names == ["knowledge:acme"]
-
-        # delete --yes -> file removed from disk
-        deleted = cli("context", "--root", str(root), "delete", "knowledge:acme", "--yes", env=env)
-        assert deleted.code == 0, deleted.err
-        assert "deleted knowledge:acme" in deleted.out
-        assert not blob_path.exists()
-
-    def test_get_missing_blob_is_error_exit_1(self, cli, tmp_path) -> None:
-        root = tmp_path / "knowledge"
-        result = cli("context", "--root", str(root), "get", "knowledge:absent", env=_local_env(tmp_path))
-        assert result.code == 1
-        assert "blob not found" in result.err
-
-    def test_from_file_source_writes_that_content(self, cli, tmp_path) -> None:
-        root = tmp_path / "knowledge"
-        src = tmp_path / "src.md"
-        src.write_text("# From File\nbody\n")
-        result = cli(
-            "context",
-            "--root",
-            str(root),
-            "put",
-            "notes:topic",
-            "--from-file",
-            str(src),
-            env=_local_env(tmp_path),
-        )
-        assert result.code == 0, result.err
-        assert (root / "notes" / "topic.md").read_text() == "# From File\nbody\n"
-
-    def test_list_prefix_filters_on_disk_blobs(self, cli, tmp_path) -> None:
-        root = tmp_path / "knowledge"
-        env = _local_env(tmp_path)
-        cli("context", "--root", str(root), "put", "knowledge:acme", "--content", "a", env=env)
-        cli("context", "--root", str(root), "put", "notes:misc", "--content", "b", env=env)
-        listed = cli("--format", "json", "context", "--root", str(root), "list", "--prefix", "knowledge:", env=env)
-        assert listed.code == 0, listed.err
-        names = [r["name"] for r in json.loads(listed.out)]
-        assert names == ["knowledge:acme"]  # `notes:misc` filtered out
-
-
-# ════════════════════════════ journal ═══════════════════════════════
-
-
-def _seed_journal(tmp_path: Path) -> tuple[Path, str]:
-    """Write one real, closed session into a file JournalStore. Returns
-    (journal_root, session_id)."""
-    from briar.journal import make_journal_store
-    from briar.journal.models import DecisionEvent, Session
-
-    journal_root = tmp_path / "journal"
-    store = make_journal_store("file", file_root=journal_root)
-    session = Session(command="scaffold.implementation", target="acme/widgets")
-    session.record(
-        DecisionEvent(
-            choice="scaffold.archetype",
-            value="engineer",
-            rationale="default agent role",
-            alternatives=("engineer", "pr-fixer"),
-        )
-    )
-    session.close()
-    ref = store.put(session)
-    return journal_root, ref.session_id
-
-
-class TestJournalRealStore:
-    def test_list_shows_seeded_session(self, cli, tmp_path) -> None:
-        journal_root, session_id = _seed_journal(tmp_path)
-        result = cli("journal", "list", "--root", str(journal_root), env=_local_env(tmp_path))
-        assert result.code == 0, result.err
-        assert session_id in result.out
-        assert "scaffold.implementation" in result.out
-        assert "target=acme/widgets" in result.out
-        assert "decisions=1" in result.out
-
-    def test_list_command_filter(self, cli, tmp_path) -> None:
-        journal_root, _ = _seed_journal(tmp_path)
-        env = _local_env(tmp_path)
-        # Matching prefix -> shown.
-        hit = cli("journal", "list", "--root", str(journal_root), "--command", "scaffold.", env=env)
-        assert hit.code == 0
-        assert "scaffold.implementation" in hit.out
-        # Non-matching prefix -> empty.
-        miss = cli("journal", "list", "--root", str(journal_root), "--command", "plan.", env=env)
-        assert miss.code == 0
-        assert "(no sessions)" in miss.out
-
-    def test_show_renders_markdown(self, cli, tmp_path) -> None:
-        journal_root, session_id = _seed_journal(tmp_path)
-        result = cli("journal", "show", "--root", str(journal_root), session_id, env=_local_env(tmp_path))
-        assert result.code == 0, result.err
-        assert "# scaffold.implementation — acme/widgets" in result.out
-        assert f"`{session_id}`" in result.out
-        assert "### `scaffold.archetype`" in result.out
-        assert "default agent role" in result.out
-
-    def test_show_unknown_session_is_error(self, cli, tmp_path) -> None:
-        journal_root, _ = _seed_journal(tmp_path)
-        result = cli("journal", "show", "--root", str(journal_root), "deadbeef", env=_local_env(tmp_path))
-        assert result.code == 1
-        assert "not found" in result.err
-
-    def test_export_json_to_file(self, cli, tmp_path) -> None:
-        journal_root, session_id = _seed_journal(tmp_path)
-        out_file = tmp_path / "exported.json"
-        result = cli(
-            "journal",
-            "export",
-            "--root",
-            str(journal_root),
-            session_id,
-            "--as",
-            "json",
-            "--out",
-            str(out_file),
-            env=_local_env(tmp_path),
-        )
-        assert result.code == 0, result.err
-        assert f"wrote {out_file}" in result.err  # status on stderr; stdout stays clean
-        payload = json.loads(out_file.read_text())
-        assert payload["session_id"] == session_id
-        assert payload["command"] == "scaffold.implementation"
-        assert payload["decisions"][0]["choice"] == "scaffold.archetype"
-
-    def test_export_markdown_to_stdout(self, cli, tmp_path) -> None:
-        journal_root, session_id = _seed_journal(tmp_path)
-        result = cli(
-            "journal",
-            "export",
-            "--root",
-            str(journal_root),
-            session_id,
-            "--as",
-            "markdown",
-            env=_local_env(tmp_path),
-        )
-        assert result.code == 0, result.err
-        assert "# scaffold.implementation — acme/widgets" in result.out
 
 
 # ════════════════════════════ runbook ═══════════════════════════════

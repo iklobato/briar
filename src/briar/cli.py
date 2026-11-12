@@ -3,8 +3,7 @@
 `main()` is the program — bound by the `briar` console-script in
 pyproject.toml. Phase 13 demoted the static-only `Cli` namespace
 class that used to wrap everything; helpers are module functions
-now (`_extract_global_flags`, `_build_parser`,
-`_install_default_journal`)."""
+now (`_extract_global_flags`, `_build_parser`)."""
 
 from __future__ import annotations
 
@@ -38,10 +37,9 @@ from briar.commands import Command, CommandRegistry
 from briar.errors import CliError
 from briar.formatting import FORMATTERS
 from briar.logging import configure as configure_logging
-from briar.logging import env_verbose
 
 # Two flag families:
-#   GLOBAL_FLAGS_WITH_VALUE: `--format yaml` / `--format=yaml`
+#   GLOBAL_FLAGS_WITH_VALUE: `--format json` / `--format=json`
 #   GLOBAL_BOOL_FLAGS:       `--verbose` / `-v` (no value)
 _GLOBAL_FLAGS_WITH_VALUE: Set[str] = {"--format"}
 _GLOBAL_BOOL_FLAGS: Set[str] = {"--verbose", "-v", "--version", "-V"}
@@ -99,7 +97,7 @@ def _build_parser(commands: Dict[str, Command]) -> argparse.ArgumentParser:
         "--verbose",
         "-v",
         action="store_true",
-        help="enable DEBUG-level logging (also honours BRIAR_VERBOSE=1 env var)",
+        help="enable DEBUG-level logging",
     )
     # `--version` is short-circuited in `main()` before any I/O; declared
     # here so `briar --help` lists it.
@@ -150,37 +148,6 @@ def _warn_legacy_flags(raw_argv: List[str], log: logging.Logger) -> None:
     log.debug("legacy-flags: %s", pairs)
 
 
-def _install_default_journal(log: logging.Logger) -> None:
-    """Install the process-wide default journal. Honours
-    BRIAR_JOURNAL=off to disable entirely; otherwise wires the
-    configured store (BRIAR_JOURNAL_STORE, default `file`) and the
-    sinks listed in BRIAR_JOURNAL_SINKS (default `file`).
-
-    Failures here are warnings, not errors — journaling is a
-    cross-cutting concern and a misconfigured store should not
-    block the actual command the user wanted to run."""
-    import os
-
-    if os.environ.get("BRIAR_JOURNAL", "").lower() in {"off", "0", "no"}:
-        return
-    try:
-        from pathlib import Path
-
-        from briar.journal import Journal, make_journal_store
-        from briar.journal._journal import set_active_journal
-        from briar.journal.sinks import JOURNAL_SINKS
-
-        store_name = os.environ.get("BRIAR_JOURNAL_STORE", "file")
-        root = Path(os.environ.get("BRIAR_JOURNAL_ROOT", "./journal"))
-        store = make_journal_store(store_name, file_root=root)
-        sink_names = [s.strip() for s in os.environ.get("BRIAR_JOURNAL_SINKS", "file").split(",") if s.strip()]
-        sinks = [JOURNAL_SINKS[name] for name in sink_names if name in JOURNAL_SINKS]
-        set_active_journal(Journal(store, sinks=sinks))
-        log.debug("journal: store=%s sinks=%s root=%s", store_name, sink_names, root)
-    except Exception:  # noqa: BLE001 — journaling is best-effort
-        log.exception("journal: install failed; continuing without journaling")
-
-
 # Console-script entry point declared in pyproject.toml.
 def main(argv: Optional[List[str]] = None) -> int:
     raw_argv = list(argv) if argv else sys.argv[1:]
@@ -191,8 +158,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 1
 
     # `--version` is pure metadata: print and exit before ANY logging,
-    # credential bootstrap, journal, or telemetry I/O — same contract as
-    # `-h`. Mirrors `briar version`, but as the conventional top-level flag.
+    # credential bootstrap or telemetry I/O, same contract as `-h`.
     if "--version" in flags or "-V" in flags:
         from briar import __version__
 
@@ -201,7 +167,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # Configure logging before anything else so module imports that
     # log at import-time still inherit the right level.
-    verbose = "--verbose" in flags or "-v" in flags or env_verbose()
+    verbose = "--verbose" in flags or "-v" in flags
     # Logs always go to stderr (see briar.logging), so stdout stays clean for
     # piping command output.
     configure_logging(verbose=verbose)
@@ -210,10 +176,9 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # Help and no-command invocations are pure metadata: argparse
     # prints usage/help and exits at parse_args() below without ever
-    # dispatching a command. Skip credential bootstrap, journal, and
-    # telemetry for them so `briar -h` and `briar <cmd> -h` do no
-    # network or filesystem I/O — no remote bootstrap fetch, no
-    # ./journal directory created just to print help.
+    # dispatching a command. Skip credential bootstrap and telemetry for
+    # them so `briar -h` and `briar <cmd> -h` do no network or
+    # filesystem I/O.
     # `-h`/`--help` anywhere in argv makes argparse short-circuit to a
     # help action; an empty `remaining` means no subcommand, which
     # argparse rejects with a usage error. Either way, no command runs.
@@ -221,6 +186,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     # script, and a TAB press runs briar with no arguments: no I/O for those either.
     metadata_only = "-h" in raw_argv or "--help" in raw_argv or not remaining or any(flag in raw_argv for flag in ("--show-completion", "--install-completion"))
 
+    project_config = None
     if not metadata_only:
         # Load credentials from the env file BEFORE the command registry
         # imports (which transitively trigger provider / writer adapter
@@ -237,34 +203,27 @@ def main(argv: Optional[List[str]] = None) -> int:
             elif result.count:
                 log.info("credential-bootstrap: %s hydrated %d env vars", result.backend, result.count)
 
-        # Install the default journal. Commands that use
-        # `with briar.journal.session(...)` will record + persist;
-        # uninstrumented commands are unaffected (null-object default
-        # protects every call site from "is journaling active" guards).
-        _install_default_journal(log)
+        # Project config (.briar.toml / [tool.briar]) and env become the default
+        # of every option they name, so a bare command inherits stable values
+        # (company, store, repo, ...) and an explicit flag still wins. Read
+        # once, here, so telemetry sees its `telemetry` key too. Skipped for
+        # help/usage so `briar -h` touches no config file.
+        from briar.config import load_project_config
 
-        # Install telemetry — opt-in: the default tier is `off` until the
-        # user runs `briar telemetry errors-only|full` (or sets
-        # BRIAR_TELEMETRY). No PII / no values / no prompts ever leave the
+        project_config = load_project_config()
+
+        # Install telemetry. It is opt-in: the default tier is `off` until
+        # `telemetry` in the project config or BRIAR_TELEMETRY says
+        # otherwise. No PII / no values / no prompts ever leave the
         # machine. See `briar.telemetry`.
         try:
             from briar import telemetry
 
-            telemetry.install()
+            telemetry.install(project_config)
         except Exception:  # noqa: BLE001 — telemetry NEVER blocks the CLI
             log.debug("telemetry: install failed", exc_info=True)
 
     commands = CommandRegistry.build()
-
-    # Project config (.briar.toml / [tool.briar]) and env become the default
-    # of every option they name, so a bare command inherits stable values
-    # (company, store, repo, model, ...) and an explicit flag still wins.
-    # Skipped for help/usage so `briar -h` touches no config file.
-    project_config = None
-    if not metadata_only:
-        from briar.config import load_project_config
-
-        project_config = load_project_config()
 
     normalised: List[str] = []
     for flag, value in kv.items():
@@ -294,7 +253,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         with telemetry.command_span(args.command, args):
             # A 1.x setup may still name a removed remote store: stop with
             # the fix instead of running without the keys it used to load.
-            RemovedCredentialStoreGuard(os.environ).check(args.command)
+            RemovedCredentialStoreGuard(os.environ).check()
             rc = commands[args.command].run(args)
         _notify_update(log)
         return rc

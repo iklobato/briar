@@ -4,7 +4,7 @@ where `/etc/briar/secrets.env` lands once systemd reads it via
 
 This is the only `CredentialStore` backend that needs to work today.
 It exposes the existing env-var surface through the new abstraction
-so `briar secrets doctor` and any future store-backed code can use
+so `briar auth` and any future store-backed code can use
 one API regardless of where credentials live."""
 
 from __future__ import annotations
@@ -63,14 +63,10 @@ def _validate_value(value: str) -> None:
 # We match the FULL anchored template, NOT a bare prefix. A prefix match
 # (``startswith``) over-matches the shared ``BRIAR_`` namespace:
 # ``BRIAR_{c}_DATABASE_URL`` yields prefix ``BRIAR_``, which would sweep
-# every config var (``BRIAR_SECRETS_FILE``, ``BRIAR_JOURNAL``, ...) into
+# every config var (``BRIAR_SECRETS_FILE``, ``BRIAR_TELEMETRY``, ...) into
 # ``list()`` as if it were a credential. Matching
 # ``^BRIAR_[A-Z0-9_]+_DATABASE_URL$`` keeps the DSN creds and leaves the
 # config vars out.
-#
-# ``BRIAR_NOTIFY_SINKS`` is excluded — it's config (comma-separated
-# sink kinds), not a credential, and listing it would be misleading.
-_NON_CREDENTIAL_VARS = frozenset({"BRIAR_NOTIFY_SINKS"})
 
 
 def _matcher_for(template: str) -> "re.Pattern[str]":
@@ -85,11 +81,7 @@ def _matcher_for(template: str) -> "re.Pattern[str]":
 def _derive_known_matchers() -> tuple:
     from briar.env_vars import CredEnv  # local import to avoid cycle at module load
 
-    return tuple(
-        _matcher_for(member.value)
-        for member in CredEnv
-        if member.value not in _NON_CREDENTIAL_VARS
-    )
+    return tuple(_matcher_for(member.value) for member in CredEnv)
 
 
 _KNOWN_MATCHERS: tuple = _derive_known_matchers()

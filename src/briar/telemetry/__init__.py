@@ -5,15 +5,16 @@ package-private:
 
     from briar.telemetry import install, command_span, capture_error
 
-    install()                                # called by briar.cli.main at startup
-    with command_span("plan.run", args):     # wraps every command dispatch
+    install(project_config)                  # called by briar.cli.main at startup
+    with command_span("extract", args):      # wraps every command dispatch
         ...
 
 Privacy contract:
 - `DO_NOT_TRACK=1` disables everything.
-- `BRIAR_TELEMETRY={off,errors-only,full}` overrides persisted config.
-- Default tier is `off`: nothing is sent until the user runs
-  `briar telemetry errors-only` or `full`. No banner is printed.
+- `BRIAR_TELEMETRY={off,errors-only,full}` overrides the project config.
+- `telemetry = "errors-only"` (or `full`) in `.briar.toml` turns it on.
+- Default tier is `off`: nothing is sent until one of those says
+  otherwise. No banner is printed.
 - `install_id` is a random UUID; we ship its SHA256 prefix, never the
   raw id. No hostname / username / IP / paths.
 - Allow-list-first tags; secret-pattern regexes; 1 KB per-value cap.
@@ -31,9 +32,9 @@ import platform
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Mapping, Optional
 
-from briar.telemetry._config import TelemetryConfig, TelemetryTier, reset_install_id, resolve, save_tier
+from briar.telemetry._config import TelemetryConfig, TelemetryTier, resolve
 from briar.telemetry._scrubber import Scrubber
 from briar.telemetry._sinks import TelemetryEvent, TelemetrySink, make_sink
 from briar.telemetry._sinks.noop import NoOpSink
@@ -58,12 +59,13 @@ _STATE = _State()
 # ─── lifecycle ──────────────────────────────────────────────────────
 
 
-def install(version: str = "") -> TelemetryConfig:
+def install(project_config: Optional[Mapping[str, object]] = None, version: str = "") -> TelemetryConfig:
     """Resolve config and install the global sink. Idempotent — safe
-    to call multiple times. Called once by `briar.cli.main`.
+    to call multiple times. Called once by `briar.cli.main` with the
+    project config it already read.
 
     Returns the resolved config."""
-    config = resolve()
+    config = resolve(project_config=project_config)
     _STATE.config = config
 
     if not version:
@@ -76,9 +78,8 @@ def install(version: str = "") -> TelemetryConfig:
         _STATE.sink = NoOpSink()
         log.debug("telemetry: disabled (source=%s)", config.source)
     elif not config.dsn:
-        # No DSN configured: keep telemetry "enabled" semantically so
-        # `briar telemetry status` reflects the user's choice, but the
-        # sink is no-op so no network traffic.
+        # No DSN configured: keep telemetry "enabled" semantically, but
+        # the sink is no-op so no network traffic.
         _STATE.sink = NoOpSink()
         log.debug("telemetry: enabled but no DSN; using noop sink")
     else:
@@ -104,8 +105,7 @@ def shutdown(*, timeout_seconds: float = 2.0) -> None:
 
 
 def active_config() -> Optional[TelemetryConfig]:
-    """The current resolved config, or None if `install()` hasn't run.
-    Used by `briar telemetry status`."""
+    """The current resolved config, or None if `install()` hasn't run."""
     return _STATE.config
 
 
@@ -170,24 +170,6 @@ def capture_error(exc: BaseException, *, command: str = "", extra_tags: Optional
         tags=_STATE.scrubber.scrub_tags(tags),
     )
     _STATE.sink.emit(event)
-
-
-def preview_next_event(command: str = "(preview)", *, extra_tags: Optional[Dict[str, Any]] = None) -> TelemetryEvent:
-    """Build the event a `command_span` would send right now WITHOUT
-    sending it. Used by `briar telemetry preview` so users can audit
-    exactly what we'd ship."""
-    tags = dict(extra_tags or {})
-    tags.update(_baseline_tags(command, None))
-    # `outcome` and `duration_ms` are positional fields on the event
-    # below — the redundant setdefault() calls that used to live here
-    # were leftovers from an earlier shape and never reached the wire.
-    return TelemetryEvent(
-        kind="command",
-        command=command,
-        outcome="preview",
-        duration_ms=0,
-        tags=_STATE.scrubber.scrub_tags(tags),
-    )
 
 
 # ─── internals ─────────────────────────────────────────────────────
@@ -265,8 +247,5 @@ __all__ = [
     "capture_error",
     "command_span",
     "install",
-    "preview_next_event",
-    "reset_install_id",
-    "save_tier",
     "shutdown",
 ]
