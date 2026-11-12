@@ -15,8 +15,8 @@ from urllib.parse import quote
 from briar.auth.check import LoginRejected
 from briar.auth.logins import GitlabLogin
 from briar.extract._login_failures import GitlabFailures
-from briar.extract._provider import BranchPull, CiFailure, CiState, PullRequestDraft, PullState, ReviewComment, ThreadReply
-from briar.extract._providers.gitlab import BranchRules, GitlabApi, GitlabProvider, GitlabRest, Names, NoteOf
+from briar.extract._provider import BranchPull, CiFailure, CiState, PullRequest, PullRequestDraft, PullState, ReviewComment, ThreadReply
+from briar.extract._providers.gitlab import BranchRules, GitlabApi, GitlabProvider, GitlabRest, MergeRequestOf, Names, NoteOf
 
 
 class DraftTitle:
@@ -142,6 +142,12 @@ class GitlabHost:
         GitlabFailures().read(partial(self._retitle, repo, number, DraftTitle.ready))
 
     # ---- state -------------------------------------------------------------
+
+    def list_pulls(self, repo: str, *, state: str, max_count: int) -> List[PullRequest]:
+        """Like the extract verb, but an error raises: the open MR rule must not read a failure as "no MR"."""
+        query = {"state": GitlabProvider.STATES.get(state, state), **GitlabProvider.NEWEST}
+        rows = GitlabFailures().answer(partial(self._rest.pages, f"{self._project(repo)}/merge_requests", query, max_count))
+        return [MergeRequestOf(row).pull() for row in rows]
 
     def ci_state(self, repo: str, number: int) -> CiState:
         return PipelineState(self._merge_request(repo, number).get("head_pipeline")).state()

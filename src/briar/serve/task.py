@@ -6,7 +6,6 @@ answer; S18 to S20)."""
 from __future__ import annotations
 
 import importlib.resources
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, List, Mapping, Tuple
@@ -16,7 +15,7 @@ from briar.extract._provider import ReviewComment
 from briar.serve.agent import Access, AgentAnswer, AgentRequest, AgentRunner
 from briar.serve.git import GitIdentity, RepoCheckout, Shell
 from briar.serve.state import WorkSource
-from briar.serve.work import ServeCompany, WorkItem, WorkSources
+from briar.serve.work import BranchName, ServeCompany, WorkItem, WorkSources
 
 
 class LimitHit(CliError):
@@ -91,8 +90,6 @@ class TaskPrep:
     """Makes the context of a task: the clone, the worktree, the branch and the title
     (S27), the ticket text, and who the commits are from (S2)."""
 
-    UNSAFE = re.compile(r"[^A-Za-z0-9._/-]+")
-
     def __init__(self, sources: WorkSources, shell: Shell, cache: Path) -> None:
         self._sources = sources
         self._shell = shell
@@ -100,8 +97,7 @@ class TaskPrep:
 
     def context(self, company: ServeCompany, item: WorkItem) -> TaskContext:
         """A ticket: a new branch from the base."""
-        fields = {"key": item.ref(), "title": item.title, "number": item.number()}
-        branch = self.UNSAFE.sub("-", company.settings.branch.format_map(fields)).strip("-")
+        branch = BranchName(company.settings).of(item)
         base = self._sources.code_host().default_branch(item.repo)
         return self._made(company, item, TaskRefs(branch, base, base))
 

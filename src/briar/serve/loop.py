@@ -19,6 +19,7 @@ from briar.iac.runbook.scheduler import RunbookScheduler
 from briar.serve.agent import AgentRunner, BashGuard, ClaudeAgent, SandboxRoom
 from briar.serve.chat import ChatReader
 from briar.serve.git import Shell
+from briar.serve.open_work import OpenWork
 from briar.serve.select import Choice, Selector
 from briar.serve.task import ServeCache, TaskContext, TaskPrep
 from briar.serve.work import BaseDrift, ServeCompany, WorkFinder, WorkItem, WorkKind, WorkSources
@@ -183,7 +184,8 @@ class ServeLoops:
         room = SandboxRoom((), ServeCache(os.environ).root() / "tools")
         selector = Selector(ClaudeAgent(company.settings.model, guard, room), company)
         chat = ChatReader(WorkSources(company.logins).slack(), company.settings, date.today) if company.settings.chat.slack else None
-        return Choice(selector, company, date.today, chat)
+        open_work = OpenWork(WorkSources(company.logins, company.settings.code_host), company.settings)
+        return Choice(selector, company, date.today, chat, open_work=open_work)
 
     def _routine(self, company: ServeCompany) -> Routine:
         from briar.serve.routine import ServeRoutine

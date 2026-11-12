@@ -8,7 +8,7 @@ import asyncio
 from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Sequence
 
 import pytest
 
@@ -175,7 +175,21 @@ class TestSelector:
         assert [item.key for item in picked] == keys[:SLOTS]
 
 
+class NoneFree:
+    """An open MR rule that finds an open MR for every ticket."""
+
+    def free(self, items: Sequence[WorkItem]) -> List[WorkItem]:
+        return []
+
+
 class TestChoice:
+    def test_tickets_with_an_open_mr_never_reach_the_model(self, tmp_path: Path) -> None:
+        """N6 (M4): the rule runs before the score; nothing left means no model call."""
+        setup, agent = Setup(tmp_path), PickingAgent([])
+        choice = Choice(setup.selector(agent), setup.company(), lambda: TODAY, open_work=NoneFree())
+
+        assert (asyncio.run(choice.choose([Tickets().plain("ENG-1")], SLOTS)), agent.requests) == ([], [])
+
     def test_a_poll_with_the_same_shortlist_and_slots_asks_the_model_once(self, tmp_path: Path) -> None:
         """A ticket the model skipped must not cost a model call on every poll."""
         setup, tickets = Setup(tmp_path), Tickets()

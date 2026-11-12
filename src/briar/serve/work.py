@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass, replace
 from enum import Enum
 from functools import partial
@@ -128,6 +129,20 @@ class ServeCompany:
         return self.root / "work" / f"{self.name}.md"
 
 
+class BranchName:
+    """The branch briar makes for a ticket (S27): `serve.branch` with the key, the title and
+    the number, made safe for git."""
+
+    UNSAFE: ClassVar["re.Pattern[str]"] = re.compile(r"[^A-Za-z0-9._/-]+")
+
+    def __init__(self, settings: ServeSettings) -> None:
+        self._settings = settings
+
+    def of(self, item: WorkItem) -> str:
+        fields = {"key": item.ref(), "title": item.title, "number": item.number()}
+        return self.UNSAFE.sub("-", self._settings.branch.format_map(fields)).strip("-")
+
+
 class WorkSources:
     """The adapters `serve` reads through, built with the company logins; the code host is
     GitHub or GitLab (G1)."""
@@ -159,6 +174,11 @@ class WorkSources:
         from briar.extract._trackers import make_tracker
 
         return make_tracker("jira", self._logins)
+
+    def jira_links(self) -> Any:
+        from briar.extract._trackers.jira import JiraRemoteLinks
+
+        return JiraRemoteLinks(self._logins.jira())
 
     def slack(self) -> Any:
         from briar.serve.slack import SlackApi, SlackSource
@@ -408,6 +428,7 @@ class ServeCompanies:
 __all__ = [
     "AgentSandbox",
     "BaseDrift",
+    "BranchName",
     "Marker",
     "ModelLogin",
     "PriorityRank",

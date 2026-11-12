@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import List, Optional, Protocol, Set
 
-from briar.extract._provider import BranchPull, CiFailure, CiState, PullRequestDraft, PullState, ReviewComment, ThreadReply
+from briar.extract._provider import BranchPull, CiFailure, CiState, PullRequest, PullRequestDraft, PullState, ReviewComment, ThreadReply
 from briar.extract._providers.gitlab_host import GitlabHost
 from briar.serve.git import GitIdentity, Remote
 
@@ -41,6 +41,8 @@ class CodeHost(Protocol):
     def pull_state(self, repo: str, number: int) -> PullState: ...
 
     def branch_head(self, repo: str, branch: str) -> str: ...
+
+    def list_pulls(self, repo: str, *, state: str, max_count: int) -> List[PullRequest]: ...
 
     def branch_pull(self, repo: str, branch: str) -> Optional[BranchPull]: ...
 
