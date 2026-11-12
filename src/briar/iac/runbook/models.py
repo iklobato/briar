@@ -15,6 +15,8 @@ from typing import Any, ClassVar, Dict, List, Literal, Tuple
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 
+from briar.auth.config import AuthBlock
+
 
 class _Strict(BaseModel):
     """All schema models forbid unknown keys — typos surface at load
@@ -90,6 +92,9 @@ class CompanyEntry(BaseModel):
     knowledge: KnowledgeBinding = Field(default_factory=KnowledgeBinding)
     extract: List[ExtractEntry] = Field(default_factory=list)
     schedules: List[ScheduleEntry] = Field(default_factory=list)
+    # The login choices of this company (spec 005, G2, G3): same keys as `[auth]` of
+    # `.briar.toml`, and the only ones `briar runbook` reads.
+    auth: AuthBlock = Field(default_factory=AuthBlock)
 
     # Blocks only the 1.x agent read (spec 006, C5, C20): a runbook that still
     # has one stops the load instead of being silently ignored (FR-006a).

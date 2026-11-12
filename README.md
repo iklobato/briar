@@ -75,15 +75,18 @@ The short version, for a GitHub repo with Jira tickets. New to briar?
 [Learn it in 2 examples](#learn-briar-in-2-examples) instead.
 
 ```bash
-# 1. Save a GitHub token and a Jira login. They go to ~/.config/briar/secrets.env
-briar auth login github-pat --company acme
-briar auth login jira-token --company acme
+# 1. Say where your Jira site is (briar reads this file, it never writes it)
+printf 'company = "acme"\n[auth.jira]\nsite = "acme.atlassian.net"\n' >> .briar.toml
 
-# 2. Read the recent PRs and the tools of the repo into the knowledge file of acme
+# 2. Save a GitHub token and a Jira login. They go to ~/.config/briar/secrets.env
+briar auth login github --company acme
+briar auth login jira --company acme
+
+# 3. Read the recent PRs and the tools of the repo into the knowledge file of acme
 briar extract --company acme --repo acme-co/acme-app \
     --include pr-archaeology --include codebase-conventions
 
-# 3. Read what was saved
+# 4. Read what was saved
 cat ./knowledge/knowledge/acme.md
 ```
 
@@ -134,6 +137,10 @@ since_days = 30
 [extract.active-tickets]
 tracker = "jira"
 projects = ["ACME"]
+
+# Login choices; the secrets go in secrets.env (`briar auth login`)
+[auth.jira]
+site = "acme.atlassian.net"
 ```
 
 A value for one extractor wins over the value in `[extract]`. A key briar
@@ -152,11 +159,11 @@ and what you get.
 ```bash
 pip install briar-cli                  # installs the briar command (needs Python 3.10 or later)
 cd path/to/your-repo                   # go into any GitHub repo you can read
-export GITHUB_TOKEN=$(gh auth token)   # gives briar your GitHub login, so it can read the repo
+export BRIAR_MYTEAM_GITHUB_TOKEN=$(gh auth token)   # gives briar your GitHub login for the team "myteam"
 ```
 
 If you do not use the GitHub CLI `gh`, run
-`briar auth login github-pat --company myteam` and paste a GitHub token
+`briar auth login github --company myteam` and paste a GitHub token
 instead. That token is all both examples need. Nothing is sent to an AI,
 so they cost nothing.
 

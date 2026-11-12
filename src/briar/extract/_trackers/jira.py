@@ -1,12 +1,10 @@
 """Jira `TrackerProvider`.
 
 Backed by ``atlassian-python-api``'s `Jira` client (same library that
-backs `BitbucketProvider`). Auth is delegated to a `JiraAuthStrategy`
-— either ``JiraTokenAuth`` (email + API token, the default) or
-``JiraSessionAuth`` (browser-extracted ``cloud.session.token`` cookie
-plus browser-mimicking headers). See `_jira_auth.py` for the
-strategy contract; selection happens via
-``JIRA_<COMPANY>_AUTH_KIND`` env var or autodetect."""
+backs `BitbucketProvider`). The site and the auth come from the company
+login (`[auth.jira]`, spec 005): ``JiraTokenAuth`` (email + API token, the
+default) or ``JiraCookieAuth`` (the pasted browser `Cookie:` header). See
+`_jira_auth.py` for the strategy contract."""
 
 from __future__ import annotations
 
@@ -15,14 +13,10 @@ import re
 from dataclasses import replace
 from typing import Any, Dict, List, Optional
 
+from briar.auth.logins import CompanyLogins, JiraLogin
 from briar.decorators import swallow_errors
-from briar.env_vars import CredEnv
 from briar.extract._tracker import Comment, Ticket, TrackerProvider
-from briar.extract._trackers._jira_auth import (
-    JiraAuthStrategy,
-    autodetect_jira_auth,
-    make_jira_auth,
-)
+from briar.extract._trackers._jira_auth import JiraAuths, JiraAuthStrategy
 
 
 log = logging.getLogger(__name__)
@@ -51,43 +45,28 @@ _ADF_BLOCK_NODES = frozenset(
 class JiraTracker(TrackerProvider):
     kind = "jira"
 
-    def __init__(self, *, company: str = "", auth: Optional[JiraAuthStrategy] = None, auth_kind: str = "") -> None:
-        """auth wins over auth_kind wins over autodetect-from-env."""
-        self._company = company
-        self._url = CredEnv.JIRA_URL.read(company=company) if company else ""
-        if auth is not None:
-            self._auth: JiraAuthStrategy = auth
-        elif auth_kind:
-            self._auth = make_jira_auth(auth_kind)
-        else:
-            self._auth = autodetect_jira_auth(company=company)
+    def __init__(self, *, logins: Optional[CompanyLogins] = None, auth: Optional[JiraAuthStrategy] = None) -> None:
+        """`auth` (tests) wins over the strategy of the login method."""
+        self._logins = logins
+        self._auth = auth
         self._client = None
+
+    def _login(self) -> JiraLogin:
+        return (self._logins or CompanyLogins.defaults("")).jira()
 
     def _jira(self):
         if self._client is None:
             from atlassian import Jira
 
-            kwargs = self._auth.configure(company=self._company, base_url=self._url)
+            login = self._login()
+            kwargs = (self._auth or JiraAuths.for_login(login)).configure(login)
             # timeout=30: same as the messaging-side Jira clients (Phase 2);
             # extract-side was missed until the re-audit.
-            self._client = Jira(url=self._url, cloud=True, timeout=30, **kwargs)
+            self._client = Jira(url=login.site_url(), cloud=True, timeout=30, **kwargs)
         return self._client
 
     def is_available(self) -> bool:
-        return bool(self._url) and self._auth.is_available(company=self._company)
-
-    @classmethod
-    def required_env_vars(cls, company: str = "") -> List[str]:
-        """URL + whatever vars the configured/autodetected auth strategy needs.
-
-        Dynamic on env contents: when ``JIRA_<COMPANY>_SESSION_TOKEN`` is
-        set (or the auth_kind override picks session), the doctor sees
-        session-strategy vars; otherwise it sees token-strategy vars.
-        The operator only needs ONE strategy's full set to be present."""
-        if not company:
-            return []
-        auth = autodetect_jira_auth(company=company)
-        return [CredEnv.JIRA_URL.for_company(company)] + auth.required_env_vars(company=company)
+        return self._login().ready()
 
     @swallow_errors(default=[], message="jira list_tickets")
     def list_tickets(self, project: str, *, state: str, max_count: int) -> List[Ticket]:

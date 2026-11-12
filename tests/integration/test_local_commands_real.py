@@ -80,20 +80,6 @@ class TestSecretsEnvfileStoreReal:
         assert secrets_file.read_text() == "GITHUB_ACME_TOKEN=SECOND-PLACEHOLDER-not-a-secret\n"
         assert store.read("GITHUB_ACME_TOKEN") == "SECOND-PLACEHOLDER-not-a-secret"
 
-    def test_delete_removes_from_disk_and_env(self, cli, tmp_path, monkeypatch) -> None:
-        from briar.credentials.envfile import EnvFileStore
-
-        secrets_file = tmp_path / "secrets.env"
-        monkeypatch.setenv("BRIAR_SECRETS_FILE", str(secrets_file))
-        store = EnvFileStore()
-        store.write("AWS_ACME_KEY", "KEY-PLACEHOLDER-not-a-secret")
-        assert "AWS_ACME_KEY" in secrets_file.read_text()
-
-        removed = store.delete("AWS_ACME_KEY")
-        assert removed is True
-        assert "AWS_ACME_KEY" not in secrets_file.read_text()
-        assert store.read("AWS_ACME_KEY") is None
-
 
 # ════════════════════════════ runbook ═══════════════════════════════
 

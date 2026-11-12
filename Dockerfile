@@ -13,9 +13,9 @@ COPY dist/ /tmp/dist/
 RUN whl="$(ls /tmp/dist/*.whl)" && pip install --no-cache-dir "${whl}" && rm -rf /tmp/dist
 
 # git: briar reads owner/repo from the mounted repo's `origin`. gh: the
-# pipelines of briar 2.0 (spec 003) clone, push and open PRs through it,
-# and GitHub logins read `gh auth token` (spec 005). gh reads GITHUB_TOKEN
-# from the environment.
+# pipelines of briar 2.0 (spec 003) clone, push and open PRs through it.
+# GitHub logins do not use gh (spec 005, G10): briar reads
+# BRIAR_<COMPANY>_GITHUB_TOKEN from the environment or secrets.env.
 #
 # safe.directory '*': the repo you mount at /work belongs to your host user,
 # which on Linux is rarely the image's uid 1000, and git then refuses it

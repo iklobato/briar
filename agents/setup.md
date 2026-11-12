@@ -51,6 +51,7 @@ provider = "github"
 | `tracker` | The tracker of `active-tickets` and `ticket-archaeology`; `[extract]` beats it (see [extract.md](extract.md)). | none |
 | `repos` | The repeatable `--repo` list on `extract`. | none |
 | `[extract]`, `[extract.<name>]` | Every `briar extract` value besides the three flags. See [extract.md](extract.md). | none |
+| `[auth.<source>]` | The login choices of a source: `method`, the Jira `site`, the Bitbucket `workspace`. Secrets never go here. See [auth.md](auth.md). | none |
 | `telemetry` | No flag: the telemetry tier, `off` (the default), `errors-only` or `full`. See [Telemetry](#telemetry). | `BRIAR_TELEMETRY`; `DO_NOT_TRACK=1` beats both |
 | `[repo] owner`, `repo` | Every `--owner` and `--repo`. On `extract`, they form one `owner/repo` entry when `repos` is not set. | none |
 | `[repo] provider` | The code host of the repo extractors; `[extract]` beats it. | none |
@@ -159,7 +160,7 @@ fails, so you can use it in CI.
 | `briar` | Always. Shows the briar version. | |
 | `project config` | A `.briar.toml` (or `[tool.briar]`) is found. | `warn`: run `briar init`. |
 | `git remote` | An `origin` remote gives an owner and repo. | `warn`: run `briar init --owner OWNER --repo REPO`, or set them under `[repo]` in `.briar.toml`. |
-| `github token` | `GITHUB_TOKEN` is set. | `warn`: the GitHub extractors need it. |
+| `github login` | The GitHub login of the company is saved (`BRIAR_<COMPANY>_GITHUB_TOKEN`). | `warn`: run `briar auth login github --company <company>`; with a 1.x `GITHUB_TOKEN` set, it says where the token goes now. |
 
 ### Use it when
 

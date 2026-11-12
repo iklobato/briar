@@ -35,9 +35,10 @@ def project_in_tmp_root(cli: Callable[..., SimpleNamespace], tmp_root: Path, mon
     monkeypatch.chdir(tmp_root)
 
 
-def _run(cli: Callable[..., SimpleNamespace], include: str, project: str) -> SimpleNamespace:
-    """The Jira project key goes in `[extract.<include>] projects` (decision E4), in the cwd."""
-    Path(".briar.toml").write_text(f'[extract.{include}]\nprojects = ["{project}"]\n')
+def _run(cli: Callable[..., SimpleNamespace], include: str, jira: SimpleNamespace) -> SimpleNamespace:
+    """The Jira project key goes in `[extract.<include>] projects` (decision E4) and the
+    mock site in `[auth.jira] site` (spec 005, G4), in the cwd."""
+    Path(".briar.toml").write_text(f'{jira.jira_site_toml}[extract.{include}]\nprojects = ["{jira.project}"]\n')
     return cli("extract", "--company", "acme", "--include", include)
 
 
@@ -108,7 +109,7 @@ def test_extract_active_tickets_real_jira(cli, jira_at, tmp_root) -> None:
         },
     )
 
-    result = _run(cli, "active-tickets", "ENG")
+    result = _run(cli, "active-tickets", SimpleNamespace(jira_site_toml=jira_at.jira_site_toml, project="ENG"))
 
     assert result.code == 0, result.err
     posts = _search_posts(jira_at.received)
@@ -180,7 +181,7 @@ def test_extract_ticket_archaeology_real_jira(cli, jira_at, tmp_root) -> None:
         },
     )
 
-    result = _run(cli, "ticket-archaeology", "OPS")
+    result = _run(cli, "ticket-archaeology", SimpleNamespace(jira_site_toml=jira_at.jira_site_toml, project="OPS"))
 
     assert result.code == 0, result.err
     posts = _search_posts(jira_at.received)
@@ -207,7 +208,7 @@ def test_extract_active_tickets_jira_empty_yields_nonzero(cli, jira_at, tmp_root
     # the run exits non-zero ("nothing extracted") instead of writing a blob.
     jira_at.add("POST", "/rest/api/3/search/jql", {"issues": [], "total": 0})
 
-    result = _run(cli, "ticket-archaeology", "OPS")
+    result = _run(cli, "ticket-archaeology", SimpleNamespace(jira_site_toml=jira_at.jira_site_toml, project="OPS"))
 
     assert result.code != 0
     assert _search_posts(jira_at.received), "jira should still have been queried"
@@ -221,7 +222,7 @@ def test_extract_active_tickets_jira_401_is_swallowed_to_empty(cli, jira_at, tmp
     # error is swallowed: no HTTPError traceback reaches the user (stderr empty).
     jira_at.add("POST", "/rest/api/3/search/jql", {"errorMessages": ["Unauthorized"], "errors": {}}, status=401)
 
-    result = _run(cli, "active-tickets", "ENG")
+    result = _run(cli, "active-tickets", SimpleNamespace(jira_site_toml=jira_at.jira_site_toml, project="ENG"))
 
     assert result.code == 0, result.err
     # The 401 must NOT surface as an uncaught crash: no traceback reaches the

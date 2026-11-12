@@ -19,3 +19,11 @@ provider = "github"
 # max = 50
 # [extract.active-tickets]
 # projects = ["ACME"]
+
+# Login choices per source (agents/auth.md). Secrets never go here: run
+# `briar auth login <source>`, which saves them to secrets.env. Uncomment to use.
+# [auth.jira]
+# site = "acme.atlassian.net"
+# method = "token"            # or "cookie"
+# [auth.bitbucket]
+# workspace = "acme"

@@ -26,6 +26,7 @@ import pytest
 
 from briar.extract._tracker import Comment, Ticket
 from briar.extract._trackers.linear import LinearTracker
+from tests.unit.fake_logins import FakeLogins
 
 
 class _FakeResp:
@@ -57,8 +58,8 @@ def _patch_gql(body=None, *, capture=None, side_effect=None):
 
 
 def _tracker(token="lin_api_key"):
-    with mock.patch.dict("os.environ", {"LINEAR_ACME_TOKEN": token}):
-        return LinearTracker(company="acme")
+    environ = {"BRIAR_ACME_LINEAR_API_KEY": token} if token else {}
+    return LinearTracker(logins=FakeLogins(environ=environ).logins())
 
 
 # ---------------------------------------------------------------------------
@@ -269,14 +270,7 @@ class AvailabilityAndTransportTests(unittest.TestCase):
         self.assertTrue(_tracker().is_available())
 
     def test_is_available_false_without_token(self) -> None:
-        with mock.patch.dict("os.environ", {}, clear=True):
-            self.assertFalse(LinearTracker(company="acme").is_available())
-
-    def test_required_env_vars(self) -> None:
-        self.assertEqual(LinearTracker.required_env_vars("acme"), ["LINEAR_ACME_TOKEN"])
-
-    def test_required_env_vars_empty_company(self) -> None:
-        self.assertEqual(LinearTracker.required_env_vars(""), [])
+        self.assertFalse(_tracker(token="").is_available())
 
     def test_transport_error_swallowed_to_empty(self) -> None:
         # urlopen_with_retry re-raises after exhausting retries; the public

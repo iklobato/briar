@@ -21,12 +21,15 @@ Doc URLs modelled:
 from __future__ import annotations
 
 import unittest
+from typing import Dict, Optional
 from unittest import mock
 
 import pytest
 
+from briar.errors import CliError
 from briar.extract._tracker import Comment, Ticket
 from briar.extract._trackers.bitbucket import BitbucketIssuesTracker
+from tests.unit.fake_logins import FakeLogins
 
 
 class _FakeRepo:
@@ -56,10 +59,20 @@ def _cloud_returning(repo):
     return mock.patch.object(BitbucketIssuesTracker, "_cloud", return_value=cloud)
 
 
-def _tracker():
-    # Bypass CredEnv reads; the tracker only needs a constructed instance
-    # since we patch _cloud() directly.
-    return BitbucketIssuesTracker(company="acme")
+FAKE_TOKEN = "PLACEHOLDER-not-a-secret"
+
+
+class TokenLogin:
+    """The Atlassian API token login of company acme, as the environment holds it."""
+
+    def environ(self) -> Dict[str, str]:
+        environ = {"BRIAR_ACME_BITBUCKET_EMAIL": "bot@example.test", "BRIAR_ACME_BITBUCKET_TOKEN": FAKE_TOKEN}
+        return environ
+
+
+def _tracker(workspace: str = "w", environ: Optional[Dict[str, str]] = None):
+    # Most tests patch _cloud() directly; the login only feeds the workspace and the client.
+    return BitbucketIssuesTracker(logins=FakeLogins({"bitbucket": {"workspace": workspace}}, environ or {}).logins())
 
 
 def _issue(**over):
@@ -153,8 +166,7 @@ class ListTicketsTests(unittest.TestCase):
         cloud = mock.MagicMock()
         cloud.workspaces.get.return_value.repositories.get.return_value = repo
         with mock.patch.object(BitbucketIssuesTracker, "_cloud", return_value=cloud):
-            tracker = _tracker()
-            tracker._workspace_slug = "myws"
+            tracker = _tracker(workspace="myws")
             tracker.list_tickets("just-repo", state="open", max_count=5)
         cloud.workspaces.get.assert_called_once_with("myws")
         cloud.workspaces.get.return_value.repositories.get.assert_called_once_with("just-repo")
@@ -255,34 +267,26 @@ class AddrAndAvailabilityTests(unittest.TestCase):
         self.assertEqual(_tracker()._resolve_addr("ws/repo"), ("ws", "repo"))
 
     def test_resolve_addr_bare_uses_workspace(self) -> None:
-        t = _tracker()
-        t._workspace_slug = "myws"
-        self.assertEqual(t._resolve_addr("repo"), ("myws", "repo"))
+        self.assertEqual(_tracker(workspace="myws")._resolve_addr("repo"), ("myws", "repo"))
 
-    def test_is_available_requires_all_three_creds(self) -> None:
-        env = {"BITBUCKET_ACME_USERNAME": "u", "BITBUCKET_ACME_APP_PASSWORD": "p", "BITBUCKET_ACME_WORKSPACE": "w"}
-        with mock.patch.dict("os.environ", env):
-            self.assertTrue(BitbucketIssuesTracker(company="acme").is_available())
+    def test_is_available_with_the_login_and_the_workspace(self) -> None:
+        self.assertTrue(_tracker(environ=TokenLogin().environ()).is_available())
 
-    def test_is_available_false_when_missing_workspace(self) -> None:
-        env = {"BITBUCKET_ACME_USERNAME": "u", "BITBUCKET_ACME_APP_PASSWORD": "p"}
-        with mock.patch.dict("os.environ", env, clear=True):
-            self.assertFalse(BitbucketIssuesTracker(company="acme").is_available())
+    def test_is_not_available_with_no_login(self) -> None:
+        self.assertFalse(_tracker().is_available())
 
-    def test_required_env_vars(self) -> None:
-        self.assertEqual(
-            BitbucketIssuesTracker.required_env_vars("acme"),
-            ["BITBUCKET_ACME_USERNAME", "BITBUCKET_ACME_APP_PASSWORD", "BITBUCKET_ACME_WORKSPACE"],
-        )
+    def test_a_login_with_no_workspace_stops(self) -> None:
+        """H1: the run stops and says what to add where."""
+        with self.assertRaises(CliError) as caught:
+            _tracker(workspace="", environ=TokenLogin().environ()).is_available()
+        self.assertEqual(str(caught.exception), "set `workspace` under `auth.bitbucket` in .briar.toml (briar bitbucket login for acme)")
 
     def test_cloud_client_built_lazily_with_basic_auth(self) -> None:
-        env = {"BITBUCKET_ACME_USERNAME": "u", "BITBUCKET_ACME_APP_PASSWORD": "p", "BITBUCKET_ACME_WORKSPACE": "w"}
-        with mock.patch.dict("os.environ", env):
-            tracker = BitbucketIssuesTracker(company="acme")
-            with mock.patch("atlassian.bitbucket.cloud.Cloud") as cloud_cls:
-                cloud_cls.return_value = "cloud-instance"
-                first = tracker._cloud()
-                second = tracker._cloud()  # cached
+        tracker = _tracker(environ={"BRIAR_ACME_BITBUCKET_EMAIL": "u", "BRIAR_ACME_BITBUCKET_TOKEN": "p"})
+        with mock.patch("atlassian.bitbucket.cloud.Cloud") as cloud_cls:
+            cloud_cls.return_value = "cloud-instance"
+            first = tracker._cloud()
+            second = tracker._cloud()  # cached
         self.assertEqual(first, "cloud-instance")
         self.assertIs(first, second)
         cloud_cls.assert_called_once()

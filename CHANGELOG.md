@@ -43,6 +43,33 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`.
 - The README is rewritten around the 5 commands. It shows no GIF or
   diagram until they are made again for 2.0 (the 1.x ones show removed
   commands). The PyPI description and keywords match 2.0.
+- Logins are per source per company (spec 005). The choices go in
+  `[auth.<source>]` of `.briar.toml` (`method`, the Jira `site`, the
+  Bitbucket `workspace`, the optional Jira `user_agent`), or in
+  `companies.<company>.auth` of a runbook, which `briar runbook` reads
+  instead of `.briar.toml`. The secrets go in `secrets.env` under
+  `BRIAR_<COMPANY>_<SOURCE>_<FIELD>`. Every command that reads `[auth]`
+  checks the whole block: an unknown key, source or method stops it with
+  exit 1 and names it.
+- `briar auth login` and `briar auth status` take a source name:
+  `github`, `jira`, `bitbucket`, `linear`, `fireflies` (and the AWS targets
+  `aws-static`, `aws-sso` until AWS moves to a profile). `--runbook FILE`
+  reads the choices of a runbook company. A missing Jira `site` or
+  Bitbucket `workspace` stops the login before it asks anything.
+- GitHub has one login per company, a pasted fine-grained token
+  (`BRIAR_<COMPANY>_GITHUB_TOKEN`). briar no longer reads `GITHUB_TOKEN`.
+- Jira takes the API token or, with `method = "cookie"`, the whole
+  `Cookie` header of a logged-in browser tab. Bitbucket takes an Atlassian
+  API token with the account email (app passwords are gone), a workspace
+  or repository access token (`method = "access-token"`), or a cookie
+  (read only, not tested against the real API yet).
+- A 1.x name (`GITHUB_TOKEN`, `JIRA_<C>_TOKEN`, `JIRA_<C>_URL`,
+  `BITBUCKET_<C>_APP_PASSWORD`, `LINEAR_<C>_TOKEN`,
+  `FIREFLIES_<C>_API_KEY`, ...) that stands in for a missing 2.0 login
+  stops `briar extract` with exit 1 and names the new place. In a runbook
+  it fails the task. `agents/auth.md` has the full map, old to new.
+- `briar doctor` checks the GitHub login of the company (`github login`)
+  instead of `GITHUB_TOKEN` (`github token`).
 
 ### Fixed
 
@@ -158,6 +185,15 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`.
 - `briar config` (`briar config show`): `briar doctor` prints the same
   settings table. Each removed operation now gets the usual usage error
   (exit 2).
+- The login targets `github-pat`, `github-device`, `jira-token`,
+  `jira-session`, `bitbucket-app-password` and `linear-api-key`: a 1.x
+  target name is now a usage error (exit 2) that lists the sources.
+  `JIRA_<C>_USER_AGENT` becomes `user_agent` under `[auth.jira]`. The
+  GitHub device flow comes back with a GitHub App of briar later in 2.0.
+- The credential store interface (`CredentialStore`, its registry and
+  `make_credential_store`), with the unused `delete`, `fingerprint` and
+  `expires_at` of the env file store, and the `required_env_vars` of the
+  repo, tracker and meeting adapters (nothing read them since 2.0).
 
 ### Tests
 

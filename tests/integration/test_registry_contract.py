@@ -9,7 +9,6 @@ from __future__ import annotations
 import pytest
 
 from briar.auth import AcquirerRegistry
-from briar.credentials import STORES
 from briar.extract import EXTRACTORS
 from briar.formatting import FORMATTERS
 
@@ -17,7 +16,6 @@ from briar.formatting import FORMATTERS
 # (registry, name_attribute) — passed in so the test knows which attr to read.
 _REGISTRIES = [
     pytest.param(EXTRACTORS, "name", id="EXTRACTORS"),
-    pytest.param(STORES, "kind", id="STORES"),
     pytest.param(ACQUIRERS_AS_REGISTRY := AcquirerRegistry, "kind", id="ACQUIRERS"),
     pytest.param(FORMATTERS, "name", id="FORMATTERS"),
 ]
@@ -48,7 +46,6 @@ def _items(registry) -> list:
 class TestRegistryContract:
     @pytest.mark.parametrize("registry,name_attr", [
         (EXTRACTORS, "name"),
-        (STORES, "kind"),
         (FORMATTERS, "name"),
     ])
     def test_no_duplicate_names(self, registry, name_attr) -> None:
@@ -57,7 +54,6 @@ class TestRegistryContract:
 
     @pytest.mark.parametrize("registry,name_attr", [
         (EXTRACTORS, "name"),
-        (STORES, "kind"),
         (FORMATTERS, "name"),
     ])
     def test_every_name_nonempty(self, registry, name_attr) -> None:
@@ -67,7 +63,6 @@ class TestRegistryContract:
 
     @pytest.mark.parametrize("registry,name_attr", [
         (EXTRACTORS, "name"),
-        (STORES, "kind"),
         (FORMATTERS, "name"),
     ])
     def test_each_entry_value_class_attr_matches_key(self, registry, name_attr) -> None:
@@ -88,15 +83,6 @@ class TestAcquirerRegistry:
         assert acquirer is not None
         # `kind` class attribute must be set
         assert type(acquirer).kind == kind
-
-
-class TestCredentialStoreRegistry:
-    @pytest.mark.parametrize("kind", list(STORES.keys()))
-    def test_factory_instantiates_each_store(self, kind: str) -> None:
-        # Most stores construct fine even without creds (they fail at read/write).
-        cls = STORES[kind]
-        instance = cls()  # type: ignore[call-arg]
-        assert instance is not None
 
 
 class TestExtractorRegistry:

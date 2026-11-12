@@ -7,10 +7,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
+from briar.auth.logins import BitbucketLogin, CompanyLogins
 from briar.decorators import swallow_errors
-from briar.env_vars import CredEnv
 from briar.extract._tracker import Comment, Ticket, TrackerProvider
 
 
@@ -22,12 +22,12 @@ class BitbucketIssuesTracker(TrackerProvider):
     project_is_repo_slug = True
     BASE = "https://api.bitbucket.org/"
 
-    def __init__(self, *, company: str = "") -> None:
-        self._company = company
-        self._username = CredEnv.BITBUCKET_USERNAME.read(company=company) if company else ""
-        self._app_password = CredEnv.BITBUCKET_APP_PASSWORD.read(company=company) if company else ""
-        self._workspace_slug = CredEnv.BITBUCKET_WORKSPACE.read(company=company) if company else ""
+    def __init__(self, *, logins: Optional[CompanyLogins] = None) -> None:
+        self._logins = logins
         self._client = None
+
+    def _login(self) -> BitbucketLogin:
+        return (self._logins or CompanyLogins.defaults("")).bitbucket()
 
     def _cloud(self):
         if self._client is None:
@@ -35,27 +35,17 @@ class BitbucketIssuesTracker(TrackerProvider):
 
             # timeout=30: same as the messaging-side Cloud client (Phase 2);
             # extract-side tracker was missed until the re-audit.
-            self._client = Cloud(url=self.BASE, username=self._username, password=self._app_password, timeout=30)
+            self._client = Cloud(url=self.BASE, timeout=30, **self._login().client_kwargs())
         return self._client
 
     def _resolve_addr(self, project: str) -> Tuple[str, str]:
         if "/" in project:
             ws, _, slug = project.partition("/")
             return ws, slug
-        return self._workspace_slug, project
+        return self._login().workspace(), project
 
     def is_available(self) -> bool:
-        return bool(self._username and self._app_password and self._workspace_slug)
-
-    @classmethod
-    def required_env_vars(cls, company: str = "") -> List[str]:
-        if not company:
-            return []
-        return [
-            CredEnv.BITBUCKET_USERNAME.for_company(company),
-            CredEnv.BITBUCKET_APP_PASSWORD.for_company(company),
-            CredEnv.BITBUCKET_WORKSPACE.for_company(company),
-        ]
+        return self._login().ready()
 
     @swallow_errors(default=[], message="bitbucket-issues list_tickets")
     def list_tickets(self, project: str, *, state: str, max_count: int) -> List[Ticket]:

@@ -1,214 +1,163 @@
-"""`briar auth` — PARAMETRIC flag-effect coverage.
+"""`briar auth`: the effect of every option of `login` and `status` (C15, spec 005
+G6, G9, H1).
 
-Companion to test_auth.py / test_auth_cmd.py (dispatch + persistence
-happy/unhappy paths). This file asserts the *observable effect* of every
-option of the two operations 2.0 keeps (decision C15):
+  login    target (a source name) · --company · --runbook
+  status   [target] · --company · --runbook   (no target: every credential name held)
 
-  login    target (positional, choices) · --company
-  status   [target] · --company   (no target: every credential name held)
-
-For each flag we assert the value reaches the seam (the acquirer call or
-``make_credential_store(kind)``) or changes the rendered output — a
-swapped/dropped/negated flag must make a test FAIL. Secret VALUES are
-never echoed. The acquirer + credential store are local fakes; no
-network.
-"""
+The store and the terminal prompt are fakes at the command seams; values are never echoed."""
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+from pathlib import Path
 from types import SimpleNamespace
-from typing import Callable
+from typing import Callable, Dict, List, Optional
 
 import pytest
+from pytest_mock import MockerFixture
 
-from briar.auth import Credentials
+from briar.auth import MockPromptIO
 
-# Obvious placeholder — never a real-format secret (GitGuardian-safe).
-_SECRET_PLACEHOLDER = "ACCESS-TOKEN-PLACEHOLDER-not-a-secret"
-
-# Documented choices from the manifest (2.0 removed the remote stores).
-_STORE_CHOICES = ["envfile"]
-REMOVED_STORES = ("aws-secretsmanager", "ssm", "vault")
-_TARGET_CHOICES = [
-    "github-device",
-    "github-pat",
-    "bitbucket-app-password",
-    "aws-static",
-    "aws-sso",
-    "jira-token",
-    "jira-session",
-    "linear-api-key",
-    "fireflies",
-]
+FAKE_SECRET = "ACCESS-TOKEN-PLACEHOLDER-not-a-secret"
+USAGE_ERROR = 2
+SOURCES = ("github", "jira", "bitbucket", "linear", "fireflies")
 
 
-def _make_acquirer_cls(kind: str, company_seen: list):
-    """Build a fresh acquirer class whose ``writes`` classmethod records
-    the company it was called with into the shared ``company_seen`` list.
+class FakeStore:
+    def __init__(self, present: Dict[str, str]) -> None:
+        self.values = present
+        self.writes: List[tuple] = []
 
-    The command code calls ``type(acquirer).writes(company=...)`` off the
-    *class*, so recording must
-    live on a class bound to this test's ``company_seen`` list — a single
-    shared class would leak state across parametrized cases."""
-
-    class _FakeAcquirer:
-        display_name = "Fake"
-
-        def __init__(self) -> None:
-            self.kind = kind
-
-        def acquire(self, *, company, prompt) -> Credentials:
-            company_seen.append(("acquire", company))
-            return Credentials(provider_kind=self.kind, entries={"GITHUB_TOKEN": _SECRET_PLACEHOLDER})
-
-        def refresh(self, *, company, existing) -> Credentials:
-            company_seen.append(("refresh", company))
-            return Credentials(provider_kind=self.kind, entries={"GITHUB_TOKEN": _SECRET_PLACEHOLDER})
-
-        @classmethod
-        def writes(cls, *, company) -> list:
-            company_seen.append(("writes", company))
-            return [f"GITHUB_{company.upper()}_TOKEN" if company else "GITHUB_TOKEN"]
-
-    _FakeAcquirer.kind = kind
-    return _FakeAcquirer
-
-
-class _FakeStore:
-    """Records every read/write/delete/list against a credential store."""
-
-    def __init__(self, *, present: dict | None = None) -> None:
-        self.values: dict = dict(present or {})
-        self.writes: list = []
-        self.deletes: list = []
+    def read(self, name: str) -> Optional[str]:
+        return self.values.get(name)
 
     def write(self, name: str, value: str) -> None:
         self.writes.append((name, value))
         self.values[name] = value
 
-    def read(self, name: str) -> str:
-        return self.values.get(name, "")
-
-    def delete(self, name: str) -> bool:
-        self.deletes.append(name)
-        return self.values.pop(name, None) is not None
-
-    def list(self) -> list:
-        return list(self.values.keys())
+    def list(self) -> List[str]:
+        return sorted(self.values)
 
 
-@pytest.fixture
-def auth_seam(mocker):
-    """Install a fake acquirer + capture the store-kind requested.
+@dataclass(frozen=True)
+class Seam:
+    """What the command writes to, and what the prompt answers."""
 
-    Returns a helper that patches ``AcquirerRegistry`` and
-    ``make_credential_store`` and exposes:
-      - ``.store``         the fake store instance
-      - ``.company_seen``  list of (verb, company) the acquirer received
-      - ``.store_kinds``   list of kind strings passed to make_credential_store
-    """
-    from types import SimpleNamespace
+    present: Dict[str, str] = field(default_factory=dict)
+    answers: List[str] = field(default_factory=list)
 
-    company_seen: list = []
-    state = SimpleNamespace(store=_FakeStore(), company_seen=company_seen, store_kinds=[])
-
-    def install(*, kind: str = "github-pat", present: dict | None = None):
-        from briar.auth import AcquirerRegistry
-
-        state.store = _FakeStore(present=present)
-        acquirer_cls = _make_acquirer_cls(kind, company_seen)
-        mocker.patch.object(AcquirerRegistry, "make", return_value=acquirer_cls())
-        mocker.patch.object(AcquirerRegistry, "kinds", return_value=_TARGET_CHOICES)
-
-        def factory(k):
-            state.store_kinds.append(k)
-            return state.store
-
-        mocker.patch("briar.commands.auth.make_credential_store", side_effect=factory)
-        return state
-
-    install.state = state
-    return install
+    def install(self, mocker: MockerFixture) -> FakeStore:
+        store = FakeStore(dict(self.present))
+        mocker.patch("briar.commands.auth.EnvFileStore", return_value=store)
+        mocker.patch("briar.commands.auth.TerminalPromptIO", return_value=MockPromptIO(answers=list(self.answers)))
+        return store
 
 
 class TestCompanyFlag:
-    def test_status_without_target_company_filters_by_token(self, cli: Callable[..., SimpleNamespace], auth_seam: Callable[..., SimpleNamespace]) -> None:
-        # --company narrows the listing to env-vars carrying the company token.
-        auth_seam(present={"AWS_ACME_KEY": "x", "AWS_GLOBEX_KEY": "y"})
+    def test_status_without_target_keeps_the_company_names(self, cli: Callable[..., SimpleNamespace], mocker: MockerFixture) -> None:
+        Seam({"BRIAR_ACME_JIRA_TOKEN": "x", "BRIAR_GLOBEX_JIRA_TOKEN": "y"}).install(mocker)
+
         run = cli("auth", "status", "--company", "acme")
-        assert run.code == 0
-        assert "AWS_ACME_KEY" in run.out
-        assert "AWS_GLOBEX_KEY" not in run.out
 
-    def test_status_without_target_default_lists_all(self, cli: Callable[..., SimpleNamespace], auth_seam: Callable[..., SimpleNamespace]) -> None:
-        # Omitting --company (default='') applies no filter.
-        auth_seam(present={"AWS_ACME_KEY": "x", "AWS_GLOBEX_KEY": "y"})
+        assert run.code == 0
+        assert "BRIAR_ACME_JIRA_TOKEN" in run.out
+        assert "BRIAR_GLOBEX_JIRA_TOKEN" not in run.out
+
+    def test_status_without_target_or_company_lists_all(self, cli: Callable[..., SimpleNamespace], mocker: MockerFixture) -> None:
+        Seam({"BRIAR_ACME_JIRA_TOKEN": "x", "BRIAR_GLOBEX_JIRA_TOKEN": "y"}).install(mocker)
+
         run = cli("auth", "status")
+
+        assert (run.code, "BRIAR_ACME_JIRA_TOKEN" in run.out, "BRIAR_GLOBEX_JIRA_TOKEN" in run.out) == (0, True, True)
+
+    def test_status_names_the_secrets_of_the_company(self, cli: Callable[..., SimpleNamespace], mocker: MockerFixture) -> None:
+        Seam({"BRIAR_ACME_FIREFLIES_API_KEY": FAKE_SECRET}).install(mocker)
+
+        run = cli("auth", "status", "fireflies", "--company", "acme")
+
         assert run.code == 0
-        assert "AWS_ACME_KEY" in run.out
-        assert "AWS_GLOBEX_KEY" in run.out
+        assert "ok    BRIAR_ACME_FIREFLIES_API_KEY" in run.out
+        assert FAKE_SECRET not in run.out
 
-    def test_status_company_reaches_acquirer_writes(self, cli, auth_seam) -> None:
-        # status calls writes(company=...) — the flag must reach it so the
-        # per-company env-var names are computed correctly.
-        state = auth_seam(present={"GITHUB_ACME_TOKEN": "v"})
-        result = cli("auth", "status", "github-pat", "--company", "acme")
-        assert result.code == 0
-        assert ("writes", "acme") in state.company_seen
-        assert "GITHUB_ACME_TOKEN" in result.out
+    def test_login_writes_under_the_company(self, cli: Callable[..., SimpleNamespace], mocker: MockerFixture) -> None:
+        store = Seam(answers=[FAKE_SECRET]).install(mocker)
 
-    def test_login_company_reaches_acquirer_acquire(self, cli, auth_seam) -> None:
-        state = auth_seam()
-        result = cli("auth", "login", "github-pat", "--company", "globex")
-        assert result.code == 0
-        assert ("acquire", "globex") in state.company_seen
+        run = cli("auth", "login", "fireflies", "--company", "globex")
+
+        assert run.code == 0
+        assert store.writes == [("BRIAR_GLOBEX_FIREFLIES_API_KEY", FAKE_SECRET)]
+        assert FAKE_SECRET not in run.out
 
 
-# ───────────────────────── positional target (required + choices) ───────
+class TestTarget:
+    def test_target_omitted_is_usage_error(self, cli: Callable[..., SimpleNamespace], mocker: MockerFixture) -> None:
+        Seam().install(mocker)
 
+        run = cli("auth", "login")
 
-class TestTargetPositional:
+        assert run.code == USAGE_ERROR
+        assert "Missing argument 'TARGET'" in run.err
+
     @pytest.mark.parametrize(
-        "subcmd",
-        ["login"],
-        ids=["login"],
+        "target", ["not-a-target", "github-pat", "jira-token", "linear-api-key"], ids=["unknown", "github-pat", "jira-token", "linear-api-key"]
     )
-    def test_target_omitted_is_usage_error(self, cli, auth_seam, subcmd) -> None:
-        auth_seam()
-        result = cli("auth", subcmd)
-        assert result.code == 2
-        assert "Missing argument 'TARGET'" in result.err
+    def test_an_unknown_or_1x_target_is_usage_error(self, cli: Callable[..., SimpleNamespace], mocker: MockerFixture, target: str) -> None:
+        """G9: the 1.x target names get the usual usage error, with the valid list."""
+        Seam().install(mocker)
 
-    def test_target_invalid_choice_exit_2(self, cli, auth_seam) -> None:
-        auth_seam()
-        result = cli("auth", "login", "not-a-target")
-        assert result.code == 2
-        assert "'not-a-target' is not one of" in result.err
+        run = cli("auth", "login", target)
 
-    @pytest.mark.parametrize("target", _TARGET_CHOICES, ids=_TARGET_CHOICES)
-    def test_each_documented_target_is_accepted(self, cli, auth_seam, target) -> None:
-        # Every documented choice parses and drives the acquirer (login).
-        state = auth_seam(kind=target)
-        result = cli("auth", "login", target)
-        assert result.code == 0
-        # The acquirer ran (acquire recorded) for this target.
-        assert any(verb == "acquire" for verb, _ in state.company_seen)
+        assert run.code == USAGE_ERROR
+        assert f"'{target}' is not one of 'github', 'jira', 'bitbucket', 'linear', 'fireflies'" in run.err
+
+    @pytest.mark.parametrize("target", SOURCES, ids=SOURCES)
+    def test_each_source_is_a_target(self, cli: Callable[..., SimpleNamespace], mocker: MockerFixture, target: str) -> None:
+        Seam().install(mocker)
+
+        run = cli("auth", "status", target, "--company", "acme")
+
+        assert run.code == 1
+        assert f"MISS  BRIAR_ACME_{target.upper()}_" in run.out
 
 
-# ───────────────────────── --store on write-path subcmds ───────────────
+class TestConfig:
+    def test_login_without_the_site_stops_and_asks_nothing(self, cli: Callable[..., SimpleNamespace], mocker: MockerFixture) -> None:
+        """H1: briar never writes the config; it says what to add where."""
+        store = Seam().install(mocker)
 
+        run = cli("auth", "login", "jira", "--company", "acme")
 
-class TestTheEnvFileIsTheStore:
-    """`--cred-store` left (F1): the env file is the only store (L3)."""
+        assert run.code == 1
+        assert "error: set `site` under `auth.jira` in .briar.toml (briar jira login for acme)" in run.out
+        assert store.writes == []
 
-    def test_login_writes_to_the_env_file(self, cli: Callable[..., SimpleNamespace], auth_seam: Callable[..., SimpleNamespace]) -> None:
-        state = auth_seam()
-        run = cli("auth", "login", "github-pat")
+    def test_login_reads_the_runbook_company(self, cli: Callable[..., SimpleNamespace], mocker: MockerFixture, tmp_path: Path) -> None:
+        """G6: `--runbook FILE` reads `companies.<company>.auth`, not `.briar.toml`."""
+        runbook = tmp_path / "acme.yaml"
+        runbook.write_text("version: 1\ncompanies:\n  acme:\n    auth:\n      jira:\n        site: acme.atlassian.net\n")
+        store = Seam(answers=["bot@example.test", FAKE_SECRET]).install(mocker)
+
+        run = cli("auth", "login", "jira", "--company", "acme", "--runbook", str(runbook))
+
         assert run.code == 0
-        assert state.store_kinds == ["envfile"]
+        assert store.writes == [("BRIAR_ACME_JIRA_EMAIL", "bot@example.test"), ("BRIAR_ACME_JIRA_TOKEN", FAKE_SECRET)]
 
-    def test_status_names_the_env_file(self, cli: Callable[..., SimpleNamespace], auth_seam: Callable[..., SimpleNamespace]) -> None:
-        auth_seam(present={"GITHUB_TOKEN": "v"})
-        run = cli("auth", "status", "github-pat")
-        assert run.code == 0
-        assert "store=envfile" in run.out
+    def test_a_company_missing_from_the_runbook_stops(self, cli: Callable[..., SimpleNamespace], mocker: MockerFixture, tmp_path: Path) -> None:
+        runbook = tmp_path / "acme.yaml"
+        runbook.write_text("version: 1\ncompanies:\n  acme: {}\n")
+        Seam().install(mocker)
+
+        run = cli("auth", "status", "jira", "--company", "globex", "--runbook", str(runbook))
+
+        assert run.code == 1
+        assert f"error: company 'globex' is not in {runbook} (companies: acme)" in run.out
+
+    def test_status_gives_the_1x_hint(self, cli: Callable[..., SimpleNamespace], mocker: MockerFixture) -> None:
+        """G8: the status of a login names the 1.x env var that stands in for it."""
+        Seam({"JIRA_ACME_TOKEN": FAKE_SECRET}).install(mocker)
+        mocker.patch.dict("os.environ", {"JIRA_ACME_TOKEN": FAKE_SECRET})
+
+        run = cli("auth", "status", "jira", "--company", "acme")
+
+        assert run.code == 1
+        assert "hint: `JIRA_ACME_TOKEN` is a 1.x name: use `BRIAR_ACME_JIRA_TOKEN`" in run.out

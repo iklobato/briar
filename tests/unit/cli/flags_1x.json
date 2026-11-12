@@ -18,7 +18,7 @@
    "argv": [
     "auth",
     "login",
-    "github-device",
+    "github",
     "--company=-x-company"
    ],
    "dest": "company",
@@ -32,7 +32,7 @@
    "argv": [
     "auth",
     "status",
-    "github-device",
+    "github",
     "--company=-x-company"
    ],
    "dest": "company",
@@ -103,11 +103,11 @@
    "argv": [
     "auth",
     "login",
-    "github-device"
+    "github"
    ],
    "expected": {
     "company": "",
-    "target": "github-device"
+    "target": "github"
    },
    "path": [
     "auth",
@@ -118,11 +118,11 @@
    "argv": [
     "auth",
     "status",
-    "github-device"
+    "github"
    ],
    "expected": {
     "company": "",
-    "target": "github-device"
+    "target": "github"
    },
    "path": [
     "auth",
@@ -212,7 +212,7 @@
    "argv": [
     "auth",
     "login",
-    "github-device",
+    "github",
     "--company",
     "x-company-1"
    ],
@@ -227,7 +227,7 @@
    "argv": [
     "auth",
     "status",
-    "github-device",
+    "github",
     "--company",
     "x-company-1"
    ],

@@ -60,7 +60,7 @@ class KnowledgeExtractor(ABC):
 
     def is_available(self, args: argparse.Namespace) -> bool:
         """Return False to skip this extractor in the current env (no
-        AWS profile, no GITHUB_TOKEN, etc.). The composer logs a skip
+        repo given, no login saved, etc.). The composer logs a skip
         notice instead of raising."""
         return True
 
@@ -124,17 +124,14 @@ def _resolve_provider_from_args(
     flag: str,
     default: str,
     make_fn,
-    **extra,
 ):
-    """Build a provider instance from `args.<flag>` via `make_fn`.
+    """Build a provider instance from `args.<flag>` via `make_fn`, with the company
+    logins that `briar extract` or the runbook executor put on `args.logins`
+    (spec 005)."""
+    from briar.auth.logins import CompanyLogins
 
-    `company` is sourced from `args.company` (set by the runbook
-    executor before calling `extract`); for one-shot `briar extract`
-    it defaults to empty."""
-    ns = vars(args)
-    kind = ns.get(flag) or default
-    company = ns.get("company") or ""
-    return make_fn(kind, company=company, **extra)
+    kind = vars(args).get(flag) or default
+    return make_fn(kind, CompanyLogins.from_args(args))
 
 
 def _provider_class_for_flag(
@@ -184,11 +181,10 @@ class CloudBackedExtractor(KnowledgeExtractor):
         from briar.extract._clouds import make_cloud
 
         ns = vars(args)
-        return _resolve_provider_from_args(
-            args,
-            flag="cloud",
-            default="aws",
-            make_fn=make_cloud,
+        # Cloud logins move to `[auth.aws|gcp|azure]` in spec 005 PR 2; until then, by company.
+        return make_cloud(
+            ns.get("cloud") or "aws",
+            company=ns.get("company") or "",
             region=ns.get("aws_extract_region") or ns.get("cloud_region") or "",
             profile=ns.get("aws_extract_profile") or ns.get("cloud_profile") or "",
         )
@@ -267,9 +263,8 @@ class RepoBackedExtractor(KnowledgeExtractor):
     """Base class for extractors that talk to a code host (GitHub,
     Bitbucket, …). Adds the shared ``--provider`` flag and a
     `_provider(args)` helper that hands back a configured
-    `RepositoryProvider`. The runbook executor sets ``args.company`` so
-    per-tenant provider creds (e.g. ``BITBUCKET_<COMPANY>_*``) resolve
-    correctly.
+    `RepositoryProvider`. `briar extract` and the runbook executor set
+    ``args.logins`` so the provider gets the login of its company (spec 005).
 
     Concrete subclasses still implement their own ``extract`` / their
     own ``add_arguments`` for repo lists + filters, but they call the

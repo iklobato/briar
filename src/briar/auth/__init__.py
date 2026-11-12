@@ -1,20 +1,13 @@
-"""`briar auth` — interactive credential acquisition + management.
+"""`briar auth`: the logins briar uses to read the sources (spec 005).
 
-Three abstractions:
-
-- ``CredentialAcquirer`` (this package's ``_acquirer.py``) — the
-  *write* side: one provider × auth-style per implementation. Walks
-  the user through whatever interactive flow the vendor requires
-  (OAuth device flow, paste a token, browser-extract a cookie, …)
-  and returns a ``Credentials`` bundle.
-
-- ``CredentialStore`` (``briar.credentials._store``) — the
-  *persistence* side. 2.0 has one store, the owner-only env file
-  (1.x also had AWS Secrets Manager, SSM and Vault).
-
-- ``CredentialBootstrap`` (``briar.credentials._bootstraps``) — the
-  *bulk-hydrate* side: load the env file into the environment at
-  process startup. Orthogonal to acquisition."""
+- ``briar.auth.config``: the `[auth]` block of `.briar.toml` and the runbook
+  `auth:` block, one table of choices per source.
+- ``briar.auth.logins``: one login per source per company (`CompanyLogins`):
+  the secret names, what `briar auth login` asks for, and the 1.x names guard.
+- ``CredentialAcquirer`` (``_acquirer.py``): the 1.x interactive flows, kept for
+  the AWS logins until spec 005 PR 2.
+- ``briar.credentials``: `EnvFileStore`, the owner-only env file every secret
+  goes to (L3), and the startup bootstrap that loads it."""
 
 from __future__ import annotations
 

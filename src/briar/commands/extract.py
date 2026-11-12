@@ -10,11 +10,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar, Dict, List, Mapping, Optional, Tuple
 
+from briar.auth.config import AuthTable
+from briar.auth.logins import CompanyLogins, LoginScope
 from briar.commands.base import Command
 from briar.errors import CliError
 from briar.extract import EXTRACTORS
@@ -98,6 +101,11 @@ class ExtractConfig:
 
     def root(self) -> str:
         return self._settings.root or DEFAULT_ROOT
+
+    def logins(self, company: str) -> CompanyLogins:
+        """The company logins from `[auth]` (spec 005); checks the whole block (H6)."""
+        origin = str(self._config_path) if self._config_path else ".briar.toml"
+        return CompanyLogins(LoginScope(company, origin), AuthTable(self._project_config, origin).block(), os.environ)
 
     def check(self) -> None:
         for key, entry in self._table().items():
@@ -245,7 +253,7 @@ class CommandExtract(Command):
     def run(self, args: argparse.Namespace) -> int:
         config = self._config()
         config.check()
-        outcome = self._extract(config, args)
+        outcome = self._extract(config, args, config.logins(args.company))
         if not outcome.sections:
             raise CliError("nothing extracted — every enabled extractor returned empty")
         ref = self._write_blob(config.root(), args.company, outcome)
@@ -259,11 +267,13 @@ class CommandExtract(Command):
         project_config = load_project_config()
         return ExtractConfig(project_config, SettingsResolver.from_project(project_config).settings(), find_config_file())
 
-    def _extract(self, config: ExtractConfig, args: argparse.Namespace) -> ExtractRun:
+    def _extract(self, config: ExtractConfig, args: argparse.Namespace, logins: CompanyLogins) -> ExtractRun:
         outcome = ExtractRun()
         for name in args.include or list(EXTRACTORS.keys()):
             extractor = EXTRACTORS[name]
-            self._run_one(extractor, config.namespace_for(extractor, args), outcome)
+            namespace = config.namespace_for(extractor, args)
+            namespace.logins = logins
+            self._run_one(extractor, namespace, outcome)
         return outcome
 
     def _run_one(self, extractor: KnowledgeExtractor, namespace: argparse.Namespace, outcome: ExtractRun) -> None:

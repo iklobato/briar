@@ -2,7 +2,7 @@
 
 Each bootstrap reads credentials from one source (local envfile,
 remote vault) at process startup and writes them to `os.environ`.
-Distinct lifecycle from `CredentialStore` (which is on-demand reads);
+Distinct lifecycle from `EnvFileStore` (which is on-demand reads);
 see `_bootstrap.py` for the contract.
 
 Adding a new vault (Doppler, 1Password CLI, AWS Parameter Store

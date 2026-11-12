@@ -14,6 +14,8 @@ import unittest
 from typing import List
 from unittest import mock
 
+from tests.unit.fake_logins import FakeLogins
+
 # ─── MeetingProvider registry + factory ─────────────────────────────────────
 
 
@@ -28,22 +30,19 @@ class MeetingRegistryTests(unittest.TestCase):
         from briar.extract._meetings import make_meeting
 
         with self.assertRaises(CliError):
-            make_meeting("otter", company="acme")
+            make_meeting("otter", FakeLogins().logins())
 
     def test_fireflies_unavailable_without_creds(self) -> None:
         from briar.extract._meetings import make_meeting
 
-        with mock.patch.dict("os.environ", {}, clear=True):
-            provider = make_meeting("fireflies", company="acme")
-            self.assertFalse(provider.is_available())
+        provider = make_meeting("fireflies", FakeLogins().logins())
+        self.assertFalse(provider.is_available())
 
-    def test_fireflies_required_env_vars(self) -> None:
-        from briar.extract._meetings.fireflies import FirefliesMeetingProvider
+    def test_fireflies_available_with_the_api_key(self) -> None:
+        from briar.extract._meetings import make_meeting
 
-        required = FirefliesMeetingProvider.required_env_vars(company="acme")
-        self.assertEqual(required, ["FIREFLIES_ACME_API_KEY"])
-        # Empty company = no required var (matches every other provider)
-        self.assertEqual(FirefliesMeetingProvider.required_env_vars(company=""), [])
+        provider = make_meeting("fireflies", FakeLogins(environ={"BRIAR_ACME_FIREFLIES_API_KEY": "ff_xxx"}).logins())
+        self.assertTrue(provider.is_available())
 
 
 # ─── FirefliesMeetingProvider GraphQL translation ──────────────────────────
@@ -84,8 +83,8 @@ class FirefliesAdapterTests(unittest.TestCase):
                 ]
             }
         }
-        with mock.patch.dict("os.environ", {"FIREFLIES_ACME_API_KEY": "ff_xxx"}):
-            provider = make_meeting("fireflies", company="acme")
+        with mock.patch.dict("os.environ", {}):
+            provider = make_meeting("fireflies", FakeLogins(environ={"BRIAR_ACME_FIREFLIES_API_KEY": "ff_xxx"}).logins())
             self.assertTrue(provider.is_available())
             with mock.patch("urllib.request.urlopen", return_value=self._mock_urlopen(payload)):
                 meetings = provider.list_meetings(
@@ -115,8 +114,8 @@ class FirefliesAdapterTests(unittest.TestCase):
             captured.append(json.loads(req.data.decode("utf-8")))
             return self._mock_urlopen({"data": {"transcripts": []}})
 
-        with mock.patch.dict("os.environ", {"FIREFLIES_ACME_API_KEY": "ff_xxx"}):
-            provider = make_meeting("fireflies", company="acme")
+        with mock.patch.dict("os.environ", {}):
+            provider = make_meeting("fireflies", FakeLogins(environ={"BRIAR_ACME_FIREFLIES_API_KEY": "ff_xxx"}).logins())
             with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen):
                 provider.search_meetings(query="ACME-123 oauth migration", max_count=3)
         self.assertEqual(len(captured), 1)
@@ -154,8 +153,8 @@ class FirefliesAdapterTests(unittest.TestCase):
                 }
             }
         }
-        with mock.patch.dict("os.environ", {"FIREFLIES_ACME_API_KEY": "ff_xxx"}):
-            provider = make_meeting("fireflies", company="acme")
+        with mock.patch.dict("os.environ", {}):
+            provider = make_meeting("fireflies", FakeLogins(environ={"BRIAR_ACME_FIREFLIES_API_KEY": "ff_xxx"}).logins())
             with mock.patch("urllib.request.urlopen", return_value=self._mock_urlopen(payload)):
                 detail = provider.get_meeting("FF-1")
         self.assertEqual(detail.meeting.meeting_id, "FF-1")

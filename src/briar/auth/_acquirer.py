@@ -1,17 +1,9 @@
-"""`CredentialAcquirer` — interactive write side of credential
-management. Symmetric to ``CredentialStore`` (read side) and
-``CredentialBootstrap`` (bulk-hydrate side).
+"""`CredentialAcquirer`: the interactive login flows of 1.x. Since spec 005 PR 1
+only the AWS ones are left (``aws-static``, ``aws-sso``); PR 2 replaces them with
+the AWS profile login. The pasted logins live in `briar.auth.logins`.
 
-Each provider × auth-style gets its own acquirer (``github-device``,
-``github-pat``, ``aws-static``, ``aws-sso``, ``jira-token``,
-``jira-session``, …). Strategy + Registry, same shape as every other
-plugin family in the codebase.
-
-The acquirer's job ends at "produce a typed Credentials bundle".
-Persistence is the ``CredentialStore``'s job — the two abstractions
-are deliberately decoupled so the operator can pair any acquirer
-with any store (paste a GitHub token, persist it to Vault; SSO into
-AWS, persist into env-file)."""
+The acquirer's job ends at "produce a Credentials bundle"; `briar auth login`
+writes it to the env file (`briar.credentials.EnvFileStore`)."""
 
 from __future__ import annotations
 
@@ -35,7 +27,7 @@ class Credentials:
     """Provider-agnostic credential bundle.
 
     Why a flat ``entries`` dict keyed by env-var name instead of a
-    typed model per provider: every ``CredentialStore`` already
+    typed model per provider: the env file store
     speaks env-var names (``store.read("AWS_ACME_ACCESS_KEY_ID")``).
     A flat dict lets the store ingest the bundle uniformly without
     knowing each provider's shape — the same decoupling that lets
@@ -58,7 +50,7 @@ class CredentialAcquirer(ABC):
     auth-style (device flow vs paste vs SSO), and (c) which env
     vars get written. They DO NOT persist — the caller (the
     ``briar auth`` command) writes the returned ``Credentials``
-    through a chosen ``CredentialStore``."""
+    to the env file."""
 
     kind: ClassVar[str] = ""
     # Human-friendly display name; falls back to `kind` if empty.
@@ -89,10 +81,7 @@ class CredentialAcquirer(ABC):
     @classmethod
     @abstractmethod
     def writes(cls, *, company: str) -> List[str]:
-        """Env-var names this acquirer writes. Symmetric to the
-        ``required_env_vars`` declared by ``RepositoryProvider`` /
-        ``TrackerProvider`` / etc. — the doctor cross-checks
-        acquired-vs-required to surface drift."""
+        """Env-var names this acquirer writes (`briar auth status` checks them)."""
 
 
 __all__ = ["CredentialAcquirer", "CredentialExpired", "Credentials"]
