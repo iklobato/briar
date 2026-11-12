@@ -53,6 +53,28 @@ class PipelineState:
         return CiState.FAILED if status in self.FAILED else CiState.PENDING
 
 
+class CiConfig:
+    """Whether a commit has a CI file: then no pipeline yet means one is coming, not "no CI"."""
+
+    DEFAULT = ".gitlab-ci.yml"
+
+    def __init__(self, rest: GitlabRest, project: str) -> None:
+        self._rest = rest
+        self._project = project
+
+    def exists(self, sha: str) -> bool:
+        from gitlab.exceptions import GitlabHttpError
+
+        path = str(self._rest.get(self._project).get("ci_config_path") or self.DEFAULT)
+        try:
+            self._rest.get(f"{self._project}/repository/files/{quote(path, safe='')}", {"ref": sha})
+        except GitlabHttpError as error:
+            if error.response_code == BranchRules.NOT_FOUND:
+                return False
+            raise
+        return True
+
+
 class Authors:
     """G7, G11: the access level of each note author (one call per person) and the bot users."""
 
@@ -151,7 +173,13 @@ class GitlabHost:
         return [MergeRequestOf(row).pull() for row in rows]
 
     def ci_state(self, repo: str, number: int) -> CiState:
-        return PipelineState(self._merge_request(repo, number).get("head_pipeline")).state()
+        """The head pipeline counts only for the head commit: right after a push the MR still
+        shows the pipeline of the commit before (a real review round read it as passed)."""
+        found = self._merge_request(repo, number)
+        pipeline, head = found.get("head_pipeline"), str(found.get("sha") or "")
+        if pipeline:
+            return PipelineState(pipeline).state() if pipeline.get("sha") == head else CiState.PENDING
+        return CiState.PENDING if CiConfig(self._rest, self._project(repo)).exists(head) else CiState.NONE
 
     def list_ci_failures(self, repo: str, number: int) -> List[CiFailure]:
         return self._reader.list_ci_failures(repo, number)

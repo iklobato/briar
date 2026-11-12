@@ -120,21 +120,40 @@ class TestMergeRequestWrites:
 
 class TestMergeRequestState:
     @pytest.mark.parametrize(
-        "pipeline, expected",
+        "status, expected",
         [
-            (None, CiState.NONE),
-            ({"status": "success"}, CiState.PASSED),
-            ({"status": "skipped"}, CiState.PASSED),
-            ({"status": "manual"}, CiState.PASSED),
-            ({"status": "failed"}, CiState.FAILED),
-            ({"status": "canceled"}, CiState.FAILED),
-            ({"status": "running"}, CiState.PENDING),
-            ({"status": "created"}, CiState.PENDING),
+            ("success", CiState.PASSED),
+            ("skipped", CiState.PASSED),
+            ("manual", CiState.PASSED),
+            ("failed", CiState.FAILED),
+            ("canceled", CiState.FAILED),
+            ("running", CiState.PENDING),
+            ("created", CiState.PENDING),
         ],
     )
-    def test_the_head_pipeline_gives_the_ci_state(self, pipeline: Any, expected: CiState) -> None:
+    def test_the_head_pipeline_gives_the_ci_state(self, status: str, expected: CiState) -> None:
         """G8: canceled needs a look; skipped or stopped at a manual job is no code error."""
-        assert Host.of({MR: {"head_pipeline": pipeline}}).host().ci_state(REPO, IID) is expected
+        answers = {MR: {"sha": "new", "head_pipeline": {"status": status, "sha": "new"}}}
+
+        assert Host.of(answers).host().ci_state(REPO, IID) is expected
+
+    def test_the_pipeline_of_an_older_commit_is_pending(self) -> None:
+        """Real review round, 2026-11-12: right after the push the MR still showed the passed
+        pipeline of the old commit, and serve called the round done before the new CI ran."""
+        answers = {MR: {"sha": "new", "head_pipeline": {"status": "success", "sha": "old"}}}
+
+        assert Host.of(answers).host().ci_state(REPO, IID) is CiState.PENDING
+
+    def test_no_pipeline_yet_in_a_repo_with_ci_is_pending(self) -> None:
+        answers = {MR: {"sha": "new", "head_pipeline": None}, PROJECT: {"ci_config_path": ""}, f"{PROJECT}/repository/files/.gitlab-ci.yml": {"file_name": ".gitlab-ci.yml"}}
+
+        assert Host.of(answers).host().ci_state(REPO, IID) is CiState.PENDING
+
+    def test_no_pipeline_in_a_repo_without_ci_is_none(self) -> None:
+        missing = GitlabHttpError(error_message="404 File Not Found", response_code=NOT_FOUND)
+        answers = {MR: {"sha": "new", "head_pipeline": None}, PROJECT: {"ci_config_path": "ci/main.yml"}, f"{PROJECT}/repository/files/ci%2Fmain.yml": missing}
+
+        assert Host.of(answers).host().ci_state(REPO, IID) is CiState.NONE
 
     def test_pull_state(self) -> None:
         answers = {MR: {"state": "opened", "has_conflicts": True, "target_branch": "main", "draft": True, "diff_refs": {"start_sha": "abc"}}}
