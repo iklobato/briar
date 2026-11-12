@@ -359,7 +359,7 @@ from the code; a test fails when this table and the code differ):
 | `active-work` | `authors_block` | `[]` |  |
 | `active-work` | `provider` | `"github"` | github, bitbucket |
 | `aws-infra` | `cloud` | `"aws"` | aws, gcp, azure |
-| `aws-infra` | `region` | `"us-east-1"` |  |
+| `aws-infra` | `region` | `""` |  |
 | `aws-infra` | `services` | `[]` | ecs, lambda, logs, rds, sqs, tagging-inventory |
 | `ci-health` | `max` | `100` |  |
 | `ci-health` | `provider` | `"github"` | github, bitbucket |
