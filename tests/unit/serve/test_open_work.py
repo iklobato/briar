@@ -120,6 +120,17 @@ class TestOpenWork:
 
         assert caplog.messages == [f"serve: ENG-1 skipped: https://github.com/{REPO}/pull/{MR} is open for it"]
 
+    @pytest.mark.parametrize("body", ["Closes #7", "fixes #7 in the parser"], ids=["closes", "inline"])
+    def test_a_github_issue_is_cited_by_its_number_in_its_own_repo(self, tmp_path: Path, body: str) -> None:
+        """A PR cites an issue of its repo as `#7`, not `acme/app#7`; `#70` and `other#7` are no match."""
+        settings = Companies(tmp_path).company({"repos": [REPO]}).settings
+        pulls = [PullText("fix-parser", "fix the parser", body).open(MR), PullText("other", "x", "see #70 and other#7").open(OLD)]
+        items = [WorkItem(WorkKind.TICKET, f"{REPO}#7", WorkSource.GITHUB, REPO, "parser", repos=(REPO,)), WorkItem(WorkKind.TICKET, f"{REPO}#8", WorkSource.GITHUB, REPO, "other", repos=(REPO,))]
+
+        free = OpenWork(Sources(FakeHost({REPO: pulls})), settings).free(items)
+
+        assert [item.key for item in free] == [f"{REPO}#8"]
+
     def test_each_repo_is_read_once_per_poll(self, tmp_path: Path) -> None:
         host = FakeHost({})
 

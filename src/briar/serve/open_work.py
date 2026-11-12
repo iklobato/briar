@@ -33,12 +33,19 @@ class OpenWork:
     def _taken(self, item: WorkItem, pulls: Dict[str, List[PullRequest]]) -> bool:
         style, own = self._sources.style(), BranchName(self._settings).of(item)
         links = set(self._sources.jira_links().remote_links(item.key)) if item.source is WorkSource.JIRA else set()
-        cites = re.compile(rf"(?<![\w-]){re.escape(item.key)}(?![\w])")
+        cites = self._citation(item)
         others = [(style.pull_url(repo, pull.number), pull) for repo in item.repos or (item.repo,) for pull in pulls.get(repo, []) if pull.head_ref != own]
         found = next((url for url, pull in others if url in links or cites.search(f"{pull.head_ref}\n{pull.title}\n{pull.body}")), "")
         if found:
             self.LOG.info("serve: %s skipped: %s is open for it", item.key, found)
         return bool(found)
+
+    def _citation(self, item: WorkItem) -> "re.Pattern[str]":
+        """The key; for a GitHub issue also `#N`, how a PR of its own repo cites it."""
+        key = rf"(?<![\w-]){re.escape(item.key)}(?![\w])"
+        if item.source is not WorkSource.GITHUB:
+            return re.compile(key)
+        return re.compile(rf"{key}|(?<![\w/#])#{re.escape(item.number())}(?!\d)")
 
 
 __all__ = ["OpenWork"]
