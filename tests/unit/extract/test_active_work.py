@@ -10,13 +10,15 @@ author filtering, and empty/missing handling.
 from __future__ import annotations
 
 import argparse
-from typing import Any, List
+from typing import Any, Dict, List
 from unittest import mock
 
 import pytest
 
+from briar.auth.check import LoginRejected
 from briar.extract._provider import PullRequest
 from briar.extract._tracker import Ticket
+from briar.extract._trackers.jira import JiraOpenCount
 from briar.extract.active_tickets import ExtractActiveTickets
 from briar.extract.active_work import ExtractActiveWork
 
@@ -225,3 +227,62 @@ def test_active_tickets_empty_project_placeholder() -> None:
 def test_active_tickets_unavailable_without_project() -> None:
     ext = ExtractActiveTickets()
     assert ext.is_available(_ticket_args(ticket_project=[])) is False
+
+
+class CountingTracker(_FakeTracker):
+    """A tracker that gives the most tickets `active-tickets` asks for, and counts the rest."""
+
+    def __init__(self, tickets: List[Ticket], total: int) -> None:
+        super().__init__(tickets)
+        self.total = total
+
+    def open_count(self, project: str) -> int:
+        return self.total
+
+
+class TestCutTicketList:
+    """N17 of spec 008: a real project showed "25 open ticket(s)" with 881 open."""
+
+    LIMIT = 25
+    OPEN = 881
+
+    def title(self, total: int) -> str:
+        tracker = CountingTracker([_ticket(f"ENG-{number}") for number in range(self.LIMIT)], total)
+        ext = ExtractActiveTickets()
+        with mock.patch.object(ext, "_tracker", return_value=tracker):
+            return ext.extract(_ticket_args()).subsections[0].title
+
+    def test_a_cut_list_says_first_n_of_m(self) -> None:
+        assert self.title(self.OPEN) == "ENG — first 25 of 881 open ticket(s)"
+
+    def test_a_tracker_that_cannot_count_says_first_n(self) -> None:
+        assert self.title(0) == "ENG — first 25 open ticket(s)"
+
+    def test_a_list_of_exactly_the_limit_is_not_called_cut(self) -> None:
+        assert self.title(self.LIMIT) == "ENG — 25 open ticket(s)"
+
+
+class CountClient:
+    """The Jira client: answers the approximate count and keeps the JQL it was sent."""
+
+    def __init__(self, sent: List[str]) -> None:
+        self._sent = sent
+
+    def post(self, path: str, body: Dict[str, str]) -> Dict[str, int]:
+        self._sent.append(f"{path} {body['jql']}")
+        return {"count": TestCutTicketList.OPEN}
+
+
+class TestJiraOpenCount:
+    def test_the_count_asks_jira_for_the_open_tickets_of_the_project(self) -> None:
+        sent: List[str] = []
+
+        assert JiraOpenCount(CountClient(sent)).of("ENG") == TestCutTicketList.OPEN
+        assert sent == ['rest/api/3/search/approximate-count project = "ENG" AND statusCategory != "Done"']
+
+    def test_a_key_that_is_not_a_jira_key_is_refused_before_any_call(self) -> None:
+        sent: List[str] = []
+
+        with pytest.raises(LoginRejected, match="'ENG\" OR 1=1' is not a Jira project key"):
+            JiraOpenCount(CountClient(sent)).of('ENG" OR 1=1')
+        assert sent == []

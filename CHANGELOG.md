@@ -165,6 +165,10 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Fixed
 
+- `extract --include active-tickets` said "25 open ticket(s)" when it cut
+  the list at 25; it now says "first 25 of 881" (Jira counts the open tickets) or
+  "first 25" when the tracker cannot count them.
+
 - `briar doctor` dropped `[repo]` from the `git remote` hint, because the
   table renderer read a word in brackets as style markup. Table cells now
   print as written.

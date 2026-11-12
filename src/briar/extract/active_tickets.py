@@ -12,7 +12,7 @@ from __future__ import annotations
 import argparse
 from typing import List
 
-from briar.extract._tracker import Ticket
+from briar.extract._tracker import Ticket, TrackerProvider
 from briar.extract.base import ExtractedSection, TrackerBackedExtractor
 
 _MAX_TICKETS_PER_PROJECT = 25
@@ -62,7 +62,15 @@ class ExtractActiveTickets(TrackerBackedExtractor):
         ]
         lines = [f"- {r['key']} {r['title']!r:80}  status={r['status']}  by={r['reporter']}  to={r['assignee']}" for r in rows]
         return ExtractedSection(
-            title=f"{project} — {len(rows)} open ticket(s)",
+            title=f"{project} — {self._count(project, tracker, len(rows))} open ticket(s)",
             body="\n".join(lines) if lines else "_no open tickets_",
             data={"open_tickets": rows},
         )
+
+    def _count(self, project: str, tracker: TrackerProvider, shown: int) -> str:
+        """A cut list says so (spec 008, N17): "first 25 of 881", or "first 25" when the
+        tracker cannot count its open tickets."""
+        total = tracker.open_count(project) if shown >= _MAX_TICKETS_PER_PROJECT else shown
+        if total == shown:
+            return str(shown)
+        return f"first {shown} of {total}" if total else f"first {shown}"

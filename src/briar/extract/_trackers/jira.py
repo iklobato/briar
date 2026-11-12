@@ -64,6 +64,20 @@ class JiraLinks:
         return bool(issue) and category.get("key") != self.DONE
 
 
+class JiraOpenCount:
+    """The open tickets of a project, from the approximate count of Jira Cloud."""
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+
+    def of(self, project: str) -> int:
+        if not _PROJECT_RE.match(project):
+            raise LoginRejected(f"{project!r} is not a Jira project key")
+        jql = f'project = "{project}" AND statusCategory != "Done"'
+        found = self._client.post("rest/api/3/search/approximate-count", {"jql": jql})
+        return int((found or {}).get("count") or 0)
+
+
 class JiraTracker(TrackerProvider):
     kind = "jira"
     login_source = "jira"
@@ -160,6 +174,10 @@ class JiraTracker(TrackerProvider):
         for issue in issues[:max_count]:
             out.append(self._to_ticket(issue))
         return out
+
+    @swallow_errors(default=0, message="jira open_count")
+    def open_count(self, project: str) -> int:
+        return JiraOpenCount(self._jira()).of(project)
 
     @swallow_errors(default=[], message="jira list_comments")
     def list_comments(self, project: str, ticket_key: str) -> List[Comment]:

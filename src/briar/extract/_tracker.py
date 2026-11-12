@@ -115,6 +115,10 @@ class TrackerProvider(ABC):
         ``project`` is the project key (Jira `PROJ`, GH `owner/repo`,
         Linear team key, BB `workspace/repo`). Most-recent first."""
 
+    def open_count(self, project: str) -> int:
+        """How many tickets of `project` are open; 0 when the tracker cannot count them."""
+        return 0
+
     def list_comments(self, project: str, ticket_key: str) -> List[Comment]:
         """Return comments on one ticket. Empty default."""
         return []
