@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 from enum import Enum
-from typing import Dict, List
+from typing import ClassVar, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, Field
 
@@ -20,8 +20,11 @@ class WorkSource(str, Enum):
 
 
 class WorkStatus(str, Enum):
-    # Seen by the loop; the ticket routine (spec 003 PR 2) takes it from here.
     FOUND = "found"
+    PLANNED = "planned"
+    PR_OPEN = "pr-open"
+    DONE = "done"
+    BLOCKED = "blocked"
 
 
 class WorkEntry(BaseModel):
@@ -34,7 +37,17 @@ class WorkEntry(BaseModel):
     status: WorkStatus
     branch: str = ""
     pr: int = 0
+    plan: str = ""
+    # Why a task stopped on a limit or an error (S23).
+    report: str = ""
     handled_comments: List[str] = Field(default_factory=list)
+
+    # A ticket in one of these is not taken again; one found or planned when `serve`
+    # stopped is taken again and picks up its worktree.
+    TAKEN: ClassVar[Tuple[str, ...]] = ("pr-open", "done", "blocked")
+
+    def taken(self) -> bool:
+        return self.status.value in self.TAKEN
 
 
 class WorkBook(BaseModel):
@@ -42,8 +55,11 @@ class WorkBook(BaseModel):
 
     entries: Dict[str, WorkEntry] = Field(default_factory=dict)
 
-    def known(self, key: str) -> bool:
-        return key in self.entries
+    def taken(self, key: str) -> bool:
+        return key in self.entries and self.entries[key].taken()
+
+    def entry(self, key: str) -> Optional[WorkEntry]:
+        return self.entries.get(key)
 
     def with_entry(self, entry: WorkEntry) -> "WorkBook":
         return WorkBook(entries={**self.entries, entry.key: entry})

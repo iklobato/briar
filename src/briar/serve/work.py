@@ -49,6 +49,14 @@ class WorkItem:
     def entry(self) -> WorkEntry:
         return WorkEntry(key=self.key, source=self.source, repo=self.repo, title=self.title, status=WorkStatus.FOUND)
 
+    def number(self) -> str:
+        """The number of a GitHub issue (`acme/app#7` gives `7`); "" for Jira."""
+        return self.key.rsplit("#", 1)[-1] if self.source is WorkSource.GITHUB else ""
+
+    def ref(self) -> str:
+        """The ticket in a branch or a title: the Jira key, or `issue-<number>`."""
+        return f"issue-{self.number()}" if self.source is WorkSource.GITHUB else self.key
+
 
 class PriorityRank:
     """A rank where 0 is the most urgent. Jira: its standard priority names; GitHub: the
@@ -74,6 +82,14 @@ class ServeCompany:
     settings: ServeSettings
     logins: CompanyLogins
     state: WorkState
+    # The knowledge store folder: the blob `knowledge:<name>` and the state `work:<name>`.
+    root: Path = Path("knowledge")
+
+    def knowledge_file(self) -> Path:
+        return self.root / "knowledge" / f"{self.name}.md"
+
+    def state_file(self) -> Path:
+        return self.root / "work" / f"{self.name}.md"
 
 
 class WorkSources:
@@ -111,7 +127,7 @@ class WorkFinder:
     def find(self) -> List[WorkItem]:
         book = self._company.state.book()
         login = self._sources.github().who_am_i() if self._company.settings.all_repos() else ""
-        tickets = [item for item in [*self._jira(), *self._issues(login)] if not book.known(item.key)]
+        tickets = [item for item in [*self._jira(), *self._issues(login)] if not book.taken(item.key)]
         return sorted([*self._reviews(book, login), *tickets], key=WorkItem.order)
 
     def _jira(self) -> List[WorkItem]:
@@ -235,8 +251,9 @@ class ServeCompanies:
 
     def _company(self, path: Path, name: str, entry: Any) -> ServeCompany:
         scope = LoginScope(name, str(path), f"companies.{name}.auth", runbook=str(path))
-        store = make_store("file", file_root=Path(entry.knowledge.root or "./knowledge"))
-        return ServeCompany(name, entry.serve, CompanyLogins(scope, entry.auth, self._environ), WorkState(store, name, asyncio.Lock()))
+        root = Path(entry.knowledge.root or "./knowledge")
+        state = WorkState(make_store("file", file_root=root), name, asyncio.Lock())
+        return ServeCompany(name, entry.serve, CompanyLogins(scope, entry.auth, self._environ), state, root)
 
 
 __all__ = ["ModelLogin", "PriorityRank", "ServeCheck", "ServeCompanies", "ServeCompany", "WorkFinder", "WorkItem", "WorkKind", "WorkSources", "WriteCheck"]

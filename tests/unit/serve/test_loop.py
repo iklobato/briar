@@ -11,7 +11,8 @@ from typing import List
 
 import pytest
 
-from briar.serve.loop import CompanyWatch, FoundRoutine, TaskSlots
+from briar.serve.loop import CompanyWatch, TaskSlots
+from briar.serve.state import WorkState
 from briar.serve.state import WorkEntry, WorkSource, WorkStatus
 from briar.serve.work import WorkItem, WorkKind
 from tests.unit.serve.fakes import Companies, FakeJira, FakeSources, Tickets
@@ -44,6 +45,16 @@ class TaskBroke(Exception):
 class FailingRoutine:
     async def work_on(self, item: WorkItem) -> None:
         raise TaskBroke(f"broke on {item.key}")
+
+
+class RecordingRoutine:
+    """Records each ticket as taken (`pr-open`), as the ticket routine does when it opens the PR."""
+
+    def __init__(self, state: WorkState) -> None:
+        self._state = state
+
+    async def work_on(self, item: WorkItem) -> None:
+        await self._state.record(item.entry().model_copy(update={"status": WorkStatus.PR_OPEN}))
 
 
 class Items:
@@ -91,12 +102,12 @@ class TestTaskSlots:
 
 
 class TestCycle:
-    def test_a_found_ticket_is_recorded_once(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_a_ticket_with_a_pr_is_not_started_again(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         jira = FakeJira({"ENG": [Tickets().jira("ENG-1", "High", "2026-01-03")]})
         monkeypatch.setattr("briar.serve.loop.WorkSources", lambda logins: FakeSources(jira_adapter=jira))
         company = Companies(tmp_path / "knowledge").company({"jira": {"ENG": "acme/app"}})
         slots = TaskSlots(asyncio.Semaphore(TWO_SLOTS), set(), set())
-        watch = CompanyWatch(company, slots, FoundRoutine(company.state))
+        watch = CompanyWatch(company, slots, RecordingRoutine(company.state))
 
         async def scenario() -> List[int]:
             first = await watch.cycle()
@@ -104,7 +115,7 @@ class TestCycle:
             return [first, await watch.cycle()]
 
         assert asyncio.run(scenario()) == [1, 0]
-        expected = WorkEntry(key="ENG-1", source=WorkSource.JIRA, repo="acme/app", title="title of ENG-1", status=WorkStatus.FOUND)
+        expected = WorkEntry(key="ENG-1", source=WorkSource.JIRA, repo="acme/app", title="title of ENG-1", status=WorkStatus.PR_OPEN)
         assert company.state.book().entries == {"ENG-1": expected}
 
 

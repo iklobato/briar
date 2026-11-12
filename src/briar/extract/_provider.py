@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import ClassVar, List
 
 from briar.auth.check import LoginRejected
@@ -109,6 +110,26 @@ class ReviewComment:
     line: int = 0  # 0 for top-level
     is_resolved: bool = False
     created_at: str = ""
+
+
+class CiState(Enum):
+    """The CI of a PR head, for `briar serve` (spec 003 S20)."""
+
+    NONE = "none"
+    PENDING = "pending"
+    PASSED = "passed"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True)
+class PullRequestDraft:
+    """A PR `briar serve` opens (S21, S27); `draft` only when a limit hit (S23)."""
+
+    head: str
+    base: str
+    title: str
+    body: str
+    draft: bool = False
 
 
 @dataclass(frozen=True)

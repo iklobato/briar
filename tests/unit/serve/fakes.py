@@ -128,4 +128,4 @@ class Companies:
 
     def company(self, extra: Dict[str, Any]) -> ServeCompany:
         state = WorkState(make_store("file", file_root=self._root), "acme", asyncio.Lock())
-        return ServeCompany("acme", self.settings(extra), FakeLogins().logins(), state)
+        return ServeCompany("acme", self.settings(extra), FakeLogins().logins(), state, self._root)

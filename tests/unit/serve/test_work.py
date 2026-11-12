@@ -45,12 +45,22 @@ class TestOrder:
         ]
         assert (jira.calls, issues.calls) == (["assigned ENG"], ["assigned acme/web octo"])
 
-    def test_a_ticket_already_in_the_state_is_not_found_again(self, companies: Companies) -> None:
+    @pytest.mark.parametrize("status", [WorkStatus.PR_OPEN, WorkStatus.DONE, WorkStatus.BLOCKED])
+    def test_a_ticket_briar_took_is_not_found_again(self, companies: Companies, status: WorkStatus) -> None:
         jira = FakeJira({"ENG": [Tickets().jira("ENG-1", "High", "2026-01-03")]})
         company = companies.company({"jira": {"ENG": "acme/app"}})
-        asyncio.run(company.state.record(WorkEntry(key="ENG-1", source=WorkSource.JIRA, repo="acme/app", title="t", status=WorkStatus.FOUND)))
+        asyncio.run(company.state.record(WorkEntry(key="ENG-1", source=WorkSource.JIRA, repo="acme/app", title="t", status=status)))
 
         assert WorkFinder(company, FakeSources(jira_adapter=jira)).find() == []
+
+    @pytest.mark.parametrize("status", [WorkStatus.FOUND, WorkStatus.PLANNED])
+    def test_a_ticket_that_stopped_halfway_is_taken_again(self, companies: Companies, status: WorkStatus) -> None:
+        """A `serve` that stopped in the middle picks the ticket up again (S17)."""
+        jira = FakeJira({"ENG": [Tickets().jira("ENG-1", "High", "2026-01-03")]})
+        company = companies.company({"jira": {"ENG": "acme/app"}})
+        asyncio.run(company.state.record(WorkEntry(key="ENG-1", source=WorkSource.JIRA, repo="acme/app", title="t", status=status)))
+
+        assert [item.key for item in WorkFinder(company, FakeSources(jira_adapter=jira)).find()] == ["ENG-1"]
 
     def test_a_review_counts_only_new_comments_of_other_people(self, companies: Companies) -> None:
         comments = [
