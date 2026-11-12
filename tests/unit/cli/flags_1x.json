@@ -1104,18 +1104,6 @@
   },
   {
    "argv": [
-    "completion",
-    "bash"
-   ],
-   "expected": {
-    "shell": "bash"
-   },
-   "path": [
-    "completion"
-   ]
-  },
-  {
-   "argv": [
     "init"
    ],
    "expected": {

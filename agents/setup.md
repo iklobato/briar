@@ -1,4 +1,4 @@
-# Setup: `init`, `config show`, `doctor`, `completion` and global flags
+# Setup: `init`, `config show`, `doctor`, shell completion and global flags
 
 These commands help you set briar up and check the setup:
 
@@ -7,7 +7,7 @@ These commands help you set briar up and check the setup:
 | `briar init` | Writes a starter `.briar.toml` project config file. |
 | `briar config show` | Shows each setting's value and where it came from. |
 | `briar doctor` | Checks your machine: Python, config, git, keys, store. |
-| `briar completion bash` / `zsh` | Prints a shell script for tab completion. |
+| `briar --install-completion` | Adds tab completion to your shell. |
 
 This page also covers the global flags `--format`, `--verbose` and
 `--version`, which work with every command.
@@ -53,8 +53,8 @@ git_user_email = "bot@acme.com"
 | Key | Fills these flags | Env var that beats it |
 |---|---|---|
 | `company` | Every `--company`. | `BRIAR_COMPANY` |
-| `store` | Every knowledge `--store` (and `--storage` on `extract`). | `BRIAR_STORE` |
-| `root` | Every `--root`, and `--knowledge` on `agent`. | none |
+| `store` | Every knowledge `--store`. | `BRIAR_STORE` |
+| `root` | Every `--root`. | none |
 | `tracker` | Every `--tracker`. | none |
 | `repos` | The repeatable `--repo` list on `extract`. | none |
 | `[repo] owner`, `repo` | Every `--owner` and `--repo`. On `extract`, they form one `owner/repo` entry when `repos` is not set. | none |
@@ -255,55 +255,55 @@ You get `doctor.csv` with a header row and one row per check.
 - For the keys each runbook needs, use `briar secrets doctor` (see
   [creds.md](creds.md)).
 
-## `briar completion`
+## Shell completion
 
 ### What it does
 
-Prints a script that adds tab completion to your shell. It completes
-command names, subcommand names and flag names. It does not complete
-flag values or hidden flags.
+Adds tab completion to your shell. It completes command names, subcommand
+names, flag names and the values of flags with a fixed list (such as
+`--store file|postgres`). It does not complete hidden flags. `briar extract`
+completes as a command name only: its flags still use the 1.x parser
+until a later 2.0 change.
+
+`briar completion bash` / `zsh` from 1.x was removed in 2.0. The two
+global flags below replace it.
 
 ### Use it when
 
-- You want `briar <Tab>` to list commands, and `briar extract --<Tab>` to list flags.
+- You want `briar <Tab>` to list commands, and `briar context --<Tab>` to list flags.
 
 ### Examples
 
-For bash, add this line to `~/.bashrc`:
+Install it for the shell you are using now:
 
 ```bash
-eval "$(briar completion bash)"
+briar --install-completion
 ```
 
-You get completion in every new bash shell.
+briar prints which shell it found and the file it wrote. Open a new
+terminal to use it.
 
-For zsh, add this line to `~/.zshrc`, after `compinit` runs (most zsh
-setups already run it):
+To see the script first, or to load it yourself:
 
 ```bash
-eval "$(briar completion zsh)"
+briar --show-completion
 ```
 
-You get completion in every new zsh shell.
-
-To start your shell faster, save the script once and load the file:
-
-```bash
-briar completion zsh > ~/.briar-completion.zsh
-```
-
-You get the file `~/.briar-completion.zsh`. Add `source ~/.briar-completion.zsh` to `~/.zshrc`.
+It prints the script for the shell you are using now.
 
 ### All parameters
 
 | Parameter | What it means | Default | Example |
 |---|---|---|---|
-| `shell` (positional) | The shell: `bash` or `zsh`. Required. | none | `zsh` |
+| `--install-completion` | Write the completion script for the current shell and load it from your shell config. | off | `briar --install-completion` |
+| `--show-completion` | Print the completion script for the current shell. | off | `briar --show-completion` |
 
 ### Good to know
 
-- The command and flag names are fixed inside the script. After you
-  upgrade briar, make the script again so new flags show up.
+- The script calls briar on every Tab, so completion always matches the
+  installed version; there is nothing to make again after an upgrade.
+- Neither flag reads your config, keys or telemetry settings, and a Tab
+  press does not either.
 
 ## Global flags
 

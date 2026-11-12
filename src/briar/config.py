@@ -67,24 +67,17 @@ class _ConfigSpec:
     key: str
 
 
-# The flags a project config / env may satisfy. `storage` is extract's
-# dest for the store backend (aliased --store); `store` covers every
-# other command. `knowledge` is agent's file-root dest, fed by the same
-# `root` config key. The knowledge store env var is BRIAR_STORE, not
-# BRIAR_DEFAULT_STORE: that one is the credential store (`auth --cred-store`).
+# The `briar extract` options a project config / env may satisfy: the only
+# command still on argparse (until spec 004). The commands on Typer get their
+# settings from `briar.settings`. `storage` is extract's dest for `--store`.
+# The knowledge store env var is BRIAR_STORE, not BRIAR_DEFAULT_STORE: that
+# one named the credential store in 1.x.
 _CONFIG_SPECS: Tuple[_ConfigSpec, ...] = (
     _ConfigSpec("company", "BRIAR_COMPANY", "", "company"),
-    _ConfigSpec("store", "BRIAR_STORE", "", "store"),
     _ConfigSpec("storage", "BRIAR_STORE", "", "store"),
     _ConfigSpec("root", None, "", "root"),
-    _ConfigSpec("knowledge", None, "", "root"),
     _ConfigSpec("tracker", None, "", "tracker"),
-    _ConfigSpec("owner", None, "repo", "owner"),
-    _ConfigSpec("repo", None, "repo", "repo"),
     _ConfigSpec("provider", None, "repo", "provider"),
-    _ConfigSpec("model", None, "agent", "model"),
-    _ConfigSpec("git_user_name", None, "agent", "git_user_name"),
-    _ConfigSpec("git_user_email", None, "agent", "git_user_email"),
 )
 
 

@@ -18,7 +18,7 @@ include/storage/json wiring). This file pins EVERY flag in
 * AWS knobs (``--aws-extract-region`` / ``--aws-extract-profile`` /
   ``--aws-extract-service``) → assert they reach ``make_cloud`` /
   ``list_subsections``.
-* meta flags (``--company`` / ``--include`` / ``--storage`` /
+* meta flags (``--company`` / ``--include`` / ``--store`` /
   ``--blob-name`` / ``--root`` / ``--out-json``) → assert title, file
   path, and json sidecar.
 
@@ -207,7 +207,7 @@ def _run(cli, tmp_root, include, *extra, company="acme", out_json=None):
         company,
         "--include",
         include,
-        "--storage",
+        "--store",
         "file",
         "--root",
         str(tmp_root / "knowledge"),
@@ -228,7 +228,7 @@ def _blob_text(tmp_root, company="acme") -> str:
 
 class TestMetaFlags:
     def test_company_required_omission_exits_2(self, cli, tmp_root) -> None:
-        result = cli("extract", "--storage", "file", "--root", str(tmp_root / "knowledge"))
+        result = cli("extract", "--store", "file", "--root", str(tmp_root / "knowledge"))
         assert result.code == 2
         assert "company" in result.err.lower()
 
@@ -239,14 +239,14 @@ class TestMetaFlags:
         assert "# Briar knowledge base — globex" in text
 
     def test_storage_invalid_choice_exits_2(self, cli, tmp_root, seam) -> None:
-        result = _run(cli, tmp_root, "pr-archaeology", "--pr-repo", "o/r", "--storage", "carrier-pigeon")
-        # the explicit --storage in extra overrides the helper's earlier one
+        result = _run(cli, tmp_root, "pr-archaeology", "--pr-repo", "o/r", "--store", "carrier-pigeon")
+        # the explicit --store in extra overrides the helper's earlier one
         assert result.code == 2
         assert "invalid choice" in result.err
 
     def test_store_canonical_writes_blob(self, cli, tmp_root, seam) -> None:
-        # `--store` is the canonical name; it must drive the same file
-        # write the legacy `--storage` did.
+        # `--store` (dest `storage`) drives the file write; the 1.x alias
+        # `--storage` was removed in 2.0.
         result = cli(
             "extract",
             "--company",
@@ -263,11 +263,6 @@ class TestMetaFlags:
         assert result.code == 0
         assert (tmp_root / "knowledge" / "knowledge" / "acme.md").exists()
 
-    def test_storage_alias_warns_deprecation(self, cli, tmp_root, seam) -> None:
-        result = _run(cli, tmp_root, "pr-archaeology", "--pr-repo", "o/r")
-        assert result.code == 0
-        assert "--storage is deprecated; use --store" in result.err
-
     def test_include_invalid_choice_exits_2(self, cli, tmp_root, seam) -> None:
         result = cli(
             "extract",
@@ -275,7 +270,7 @@ class TestMetaFlags:
             "acme",
             "--include",
             "not-a-real-extractor",
-            "--storage",
+            "--store",
             "file",
             "--root",
             str(tmp_root / "knowledge"),
@@ -300,7 +295,7 @@ class TestMetaFlags:
             "pr-archaeology",
             "--pr-repo",
             "o/r",
-            "--storage",
+            "--store",
             "file",
             "--root",
             str(alt),

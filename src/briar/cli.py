@@ -217,7 +217,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     # `-h`/`--help` anywhere in argv makes argparse short-circuit to a
     # help action; an empty `remaining` means no subcommand, which
     # argparse rejects with a usage error. Either way, no command runs.
-    metadata_only = "-h" in raw_argv or "--help" in raw_argv or not remaining
+    # Typer's `--show-completion` / `--install-completion` only print or install a
+    # script, and a TAB press runs briar with no arguments: no I/O for those either.
+    metadata_only = "-h" in raw_argv or "--help" in raw_argv or not remaining or any(flag in raw_argv for flag in ("--show-completion", "--install-completion"))
 
     if not metadata_only:
         # Load credentials from the env file BEFORE the command registry
@@ -272,7 +274,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     # Typer parses; a command not on Typer yet goes to its 1.x parser.
     from briar.cli_app import CommandLine
 
-    command_line = CommandLine(commands, kv.get("--format", "table"))
+    command_line = CommandLine(commands, kv.get("--format", "table"), os.environ)
     parsed = command_line.parse(normalised, functools.partial(_build_parser, command_line.pass_through_commands()), project_config)
     if parsed.args is None:
         return parsed.exit_code

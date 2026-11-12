@@ -202,13 +202,14 @@ class BriarApp:
     Only the command the line names (`target`) gets its real options: Typer reads every
     registered command's options on each run (about 1 ms per operation), so the others
     are registered by name and help only. They cannot run: a line that names one of
-    them makes it the target.
+    them makes it the target. Shell completion (`EVERY_COMMAND`) gets them all.
 
     `rich_markup_mode=None` keeps help and usage errors as plain text: rich styling is
     forced on under GITHUB_ACTIONS or FORCE_COLOR even into a pipe, and it splits tokens
     like `--nope` with escape codes. Plain text also keeps rich out of `briar --help`."""
 
     HELP = "Local agent runner, knowledge extractor, scaffold and runbook tool."
+    EVERY_COMMAND = "*"
     PASS_THROUGH_SETTINGS = {"allow_extra_args": True, "ignore_unknown_options": True, "help_option_names": []}
 
     def __init__(self, commands: Mapping[str, Command], parsed: ParsedCommand, target: str) -> None:
@@ -233,7 +234,7 @@ class BriarApp:
 
     def _add(self, app: typer.Typer, name: str, command: Command) -> None:
         """`name` is the registry key, as in 1.x; the command's own `name` attribute is not read."""
-        routes = [options_cls for options_cls in ROUTES if options_cls.ROUTE.command == name] if name == self._target else []
+        routes = [options_cls for options_cls in ROUTES if options_cls.ROUTE.command == name] if self._target in (name, self.EVERY_COMMAND) else []
         if not routes:
             app.command(name, help=command.help, context_settings=dict(self.PASS_THROUGH_SETTINGS), add_help_option=False)(PassThrough)
             return
@@ -261,10 +262,13 @@ class CommandLine:
     """Parses one briar command line into the namespace its command's `run()` takes."""
 
     PROG = "briar"
+    # Set by the shell completion script on each TAB (Click: `_<PROG>_COMPLETE`).
+    COMPLETE_VAR = "_BRIAR_COMPLETE"
 
-    def __init__(self, commands: Mapping[str, Command], output_format: str) -> None:
+    def __init__(self, commands: Mapping[str, Command], output_format: str, environ: Mapping[str, str]) -> None:
         self._commands = commands
         self._output_format = output_format
+        self._environ = environ
 
     def pass_through_commands(self) -> Dict[str, Command]:
         """The commands whose 1.x argparse parser still does the parsing."""
@@ -283,7 +287,10 @@ class CommandLine:
 
     def _target(self, argv: List[str]) -> str:
         """The command the line names: its first word that is not an option or the value
-        of `--format` (`main` has already taken the other global flags out)."""
+        of `--format` (`main` has already taken the other global flags out). Shell
+        completion reads the words from the environment, so it needs every command."""
+        if self.COMPLETE_VAR in self._environ:
+            return BriarApp.EVERY_COMMAND
         words = [token for index, token in enumerate(argv) if not token.startswith("-") and (index == 0 or argv[index - 1] != "--format")]
         return words[0] if words else ""
 

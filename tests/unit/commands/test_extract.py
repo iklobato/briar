@@ -26,7 +26,7 @@ class TestExtractFailureMode:
         result = cli(
             "extract",
             "--company", "acme",
-            "--storage", "file",
+            "--store", "file",
             "--root", str(tmp_root / "knowledge"),
         )
         assert result.code == 1
@@ -40,7 +40,7 @@ class TestExtractFailureMode:
         result = cli(
             "extract",
             "--company", "acme",
-            "--storage", "file",
+            "--store", "file",
             "--root", str(tmp_root / "knowledge"),
         )
         assert result.code == 1
@@ -66,7 +66,7 @@ class TestExtractInclude:
             "extract",
             "--company", "acme",
             "--include", target,
-            "--storage", "file",
+            "--store", "file",
             "--root", str(tmp_root / "knowledge"),
         )
         # All-empty path: rc=1, but only the included one was called.
@@ -88,7 +88,7 @@ class TestExtractInclude:
         cli(
             "extract",
             "--company", "acme",
-            "--storage", "file",
+            "--store", "file",
             "--root", str(tmp_root / "knowledge"),
         )
         assert called == set(EXTRACTORS.keys())
@@ -111,7 +111,7 @@ class TestExtractWriteSuccess:
             "extract",
             "--company", "acme",
             "--include", first_name,
-            "--storage", "file",
+            "--store", "file",
             "--root", str(tmp_root / "knowledge"),
         )
         assert result.code == 0
@@ -133,7 +133,7 @@ class TestExtractWriteSuccess:
             "--company", "acme",
             "--blob-name", "custom:name",
             "--include", first_name,
-            "--storage", "file",
+            "--store", "file",
             "--root", str(tmp_root / "knowledge"),
         )
         assert result.code == 0
@@ -158,7 +158,7 @@ class TestExtractJsonSidecar:
             "extract",
             "--company", "acme",
             "--include", first_name,
-            "--storage", "file",
+            "--store", "file",
             "--root", str(tmp_root / "knowledge"),
             "--out-json", str(out),
         )
@@ -181,7 +181,7 @@ class TestExtractJsonSidecar:
             "extract",
             "--company", "acme",
             "--include", first_name,
-            "--storage", "file",
+            "--store", "file",
             "--root", str(tmp_root / "knowledge"),
         )
         assert result.code == 0
@@ -213,7 +213,7 @@ class TestExtractKeepsOtherSections:
 
     @staticmethod
     def _run(cli, root, *include: str):
-        args = ["extract", "--company", "acme", "--storage", "file", "--root", str(root)]
+        args = ["extract", "--company", "acme", "--store", "file", "--root", str(root)]
         for name in include:
             args += ["--include", name]
         return cli(*args)

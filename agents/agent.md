@@ -258,7 +258,6 @@ These work on both commands but do not show in `-h`.
 
 | Parameter | What it means | Default | Example |
 |---|---|---|---|
-| `--knowledge` | Old name for `--root`. Prints `note: --knowledge is deprecated; use --root instead.` | `./knowledge` | `--knowledge ./kb` |
 | `--meeting` | Meeting tool to search. Only `fireflies` exists. | `fireflies` | `--meeting fireflies` |
 | `--meeting-top-k` | How many matching meetings to read when searching. Values below 1 count as 1. | `3` | `--meeting-top-k 5` |
 | `--meeting-max-bytes` | Byte limit for each meeting transcript. Values below 1024 count as 1024. | `50000` | `--meeting-max-bytes 8000` |

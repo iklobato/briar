@@ -33,6 +33,8 @@ from briar.formatting import FORMATTERS
 from briar.journal import JOURNAL_STORE_NAMES
 from briar.storage import KNOWLEDGE_STORE_NAMES
 
+from .conftest import Tripwire
+
 USAGE_ERROR = 2
 IMPLEMENT = ("agent", "implement", "--ticket-key", "T-1")
 ALIAS_POSITION = -2  # each removed-alias line ends with the alias and its value
@@ -203,7 +205,7 @@ class TestPlanDefaults:
 
 
 class TestRemovedAliases:
-    """The 1.x hidden aliases (D29a). `extract --storage` goes in spec 002 PR 6."""
+    """The 1.x hidden aliases (D29a)."""
 
     @pytest.mark.parametrize(
         "argv",
@@ -218,3 +220,43 @@ class TestRemovedAliases:
         assert run.code == USAGE_ERROR
         assert f"No such option: {alias}" in run.err
         assert "args" not in recorded_run
+
+    def test_extract_storage_alias_is_an_unknown_argument(self, cli: Callable[..., SimpleNamespace], recorded_run: Dict[str, argparse.Namespace]) -> None:
+        """`extract` is still on argparse (spec 004), so the wording is argparse's."""
+        run = cli("extract", "--company", "acme", "--storage", "file")
+
+        assert run.code == USAGE_ERROR
+        assert "unrecognized arguments: --storage" in run.err
+        assert "args" not in recorded_run
+
+
+class TestCommandList:
+    EXPECTED = {"extract", "runbook", "context", "agent", "auth", "plan", "secrets", "journal", "telemetry", "version", "init", "config", "doctor"}
+
+    def test_help_lists_the_13_commands(self, cli: Callable[..., SimpleNamespace]) -> None:
+        listed = cli("--help").out.split("Commands:")[1].split()
+
+        assert {word for word in listed if word in self.EXPECTED | {"completion"}} == self.EXPECTED
+
+    def test_completion_command_is_gone(self, cli: Callable[..., SimpleNamespace]) -> None:
+        run = cli("completion", "bash")
+
+        assert run.code == USAGE_ERROR
+        assert "No such command 'completion'" in run.err
+
+
+class TestShellCompletion:
+    """Typer's own completion replaces `briar completion` (D29a)."""
+
+    def test_show_completion_prints_a_script_without_startup_io(self, cli: Callable[..., SimpleNamespace], tripwire: Tripwire) -> None:
+        run = cli("--show-completion", "bash", env={"_TYPER_COMPLETE_TEST_DISABLE_SHELL_DETECTION": "1"})
+
+        assert (run.code, tripwire.calls) == (0, [])
+        assert "_BRIAR_COMPLETE=complete_bash" in run.out
+
+    def test_tab_completes_the_options_of_a_command(self, cli: Callable[..., SimpleNamespace], tripwire: Tripwire) -> None:
+        """A TAB press runs briar with no arguments and the words in the environment."""
+        run = cli(env={"_BRIAR_COMPLETE": "complete_bash", "COMP_WORDS": "briar agent implement --tic", "COMP_CWORD": "3"})
+
+        assert (run.code, tripwire.calls) == (0, [])
+        assert run.out.split() == ["--ticket-project", "--ticket-key"]

@@ -42,7 +42,7 @@ only in the private site repo.
 | Path | What is there |
 |---|---|
 | `src/briar/cli.py` | Entry point `main()`: global flags (`--format`, `-v`, `--version` anywhere), startup work, then runs the parsed command with exit codes 0/1/2/130 |
-| `src/briar/cli_app.py` | The Typer app (2.0, spec 002). A command on Typer declares its options as a `CommandOptions` dataclass in its own module; the others still go through `PassThrough` to their 1.x argparse parser |
+| `src/briar/cli_app.py` | The Typer app (2.0, spec 002). Each command declares its options as a `CommandOptions` dataclass in its own module; only `extract` still goes through `PassThrough` to its argparse parser (until spec 004), and `config.py` keeps the argparse shim it needs |
 | `src/briar/settings.py` | Where a setting comes from: env > `.briar.toml` / `[tool.briar]` > git origin > default; feeds `config show` and the Typer default map |
 | `src/briar/commands/` | One module per top-level command (`extract`, `agent`, `plan`, `runbook`, `context`, `auth`, ...) |
 | `tests/unit/cli/` | The CLI contract from 1.x (`flags_1x.json`, precedence, global flags, exit codes); must pass unchanged through the Typer move |

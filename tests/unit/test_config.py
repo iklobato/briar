@@ -44,9 +44,10 @@ def test_no_config_returns_empty(tmp_path):
 
 
 def _parser_with_required_company():
+    """Shaped like `briar extract`, the only command whose parser this shim still fills."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--company", required=True)
-    parser.add_argument("--store", default="file")
+    parser.add_argument("--store", dest="storage", default="file")
     return parser
 
 
@@ -63,7 +64,7 @@ def test_cli_flag_overrides_config():
     apply_config_defaults(parser, {"company": "acme", "store": "postgres"})
     args = parser.parse_args(["--company", "other", "--store", "file"])
     assert args.company == "other"
-    assert args.store == "file"
+    assert args.storage == "file"
 
 
 def test_env_overrides_config(monkeypatch):
@@ -71,7 +72,7 @@ def test_env_overrides_config(monkeypatch):
     parser = _parser_with_required_company()
     apply_config_defaults(parser, {"company": "acme", "store": "file"})
     args = parser.parse_args([])
-    assert args.store == "postgres"  # env beats config
+    assert args.storage == "postgres"  # env beats config
 
 
 def test_credential_store_env_does_not_set_knowledge_store(monkeypatch):
@@ -81,17 +82,14 @@ def test_credential_store_env_does_not_set_knowledge_store(monkeypatch):
     monkeypatch.setenv("BRIAR_DEFAULT_STORE", "vault")
     parser = _parser_with_required_company()
     apply_config_defaults(parser, {"company": "acme", "store": "file"})
-    assert parser.parse_args([]).store == "file"
+    assert parser.parse_args([]).storage == "file"
 
 
-def test_repo_section_feeds_owner_repo_provider():
+def test_repo_section_feeds_provider() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--owner", required=True)
-    parser.add_argument("--repo", required=True)
     parser.add_argument("--provider", default="github")
     apply_config_defaults(parser, {"repo": {"owner": "acme-co", "repo": "app", "provider": "bitbucket"}})
-    args = parser.parse_args([])
-    assert (args.owner, args.repo, args.provider) == ("acme-co", "app", "bitbucket")
+    assert parser.parse_args([]).provider == "bitbucket"
 
 
 def test_unrelated_dest_untouched():
@@ -101,20 +99,14 @@ def test_unrelated_dest_untouched():
     assert parser.parse_args([]).unrelated == "keep"
 
 
-def test_append_repo_gets_slug_list_scalar_repo_gets_bare_name():
-    """A `[repo]` section feeds an append --repo (extract canonical) a
-    list of owner/repo slugs, and a scalar --repo (agent) the bare name."""
+def test_append_repo_gets_slug_list() -> None:
+    """A `[repo]` section feeds the append --repo of extract a list of owner/repo slugs."""
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="cmd")
     extract = sub.add_parser("extract")
     extract.add_argument("--repo", action="append", default=[])
-    agent = sub.add_parser("agent")
-    agent.add_argument("--repo", required=True)
-    agent.add_argument("--owner", required=True)
     apply_config_defaults(parser, {"repo": {"owner": "acme-co", "repo": "acme-app"}})
     assert parser.parse_args(["extract"]).repo == ["acme-co/acme-app"]
-    ns = parser.parse_args(["agent"])
-    assert (ns.owner, ns.repo) == ("acme-co", "acme-app")
 
 
 def test_repos_array_feeds_append_repo():
