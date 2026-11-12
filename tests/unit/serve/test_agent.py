@@ -157,6 +157,13 @@ class TestBashGuard:
             ("pytest -q >out.txt 2>&1", ""),
             ("pytest -q &> out.txt", ""),
             ("pytest -q 2>&1 && docker ps", "not in the bash allowlist of this company: 'docker'"),
+            # Real run, 2026-11-12: a subshell `(ruff ...; ruff ...)` read as the command `(ruff`.
+            ("pytest -q; (ruff check a.py; ruff format --check a.py) 2>&1 | tail -5", ""),
+            ("(ls; docker ps)", "not in the bash allowlist of this company: 'docker'"),
+            # Same run: `NAME=value` before the command read as the command.
+            ("PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src python -m pytest -q 2>&1 | tail -5", ""),
+            ("X=1 docker ps", "not in the bash allowlist of this company: 'docker'"),
+            ("env PYTHONPATH=src python -m pytest", "not in the bash allowlist of this company: 'env'"),
         ],
     )
     def test_bash_runs_only_allowed_programs(self, guard: BashGuard, command: str, refusal: str) -> None:

@@ -72,6 +72,7 @@ class BashGuard:
     EDIT_TOOLS: ClassVar[Tuple[str, ...]] = ("Edit", "MultiEdit", "Write", "NotebookEdit")
     SEPARATORS: ClassVar[str] = ";|\n"
     REDIRECT: ClassVar["re.Pattern[str]"] = re.compile(r"[0-9]*[<>]&[0-9-]*|&>>?")
+    ASSIGNMENT: ClassVar["re.Pattern[str]"] = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
     def __init__(self, worktree: Path, verbs: Sequence[str], readable: Sequence[Path]) -> None:
         self._worktree = worktree
@@ -123,12 +124,21 @@ class BashGuard:
         return f"not in the bash allowlist of this company: {unknown[0]!r}" if unknown else ""
 
     def _verbs_of(self, command: str) -> List[str]:
-        """The first word of each command of the line (`;`, `|`, `&&` start a new one). A
-        redirection (`2>&1`, `>&2`, `&>`) is no separator: a real run read `2>&1` as `&&`."""
-        lexer = shlex.shlex(self.REDIRECT.sub(" ", command), posix=True, punctuation_chars=self.SEPARATORS + "&")
+        """The program of each command of the line (`;`, `|`, `&&`, `(` and `)` start a new
+        one). Real runs showed three things that are no command: a redirection (`2>&1` read as
+        `&&`), a subshell paren (`(ruff`) and `NAME=value` before the program."""
+        lexer = shlex.shlex(self.REDIRECT.sub(" ", command), posix=True, punctuation_chars=self.SEPARATORS + "&()")
         lexer.whitespace_split = True
-        words = list(lexer)
-        return [word for index, word in enumerate(words) if index == 0 or set(words[index - 1]) <= set(self.SEPARATORS + "&")]
+        verbs: List[str] = []
+        starting = True
+        for word in lexer:
+            if set(word) <= set(self.SEPARATORS + "&()"):
+                starting = True
+                continue
+            if starting and not self.ASSIGNMENT.match(word):
+                verbs.append(word)
+                starting = False
+        return verbs
 
 
 class ToolGate:
