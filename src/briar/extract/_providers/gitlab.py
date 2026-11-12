@@ -45,6 +45,10 @@ class GitlabRest(Protocol):
 
     def text(self, path: str, query: Optional[Dict[str, Any]] = None) -> str: ...
 
+    def post(self, path: str, body: Dict[str, Any]) -> Dict[str, Any]: ...
+
+    def put(self, path: str, body: Dict[str, Any]) -> Dict[str, Any]: ...
+
 
 class GitlabApi:
     """`GitlabRest` over `python-gitlab`, built on the first call."""
@@ -68,6 +72,14 @@ class GitlabApi:
     def text(self, path: str, query: Optional[Dict[str, Any]] = None) -> str:
         answer = self._client.http_get(path, query_data=query or {}, raw=True, max_retries=self.ATTEMPTS)
         return str(answer.text)
+
+    def post(self, path: str, body: Dict[str, Any]) -> Dict[str, Any]:
+        found: Dict[str, Any] = self._client.http_post(path, post_data=body, max_retries=self.ATTEMPTS)
+        return found
+
+    def put(self, path: str, body: Dict[str, Any]) -> Dict[str, Any]:
+        found: Dict[str, Any] = self._client.http_put(path, post_data=body, max_retries=self.ATTEMPTS)
+        return found
 
     @cached_property
     def _client(self) -> Any:

@@ -13,8 +13,7 @@ Doc URLs modelled:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Tuple
 
 import pytest
 import requests
@@ -24,6 +23,7 @@ from briar.auth.check import LoginRejected, SourceUnreachable
 from briar.extract._provider import BranchProtection, CiFailure, CiRun, CodeSearchHit, Commit, CommentKind, Deployment, Environment, PullRequest, Release, ReviewComment, TreeEntry
 from briar.extract._providers import make_provider
 from briar.extract._providers.gitlab import GitlabProvider
+from tests.unit.extract.gitlab_fakes import FakeGitlabApi
 from tests.unit.fake_logins import FakeLogins
 
 FAKE_TOKEN = "PLACEHOLDER-not-a-secret"
@@ -44,34 +44,6 @@ EXTRA_LINES = 5
 SINCE_DAYS, MAX_COMMITS = 7, 5
 TWO = 2
 DEPLOYMENT = 3
-
-
-@dataclass(frozen=True)
-class FakeGitlabApi:
-    """The `GitlabApi` surface: each path gives its answer (an exception is raised);
-    `calls` records the path and query of every call, in order."""
-
-    answers: Mapping[str, Any]
-    calls: List[Tuple[str, Dict[str, Any]]] = field(default_factory=list)
-
-    def get(self, path: str, query: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        found: Dict[str, Any] = self._answer(path, query)
-        return found
-
-    def pages(self, path: str, query: Optional[Dict[str, Any]] = None, cap: int = 0) -> List[Dict[str, Any]]:
-        found: List[Dict[str, Any]] = self._answer(path, query)
-        return found[:cap] if cap else found
-
-    def text(self, path: str, query: Optional[Dict[str, Any]] = None) -> str:
-        found: str = self._answer(path, query)
-        return found
-
-    def _answer(self, path: str, query: Optional[Dict[str, Any]]) -> Any:
-        self.calls.append((path, dict(query or {})))
-        found = self.answers[path]
-        if isinstance(found, BaseException):
-            raise found
-        return found
 
 
 class Provider:
