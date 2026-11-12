@@ -54,6 +54,9 @@ class TestHappyPath:
 
     def test_the_agent_gets_the_worktree_the_budget_and_read_only_steps(self, setups: Setups, tmp_path: Path) -> None:
         setup = setups.make({})
+        knowledge = setup.company.knowledge_file()
+        knowledge.parent.mkdir(parents=True, exist_ok=True)
+        knowledge.write_text("# acme\n")
         agent = ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()])
 
         setup.work_on(agent, Items().jira())

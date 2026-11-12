@@ -247,8 +247,7 @@ class AgentSteps:
         return Plan.from_answer(await self._ask(prompt, Plan.SCHEMA, Access.READ))
 
     async def build(self, plan: Plan) -> None:
-        verify = "\n".join(f"- `{command}`" for command in self._context.company.settings.verify) or "- (no verify commands set)"
-        await self._ask(Prompts().text("build", {**self._fields(), "plan": plan.markdown(), "verify": verify}), {}, Access.EDIT)
+        await self._ask(Prompts().text("build", {**self._fields(), "plan": plan.markdown(), "verify": self._verify()}), {}, Access.EDIT)
 
     async def fix(self, what: str, details: str) -> None:
         await self._ask(Prompts().text("fix", {**self._fields(), "what": what, "details": details}), {}, Access.EDIT)
@@ -256,7 +255,7 @@ class AgentSteps:
     async def answer(self, comments: Tuple[ReviewComment, ...]) -> Answers:
         """V7: one call over every new comment of the round; it may edit."""
         listed = "\n\n".join(self._listed(comment) for comment in comments)
-        prompt = Prompts().text("comments", {**self._fields(), "comments": listed})
+        prompt = Prompts().text("comments", {**self._fields(), "comments": listed, "verify": self._verify()})
         return Answers.from_answer(await self._ask(prompt, Answers.SCHEMA, Access.EDIT))
 
     async def review(self, plan: Plan, diff: str) -> Review:
@@ -271,9 +270,16 @@ class AgentSteps:
     def _fields(self) -> Mapping[str, str]:
         return {"key": self._context.item.ref(), "title": self._context.item.title}
 
+    def _verify(self) -> str:
+        return "\n".join(f"- `{command}`" for command in self._context.company.settings.verify) or "- (no verify commands set)"
+
+    def _known(self, path: Path) -> str:
+        """A real run sent the agent to read files that did not exist yet."""
+        return str(path) if path.exists() else "(none yet)"
+
     async def _ask(self, prompt: str, schema: Mapping[str, Any], access: Access) -> AgentAnswer:
         company = self._context.company
-        values = {"company": company.name, "repo": self._context.item.repo, "knowledge": str(company.knowledge_file()), "state": str(company.state_file())}
+        values = {"company": company.name, "repo": self._context.item.repo, "knowledge": self._known(company.knowledge_file()), "state": self._known(company.state_file())}
         request = AgentRequest(prompt, Prompts().text("system", values), self._context.worktree, self._budget.left_usd(), schema, access)
         answer = await self._agent.ask(request)
         self._budget.spend(answer)
