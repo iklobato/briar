@@ -49,6 +49,9 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`.
 - `briar doctor` dropped `[repo]` from the `git remote` hint, because the
   table renderer read a word in brackets as style markup. Table cells now
   print as written.
+- With no git origin, `briar doctor` says to run
+  `briar init --owner OWNER --repo REPO` or set `[repo]` in `.briar.toml`.
+  The 1.x hint said to pass `--owner`, which only `init` has in 2.0.
 
 ### Removed
 

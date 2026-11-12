@@ -44,7 +44,7 @@ def _config_check() -> Check:
 
     path = find_config_file()
     if path is None:
-        return Check("project config", WARN, "no .briar.toml found — run `briar init`")
+        return Check("project config", WARN, "no .briar.toml found: run `briar init`")
     return Check("project config", OK, str(path))
 
 
@@ -53,7 +53,7 @@ def _git_check() -> Check:
 
     slug = git_remote_slug()
     if slug is None:
-        return Check("git remote", WARN, "no git origin — pass --owner/--repo or set [repo] in config")
+        return Check("git remote", WARN, "no git origin: run `briar init --owner OWNER --repo REPO`, or set [repo] in .briar.toml")
     return Check("git remote", OK, f"{slug[0]}/{slug[1]} (inferred)")
 
 

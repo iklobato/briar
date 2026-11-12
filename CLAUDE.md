@@ -34,10 +34,10 @@ only in the private site repo.
 | Latest version | 1.1.101 (PyPI and GitHub Release `v1.1.101` = latest) |
 | Python | 3.10, 3.11, 3.12 (CI unit jobs); the integration job runs on whatever `uv` picks (3.14 in CI) |
 | Release trigger | every push to `main`, except `chore(release):` commits; it bumps the patch only |
-| 2.0 | in progress on branch `v2` (still equal to `main`); 17 stacked PRs open, #79 to #95. Status and handoff: `docs/briar-2-status.md` |
+| 2.0 | in progress on branch `v2` (still equal to `main`); 18 stacked PRs open, #79 to #96. Status and handoff: `docs/briar-2-status.md` |
 | MCP registry | `io.github.iklobato/briar`, latest 1.1.94; stays there, 2.0 has no MCP server |
 | Open issues | #76, #77 (section 8) |
-| Open PRs | #79 to #95, all into `v2`, not reviewed |
+| Open PRs | #79 to #96, all into `v2`, not reviewed |
 | Stars / forks | 3 / 0 |
 
 ## 3. Repo layout
@@ -68,7 +68,7 @@ only in the private site repo.
   `briar/main`.
 - **2.0 work goes to `v2`, not `main`** (decision D27). The open 2.0 PRs are
   stacked: branch a new 2.0 PR from the top of the stack (now
-  `core/05-final-trims`, PR #95) and target `v2`. Read
+  `fix/doctor-git-remote-hint`, PR #96) and target `v2`. Read
   `docs/briar-2-status.md` first.
 - **A merge to `main` is a public release.** `.github/workflows/release.yml`
   runs the unit tests (`uv run pytest -n auto -m "not integration"`),
@@ -187,12 +187,13 @@ Full detail per version is in `CHANGELOG.md`. In short:
   the output modes removed; PR #95: `auth` keeps `login` and `status`,
   `runbook` keeps `extract` and `serve`, `briar config` folded into
   `briar doctor` (settings table, telemetry row, JSON object), README
-  rewritten around the 5 commands with no images.
+  rewritten around the 5 commands with no images; PR #96: the `doctor`
+  git remote hint names `briar init --owner`.
   Details and numbers: `docs/briar-2-status.md`.
 
 ## 7. Next steps (in order)
 
-0. **2.0**: review and merge PRs #79 to #95 into `v2` in order; decide how
+0. **2.0**: review and merge PRs #79 to #96 into `v2` in order; decide how
    2.0 is released before `v2` merges to `main` (the workflow would publish
    1.1.102); then specs 003, 004, 005. Order and detail:
    `docs/briar-2-status.md` section 5.

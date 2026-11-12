@@ -158,7 +158,7 @@ fails, so you can use it in CI.
 | `python` | Python is 3.10 or newer. | `fail` |
 | `briar` | Always. Shows the briar version. | |
 | `project config` | A `.briar.toml` (or `[tool.briar]`) is found. | `warn`: run `briar init`. |
-| `git remote` | An `origin` remote gives an owner and repo. | `warn`: pass `--owner` and `--repo`, or set them in the config. |
+| `git remote` | An `origin` remote gives an owner and repo. | `warn`: run `briar init --owner OWNER --repo REPO`, or set them under `[repo]` in `.briar.toml`. |
 | `github token` | `GITHUB_TOKEN` is set. | `warn`: the GitHub extractors need it. |
 
 ### Use it when

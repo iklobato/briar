@@ -47,6 +47,11 @@ fixes it with the doctor rework.
   `agents/extract.md`. (E1 to E16)
 - F9. `runbook sweep` users move to `runbook serve DIR`, or to
   `runbook extract` once per file; the manuals show both. (C14)
+- F10. With no git origin, the `git remote` check of `briar doctor` says
+  "no git origin: run `briar init --owner OWNER --repo REPO`, or set
+  [repo] in .briar.toml". Why: only `init` has `--owner` in 2.0, so the
+  1.x hint "pass --owner/--repo" did not say where. Ships as its own PR
+  on top of PR 5 (decided after PR 5 was opened). (F2, E1)
 
 ## Open risks and things left undecided
 

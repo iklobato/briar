@@ -30,7 +30,7 @@ now, what was found on the way, what is left and what to watch.
   PRs under it until those merge. Merge them **in order, #79 first, as
   merge commits**.
 - CI runs on every PR into `main` or `v2` (`.github/workflows/tests.yml`).
-  PRs #79 to #94 had green CI on their last commit. Nobody has reviewed
+  PRs #79 to #95 had green CI on their last commit. Nobody has reviewed
   them (the maintainer is the only reviewer).
 
 | PR | Branch | What it does |
@@ -52,6 +52,7 @@ now, what was found on the way, what is left and what to watch.
 | https://github.com/iklobato/briar/pull/93 | `core/03-file-store-only` | Spec 006 part 3: the file store is the only knowledge store; removes Postgres, `--store`, the `store` setting, `SQLAlchemy`, `psycopg` |
 | https://github.com/iklobato/briar/pull/94 | `core/04-extract-config` | Spec 006 part 4: `extract` keeps `--company`, `--include`, `--repo`; every other value moves to `[extract]` / `[extract.<name>]` with short names; the output modes go |
 | https://github.com/iklobato/briar/pull/95 | `core/05-final-trims` | Spec 006 part 5: `auth` login and status, `runbook` extract and serve, `briar config` folded into `doctor`, README rewritten around the 5 commands, the success checks |
+| https://github.com/iklobato/briar/pull/96 | `fix/doctor-git-remote-hint` | With no git origin, `doctor` says to run `briar init --owner OWNER --repo REPO` or set `[repo]` in `.briar.toml` (F10); no em dash in the `doctor` hints |
 
 ## 2. What is done
 
@@ -335,7 +336,7 @@ Each item was reproduced in this work; the PR named holds the evidence.
 
 ## 5. Next steps, in order
 
-1. **Review and merge #79 to #95 into `v2`**, in order, as merge commits.
+1. **Review and merge #79 to #96 into `v2`**, in order, as merge commits.
    Re-check `gh pr checks <n>` before each merge; after the last one, check
    that the `v2` CI run is green.
 2. **Decide how 2.0 is released before `v2` merges to `main`.**
