@@ -16,6 +16,7 @@ class SourceProbes:
     FACTORIES: ClassVar[Mapping[str, str]] = {
         "github": "_repo_host",
         "bitbucket": "_repo_host",
+        "gitlab": "_repo_host",
         "jira": "_tracker",
         "linear": "_tracker",
         "fireflies": "_meeting",

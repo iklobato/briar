@@ -19,10 +19,11 @@ from briar.errors import CliError
 from briar.extract._provider import RepositoryProvider
 from briar.extract._providers.bitbucket import BitbucketProvider
 from briar.extract._providers.github import GithubProvider
+from briar.extract._providers.gitlab import GitlabProvider
 
 
 PROVIDERS: Dict[str, Type[RepositoryProvider]] = build_registry(
-    (GithubProvider, BitbucketProvider),
+    (GithubProvider, BitbucketProvider, GitlabProvider),
     kind="repository provider",
     name_attr="kind",
 )

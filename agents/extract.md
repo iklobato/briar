@@ -357,30 +357,30 @@ from the code; a test fails when this table and the code differ):
 | `active-work` | `assignees_block` | `[]` |  |
 | `active-work` | `authors_allow` | `[]` |  |
 | `active-work` | `authors_block` | `[]` |  |
-| `active-work` | `provider` | `"github"` | github, bitbucket |
+| `active-work` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `aws-infra` | `cloud` | `"aws"` | aws, gcp, azure |
 | `aws-infra` | `region` | `"us-east-1"` |  |
 | `aws-infra` | `services` | `[]` | ecs, lambda, logs, rds, sqs, tagging-inventory |
 | `ci-health` | `max` | `100` |  |
-| `ci-health` | `provider` | `"github"` | github, bitbucket |
+| `ci-health` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `code-hotspots` | `max` | `100` |  |
-| `code-hotspots` | `provider` | `"github"` | github, bitbucket |
+| `code-hotspots` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `code-hotspots` | `since_days` | `30` |  |
 | `code-hotspots` | `top_n` | `10` |  |
 | `code-scanning` | `max` | `200` |  |
-| `code-scanning` | `provider` | `"github"` | github, bitbucket |
+| `code-scanning` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `code-scanning` | `top_n` | `10` |  |
-| `codebase-conventions` | `provider` | `"github"` | github, bitbucket |
+| `codebase-conventions` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `commit-message-quality` | `max` | `200` |  |
-| `commit-message-quality` | `provider` | `"github"` | github, bitbucket |
+| `commit-message-quality` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `commit-message-quality` | `since_days` | `90` |  |
 | `defect-hotspots` | `max` | `200` |  |
-| `defect-hotspots` | `provider` | `"github"` | github, bitbucket |
+| `defect-hotspots` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `defect-hotspots` | `since_days` | `90` |  |
 | `defect-hotspots` | `top_n` | `10` |  |
 | `dependency-health` | `max` | `200` |  |
-| `dependency-health` | `provider` | `"github"` | github, bitbucket |
-| `github-deployments` | `provider` | `"github"` | github, bitbucket |
+| `dependency-health` | `provider` | `"github"` | github, bitbucket, gitlab |
+| `github-deployments` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `meeting-digest` | `attendee_allow` | `[]` |  |
 | `meeting-digest` | `max` | `25` |  |
 | `meeting-digest` | `meeting` | `"fireflies"` | fireflies |
@@ -390,34 +390,34 @@ from the code; a test fails when this table and the code differ):
 | `pr-archaeology` | `authors_allow` | `[]` |  |
 | `pr-archaeology` | `authors_block` | `[]` |  |
 | `pr-archaeology` | `max` | `100` |  |
-| `pr-archaeology` | `provider` | `"github"` | github, bitbucket |
+| `pr-archaeology` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `pr-hygiene` | `large_loc` | `400` |  |
 | `pr-hygiene` | `max` | `100` |  |
-| `pr-hygiene` | `provider` | `"github"` | github, bitbucket |
+| `pr-hygiene` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `pr-hygiene` | `sample` | `30` |  |
 | `release-cadence` | `max` | `100` |  |
-| `release-cadence` | `provider` | `"github"` | github, bitbucket |
+| `release-cadence` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `repo-governance` | `branch` | `""` |  |
-| `repo-governance` | `provider` | `"github"` | github, bitbucket |
+| `repo-governance` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `revert-signals` | `max` | `200` |  |
-| `revert-signals` | `provider` | `"github"` | github, bitbucket |
+| `revert-signals` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `revert-signals` | `since_days` | `90` |  |
-| `review-nits` | `provider` | `"github"` | github, bitbucket |
+| `review-nits` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `review-nits` | `sample` | `30` |  |
 | `review-nits` | `top_n` | `15` |  |
-| `reviewer-profile` | `provider` | `"github"` | github, bitbucket |
+| `reviewer-profile` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `reviewer-profile` | `sample` | `20` |  |
 | `reviewer-profile` | `top_n` | `5` |  |
 | `stale-prs` | `days` | `14` |  |
 | `stale-prs` | `max` | `100` |  |
-| `stale-prs` | `provider` | `"github"` | github, bitbucket |
-| `test-discipline` | `provider` | `"github"` | github, bitbucket |
+| `stale-prs` | `provider` | `"github"` | github, bitbucket, gitlab |
+| `test-discipline` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `test-discipline` | `top_n` | `10` |  |
 | `ticket-archaeology` | `max` | `100` |  |
 | `ticket-archaeology` | `projects` | `[]` |  |
 | `ticket-archaeology` | `tracker` | `"jira"` | jira, github-issues, bitbucket-issues, linear |
 | `todo-density` | `max` | `200` |  |
-| `todo-density` | `provider` | `"github"` | github, bitbucket |
+| `todo-density` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `todo-density` | `top_n` | `10` |  |
 <!-- END extract-keys -->
 

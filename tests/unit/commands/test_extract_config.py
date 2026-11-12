@@ -121,7 +121,7 @@ class TestStops:
             ({"extract": {"pr-archaeology": {"pr_repo": ["a/b"]}}}, "`extract.pr-archaeology.pr_repo` in .briar.toml: the repo list comes from --repo"),
             ({"extract": {"pr-archaeology": {"repo": ["a/b"]}}}, "`extract.pr-archaeology.repo` in .briar.toml: the repo list comes from --repo"),
             ({"extract": {"pr-archaeology": {"bogus": 1}}}, "`extract.pr-archaeology.bogus` in .briar.toml: not a `briar extract` setting"),
-            ({"extract": {"provider": "gitlab"}}, "`extract.provider` in .briar.toml: 'gitlab' is not one of github, bitbucket"),
+            ({"extract": {"provider": "forgejo"}}, "`extract.provider` in .briar.toml: 'forgejo' is not one of github, bitbucket, gitlab"),
             ({"extract": {"aws-infra": {"services": ["ecs", "s3"]}}}, "`extract.aws-infra.services` in .briar.toml: 's3' is not one of"),
         ],
         ids=["shared key", "shared repo", "extractor name", "1.x name", "1.x repo name", "own repo", "own key", "shared choice", "list choice"],

@@ -97,6 +97,27 @@ class GithubFailures(LibraryFailures):
         return SourceUnreachable(self.detail(error))
 
 
+class GitlabFailures(LibraryFailures):
+    """python-gitlab: `GitlabError` carries the HTTP status and the GitLab message; the
+    network errors are `requests` ones."""
+
+    def caught(self) -> Tuple[Type[BaseException], ...]:
+        import requests
+        from gitlab.exceptions import GitlabError
+
+        return (GitlabError, requests.RequestException)
+
+    def translated(self, error: BaseException) -> AuthError:
+        from gitlab.exceptions import GitlabError
+
+        if not isinstance(error, GitlabError):
+            return RequestsFailures().translated(error)
+        if error.response_code is None:
+            return LoginRejected(self.detail(error))
+        # `str(error)` repeats the status ("401: 401 Unauthorized"): keep the message alone.
+        return LoginRejected(self.with_status(error.response_code, Exception(error.error_message)))
+
+
 class UrllibFailures(LibraryFailures):
     """The urllib GraphQL calls (Linear, Fireflies). `RuntimeError` is how `_gql` reports
     the errors of a 200 answer."""
