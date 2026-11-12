@@ -186,22 +186,22 @@ class BranchRules:
 
     def protected(self, name: str) -> Optional[Dict[str, Any]]:
         """The protected branch, None when the branch has no rule."""
-        from gitlab.exceptions import GitlabGetError
+        from gitlab.exceptions import GitlabHttpError
 
         try:
             return self._rest.get(f"{self._project}/protected_branches/{quote(name, safe='')}")
-        except GitlabGetError as error:
+        except GitlabHttpError as error:
             if error.response_code == self.NOT_FOUND:
                 return None
             raise
 
     def approvals(self) -> int:
         """The most approvals any rule asks for; 0 on a plan without approval rules."""
-        from gitlab.exceptions import GitlabGetError
+        from gitlab.exceptions import GitlabHttpError
 
         try:
             rules = self._rest.pages(f"{self._project}/approval_rules")
-        except GitlabGetError as error:
+        except GitlabHttpError as error:
             if error.response_code in self.NO_APPROVAL_RULES:
                 return 0
             raise
@@ -299,8 +299,15 @@ class GitlabProvider(RepositoryProvider):
 
     @swallow_errors(default="", message="gitlab read_file")
     def read_file(self, repo: str, path: str) -> str:
-        project = self._project(repo)
-        return self._rest.text(f"{project}/repository/files/{quote(path, safe='')}/raw", {"ref": self.default_branch(repo)})
+        """"" for a file that is not there: extractors probe common names, as on GitHub."""
+        from gitlab.exceptions import GitlabHttpError
+
+        try:
+            return self._rest.text(f"{self._project(repo)}/repository/files/{quote(path, safe='')}/raw", {"ref": self.default_branch(repo)})
+        except GitlabHttpError as error:
+            if error.response_code == BranchRules.NOT_FOUND:
+                return ""
+            raise
 
     @swallow_errors(default="", message="gitlab default_branch")
     def default_branch(self, repo: str) -> str:
@@ -313,7 +320,10 @@ class GitlabProvider(RepositoryProvider):
 
     @swallow_errors(default=[], message="gitlab search_code")
     def search_code(self, repo: str, query: str, *, max_count: int = MAX_HITS) -> List[CodeSearchHit]:
-        rows = self._rest.pages(f"{self._project(repo)}/search", {"scope": "blobs", "search": query}, max_count)
+        # GitLab blob search has no OR (a real "TODO OR FIXME OR HACK" found nothing): one search per word.
+        # ponytail: max_count caps each word, not the sum.
+        words = [word.strip() for word in query.split(" OR ") if word.strip()]
+        rows = [row for word in words for row in self._rest.pages(f"{self._project(repo)}/search", {"scope": "blobs", "search": word}, max_count)]
         counts = Counter(str(row.get("path") or "") for row in rows)
         return [CodeSearchHit(path, matches) for path, matches in counts.items()]
 

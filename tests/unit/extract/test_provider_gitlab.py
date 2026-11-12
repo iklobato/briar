@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 import pytest
 import requests
-from gitlab.exceptions import GitlabAuthenticationError, GitlabGetError
+from gitlab.exceptions import GitlabAuthenticationError, GitlabHttpError
 
 from briar.auth.check import LoginRejected, SourceUnreachable
 from briar.extract._provider import BranchProtection, CiFailure, CiRun, CodeSearchHit, Commit, CommentKind, Deployment, Environment, PullRequest, Release, ReviewComment, TreeEntry
@@ -247,10 +247,13 @@ class TestRepository:
         assert fake.provider().read_file(REPO, "docs/README.md") == "hello"
         assert fake.calls()[-1] == (raw, {"ref": "trunk"})
 
-    def test_a_missing_file_reads_as_empty(self) -> None:
-        missing = GitlabGetError(error_message="404 File Not Found", response_code=NOT_FOUND)
+    def test_a_missing_file_reads_as_empty_and_logs_nothing(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Real run: extractors probe common file names, so a 404 is the usual answer (as on GitHub)."""
+        missing = GitlabHttpError(error_message="404 File Not Found", response_code=NOT_FOUND)
 
-        assert Provider.of({PROJECT: {"default_branch": "main"}, f"{PROJECT}/repository/files/x.py/raw": missing}).provider().read_file(REPO, "x.py") == ""
+        read = Provider.of({PROJECT: {"default_branch": "main"}, f"{PROJECT}/repository/files/x.py/raw": missing}).provider().read_file(REPO, "x.py")
+
+        assert (read, caplog.records) == ("", [])
 
     def test_tree_marks_files_and_folders(self) -> None:
         answers = {f"{PROJECT}/repository/tree": [{"path": "src", "type": "tree"}, {"path": "src/a.py", "type": "blob"}]}
@@ -261,6 +264,15 @@ class TestRepository:
         answers = {f"{PROJECT}/search": [{"path": "a.py"}, {"path": "b.py"}, {"path": "a.py"}]}
 
         assert Provider.of(answers).provider().search_code(REPO, "TODO") == [CodeSearchHit("a.py", TWO), CodeSearchHit("b.py", 1)]
+
+    def test_an_or_query_is_one_search_per_word(self) -> None:
+        """Real run: GitLab blob search has no OR; "TODO OR FIXME OR HACK" found nothing."""
+        fake = Provider.of({f"{PROJECT}/search": [{"path": "a.py"}]})
+
+        hits = fake.provider().search_code(REPO, "TODO OR FIXME")
+
+        assert [query["search"] for _, query in fake.calls()] == ["TODO", "FIXME"]
+        assert hits == [CodeSearchHit("a.py", TWO)]
 
     def test_releases(self) -> None:
         answers = {f"{PROJECT}/releases": [{"tag_name": "v2", "name": "Two", "released_at": "r", "created_at": "c", "upcoming_release": True}]}
@@ -282,7 +294,7 @@ class TestGovernance:
         assert Provider.of(answers).provider().get_branch_protection(REPO) == BranchProtection("main", True, TWO, True, False, True)
 
     def test_an_unprotected_branch(self) -> None:
-        answers = {PROJECT: {"default_branch": "main"}, f"{PROJECT}/protected_branches/main": GitlabGetError(error_message="404 Not found", response_code=NOT_FOUND)}
+        answers = {PROJECT: {"default_branch": "main"}, f"{PROJECT}/protected_branches/main": GitlabHttpError(error_message="404 Not found", response_code=NOT_FOUND)}
 
         assert Provider.of(answers).provider().get_branch_protection(REPO) == BranchProtection("main", False)
 
@@ -290,7 +302,7 @@ class TestGovernance:
         answers = {
             PROJECT: {"default_branch": "main"},
             f"{PROJECT}/protected_branches/main": {"name": "main"},
-            f"{PROJECT}/approval_rules": GitlabGetError(error_message="403 Forbidden", response_code=FORBIDDEN),
+            f"{PROJECT}/approval_rules": GitlabHttpError(error_message="403 Forbidden", response_code=FORBIDDEN),
         }
 
         assert Provider.of(answers).provider().get_branch_protection(REPO) == BranchProtection("main", True)
