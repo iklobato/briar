@@ -625,8 +625,15 @@ as 1.x shipped it, in tag `v1.1.101`. Read one with
   `duedate` and `parent`; GitHub issues read `issue_dependencies_summary` (Q3).
 - `extract --include active-tickets` says "first 25 of 881 open ticket(s)" when it cuts the
   list (N17).
-- Numbers, 2026-11-12, Python 3.13.2: 1594 tests pass (unit and integration); mypy 25
-  (same); ruff 5 (the same old ones). Not run yet: a real `serve` poll with the selector.
+- Real run, 2026-11-12, read only: the selector (`Choice`) on the 5 open issues of the private
+  copy of `pallets/click`, `claude-sonnet-5-5`, 2 free slots. The first run kept nothing: the
+  model answered the key `1` for `iklobato/briar-oss-click#1`, and the picks were dropped with
+  no log line. Fixed: the prompt says to copy the whole key, and a dropped pick is logged.
+  Then: 2 picks (#1 and #3) with a reason each, US$ 0.037 for the call, and the second poll
+  with the same shortlist made no call. No task was started; nothing was written.
+- Numbers, 2026-11-12, Python 3.13.2: 1595 tests pass (unit and integration); mypy 25
+  (same); ruff 5 (the same old ones). Not run yet: a full `serve` poll that starts a picked
+  ticket, and a Jira project with dependencies and due dates.
 
 ### Spec 005: real runs on the accounts of the maintainer (G20)
 
