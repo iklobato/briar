@@ -117,4 +117,4 @@ class TestSmokeScaffold:
     def test_unknown_command_exit_2(self, tmp_path) -> None:
         result = _run(tmp_path, "frobnicate")
         assert result.returncode == 2
-        assert "invalid choice" in result.stderr
+        assert "No such command 'frobnicate'" in result.stderr

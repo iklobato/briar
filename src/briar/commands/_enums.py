@@ -5,7 +5,7 @@ fixed by the CLI contract — they belong in an enum.
 """
 from __future__ import annotations
 
-from enum import IntEnum
+from enum import Enum, IntEnum
 
 
 class ExitCode(IntEnum):
@@ -20,3 +20,20 @@ class ExitCode(IntEnum):
     OK = 0
     GENERAL_ERROR = 1
     USAGE_ERROR = 2
+
+
+class OutputFormat(str, Enum):
+    """`--format` choices on Typer; a test keeps them equal to `briar.formatting.FORMATTERS`."""
+
+    TABLE = "table"
+    JSON = "json"
+    YAML = "yaml"
+    CSV = "csv"
+    QUIET = "quiet"
+
+
+class KnowledgeStoreChoice(str, Enum):
+    """`--store` choices on Typer; a test keeps them equal to `briar.storage.KNOWLEDGE_STORE_NAMES`."""
+
+    FILE = "file"
+    POSTGRES = "postgres"

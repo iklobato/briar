@@ -23,12 +23,14 @@ import argparse
 import json
 import logging
 import sys
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from typing import Dict
+
+import typer
 
 from briar._registry import build_registry
 from briar.commands._enums import ExitCode
-from briar.commands.base import Subcommand, SubcommandCommand
+from briar.commands.base import CommandOptions, Route, Subcommand, SubcommandCommand
 from briar.formatting import render
 from briar.telemetry import TelemetryTier, active_config, preview_next_event, reset_install_id, save_tier
 from briar.telemetry._config import config_dir, default_dsn, install_id_path, resolve, state_path
@@ -69,14 +71,6 @@ class StatusOp(TelemetryOp):
 class PreviewOp(TelemetryOp):
     name = "preview"
     help = "Print the exact JSON event that would be sent for the next command run."
-
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument(
-            "--for-command",
-            default="(preview)",
-            dest="preview_command",
-            help="Pretend command name to render the event for.",
-        )
 
     def run(self, command, args: argparse.Namespace) -> int:
         event = preview_next_event(args.preview_command)
@@ -158,3 +152,38 @@ class CommandTelemetry(SubcommandCommand):
     dest = "telemetry_op"
     op_noun = "telemetry op"
     ops = TELEMETRY_OPS
+
+
+# ─── Options on Typer ──────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class TelemetryStatusOptions(CommandOptions):
+    ROUTE = Route(CommandTelemetry.name, CommandTelemetry.dest, StatusOp.name)
+
+
+@dataclass(frozen=True)
+class TelemetryPreviewOptions(CommandOptions):
+    ROUTE = Route(CommandTelemetry.name, CommandTelemetry.dest, PreviewOp.name)
+
+    preview_command: str = typer.Option("(preview)", "--for-command", help="Pretend command name to render the event for.")
+
+
+@dataclass(frozen=True)
+class TelemetryOffOptions(CommandOptions):
+    ROUTE = Route(CommandTelemetry.name, CommandTelemetry.dest, OffOp.name)
+
+
+@dataclass(frozen=True)
+class TelemetryErrorsOnlyOptions(CommandOptions):
+    ROUTE = Route(CommandTelemetry.name, CommandTelemetry.dest, ErrorsOnlyOp.name)
+
+
+@dataclass(frozen=True)
+class TelemetryFullOptions(CommandOptions):
+    ROUTE = Route(CommandTelemetry.name, CommandTelemetry.dest, FullOp.name)
+
+
+@dataclass(frozen=True)
+class TelemetryResetOptions(CommandOptions):
+    ROUTE = Route(CommandTelemetry.name, CommandTelemetry.dest, ResetOp.name)

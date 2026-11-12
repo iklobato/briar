@@ -53,20 +53,17 @@ def test_missing_creds_and_config_warn(monkeypatch):
 def test_postgres_without_dsn_is_a_hard_fail(monkeypatch):
     # Drive the real _store_check through a mocked resolution → FAIL, and
     # confirm run_checks() aggregates the worst status.
-    monkeypatch.setattr("briar.config.resolve_with_source", lambda *a, **k: [_setting("store", "postgres")])
+    monkeypatch.setattr("briar.config.load_project_config", lambda *a, **k: {"store": "postgres"})
+    monkeypatch.setattr("briar.infer.git_remote_slug", lambda cwd=None: None)
     _clear_dsn(monkeypatch)
     assert worst_status(run_checks()) == FAIL
 
 
 def test_store_check_postgres_dsn(monkeypatch):
-    monkeypatch.setattr("briar.config.resolve_with_source", lambda *a, **k: [_setting("store", "postgres")])
+    monkeypatch.setattr("briar.config.load_project_config", lambda *a, **k: {"store": "postgres"})
+    monkeypatch.setattr("briar.infer.git_remote_slug", lambda cwd=None: None)
     _clear_dsn(monkeypatch)
     assert doctor._store_check().status == FAIL
     monkeypatch.setenv("BRIAR_DATABASE_URL", "postgres://x")
     assert doctor._store_check().status == OK
 
-
-def _setting(name, value):
-    from briar.config import ResolvedSetting
-
-    return ResolvedSetting(name, value, "config")

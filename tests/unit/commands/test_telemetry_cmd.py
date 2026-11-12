@@ -139,4 +139,4 @@ class TestDispatch:
     def test_unknown_op_usage_error(self, cli) -> None:
         result = cli("telemetry", "frobnicate")
         assert result.code == 2
-        assert "invalid choice" in result.err
+        assert "frobnicate" in result.err
