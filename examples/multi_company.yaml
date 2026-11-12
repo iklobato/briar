@@ -187,6 +187,13 @@ companies:
       # (e.g. an EBS volume mounted just for that tenant).
       root: ./knowledge
 
+    # The logins of this company (spec 005). The GCP project and the gcloud
+    # config folder of the company live here, not in the extractor args.
+    auth:
+      gcp:
+        project: datacore-prod
+        config_dir: ~/.config/gcloud-datacore
+
     schedules:
 
       # ─── extractors: one consolidated daily run (small org) ────────────
@@ -209,14 +216,8 @@ companies:
           - name: aws-infra
             args:
               cloud: gcp
-              # `aws_extract_profile` carries the GCP project ID. For Azure
-              # adapter this would be the subscription ID. For AWS it
-              # carries the local boto3 profile name. (Key name reads odd
-              # for non-AWS providers, but matches the CLI flag
-              # `--aws-extract-profile` so YAMLs and CLI usage stay in
-              # sync. `cloud_profile`/`cloud_region` are accepted as
-              # back-compat aliases.)
-              aws_extract_profile: datacore-prod
+              # The project is `auth.gcp.project` of the company (above);
+              # only the region stays an extractor arg.
               aws_extract_region: us-central1
 
           - name: active-tickets

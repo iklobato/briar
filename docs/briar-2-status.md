@@ -12,10 +12,15 @@ now, what was found on the way, what is left and what to watch.
   to P22 and A1 to A15: the ticket pipeline's context, stages and loops, the 4
   agent roles, and the pipeline YAML) and `docs/decisions/2026-11-10-briar-2-knowledge.md`
   (K1 to K20: one file per extractor with front-matter and an `index.md` under
-  `~/.briar/knowledge/<company>/`, pipeline notes, history, freshness). Those
-  files decide; this file reports.
-- Facts below were checked on 2026-11-10 (UTC) with the command shown. When
-  this file and the code disagree, the code wins: fix this file in the same PR.
+  `~/.briar/knowledge/<company>/`, pipeline notes, history, freshness), and
+  for spec 005 (logins) `docs/decisions/2026-11-10-briar-2-logins-spec.md`
+  (G1 to G26, which replace L15 and parts of L2 to L5) with the per-PR files
+  `2026-11-10-briar-2-logins-pr1.md` (H1 to H10) and
+  `2026-11-11-briar-2-logins-pr2.md` (I1 to I10). Those files decide; this
+  file reports.
+- Facts below were checked on 2026-11-10 and 2026-11-11 (UTC) with the
+  command shown. When this file and the code disagree, the code wins: fix
+  this file in the same PR.
 - The spec-kit working files (`specs/`, `.specify/`) are not committed. What
   an agent needs from them is in this file.
 
@@ -30,8 +35,13 @@ now, what was found on the way, what is left and what to watch.
   PRs under it until those merge. Merge them **in order, #79 first, as
   merge commits**.
 - CI runs on every PR into `main` or `v2` (`.github/workflows/tests.yml`).
-  PRs #79 to #96 had green CI on their last commit. Nobody has reviewed
-  them (the maintainer is the only reviewer).
+  PRs #79 to #98 had green CI on their last commit (#97: run 42945883590,
+  #98: run 42950183037, checked 2026-11-11 with `gh pr checks <n> -R
+  iklobato/briar`). Nobody has reviewed them (the maintainer is the only
+  reviewer).
+- The branch of #97 was rewritten and force-pushed twice on 2026-11-11 to
+  take a test constant out of its history (section 4, GitGuardian). #98 was
+  built on the rewritten branch. Nothing else in the stack was rewritten.
 
 | PR | Branch | What it does |
 |---|---|---|
@@ -54,6 +64,7 @@ now, what was found on the way, what is left and what to watch.
 | https://github.com/iklobato/briar/pull/95 | `core/05-final-trims` | Spec 006 part 5: `auth` login and status, `runbook` extract and serve, `briar config` folded into `doctor`, README rewritten around the 5 commands, the success checks |
 | https://github.com/iklobato/briar/pull/96 | `fix/doctor-git-remote-hint` | With no git origin, `doctor` says to run `briar init --owner OWNER --repo REPO` or set `[repo]` in `.briar.toml` (F10); no em dash in the `doctor` hints |
 | https://github.com/iklobato/briar/pull/97 | `logins/01-config-pasted` | Spec 005 part 1: `[auth]` config and the runbook `auth:` block, `BRIAR_*` names with the 1.x name guard, source targets for `auth login|status` with `--runbook`, the pasted logins (GitHub PAT, Jira token and cookie, Bitbucket token, access token and cookie, Linear key, Fireflies key), the flat credential store |
+| https://github.com/iklobato/briar/pull/98 | `logins/02-clouds` | Spec 005 part 2: AWS, GCP and Azure log in through their CLI (`[auth.aws] profile`, `[auth.gcp] config_dir` and `project`, `[auth.azure] tenant` and `subscription`); `profile` leaves `[extract.aws-infra]`; the acquirers and `CredEnv` go |
 
 ## 2. What is done
 
@@ -258,6 +269,14 @@ as 1.x shipped it, in tag `v1.1.101`. Read one with
   `openai` or `google.generativeai`, and `pyproject.toml` names none of
   them (SC-006). mypy: 29 errors before, 28 after.
 
+### Fix: the `doctor` git remote hint (PR #96)
+
+- With no git `origin`, the `git remote` check of `briar doctor` says: no
+  git origin: run `briar init --owner OWNER --repo REPO`, or set `[repo]`
+  in `.briar.toml`. It used to name a command that 2.0 removed. Decision F10
+  in `docs/decisions/2026-11-10-briar-2-final-trims.md`.
+- The `doctor` hints have no em dash any more.
+
 ### Spec 005: source logins, part 1 of 4 (PR #97)
 
 - Settled first in two grill sessions:
@@ -300,6 +319,51 @@ as 1.x shipped it, in tag `v1.1.101`. Read one with
   lines before, 14,377 after. The Bitbucket cookie is tested with fakes
   only (H3).
 
+### Spec 005: source logins, part 2 of 4 (PR #98)
+
+- Settled first in a grill session:
+  `docs/decisions/2026-11-11-briar-2-logins-pr2.md` (I1 to I10).
+- `briar/auth/logins.py`: `CliLogin` (AWS, GCP, Azure) runs the CLI login
+  through `PromptIO.run_login` (`os.system`, no `subprocess`) and saves
+  nothing (L3). `AwsLogin` tells an SSO profile from a static one by
+  reading the AWS config with botocore (I5); `GcpLogin` gives the ADC file
+  of `config_dir` (G26); `AzureLogin` the tenant. A login needs its value;
+  a run does not (I6). `status_lines` is polymorphic: secret names for the
+  pasted sources, the CLI on `PATH` and the local login state for the
+  clouds (I7).
+- Cloud adapters take `logins`: boto3 `Session(profile_name=...)`,
+  google-auth `load_credentials_from_file` of the folder (or the default
+  chain) passed to every google client, `AzureCliCredential(tenant_id=...)`
+  (or `DefaultAzureCredential` with no tenant). The project and the
+  subscription come from `[auth.gcp]` and `[auth.azure]` (I4).
+- `profile` leaves `[extract.aws-infra]` (`ExtractConfig.MOVED` names the
+  new place) and the runbook args `aws_extract_profile` and `cloud_profile`
+  stop the load. The examples moved their cloud scope to `auth:` blocks,
+  and `examples/all_features.yaml` now lists the `BRIAR_*` names.
+- Gone: the acquirer package, `briar.env_vars` (`CredEnv`), the AWS
+  `required_env_vars`, and the 1.x AWS fallback to a profile named like
+  the company.
+- Numbers, 2026-11-11, Python 3.13.2: 1428 unit and 31 integration tests
+  pass; `make smoke` ok; mypy 28 errors before, 25 after; `src` 14,377
+  lines before, 14,104 after.
+
+### Spec 005: real runs on the accounts of the maintainer (G20)
+
+Read only, on the machine of the maintainer, 2026-11-11, with
+`.venv/bin/briar` of the branch in an empty folder under the job scratch dir.
+
+| Source | What ran | Result |
+|---|---|---|
+| GitHub | `BRIAR_REALTEST_GITHUB_TOKEN="$(gh auth token)" env -u GITHUB_TOKEN -u GH_TOKEN briar extract --company realtest --include ...` | ok: the blob was written (516 bytes) with the token of company `realtest` and no `GITHUB_TOKEN` |
+| AWS, SSO profile | `[auth.aws] profile` set to an SSO profile, `briar auth status aws`, `briar extract --include aws-infra` | ok: the AWS section names the account and region `us-east-1`, exit 0 |
+| AWS, static-key profile | the same with the `default` profile | AWS itself rejects the key (`InvalidClientTokenId`, the same as `aws sts get-caller-identity`), so the section says UNREACHABLE; not a briar bug |
+| GCP, Azure | `briar auth status gcp`, `briar auth status azure` | ok: found the CLIs and their local logins |
+
+Not run for real yet: Jira, Bitbucket, Linear, Fireflies (each needs the
+maintainer to run `briar auth login <source> --company <c>` first), a GCP or
+Azure extract (no project or subscription set up for it), the Bitbucket
+cookie (fakes only, H3). Keep account ids out of the repo and the PRs.
+
 ## 3. How the command line works now
 
 ```
@@ -327,11 +391,12 @@ briar.cli.main(argv)
   maintainer's code rules (at most 3 parameters).
   - `UNSET_AS`: a None default turned into the 1.x value at run time
     (`secrets bootstrap --kind` keeps `""`).
-  - `RegistryChoice`: `auth` targets are checked against the registry when
-    the command runs (tests add fake targets). Other choices are `str`
+  - `RegistryChoice`: `auth` targets are checked when the command runs,
+    against `LoginTargets.kinds()`, the 8 source names of
+    `CompanyLogins.SOURCES` (spec 005, G9). Other choices are `str`
     Enums in `commands/_enums.py`, each with a test that keeps it equal to
     its registry (`tests/unit/cli/test_typer_routes.py`).
-- **`settings.py`**: env (`BRIAR_COMPANY`, `BRIAR_STORE`, empty counts as
+- **`settings.py`**: env (`BRIAR_COMPANY`, empty counts as
   unset) > project config file > git `origin` (owner, repo) > the option's
   default. One file is read, never a merge: the nearest `.briar.toml`, or
   `pyproject.toml` with `[tool.briar]`, found upward from the cwd; in one
@@ -340,6 +405,58 @@ briar.cli.main(argv)
   `config (<file>) [<table>]`, `inferred (git origin)`, `-`).
 - **`config.py`**: now only the argparse shim for `extract`
   (`apply_config_defaults`); `infer.py` fills `extract --repo` from git.
+
+### Logins (spec 005, PRs #97 and #98)
+
+```
+.briar.toml [auth.<source>]           runbook companies.<c>.auth
+        |  AuthTable(config, origin).block()   |  CompanyEntry.auth (pydantic)
+        v                                      v
+     AuthBlock  (auth/config.py: one model per source, extra keys forbidden)
+        |
+        v
+CompanyLogins(LoginScope(company, origin, table), block, os.environ)   (auth/logins.py)
+        |  .github() .jira() .bitbucket() .linear() .fireflies() .aws() .gcp() .azure()
+        v
+   SourceLogin: names(), ready(), status_lines(), login(prompt)
+        |
+        +-- briar extract: ExtractConfig.logins(company) -> args.logins on every namespace
+        +-- runbook executor: one CompanyLogins per company
+        +-- briar auth login|status <source> [--company C] [--runbook FILE]
+        v
+adapters (_providers/, _trackers/, _meetings/, _clouds/) call self._login()
+```
+
+- **Secrets** are env names `BRIAR_<COMPANY>_<SOURCE>_<FIELD>`: the company
+  in capitals with `-` as `_` (`acme-co` gives `BRIAR_ACME_CO_JIRA_TOKEN`).
+  The `method` key of `[auth.<source>]` picks the fields (Jira `token`:
+  `EMAIL`, `TOKEN`; Jira `cookie`: `COOKIE`; Bitbucket `access-token`:
+  `ACCESS_TOKEN`). The startup bootstrap loads `secrets.env` into
+  `os.environ`, so a secret can come from either. `briar auth login` writes
+  `secrets.env` (`$BRIAR_SECRETS_FILE`, else `/etc/briar/secrets.env` when it
+  exists, else `~/.config/briar/secrets.env`) with `EnvFileStore`, mode 0600.
+- **Config values** (Jira `site`, Bitbucket `workspace`, cloud scope) live
+  in `[auth]`, never in `secrets.env`. briar never writes the config: a
+  missing one stops with "set `site` under `auth.jira` in .briar.toml (...)"
+  (H1).
+- **`ready()`**: True when every secret and config value is there. False
+  makes the extractor skip (`is_available`), until PR 3 turns it into a stop
+  before the run (G12). When the 2.0 login is missing and a 1.x name is set
+  (`JIRA_<C>_TOKEN`, `GITHUB_TOKEN`, `AWS_<C>_REGION`, ...), it raises a
+  `CliError` that names the new place and `briar auth login <source>` (G8,
+  G25, I10). With the 2.0 login set, the 1.x name is ignored.
+- **Pasted sources** (GitHub token, Jira, Bitbucket, Linear key, Fireflies
+  key): `login` asks each field (secrets hidden) and returns the entries;
+  `commands/auth.py` saves them. No live check until PR 3 (H9).
+- **Cloud sources** (`CliLogin`: AWS, GCP, Azure): `login` runs the cloud
+  CLI in the terminal through `PromptIO.run_login` (`os.system`) and saves
+  nothing. The run reads the CLI login with the cloud SDK: boto3
+  `Session(profile_name=...)`, google-auth `load_credentials_from_file` on
+  `<config_dir>/application_default_credentials.json`,
+  `AzureCliCredential(tenant_id=...)`. With no value set, the run uses the
+  default chain of the cloud (`DefaultAzureCredential` for Azure).
+- **Tests** build logins with `tests/unit/fake_logins.py` (`FakeLogins(auth,
+  environ, company)`), not with env vars.
 
 ## 4. Found on the way
 
@@ -377,9 +494,50 @@ Each item was reproduced in this work; the PR named holds the evidence.
   import 45 ms vs 37 ms. About 60 ms slower overall: Typer and the option
   classes load at import. Parsing itself is faster. PR #89.
 
+Found in spec 005 (2026-11-10 and 2026-11-11):
+
+- **GitGuardian flags an email next to a token, even a fake one.** A
+  module-level pair of test constants (an `@example.test` email and a
+  placeholder token) failed the PR check as an "Authentication Tuple". Only
+  rewriting the branch history cleared it (PR #97, force-pushed twice). Put
+  fake emails and tokens inside each test or a local dict, never as
+  module-level constants side by side.
+- **gcloud keeps one ADC file per config folder, not per named
+  configuration.** google-auth reads `$CLOUDSDK_CONFIG` (or
+  `~/.config/gcloud`) `/application_default_credentials.json`
+  (`google/auth/_cloud_sdk.py`, `get_config_path`). A named `gcloud config
+  configurations` entry changes the account of `gcloud` commands only. So
+  one GCP login per company is one folder: `[auth.gcp] config_dir` (G26).
+- **`AzureCliCredential` calls `az` at run time** to get each token, so
+  `az` must be installed wherever the run happens, not only at login (I3).
+  This is why Azure in the Docker image is unsupported (I8).
+- **AWS SSO and static profiles log in differently.** An SSO profile
+  (`sso_session` or `sso_start_url` in `~/.aws/config`) logs in with `aws
+  sso login --profile P` and boto3 renews the token by itself; a static
+  profile only has `aws configure --profile P`. `AwsLogin` reads the config
+  with botocore to pick one (I5).
+- **GitHub for many companies** (research before G10, G22): the gh CLI
+  holds several accounts since 2.40.0, but `gh auth token` returns
+  `GH_TOKEN`/`GITHUB_TOKEN` when set, while `--user` ignores them; its
+  keyring entries (`gh:<host>`) are gh internals. No Python library reads
+  the gh login (`ghtoken` only runs `gh auth token`). PyGithub (2.9.1, in
+  `uv.lock`) has no device flow; githubkit (0.17.1) has one but is a new
+  dependency. GitHub App user tokens from the device flow last 8 hours,
+  their refresh token 6 months, and the refresh needs no `client_secret`.
+  So 2.0 uses a briar GitHub App with its own device flow (httpx) plus a
+  pasted token method, and PyGithub for the API (G10, G11, G22).
+- **`os.system` can hand the output of a command back** through `os.pipe` (the
+  child writes to the pipe fd, briar reads it), with no `subprocess` and
+  nothing on disk. Tested on 2026-11-10; not used, since G10 dropped
+  reading `gh auth token`.
+- **Each PR of spec 005 cut tests with the code they pinned**: unit tests
+  went 1511 (PR #95) to 1469 (PR #97) to 1428 (PR #98). The acquirer,
+  `env_vars` and store-interface tests left with their code; the adapter
+  tests were rewritten to take `FakeLogins`.
+
 ## 5. Next steps, in order
 
-1. **Review and merge #79 to #97 into `v2`**, in order, as merge commits.
+1. **Review and merge #79 to #98 into `v2`**, in order, as merge commits.
    Re-check `gh pr checks <n>` before each merge; after the last one, check
    that the `v2` CI run is green.
 2. **Decide how 2.0 is released before `v2` merges to `main`.**
@@ -420,11 +578,30 @@ Each item was reproduced in this work; the PR named holds the evidence.
    - spec 004: extractors cleaned inside with the same text per extractor,
      `extract` on Typer, the extractor flags (D32, D32a, C12), and the new
      knowledge layout (K1 to K14, K16, K20);
-   - spec 005: source logins, in progress (section 2): PR 1 is #97; PR 2
-     AWS, gcloud and Azure; PR 3 the check before a run; PR 4 the GitHub
-     device flow, Linear OAuth and the refresh lock (G19). PR 4 needs the
-     GitHub App of briar registered first (G23); its device flow code is in
-     `git show c63ccf9:src/briar/auth/_acquirers/github_device.py`.
+   - spec 005: source logins, in progress (section 2). PR 1 is #97, PR 2
+     (AWS, gcloud and Azure) is #98. Left (G19), each one grilled before
+     code (the maintainer asks for a grill at the start of every PR):
+     - PR 3, the check: one "who am I" call per source (research table in
+       the local `specs/005-source-logins/research.md`, R-4: GitHub `GET
+       /user`, Jira `/rest/api/3/myself`, Bitbucket `/2.0/user`, Linear
+       and Fireflies GraphQL, `sts.get_caller_identity`, the ADC refresh,
+       an Azure `get_token`). It runs before `briar extract` and before
+       each runbook task, and stops with every missing or bad login listed
+       (G12, G13); `briar auth status` and `briar doctor` show it live
+       (G14), 401/403 fail and a network error warns (G15). After PR 3 a
+       bare `briar extract` stops for a user with only a GitHub login, since
+       all 23 extractors run.
+     - PR 4: the GitHub device flow of a briar GitHub App (G10), Linear
+       OAuth with `authlib` (G17, approved dependency L19), the refresh
+       lock on `secrets.env` (G18, R-7), and the docs. Needs the maintainer
+       to register the GitHub App first, read permissions only (G23, G24).
+       The 1.x device flow code: `git show
+       c63ccf9:src/briar/auth/_acquirers/github_device.py`.
+     - Real runs still to do (G20): Jira, Bitbucket, Linear, Fireflies. The
+       maintainer runs `briar auth login <source> --company <c>` in their
+       terminal, then asks for the run.
+     - Local spec-kit state: `specs/005-source-logins/tasks.md` has T001 to
+       T013 done (PRs 1 and 2) and T014 to T023 left.
 6. **Site and images**: usebriar.com `/docs` and the landing page (private
    repo `iklobato/usebriar-landing`) still describe removed features
    (pipeline R7). `docs/diagrams/which-command.svg` still shows `briar
@@ -461,6 +638,23 @@ Each item was reproduced in this work; the PR named holds the evidence.
 - Not checked: `briar --install-completion` writing into a real shell
   config; Python 3.10 only runs in CI.
 - The open risks in both decisions files (pipeline R1 to R12, logins R1 to R7).
+- Spec 005, open after PRs #97 and #98:
+  - In a runbook, a 1.x name with no 2.0 login fails the task (a `failed`
+    row, the message in the log) and the command still exits 0, until PR 3
+    checks before each task.
+  - Until PR 3, a missing login only skips its extractor
+    (`skipped ... (not available in this env)`).
+  - GitHub takes `method = "token"` only and Linear `api-key` only, until
+    PR 4 (H8). Review question on #97.
+  - With no `[auth.azure] tenant`, a run uses `DefaultAzureCredential`.
+    Review question on #98: keep it, or `AzureCliCredential` with the
+    default tenant only.
+  - The Docker image has no `aws`, `gcloud` or `az` (I8): log in outside
+    the container and mount `~/.aws` and the gcloud folder. Azure in Docker
+    is not supported until someone asks.
+  - `examples/multi_company.env.example` still lists 1.x names; reading it
+    is blocked for agents (env file), so check it by hand.
+  - mypy on the top of the stack: 25 errors (2026-11-11), none new.
 
 ## 7. What to watch
 
@@ -480,3 +674,16 @@ Each item was reproduced in this work; the PR named holds the evidence.
   Change it only when a decision removes or renames a flag, in the same PR.
 - **`v2` drifting from `main`** (pipeline R8): 1.x fixes on `main` need a
   merge into `v2`.
+- **GitGuardian on every PR** (section 4): a fake email next to a fake
+  token as module-level constants fails the check, and only a history
+  rewrite clears it. Use `bot@example.test` and `PLACEHOLDER-not-a-secret`
+  inside the test.
+- **The cloud CLIs change under briar**: `aws sso login`, `gcloud auth
+  application-default login` and `az login` are run as typed, and the run
+  reads their files (`~/.aws/config`, the ADC file, the `az` login). A
+  change in where a CLI keeps its login breaks `briar auth status` and the
+  run. When one breaks, check the CLI version first.
+- **1.x users moving to 2.0**: every 1.x env name (`GITHUB_TOKEN`,
+  `JIRA_<C>_*`, `AWS_<C>_*`, ...) stops a run until the user moves it. The
+  stop message names the new place; keep those messages in step with
+  `[auth]` when a key moves.

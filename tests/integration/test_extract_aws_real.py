@@ -5,11 +5,11 @@ sts caller-identity probe, every per-service gatherer (ECS / RDS / Lambda /
 SQS / CloudWatch Logs), the composer, and the on-disk file store all execute;
 only the AWS endpoint is faked by moto.
 
-Credentials reach the command exactly the way production does: the per-company
-``AWS_<COMPANY>_*`` env vars that ``AwsCloudProvider._make_session`` reads via
-``CredEnv`` (``AWS_ACME_ACCESS_KEY_ID`` / ``_SECRET_ACCESS_KEY`` /
-``_SESSION_TOKEN``). moto intercepts the signed calls, so the placeholder creds
-never leave the process and no network is touched.
+Credentials reach the command the way a CI job with one company gives them:
+no `[auth.aws] profile`, so boto3 takes its default chain (spec 005, I6), here
+the standard ``AWS_ACCESS_KEY_ID`` / ``AWS_SECRET_ACCESS_KEY`` /
+``AWS_SESSION_TOKEN`` env vars. moto intercepts the signed calls, so the
+placeholder creds never leave the process and no network is touched.
 
 AWS API response shapes are moto's faithful emulations of the boto3 contract:
 - ECS    list_clusters / list_services / describe_services
@@ -56,9 +56,9 @@ MOTO_ACCOUNT = "123456789012"
 
 # moto's standard test creds (NOT a real secret; obvious placeholders).
 _AWS_ENV = {
-    "AWS_ACME_ACCESS_KEY_ID": "testing-not-a-secret",
-    "AWS_ACME_SECRET_ACCESS_KEY": "testing-not-a-secret",
-    "AWS_ACME_SESSION_TOKEN": "testing-not-a-secret",
+    "AWS_ACCESS_KEY_ID": "testing-not-a-secret",
+    "AWS_SECRET_ACCESS_KEY": "testing-not-a-secret",
+    "AWS_SESSION_TOKEN": "testing-not-a-secret",
 }
 
 
@@ -262,10 +262,9 @@ def test_extract_aws_infra_empty_real(cli, tmp_root, monkeypatch) -> None:
 
 
 def test_extract_aws_infra_unreachable_real(cli, tmp_root, monkeypatch) -> None:
-    """Credential-failure degradation contract. With NO per-company creds set,
-    the provider falls back to a local profile named after the company
-    ("acme"), which does not exist → boto3 raises ProfileNotFound from inside
-    the real caller_identity() probe. The extractor must catch it and emit the
+    """Credential-failure degradation contract. `[auth.aws] profile` names a
+    profile ("acme") that does not exist, so boto3 raises ProfileNotFound from
+    inside the real caller_identity() probe. The extractor must catch it and emit the
     friendly UNREACHABLE section, not propagate a crash.
 
     ProfileNotFound is raised during session construction (before any signing
@@ -273,8 +272,8 @@ def test_extract_aws_infra_unreachable_real(cli, tmp_root, monkeypatch) -> None:
     boto3 config/credential files to nonexistent paths so a developer's local
     ~/.aws/config can never accidentally define an 'acme' profile and mask the
     failure."""
-    # env_sandbox already strips AWS_*; assert no per-company creds are set so
-    # the static-cred branch is skipped and the profile fallback is taken.
+    # env_sandbox already strips AWS_*; the profile comes from `[auth.aws]` (I4).
+    (tmp_root / ".briar.toml").write_text('[auth.aws]\nprofile = "acme"\n')
     monkeypatch.setenv("AWS_CONFIG_FILE", "/nonexistent/config")
     monkeypatch.setenv("AWS_SHARED_CREDENTIALS_FILE", "/nonexistent/credentials")
     monkeypatch.setenv("AWS_EC2_METADATA_DISABLED", "true")

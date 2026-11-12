@@ -28,6 +28,8 @@ from moto import mock_aws
 from briar.extract._cloud import ComputeResource, DatabaseResource, LogGroup, QueueResource
 from briar.extract._clouds import make_cloud
 from briar.extract._clouds.aws import AwsCloudProvider
+from briar.errors import CliError
+from tests.unit.fake_logins import FakeLogins
 
 REGION = "us-east-1"
 
@@ -83,15 +85,6 @@ def test_is_available_false_when_boto3_missing(mocker: Any) -> None:
     assert AwsCloudProvider(region=REGION).is_available() is False
 
 
-def test_required_env_vars_empty_without_company() -> None:
-    assert AwsCloudProvider.required_env_vars() == []
-
-
-def test_required_env_vars_names_per_company() -> None:
-    names = AwsCloudProvider.required_env_vars("acme")
-    assert names == ["AWS_ACME_ACCESS_KEY_ID", "AWS_ACME_SECRET_ACCESS_KEY"]
-
-
 # ─── caller_identity ─────────────────────────────────────────────────
 
 
@@ -102,50 +95,42 @@ def test_caller_identity_returns_account_and_region(provider: AwsCloudProvider) 
     assert identity.region == REGION
 
 
-def test_explicit_creds_build_a_keyed_session(monkeypatch: Any) -> None:
-    """When AWS_<COMPANY>_* creds are present the provider builds a
-    static-keyed session instead of the profile chain. Pin that the
-    keys are threaded into boto3.Session(...)."""
-    monkeypatch.setenv("AWS_ACME_ACCESS_KEY_ID", "AKIAEXAMPLE")
-    monkeypatch.setenv("AWS_ACME_SECRET_ACCESS_KEY", "secretkey")
-    monkeypatch.setenv("AWS_ACME_SESSION_TOKEN", "tok")
-    with mock.patch("boto3.Session") as session_cls:
-        session_cls.return_value.client.return_value.get_caller_identity.return_value = {"Account": "999"}
-        prov = AwsCloudProvider(company="acme", region="eu-west-1")
-        identity = prov.caller_identity()
-    _, kwargs = session_cls.call_args
-    assert kwargs["aws_access_key_id"] == "AKIAEXAMPLE"
-    assert kwargs["aws_secret_access_key"] == "secretkey"
-    assert kwargs["aws_session_token"] == "tok"
-    assert kwargs["region_name"] == "eu-west-1"
-    assert identity.account_id == "999"
+def test_1x_company_keys_without_a_profile_stop_the_run() -> None:
+    """G8, I10: the 1.x `AWS_<COMPANY>_*` keys are no longer read; with no
+    `[auth.aws] profile` the run stops and names the new place."""
+    logins = FakeLogins(environ={"AWS_ACME_ACCESS_KEY_ID": "PLACEHOLDER-not-a-secret"}).logins()
+
+    with pytest.raises(CliError) as ctx:
+        AwsCloudProvider(logins=logins, region="eu-west-1").is_available()
+
+    assert (
+        str(ctx.value)
+        == "`AWS_ACME_ACCESS_KEY_ID` is a 1.x name: use an AWS profile, named in `profile` under `[auth.aws]`. Or run `briar auth login aws --company acme`"
+    )
 
 
-def _session_profile(*, company: str, profile: str = "", local_profiles: list[str]) -> Any:
-    """`profile_name` the provider passes to boto3.Session when there are no
-    AWS_<COMPANY>_* keys and ~/.aws holds `local_profiles`."""
+def _session_profile(*, profile: str = "", local_profiles: list[str]) -> Any:
+    """`profile_name` the provider passes to boto3.Session for `[auth.aws] profile`
+    when ~/.aws holds `local_profiles`."""
+    logins = FakeLogins({"aws": {"profile": profile}} if profile else {}).logins()
     with mock.patch("boto3.Session") as session_cls:
         session_cls.return_value.available_profiles = local_profiles
-        AwsCloudProvider(company=company, region="eu-west-1", profile=profile)._make_session()
+        AwsCloudProvider(logins=logins, region="eu-west-1")._make_session()
     return session_cls.call_args.kwargs["profile_name"]
 
 
-def test_company_without_local_profile_uses_default_chain(monkeypatch: Any) -> None:
-    """No AWS_ACME_* keys and no `acme` profile: fall back to boto3's default
-    chain (instance role, SSO, env) instead of failing with ProfileNotFound."""
-    for var in ("AWS_ACME_ACCESS_KEY_ID", "AWS_ACME_SECRET_ACCESS_KEY", "AWS_ACME_SESSION_TOKEN"):
-        monkeypatch.delenv(var, raising=False)
-    assert _session_profile(company="acme", local_profiles=["default"]) is None
+def test_no_profile_uses_the_default_chain() -> None:
+    """I6: no `[auth.aws] profile`: boto3's default chain (instance role, SSO, env)."""
+    assert _session_profile(local_profiles=["default"]) is None
 
 
-def test_company_with_matching_local_profile_uses_it(monkeypatch: Any) -> None:
-    monkeypatch.delenv("AWS_ACME_ACCESS_KEY_ID", raising=False)
-    assert _session_profile(company="acme", local_profiles=["acme"]) == "acme"
+def test_the_company_name_is_no_longer_a_profile() -> None:
+    """1.x used a ~/.aws profile named like the company; 2.0 reads only `[auth.aws] profile`."""
+    assert _session_profile(local_profiles=["acme"]) is None
 
 
-def test_explicit_profile_wins(monkeypatch: Any) -> None:
-    monkeypatch.delenv("AWS_PROD_ACCESS_KEY_ID", raising=False)
-    assert _session_profile(company="acme", profile="prod", local_profiles=[]) == "prod"
+def test_the_auth_profile_is_used() -> None:
+    assert _session_profile(profile="prod", local_profiles=[]) == "prod"
 
 
 # ─── list_compute (ECS + Lambda) ─────────────────────────────────────
@@ -350,7 +335,7 @@ def test_list_subsections_per_gatherer_error_isolated(provider: AwsCloudProvider
 
 
 def test_make_cloud_aws_returns_provider() -> None:
-    cloud = make_cloud("aws", company="acme", region="us-west-2", profile="prof")
+    cloud = make_cloud("aws", FakeLogins({"aws": {"profile": "prof"}}).logins(), region="us-west-2")
     assert isinstance(cloud, AwsCloudProvider)
     assert cloud.kind == "aws"
     assert cloud._region == "us-west-2"

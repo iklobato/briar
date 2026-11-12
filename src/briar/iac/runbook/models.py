@@ -31,6 +31,19 @@ class ExtractEntry(_Strict):
     name: str
     args: Dict[str, Any] = Field(default_factory=dict)
 
+    # Args that left for the company `auth:` block (spec 005, I4).
+    MOVED_ARGS: ClassVar[Tuple[str, ...]] = ("aws_extract_profile", "cloud_profile")
+
+    @field_validator("args")
+    @classmethod
+    def _reject_moved_args(cls, args: Dict[str, Any]) -> Dict[str, Any]:
+        moved = [key for key in cls.MOVED_ARGS if key in args]
+        if moved:
+            raise PydanticCustomError(
+                "moved_arg", "`{keys}` moved to the company `auth:` block: `aws.profile`, `gcp.project` or `azure.subscription`", {"keys": ", ".join(moved)}
+            )
+        return args
+
     @field_validator("name")
     @classmethod
     def _validate_extractor_name(cls, value: str) -> str:

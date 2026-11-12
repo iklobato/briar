@@ -1,8 +1,8 @@
 """`PromptIO` — testable abstraction for interactive terminal I/O.
 
-Every ``CredentialAcquirer`` interacts with the operator through
-exactly this surface: prompt for a paste, open a browser, poll an
-endpoint with progress. Concentrating these calls behind one
+Every login interacts with the operator through exactly this surface:
+prompt for a paste, open a browser, poll an endpoint with progress, run
+a CLI login in the terminal (spec 005: `aws`, `gcloud`, `az`). Concentrating these calls behind one
 Protocol makes acquirers fully unit-testable — the real terminal is
 swapped for a ``MockPromptIO`` that records prompts and feeds back
 scripted answers.
@@ -14,6 +14,7 @@ test suites can drive every login flow without a real TTY."""
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Callable, List, Optional, Protocol, Tuple
 
@@ -53,6 +54,11 @@ class PromptIO(Protocol):
         """Repeatedly invoke ``fn``. Return the first non-None / non-
         empty return value. Raise ``TimeoutError`` after ``max_wait``
         seconds. Used by OAuth device flows that poll a token endpoint."""
+        ...
+
+    def run_login(self, command: str) -> int:
+        """Run a CLI login command line in the terminal (it may ask the operator
+        things itself) and return its exit code. Its output is not captured."""
         ...
 
 
@@ -109,6 +115,11 @@ class TerminalPromptIO:
                 on_tick(remaining)
             time.sleep(min(every, remaining))
 
+    def run_login(self, command: str) -> int:
+        """`os.system`, not `subprocess` (maintainer rule): the CLI gets the terminal,
+        and its prompts and browser steps reach the operator as they are."""
+        return os.waitstatus_to_exitcode(os.system(command))
+
 
 class MockPromptIO:
     """Scripted PromptIO for tests. Each ``answer`` is consumed by
@@ -122,12 +133,15 @@ class MockPromptIO:
         *,
         answers: Optional[List[str]] = None,
         poll_attempts: int = 1,
+        run_status: int = 0,
     ) -> None:
         self._answers: List[str] = list(answers or [])
         self._poll_attempts = poll_attempts
+        self._run_status = run_status
         self.info_log: List[str] = []
         self.opened_urls: List[str] = []
         self.prompts: List[Tuple[str, bool]] = []
+        self.commands: List[str] = []
 
     def prompt(self, message: str, *, secret: bool = False) -> str:
         self.prompts.append((message, secret))
@@ -154,6 +168,11 @@ class MockPromptIO:
             if result:
                 return result
         raise TimeoutError(f"MockPromptIO.poll: exhausted {self._poll_attempts} attempts")
+
+    def run_login(self, command: str) -> int:
+        """Records the command line instead of running it; returns the scripted exit code."""
+        self.commands.append(command)
+        return self._run_status
 
 
 def _read_secret_no_max_canon(message: str) -> str:

@@ -75,11 +75,29 @@ as `_` (`--company acme-co` gives `ACME_CO`).
 | `bitbucket` | `cookie` | The `Cookie` request header of a logged-in browser tab on bitbucket.org. Read only. | `BRIAR_ACME_BITBUCKET_COOKIE` | `workspace` |
 | `linear` | `api-key` | A Linear personal API key. | `BRIAR_ACME_LINEAR_API_KEY` | nothing |
 | `fireflies` | `api-key` | A Fireflies API key (Settings, then Developer Settings). | `BRIAR_ACME_FIREFLIES_API_KEY` | nothing |
+| `aws` | (none) | Nothing: `login` runs `aws sso login --profile P` (or `aws configure --profile P` for a profile with no SSO). | nothing: the AWS files keep it | `profile` (the boto3 default chain when unset) |
+| `gcp` | (none) | Nothing: `login` runs `CLOUDSDK_CONFIG=<config_dir> gcloud auth application-default login`. | nothing: the gcloud folder keeps it | `config_dir` (`~/.config/gcloud` when unset) and `project` |
+| `azure` | (none) | Nothing: `login` runs `az login --tenant T`. | nothing: `az` keeps it | `tenant` (the default chain when unset) and `subscription` |
 
-AWS still uses the 1.x login targets `aws-static` and `aws-sso` (they save
-`AWS_ACME_ACCESS_KEY_ID`, `AWS_ACME_SECRET_ACCESS_KEY`, and for SSO
-`AWS_ACME_SESSION_TOKEN`, plus `AWS_ACME_REGION`). They move to an AWS
-profile in `[auth.aws]` in a later 2.0 change.
+AWS, GCP and Azure log in through their own CLI, which keeps the login;
+briar never copies a cloud key into `secrets.env`. A run reads them with
+the cloud SDK: boto3 with the profile (it renews an SSO token by itself),
+google-auth with the ADC file of the folder, azure-identity through `az`
+(so `az` must be installed wherever an Azure extract runs). The CLIs are
+needed for `login` only, except `az`.
+
+```toml
+[auth.aws]
+profile = "acme"
+
+[auth.gcp]
+config_dir = "~/.config/gcloud-acme"
+project = "acme-prod"
+
+[auth.azure]
+tenant = "acme.onmicrosoft.com"
+subscription = "11111111-2222-3333-4444-555555555555"
+```
 
 The Bitbucket cookie method is tested only against a fake server so far:
 it is not proven that the Bitbucket API takes a browser cookie.
@@ -110,6 +128,9 @@ error: `JIRA_ACME_TOKEN` is a 1.x name: use `BRIAR_ACME_JIRA_TOKEN`. Or run `bri
 | targets `jira-token`, `jira-session` | `jira` (with `method = "cookie"` for the cookie) |
 | target `bitbucket-app-password` | `bitbucket` |
 | target `linear-api-key` | `linear` |
+| targets `aws-static`, `aws-sso`; `AWS_ACME_ACCESS_KEY_ID`, `AWS_ACME_SECRET_ACCESS_KEY`, `AWS_ACME_SESSION_TOKEN` | an AWS profile named in `profile` under `[auth.aws]` (`briar auth login aws`) |
+| `AWS_ACME_REGION` | `region` under `[extract.aws-infra]` |
+| `[extract.aws-infra] profile` (the AWS profile, the GCP project or the Azure subscription) | `profile` under `[auth.aws]`, `project` under `[auth.gcp]`, `subscription` under `[auth.azure]` |
 
 A 1.x target name is a usage error (exit code 2) that lists the sources.
 
@@ -177,12 +198,15 @@ The site and the method come from `companies.acme.auth.jira` of that file.
 
 | Parameter | What it means | Default | Example |
 |---|---|---|---|
-| `source` (positional) | One of `github`, `jira`, `bitbucket`, `linear`, `fireflies`, or the AWS targets `aws-static`, `aws-sso`. Required. | none | `jira` |
+| `source` (positional) | One of `github`, `jira`, `bitbucket`, `linear`, `fireflies`, `aws`, `gcp`, `azure`. Required. | none | `jira` |
 | `--company` | The company the login is for. briar puts it in the names. | `$BRIAR_COMPANY`, else `company` in `.briar.toml`. | `--company acme` |
 | `--runbook` | Read the choices from `companies.<company>.auth` of this runbook instead of `.briar.toml`. | none | `--runbook runbooks/acme.yaml` |
 
 ### Good to know
 
+- `aws`, `gcp` and `azure` need their value to log in (`profile`,
+  `config_dir`, `tenant`); without it the login stops and says what to add.
+  The CLI login runs in your terminal, and briar saves nothing for it.
 - A missing `site` (Jira) or `workspace` (Bitbucket) stops the login
   before it asks anything: `error: set `site` under `auth.jira` in
   .briar.toml (briar jira login for acme)`. Add it to the config and run
@@ -237,6 +261,10 @@ You get `store=envfile  N entry(ies):` and one name per line, or
 
 - `status` only checks that a value is set. It does not test it against
   the service: an expired token still shows `ok`.
+- For `aws`, `gcp` and `azure`, `status` checks this machine: the CLI is
+  on `PATH`, the profile is in the AWS config, the ADC file is in the
+  gcloud folder, `az` has a login; and that `project` or `subscription`
+  is set. Exit code 1 when one is missing.
 - Without a source, inside a repo with `company = "acme"` in
   `.briar.toml`, the list is filtered to acme. Pass `--company ""` to see
   everything.
@@ -254,6 +282,10 @@ docker run --rm -it -v "$HOME/.config/briar":/home/briar/.config/briar \
 
 You get the `BRIAR_ACME_JIRA_*` values in `~/.config/briar/secrets.env` on
 your machine.
+
+The image has no `aws`, `gcloud` or `az`. Log in to AWS and GCP outside the
+container, then mount `~/.aws` and the gcloud folder so the run reads
+them. Azure in Docker is not supported, because the run needs `az`.
 
 ## Related
 

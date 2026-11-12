@@ -152,9 +152,3 @@ class CloudProvider(ABC):
             )
         return out
 
-    @classmethod
-    def required_env_vars(cls, company: str = "") -> List[str]:
-        """See `RepositoryProvider.required_env_vars`. Default empty
-        because clouds usually authenticate via ambient credential
-        chains (boto3 default, ADC, DefaultAzureCredential)."""
-        return []

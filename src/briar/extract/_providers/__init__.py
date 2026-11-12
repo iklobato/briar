@@ -5,11 +5,9 @@ and is wired into `PROVIDERS` here. Adding a new vendor (GitLab,
 Forgejo, SourceHut, …) = one module + one entry — no extractor
 edits, no executor edits.
 
-The factory `make_provider(kind, company)` is what extractors call
-at run time. `company` is the per-tenant slug used by `CredEnv` to
-resolve workspace-scoped credentials (Bitbucket app passwords are
-per-workspace; GitHub PATs are workspace-wide so the parameter is
-inert there)."""
+The factory `make_provider(kind, logins)` is what extractors call
+at run time. `logins` is the `CompanyLogins` of the company (spec 005):
+each provider asks it for the login of its own source."""
 
 from __future__ import annotations
 

@@ -45,7 +45,6 @@ class ExtractorKeys:
     REPO = "repo"
     # E3: the options with no shared concept drop the extractor prefix.
     NICHE: ClassVar[Mapping[str, str]] = {
-        "aws_extract_profile": "profile",
         "aws_extract_region": "region",
         "aws_extract_service": "services",
         "meeting_attendee_allow": "attendee_allow",
@@ -92,6 +91,10 @@ class ExtractConfig:
 
     TABLE = "extract"
     REPO_HINT = "the repo list comes from --repo, `repos` or [repo]"
+    # Keys that left `[extract.<name>]` for another table (spec 005, I4).
+    MOVED: ClassVar[Mapping[str, str]] = {
+        "aws-infra.profile": "moved: the AWS profile is `profile` under [auth.aws], the GCP project `project` under [auth.gcp], the Azure subscription `subscription` under [auth.azure]",
+    }
     LIST_HINT = "not a `briar extract` setting; `briar extract -h` lists the keys"
 
     def __init__(self, project_config: Mapping[str, object], settings: BriarSettings, config_path: Optional[Path]) -> None:
@@ -155,7 +158,7 @@ class ExtractConfig:
         options = keys.options()
         for key, setting in table.items():
             if key not in options:
-                raise self._error(f"{name}.{key}", self._own_hint(keys, key))
+                raise self._error(f"{name}.{key}", self.MOVED.get(f"{name}.{key}") or self._own_hint(keys, key))
             self._check_choice(f"{name}.{key}", options[key], setting)
 
     def _own_hint(self, keys: ExtractorKeys, key: str) -> str:

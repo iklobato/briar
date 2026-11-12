@@ -95,10 +95,12 @@ class AwsAuth(SourceAuth):
 
 class GcpAuth(SourceAuth):
     config_dir: str = ""
+    project: str = ""
 
 
 class AzureAuth(SourceAuth):
     tenant: str = ""
+    subscription: str = ""
 
 
 class AuthBlock(SourceAuth):

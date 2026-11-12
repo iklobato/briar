@@ -389,7 +389,7 @@ class TestCloudChoice:
         # purely the factory arg, independent of the rendering branch.
         result = _run(cli, tmp_root, "aws-infra", "--cloud", kind)
         assert result.code == 0
-        # make_cloud(kind, company=..., region=..., profile=...) — kind positional
+        # make_cloud(kind, logins, region=...): kind positional
         assert seam.make_cloud.call_args.args[0] == kind
 
     def test_cloud_default_is_aws(self, cli, tmp_root, seam) -> None:
@@ -557,10 +557,23 @@ class TestAwsInfraFlags:
         assert result.code == 0
         assert seam.make_cloud.call_args.kwargs["region"] == "us-east-1"
 
-    def test_aws_extract_profile_reaches_make_cloud(self, cli, tmp_root, seam) -> None:
-        result = _run(cli, tmp_root, "aws-infra", "--aws-extract-profile", "prod-sso")
-        assert result.code == 0
-        assert seam.make_cloud.call_args.kwargs["profile"] == "prod-sso"
+    def test_the_auth_profile_reaches_make_cloud(self, cli: Callable[..., SimpleNamespace], tmp_root: Path, seam: SimpleNamespace) -> None:
+        """I4: the AWS profile is `[auth.aws] profile`, read through the company logins."""
+        (tmp_root / ".briar.toml").write_text('root = "knowledge"\n[auth.aws]\nprofile = "prod-sso"\n')
+
+        run = cli("extract", "--company", "acme", "--include", "aws-infra")
+
+        assert run.code == 0
+        assert seam.make_cloud.call_args.args[1].aws().profile() == "prod-sso"
+
+    def test_the_extract_profile_key_names_its_new_place(self, cli: Callable[..., SimpleNamespace], tmp_root: Path, seam: SimpleNamespace) -> None:
+        (tmp_root / ".briar.toml").write_text('[extract.aws-infra]\nprofile = "prod-sso"\n')
+
+        run = cli("extract", "--company", "acme", "--include", "aws-infra")
+
+        assert run.code == 1
+        assert "`extract.aws-infra.profile` in" in run.err
+        assert "moved: the AWS profile is `profile` under [auth.aws]" in run.err
 
     def test_aws_extract_service_repeatable_reaches_list_subsections(self, cli, tmp_root, seam) -> None:
         result = _run(cli, tmp_root, "aws-infra", "--aws-extract-service", "ecs", "--aws-extract-service", "rds")

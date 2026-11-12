@@ -6,6 +6,7 @@ The environment is a plain dict: the logins read it the way they read
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List
 
 import pytest
@@ -175,3 +176,41 @@ class TestBitbucketClient:
         login = LoginsFor({"bitbucket": {"workspace": "acme", "method": "cookie"}}, {"BRIAR_ACME_CO_BITBUCKET_COOKIE": "session=fake"}).logins().bitbucket()
 
         assert login.client_kwargs()["session"].headers["Cookie"] == "session=fake"
+
+
+class TestCliLogins:
+    """AWS, GCP and Azure log in through their CLI and save nothing (I1 to I3, I6, I10)."""
+
+    def test_a_run_needs_no_value(self) -> None:
+        """I6: without `profile`, `config_dir` or `tenant` a run uses the default of the cloud."""
+        logins = LoginsFor({}, {}).logins()
+
+        assert (logins.aws().ready(), logins.gcp().ready(), logins.azure().ready()) == (True, True, True)
+        assert (logins.aws().profile(), logins.gcp().adc_file(), logins.azure().tenant()) == ("", None, "")
+
+    def test_the_1x_aws_keys_without_a_profile_stop_the_run(self) -> None:
+        login = LoginsFor({}, {"AWS_ACME_CO_REGION": "eu-west-1"}).logins().aws()
+
+        with pytest.raises(CliError) as caught:
+            login.ready()
+
+        assert (
+            str(caught.value) == "`AWS_ACME_CO_REGION` is a 1.x name: use `region` under `[extract.aws-infra]`. Or run `briar auth login aws --company acme-co`"
+        )
+
+    def test_the_1x_aws_keys_next_to_a_profile_are_ignored(self) -> None:
+        login = LoginsFor({"aws": {"profile": "acme"}}, {"AWS_ACME_CO_ACCESS_KEY_ID": FAKE_TOKEN}).logins().aws()
+
+        assert login.ready() is True
+
+    def test_the_gcp_adc_file_is_in_the_company_folder(self, tmp_path: Path) -> None:
+        login = LoginsFor({"gcp": {"config_dir": str(tmp_path / "gcloud-acme")}}, {}).logins().gcp()
+
+        assert login.adc_file() == tmp_path / "gcloud-acme" / "application_default_credentials.json"
+
+    def test_a_cli_login_saves_nothing_and_runs_the_command(self) -> None:
+        prompt = MockPromptIO()
+
+        entries = LoginsFor({"azure": {"tenant": "acme.onmicrosoft.com"}}, {}).logins().azure().login(prompt)
+
+        assert (entries, prompt.commands) == ({}, ["az login --tenant acme.onmicrosoft.com"])

@@ -35,9 +35,11 @@
 #   briar runbook extract examples/all_features.yaml --task prfix    # one task across all
 #   briar runbook serve examples/                                    # 24/7 scheduler
 #
-# Required env vars (per-company secrets.env):
-#   Each company block below lists the ones it needs. `briar auth login
-#   <target> --company <name>` saves one.
+# Logins (spec 005): each company has an `auth:` block with its choices
+# (Jira site, Bitbucket workspace, cloud profile, project or subscription);
+# the secrets go in secrets.env as BRIAR_<COMPANY>_<SOURCE>_<FIELD>, saved by
+# `briar auth login <source> --company <name> --runbook examples/all_features.yaml`.
+# Each company block below lists what it needs.
 
 version: 1
 companies:
@@ -48,15 +50,10 @@ companies:
   # The mainstream stack. Useful as the "what does it look like with
   # nothing exotic" baseline.
   #
-  # Required env vars:
-  #   GITHUB_TOKEN                       workspace-wide PAT
-  #   AWS_ACME_ACCESS_KEY_ID             per-company STS triplet
-  #   AWS_ACME_SECRET_ACCESS_KEY
-  #   AWS_ACME_SESSION_TOKEN             (only if SSO-vended)
-  #   AWS_ACME_REGION                    us-east-1
-  #   JIRA_ACME_URL                      https://acme.atlassian.net
-  #   JIRA_ACME_EMAIL                    bot user
-  #   JIRA_ACME_TOKEN                    Atlassian API token
+  # Logins:
+  #   BRIAR_ACME_GITHUB_TOKEN            fine-grained PAT (`briar auth login github`)
+  #   BRIAR_ACME_JIRA_EMAIL, _TOKEN      Atlassian API token (`briar auth login jira`)
+  #   AWS                                the `acme` profile (`briar auth login aws` runs `aws sso login`)
   # ---------------------------------------------------------------------------
   acme:
     knowledge:
@@ -69,6 +66,12 @@ companies:
       # it is rewritten only when the estate changes. Off by default.
       # config:
       #   inventory: "true"
+
+    auth:
+      jira:
+        site: acme.atlassian.net
+      aws:
+        profile: acme
 
     schedules:
 
@@ -224,30 +227,16 @@ companies:
         every: "2 hours"
         extract:
 
-          # Jira authentication is pluggable per-company. Either:
+          # Jira takes one of two methods, picked by `auth.jira.method`:
           #
-          #   A) Token auth (Atlassian-recommended)
-          #      Required env vars per company:
-          #        JIRA_ACME_URL    → https://acme.atlassian.net
-          #        JIRA_ACME_EMAIL  → bot user email
-          #        JIRA_ACME_TOKEN  → API token from
-          #          https://id.atlassian.com/manage-profile/security/api-tokens
+          #   token (the default): BRIAR_ACME_JIRA_EMAIL and BRIAR_ACME_JIRA_TOKEN,
+          #     an API token from
+          #     https://id.atlassian.com/manage-profile/security/api-tokens
           #
-          #   B) Session-cookie auth (browser-extracted)
-          #      Required env vars per company:
-          #        JIRA_ACME_URL                    (same as token mode)
-          #        JIRA_ACME_TENANT_SESSION_TOKEN   (value of `tenant.session.token`
-          #                                          cookie from DevTools)
-          #        — OR —
-          #        JIRA_ACME_SESSION_TOKEN          (value of `cloud.session.token`)
-          #      Optional:
-          #        JIRA_ACME_XSRF_TOKEN
-          #        JIRA_ACME_USER_AGENT             (override browser UA)
+          #   cookie: BRIAR_ACME_JIRA_COOKIE, the whole `Cookie` request header of a
+          #     logged-in browser tab (`auth.jira.user_agent` sets the User-Agent).
           #
-          # Selection:
-          #   • JIRA_{COMPANY}_AUTH_KIND=token|session  → explicit pick
-          #   • Otherwise auto-detect: session wins when either session-
-          #     token env var is set; else falls back to token auth.
+          # `briar auth login jira --company acme` asks for what the method needs.
           #
           # The same auth applies to the active-tickets and
           # ticket-archaeology extractors.
@@ -265,8 +254,8 @@ companies:
       # ─── meetings: hourly Fireflies digest ──────────────────────────────
       # Pulls last 7 days of meeting transcripts from Fireflies into
       # the per-company knowledge blob. Agents (`implement`, `prfix`)
-      # read the digest section automatically. Single env var:
-      #   FIREFLIES_ACME_API_KEY  workspace API key from Fireflies dashboard
+      # read the digest section automatically. One secret:
+      #   BRIAR_ACME_FIREFLIES_API_KEY  API key from the Fireflies dashboard
       - task: meetings
         every: "hour"
         extract:
@@ -295,23 +284,24 @@ companies:
   # bitspark — Bitbucket Cloud + Linear + AWS (us-west-2)
   # ===========================================================================
   # Demonstrates the full vendor swap: pr-archaeology against Bitbucket
-  # via app-password basic auth; ticket-archaeology against Linear via
+  # with an Atlassian API token; ticket-archaeology against Linear via
   # GraphQL; AWS is in us-west-2 (different region from acme).
   #
-  # Required env vars:
-  #   BITBUCKET_BITSPARK_USERNAME       machine user (or `x-token-auth` for workspace token)
-  #   BITBUCKET_BITSPARK_APP_PASSWORD   app password OR workspace access token
-  #   BITBUCKET_BITSPARK_WORKSPACE      workspace slug
-  #   AWS_BITSPARK_ACCESS_KEY_ID        per-company STS triplet
-  #   AWS_BITSPARK_SECRET_ACCESS_KEY
-  #   AWS_BITSPARK_SESSION_TOKEN
-  #   AWS_BITSPARK_REGION               us-west-2
-  #   LINEAR_BITSPARK_TOKEN             Linear API key (NO Bearer prefix)
+  # Logins:
+  #   BRIAR_BITSPARK_BITBUCKET_EMAIL, _TOKEN  Atlassian API token with Bitbucket scopes
+  #   BRIAR_BITSPARK_LINEAR_API_KEY           Linear personal API key
+  #   AWS                                     the `bitspark` profile
   # ---------------------------------------------------------------------------
   bitspark:
     knowledge:
       store: file
       name: knowledge:bitspark
+
+    auth:
+      bitbucket:
+        workspace: bitspark
+      aws:
+        profile: bitspark
 
     schedules:
 
@@ -378,12 +368,11 @@ companies:
   # Custom file root demonstrates per-company storage paths (useful for
   # mounting one company's knowledge on a separate EBS volume).
   #
-  # Required env vars:
-  #   GITHUB_TOKEN                            workspace-wide PAT (also used for the GH repo)
-  #   BITBUCKET_DATACORE_USERNAME             machine user for the legacy tracker workspace
-  #   BITBUCKET_DATACORE_APP_PASSWORD
-  #   BITBUCKET_DATACORE_WORKSPACE
-  #   GOOGLE_APPLICATION_CREDENTIALS          path to SA JSON for GCP ADC
+  # Logins:
+  #   BRIAR_DATACORE_GITHUB_TOKEN             fine-grained PAT
+  #   BRIAR_DATACORE_BITBUCKET_ACCESS_TOKEN   workspace access token of the legacy tracker
+  #   GCP                                     the ADC of `auth.gcp.config_dir`
+  #                                           (`briar auth login gcp` runs gcloud for it)
   #
   # Install: `pip install briar-cli[gcp]` for the google-cloud-* SDKs.
   # ---------------------------------------------------------------------------
@@ -392,6 +381,14 @@ companies:
       store: file
       name: ./knowledge/datacore/main.md   # custom path
       root: ./knowledge                    # explicit root (default would be ./knowledge)
+
+    auth:
+      bitbucket:
+        workspace: datacore-legacy
+        method: access-token
+      gcp:
+        project: datacore-prod
+        config_dir: ~/.config/gcloud-datacore
 
     schedules:
 
@@ -428,8 +425,7 @@ companies:
           # AwsCloudProvider's override).
           - name: aws-infra
             args:
-              cloud: gcp
-              aws_extract_profile: datacore-prod   # GCP project ID
+              cloud: gcp                           # the project is auth.gcp.project
               aws_extract_region: us-central1
 
           - name: active-tickets
@@ -455,14 +451,11 @@ companies:
   # archive lives in a public-archive GitHub repo even though new
   # development happens on Bitbucket). Infra on Azure.
   #
-  # Required env vars:
-  #   GITHUB_TOKEN                           for the tracker side
-  #   BITBUCKET_FINTECH_USERNAME             machine user / `x-token-auth` sentinel
-  #   BITBUCKET_FINTECH_APP_PASSWORD         app password OR workspace access token
-  #   BITBUCKET_FINTECH_WORKSPACE
-  #   AZURE_CLIENT_ID                        Service principal app ID (workspace-wide)
-  #   AZURE_TENANT_ID                        AAD tenant
-  #   AZURE_CLIENT_SECRET                    Service principal password
+  # Logins:
+  #   BRIAR_FINTECH_GITHUB_TOKEN             for the tracker side
+  #   BRIAR_FINTECH_BITBUCKET_EMAIL, _TOKEN  Atlassian API token with Bitbucket scopes
+  #   Azure                                  the az login of `auth.azure.tenant`
+  #                                          (`briar auth login azure` runs `az login`)
   #
   # Install: `pip install briar-cli[azure]` for azure-mgmt-* SDKs.
   # ---------------------------------------------------------------------------
@@ -470,6 +463,13 @@ companies:
     knowledge:
       store: file
       name: knowledge:fintech
+
+    auth:
+      bitbucket:
+        workspace: fintech
+      azure:
+        tenant: fintech.onmicrosoft.com
+        subscription: 11111111-2222-3333-4444-555555555555
 
     schedules:
 
@@ -530,8 +530,7 @@ companies:
         extract:
           - name: aws-infra
             args:
-              cloud: azure
-              aws_extract_profile: 11111111-2222-3333-4444-555555555555   # subscription ID
+              cloud: azure                         # the subscription is auth.azure.subscription
               aws_extract_region: eastus
 
 # ============================================================================

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Dict, Tuple, Type
+from typing import Dict, Optional, Tuple, Type
 
 from briar._registry import build_registry
+from briar.auth.logins import CompanyLogins
 from briar.errors import CliError
 from briar.extract._cloud import CloudProvider
 from briar.extract._clouds.aws import AwsCloudProvider
@@ -25,12 +26,12 @@ class CloudRegistry:
         return tuple(CLOUDS.keys())
 
     @classmethod
-    def make(cls, kind: str, *, company: str = "", region: str = "", profile: str = "") -> CloudProvider:
+    def make(cls, kind: str, logins: Optional[CompanyLogins] = None, *, region: str = "") -> CloudProvider:
         cloud_cls = CLOUDS.get(kind)
         if cloud_cls is None:
             known = ", ".join(sorted(CLOUDS.keys()))
             raise CliError(f"unknown cloud provider {kind!r}; known: {known}")
-        return cloud_cls(company=company, region=region, profile=profile)
+        return cloud_cls(logins=logins, region=region)
 
 
 make_cloud = CloudRegistry.make

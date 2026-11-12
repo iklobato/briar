@@ -70,6 +70,18 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`.
   it fails the task. `agents/auth.md` has the full map, old to new.
 - `briar doctor` checks the GitHub login of the company (`github login`)
   instead of `GITHUB_TOKEN` (`github token`).
+- AWS, GCP and Azure log in per company through their own CLI, and briar
+  saves nothing for them: `[auth.aws] profile`, `[auth.gcp] config_dir`
+  and `project`, `[auth.azure] tenant` and `subscription`.
+  `briar auth login aws` runs `aws sso login --profile P` (or
+  `aws configure --profile P` for a profile with no SSO), `gcp` runs
+  `CLOUDSDK_CONFIG=<dir> gcloud auth application-default login`, `azure`
+  runs `az login --tenant T`; each needs its value. A run with no value
+  uses the default chain of the cloud. Azure with a tenant needs `az` at
+  run time too. `briar auth status aws|gcp|azure` checks the CLI and the
+  local login, offline.
+- 1.x used an AWS profile named like the company when one existed; 2.0
+  reads only `[auth.aws] profile`.
 
 ### Fixed
 
@@ -190,6 +202,13 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`.
   target name is now a usage error (exit 2) that lists the sources.
   `JIRA_<C>_USER_AGENT` becomes `user_agent` under `[auth.jira]`. The
   GitHub device flow comes back with a GitHub App of briar later in 2.0.
+- `profile` under `[extract.aws-infra]` (it held the AWS profile, the GCP
+  project or the Azure subscription) and the runbook args
+  `aws_extract_profile` and `cloud_profile`: each stops the run with exit
+  1 and names its new place in `[auth]`. The login targets `aws-static`
+  and `aws-sso`, and the 1.x names `AWS_<C>_ACCESS_KEY_ID`,
+  `AWS_<C>_SECRET_ACCESS_KEY`, `AWS_<C>_SESSION_TOKEN` and
+  `AWS_<C>_REGION`, which now stop a run that has no AWS profile.
 - The credential store interface (`CredentialStore`, its registry and
   `make_credential_store`), with the unused `delete`, `fingerprint` and
   `expires_at` of the env file store, and the `required_env_vars` of the

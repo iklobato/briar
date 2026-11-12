@@ -13,7 +13,7 @@ from functools import lru_cache
 from typing import Any, List, Optional
 
 from briar.decorators import swallow_errors
-from briar.env_vars import CredEnv
+from briar.auth.logins import AwsLogin, CompanyLogins
 from briar.extract._cloud import AccountIdentity, CloudProvider, ComputeResource, DatabaseResource, LogGroup, QueueResource
 
 log = logging.getLogger(__name__)
@@ -49,32 +49,21 @@ def _apply_default_config(session: Any) -> Any:
 class AwsCloudProvider(CloudProvider):
     kind = "aws"
 
-    def __init__(self, *, company: str = "", region: str = "", profile: str = "") -> None:
-        self._company = company
+    def __init__(self, *, logins: Optional[CompanyLogins] = None, region: str = "") -> None:
+        self._logins = logins
         self._region = region or "us-east-1"
-        # `profile` is the explicit local-profile name; falls back to
-        # per-company env vars (AWS_<COMPANY>_*) — same logic the
-        # legacy _BotoSessionBuilder used.
-        self._explicit_profile = profile
-        self._profile = profile or company
         self._session: Any = None
 
+    def _login(self) -> AwsLogin:
+        return (self._logins or CompanyLogins.defaults("")).aws()
+
     def _make_session(self):
+        """The `[auth.aws] profile` of the company (I1), or the boto3 default chain (I6)."""
         if self._session is not None:
             return self._session
         import boto3
 
-        key_id = CredEnv.AWS_KEY_ID.read(self._profile) if self._profile else ""
-        secret = CredEnv.AWS_SECRET.read(self._profile) if self._profile else ""
-        if key_id and secret:
-            session = boto3.Session(
-                aws_access_key_id=key_id,
-                aws_secret_access_key=secret,
-                aws_session_token=CredEnv.AWS_SESSION.read(self._profile),
-                region_name=self._region,
-            )
-        else:
-            session = boto3.Session(profile_name=self._local_profile(boto3), region_name=self._region)
+        session = boto3.Session(profile_name=self._login().profile() or None, region_name=self._region)
         # Wrap session.client so every gatherer (ECS/RDS/Lambda/SQS/Logs
         # and the inline sts call) inherits bounded timeouts + standard
         # retries without each having to opt in. Caller can override by
@@ -82,38 +71,12 @@ class AwsCloudProvider(CloudProvider):
         self._session = _apply_default_config(session)
         return self._session
 
-    def _local_profile(self, boto3) -> Optional[str]:
-        """The ~/.aws profile to use, or None for boto3's default chain
-        (env vars, SSO, EC2/ECS instance role).
-
-        The company name doubles as a profile name only when ~/.aws really
-        has one; asking boto3 for a missing profile raises ProfileNotFound
-        before the default chain is ever tried."""
-        if self._explicit_profile:
-            return self._explicit_profile
-        if self._company and self._company in boto3.Session().available_profiles:
-            return self._company
-        return None
-
     def is_available(self) -> bool:
         try:
             import boto3  # noqa: F401
-
-            return True
         except ImportError:
             return False
-
-    @classmethod
-    def required_env_vars(cls, company: str = "") -> List[str]:
-        # AWS can fall back to ambient creds (instance role, SSO profile)
-        # so the env vars are "optional but recommended" — the doctor
-        # reports them as required because that's the most common path.
-        if not company:
-            return []
-        return [
-            CredEnv.AWS_KEY_ID.for_company(company),
-            CredEnv.AWS_SECRET.for_company(company),
-        ]
+        return self._login().ready()
 
     def caller_identity(self) -> AccountIdentity:
         session = self._make_session()

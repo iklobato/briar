@@ -6,16 +6,20 @@ needs (H1), and the 1.x names that stop a run when the 2.0 ones are missing (G8,
 G25, H7). Adapters get a `CompanyLogins` and ask it for their source; nothing
 here reads `.briar.toml` or a runbook: the callers pass the checked block.
 Decisions: `docs/decisions/2026-11-10-briar-2-logins-spec.md`,
-`docs/decisions/2026-11-10-briar-2-logins-pr1.md`."""
+`docs/decisions/2026-11-10-briar-2-logins-pr1.md`, `docs/decisions/2026-11-11-briar-2-logins-pr2.md`."""
 
 from __future__ import annotations
 
 import os
+import shlex
+import shutil
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Callable, ClassVar, Dict, List, Mapping, Tuple, Type
+from pathlib import Path
+from typing import Any, Callable, ClassVar, Dict, List, Mapping, Optional, Protocol, Tuple, Type
 
 from briar.auth._prompt import PromptIO
-from briar.auth.config import AuthBlock, BitbucketAuth, GithubAuth, JiraAuth, SourceAuth
+from briar.auth.config import AuthBlock, AwsAuth, AzureAuth, BitbucketAuth, GcpAuth, GithubAuth, JiraAuth, SourceAuth
 from briar.errors import CliError
 
 
@@ -58,6 +62,20 @@ class LegacyName:
 
     def name(self, scope: LoginScope) -> str:
         return self.template.format(c=scope.legacy_token())
+
+
+class SecretReader(Protocol):
+    """Where `briar auth status` reads the saved values (the env file store)."""
+
+    def read(self, name: str) -> Optional[str]: ...
+
+
+@dataclass(frozen=True)
+class StatusLine:
+    """One line of `briar auth status`: what is checked, and whether it is there."""
+
+    label: str
+    ok: bool
 
 
 class SourceLogin:
@@ -108,9 +126,16 @@ class SourceLogin:
             if not getattr(self._settings, key):
                 raise CliError(f"set `{key}` under {self._scope.where(self.SOURCE)} (briar {self.SOURCE} login for {self._scope.company})")
 
+    def incomplete(self) -> bool:
+        """The 2.0 login is not all there (the G8 guard looks for 1.x names only then)."""
+        return bool(self.missing_secrets())
+
+    def status_lines(self, store: SecretReader) -> List[StatusLine]:
+        return [StatusLine(name, bool(store.read(name))) for name in self.names()]
+
     def legacy_hint(self) -> str:
         """G8: the 1.x names that are set while the 2.0 login is incomplete, with the fix."""
-        if not self.missing_secrets():
+        if not self.incomplete():
             return ""
         found = [legacy for legacy in self.LEGACY if self._environ.get(legacy.name(self._scope), "").strip()]
         if not found:
@@ -266,6 +291,149 @@ class GithubLogin(SourceLogin):
         return self._github.host
 
 
+class CliLogin(SourceLogin, ABC):
+    """A source whose login lives in its own CLI (L3, L14, I1 to I3): `briar auth login`
+    runs the CLI login in the terminal and saves nothing; runs read what the CLI keeps."""
+
+    CLI: ClassVar[str] = ""
+    FIELDS = {"": ()}
+
+    def names(self) -> List[str]:
+        return []
+
+    def ready(self) -> bool:
+        """A run needs no value (I6: then the default of the cloud); only a 1.x name stops it (I10)."""
+        hint = self.legacy_hint()
+        if hint:
+            raise CliError(hint)
+        return True
+
+    def login(self, prompt: PromptIO) -> Dict[str, str]:
+        """Run the CLI login (I6: its value must be set); nothing to save, so no entries."""
+        self.check_settings()
+        line = self.command_line()
+        prompt.info(f"==> {self.SOURCE} login for {self._scope.company}: {line}")
+        status = prompt.run_login(line)
+        if status:
+            raise CliError(f"`{line}` failed with exit code {status}")
+        return {}
+
+    def status_lines(self, store: SecretReader) -> List[StatusLine]:
+        return [StatusLine(f"`{self.CLI}` on PATH", shutil.which(self.CLI) is not None), *self.local_lines()]
+
+    @abstractmethod
+    def command_line(self) -> str:
+        """The CLI login command line for this company."""
+
+    @abstractmethod
+    def local_lines(self) -> List[StatusLine]:
+        """What `auth status` checks on this machine, offline (I7)."""
+
+
+class AwsLogin(CliLogin):
+    SOURCE = "aws"
+    CLI = "aws"
+    REQUIRED = ("profile",)
+    LEGACY = (
+        LegacyName("AWS_{c}_ACCESS_KEY_ID", "an AWS profile, named in `profile` under `[auth.aws]`"),
+        LegacyName("AWS_{c}_SECRET_ACCESS_KEY", "an AWS profile, named in `profile` under `[auth.aws]`"),
+        LegacyName("AWS_{c}_SESSION_TOKEN", "an AWS profile, named in `profile` under `[auth.aws]`"),
+        LegacyName("AWS_{c}_REGION", "`region` under `[extract.aws-infra]`"),
+    )
+    # The AWS config keys of an SSO profile (I5: without them, `aws configure`).
+    SSO_KEYS: ClassVar[Tuple[str, ...]] = ("sso_session", "sso_start_url")
+
+    def __init__(self, scope: LoginScope, settings: AwsAuth, environ: Mapping[str, str]) -> None:
+        super().__init__(scope, settings, environ)
+        self._aws = settings
+
+    def profile(self) -> str:
+        return self._aws.profile
+
+    def incomplete(self) -> bool:
+        return not self._aws.profile
+
+    def command_line(self) -> str:
+        verb = ("sso", "login") if self._uses_sso() else ("configure",)
+        return shlex.join((self.CLI, *verb, "--profile", self._aws.profile))
+
+    def local_lines(self) -> List[StatusLine]:
+        if not self._aws.profile:
+            return [StatusLine("no `profile` under [auth.aws]: runs use the boto3 default chain", True)]
+        return [StatusLine(f"profile `{self._aws.profile}` in the AWS config", self._aws.profile in self._profiles())]
+
+    def _uses_sso(self) -> bool:
+        settings = self._profiles().get(self._aws.profile, {})
+        return any(key in settings for key in self.SSO_KEYS)
+
+    def _profiles(self) -> Mapping[str, Mapping[str, str]]:
+        import botocore.session
+
+        profiles: Mapping[str, Mapping[str, str]] = botocore.session.Session().full_config.get("profiles", {})
+        return profiles
+
+
+class GcpLogin(CliLogin):
+    SOURCE = "gcp"
+    CLI = "gcloud"
+    REQUIRED = ("config_dir",)
+    ADC_FILE = "application_default_credentials.json"
+    DEFAULT_DIR = "~/.config/gcloud"
+
+    def __init__(self, scope: LoginScope, settings: GcpAuth, environ: Mapping[str, str]) -> None:
+        super().__init__(scope, settings, environ)
+        self._gcp = settings
+
+    def project(self) -> str:
+        return self._gcp.project
+
+    def adc_file(self) -> Optional[Path]:
+        """The ADC file of the company config folder (G26); None: the google-auth default chain."""
+        return self._folder() / self.ADC_FILE if self._gcp.config_dir else None
+
+    def command_line(self) -> str:
+        return f"CLOUDSDK_CONFIG={shlex.quote(str(self._folder()))} {shlex.join((self.CLI, 'auth', 'application-default', 'login'))}"
+
+    def local_lines(self) -> List[StatusLine]:
+        return [
+            StatusLine(f"ADC file in {self._folder()}", (self._folder() / self.ADC_FILE).exists()),
+            StatusLine("`project` under [auth.gcp]", bool(self._gcp.project)),
+        ]
+
+    def _folder(self) -> Path:
+        return Path(self._gcp.config_dir or self.DEFAULT_DIR).expanduser()
+
+
+class AzureLogin(CliLogin):
+    SOURCE = "azure"
+    CLI = "az"
+    REQUIRED = ("tenant",)
+    # Where `az` keeps its login (`AZURE_CONFIG_DIR` moves it).
+    CONFIG_DIR_VAR = "AZURE_CONFIG_DIR"
+    DEFAULT_DIR = "~/.azure"
+    PROFILE_FILE = "azureProfile.json"
+
+    def __init__(self, scope: LoginScope, settings: AzureAuth, environ: Mapping[str, str]) -> None:
+        super().__init__(scope, settings, environ)
+        self._azure = settings
+
+    def tenant(self) -> str:
+        return self._azure.tenant
+
+    def subscription(self) -> str:
+        return self._azure.subscription
+
+    def command_line(self) -> str:
+        return shlex.join((self.CLI, "login", "--tenant", self._azure.tenant))
+
+    def local_lines(self) -> List[StatusLine]:
+        folder = Path(self._environ.get(self.CONFIG_DIR_VAR) or self.DEFAULT_DIR).expanduser()
+        return [
+            StatusLine(f"az login in {folder}", (folder / self.PROFILE_FILE).exists()),
+            StatusLine("`subscription` under [auth.azure]", bool(self._azure.subscription)),
+        ]
+
+
 class CompanyLogins:
     """The logins of one company: what each adapter asks for its source."""
 
@@ -275,6 +443,9 @@ class CompanyLogins:
         "bitbucket": BitbucketLogin,
         "linear": LinearLogin,
         "fireflies": FirefliesLogin,
+        "aws": AwsLogin,
+        "gcp": GcpLogin,
+        "azure": AzureLogin,
     }
 
     def __init__(self, scope: LoginScope, block: AuthBlock, environ: Mapping[str, str]) -> None:
@@ -320,9 +491,23 @@ class CompanyLogins:
     def fireflies(self) -> FirefliesLogin:
         return FirefliesLogin(self._scope, self._block.fireflies, self._environ)
 
+    def aws(self) -> AwsLogin:
+        return AwsLogin(self._scope, self._block.aws, self._environ)
+
+    def gcp(self) -> GcpLogin:
+        return GcpLogin(self._scope, self._block.gcp, self._environ)
+
+    def azure(self) -> AzureLogin:
+        return AzureLogin(self._scope, self._block.azure, self._environ)
+
 
 __all__ = [
+    "AwsLogin",
+    "AzureLogin",
     "BitbucketLogin",
+    "CliLogin",
+    "GcpLogin",
+    "StatusLine",
     "CompanyLogins",
     "FirefliesLogin",
     "GithubLogin",

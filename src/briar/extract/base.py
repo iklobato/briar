@@ -180,14 +180,12 @@ class CloudBackedExtractor(KnowledgeExtractor):
     def _cloud(self, args: argparse.Namespace):
         from briar.extract._clouds import make_cloud
 
+        from briar.auth.logins import CompanyLogins
+
         ns = vars(args)
-        # Cloud logins move to `[auth.aws|gcp|azure]` in spec 005 PR 2; until then, by company.
-        return make_cloud(
-            ns.get("cloud") or "aws",
-            company=ns.get("company") or "",
-            region=ns.get("aws_extract_region") or ns.get("cloud_region") or "",
-            profile=ns.get("aws_extract_profile") or ns.get("cloud_profile") or "",
-        )
+        # The login, the AWS profile, the GCP project and the Azure subscription come from
+        # `[auth.<cloud>]` (spec 005, I4); the region stays an extractor setting.
+        return make_cloud(ns.get("cloud") or "aws", CompanyLogins.from_args(args), region=ns.get("aws_extract_region") or ns.get("cloud_region") or "")
 
     def provider_class_for(self, args: argparse.Namespace):
         from briar.extract._clouds import CLOUDS

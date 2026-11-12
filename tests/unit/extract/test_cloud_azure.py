@@ -34,6 +34,7 @@ import pytest
 from briar.extract._cloud import ComputeResource, DatabaseResource, LogGroup, QueueResource
 from briar.extract._clouds import make_cloud
 from briar.extract._clouds.azure import AzureCloudProvider
+from tests.unit.fake_logins import FakeLogins
 
 SUB = "00000000-0000-0000-0000-000000000000"
 
@@ -42,11 +43,34 @@ pytestmark = pytest.mark.boundary
 
 @pytest.fixture
 def provider() -> AzureCloudProvider:
-    prov = AzureCloudProvider(profile=SUB, region="eastus")
+    prov = AzureCloudProvider(logins=FakeLogins({"azure": {"subscription": SUB}}).logins(), region="eastus")
     # Pre-seed a fake credential so _build_credential never touches
     # DefaultAzureCredential (which would probe the environment).
     prov._credential = object()
     return prov
+
+
+class TestCompanyTenant:
+    """I3: `AzureCliCredential` for the tenant of `[auth.azure]`; with none, the default chain."""
+
+    def test_the_tenant_picks_the_az_login_of_that_tenant(self, mocker: Any) -> None:
+        identity = mock.MagicMock()
+        mocker.patch("briar.extract._clouds.azure._try_import", return_value=identity)
+        logins = FakeLogins({"azure": {"subscription": SUB, "tenant": "acme.onmicrosoft.com"}}).logins()
+
+        AzureCloudProvider(logins=logins)._build_credential()
+
+        identity.AzureCliCredential.assert_called_once_with(tenant_id="acme.onmicrosoft.com")
+        identity.DefaultAzureCredential.assert_not_called()
+
+    def test_no_tenant_takes_the_default_chain(self, mocker: Any) -> None:
+        identity = mock.MagicMock()
+        mocker.patch("briar.extract._clouds.azure._try_import", return_value=identity)
+
+        AzureCloudProvider(logins=FakeLogins({"azure": {"subscription": SUB}}).logins())._build_credential()
+
+        identity.DefaultAzureCredential.assert_called_once_with()
+        identity.AzureCliCredential.assert_not_called()
 
 
 def _module_with(**attrs: Any) -> types.SimpleNamespace:
@@ -68,12 +92,12 @@ def test_is_available_false_without_subscription() -> None:
 
 def test_is_available_true_with_sub_and_identity(mocker: Any) -> None:
     mocker.patch("briar.extract._clouds.azure._try_import", return_value=object())
-    assert AzureCloudProvider(profile=SUB).is_available() is True
+    assert AzureCloudProvider(logins=FakeLogins({"azure": {"subscription": SUB}}).logins()).is_available() is True
 
 
 def test_is_available_false_when_identity_missing(mocker: Any) -> None:
     mocker.patch("briar.extract._clouds.azure._try_import", return_value=None)
-    assert AzureCloudProvider(profile=SUB).is_available() is False
+    assert AzureCloudProvider(logins=FakeLogins({"azure": {"subscription": SUB}}).logins()).is_available() is False
 
 
 # ─── caller_identity ─────────────────────────────────────────────────
@@ -241,7 +265,7 @@ def test_list_log_groups_caps_at_top_by_bytes(provider: AzureCloudProvider, mock
 
 
 def test_make_cloud_azure_returns_provider() -> None:
-    cloud = make_cloud("azure", profile=SUB, region="westeurope")
+    cloud = make_cloud("azure", FakeLogins({"azure": {"subscription": SUB}}).logins(), region="westeurope")
     assert isinstance(cloud, AzureCloudProvider)
     assert cloud.kind == "azure"
     assert cloud._subscription_id == SUB
