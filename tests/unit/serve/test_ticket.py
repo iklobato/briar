@@ -30,9 +30,20 @@ class TestHappyPath:
 
         setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()]), Items().jira())
 
-        lines = [record.getMessage().strip() for record in caplog.records]
+        lines = [record.getMessage().strip() for record in caplog.records if " is " in record.getMessage()]
         link = f"https://github.com/acme/app/pull/{PR}"
-        assert lines == ["serve: ENG-1 is planned", f"serve: ENG-1 is pr-open {link}", f"serve: ENG-1 is done {link}"]
+        assert [line.split(" US$")[0] for line in lines] == ["serve: ENG-1 is planned", f"serve: ENG-1 is pr-open {link}", f"serve: ENG-1 is done {link}"]
+
+    def test_the_verify_results_and_the_cost_of_a_done_task_are_logged(self, setups: Setups, caplog: pytest.LogCaptureFixture) -> None:
+        """Real run, 2026-11-12: nothing in the log said whether verify ran, nor what a done task cost."""
+        caplog.set_level(logging.INFO, logger="briar.serve.flow")
+        setup = setups.make({})
+
+        setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()]), Items().jira())
+
+        lines = [record.getMessage().strip() for record in caplog.records]
+        assert "serve: ENG-1 verify: `test -f feature.txt` ok" in lines
+        assert lines[-1].startswith(f"serve: ENG-1 is done https://github.com/acme/app/pull/{PR} US$ ") and lines[-1].endswith("fix loops")
 
     def test_a_jira_ticket_goes_from_plan_to_green_ci(self, setups: Setups) -> None:
         setup = setups.make({})

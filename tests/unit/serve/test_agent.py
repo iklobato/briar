@@ -255,6 +255,13 @@ class TestToolGate:
             "",
         )
 
+    def test_a_refusal_is_logged(self, guard: BashGuard, caplog: pytest.LogCaptureFixture) -> None:
+        """Real run, 2026-11-12: a refused test command was found only in the Agent SDK transcript."""
+        with caplog.at_level("INFO", logger="briar.serve.agent"):
+            asyncio.run(ToolGate(guard, Access.EDIT)("Bash", {"command": "docker ps"}, None))
+
+        assert caplog.messages == ["serve: agent Bash refused (not in the bash allowlist of this company: 'docker'): docker ps"]
+
     def test_the_sdk_gets_allow_or_deny(self, guard: BashGuard) -> None:
         gate = ToolGate(guard, Access.EDIT)
 

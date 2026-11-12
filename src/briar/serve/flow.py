@@ -120,7 +120,9 @@ class TaskFlow:
         entry = base.model_copy(update={**changes, "status": status, "branch": self._context.branch})
         await self._context.company.state.record(entry)
         link = f" {self._context.sources.style().pull_url(item.repo, entry.pr)}" if entry.pr else ""
-        self.LOG.info("serve: %s is %s%s %s", item.ref(), status.value, link, entry.report if status is WorkStatus.BLOCKED else "")
+        # A done task says what it cost too: before, only a blocked one did (real run, 2026-11-12).
+        extra = {WorkStatus.BLOCKED: entry.report, WorkStatus.DONE: self.spent()}.get(status, "")
+        self.LOG.info("serve: %s is %s%s %s", item.ref(), status.value, link, extra)
 
     def commit(self, what: str) -> bool:
         return self._context.checkout.commit_all(self._context.worktree, f"{self._context.item.ref()}: {what}", self._context.identity)
@@ -154,6 +156,8 @@ class TaskFlow:
         copy = checkout.verify_copy(worktree)
         found = [(command, shell.line(command, copy)) for command in self._context.company.settings.verify]
         checkout.drop_copy(worktree, copy)
+        results = ", ".join(f"`{command}` {'ok' if done.ok() else f'exit {done.code}'}" for command, done in found) or "no verify commands set"
+        self.LOG.info("serve: %s verify: %s", self._context.item.ref(), results)
         failures = "\n\n".join(f"`{command}` failed (exit {done.code}):\n{done.output[-self.OUTPUT_TAIL :]}" for command, done in found if not done.ok())
         return f"{failures}{self._ignored_note()}" if failures else ""
 

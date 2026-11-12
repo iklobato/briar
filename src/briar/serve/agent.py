@@ -10,6 +10,7 @@ briar code (D10). Each call gets the money left in the task (`max_usd`, S23) as
 
 from __future__ import annotations
 
+import logging
 import re
 import shlex
 from dataclasses import dataclass, field
@@ -173,6 +174,10 @@ class ToolGate:
     """The `can_use_tool` callback of one agent call: the guard, and no edit at all when
     the call is read only (the plan, the self-review)."""
 
+    LOG: ClassVar[logging.Logger] = logging.getLogger(__name__)
+    # The start of a refused command kept in the log.
+    SHOWN = 200
+
     def __init__(self, guard: BashGuard, access: Access) -> None:
         self._guard = guard
         self._access = access
@@ -186,6 +191,9 @@ class ToolGate:
         from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
 
         refusal = self.refusal(tool, tool_input)
+        if refusal:
+            # A real run found a refused test command only in the Agent SDK transcript.
+            self.LOG.info("serve: agent %s refused (%s): %s", tool, refusal, str(tool_input.get("command") or tool_input.get("file_path") or "")[: self.SHOWN])
         return PermissionResultDeny(message=refusal) if refusal else PermissionResultAllow()
 
 
