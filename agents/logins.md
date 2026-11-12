@@ -31,6 +31,9 @@ method = "token"          # the default; "cookie" is the other one
 [auth.bitbucket]
 workspace = "acme"
 method = "access-token"   # "token" (the default), "access-token" or "cookie"
+
+[auth.gitlab]
+url = "https://gitlab.acme.test"   # leave it out for gitlab.com
 ```
 
 In a runbook the same keys go under the company:
@@ -67,6 +70,7 @@ does not use.
 | `bitbucket` | `token` (default) | Your Atlassian account email and an API token with Bitbucket scopes. | `BRIAR_ACME_BITBUCKET_EMAIL`, `BRIAR_ACME_BITBUCKET_TOKEN` | `workspace` |
 | `bitbucket` | `access-token` | A workspace or repository access token (not tied to a person). | `BRIAR_ACME_BITBUCKET_ACCESS_TOKEN` | `workspace` |
 | `bitbucket` | `cookie` | The `Cookie` request header of a logged-in browser tab on bitbucket.org. Read only. | `BRIAR_ACME_BITBUCKET_COOKIE` | `workspace` |
+| `gitlab` | `token` (default) | A personal, group or project access token. `read_api` is enough for `briar extract`. | `BRIAR_ACME_GITLAB_TOKEN` | `url` (`https://gitlab.com` when unset; the origin of a self-hosted GitLab) |
 | `linear` | `api-key` | A Linear personal API key. | `BRIAR_ACME_LINEAR_API_KEY` | nothing |
 | `fireflies` | `api-key` | A Fireflies API key (Settings, then Developer Settings). | `BRIAR_ACME_FIREFLIES_API_KEY` | nothing |
 | `aws` | (none) | Nothing: run `aws sso login --profile P` (or `aws configure --profile P` for a profile with no SSO). | nothing: the AWS files keep it | `profile` (the boto3 default chain when unset) |

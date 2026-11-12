@@ -36,7 +36,7 @@ Facts found before the grill (code at `select/02-chat` @ `92214fc`):
 | G10 | `glab` in the bash of the agent | Blocked, as `gh` is | every write to GitLab goes through briar (log, budget, review) | N14 |
 | G11 | `review_bots` on GitLab | Any GitLab username; the `name[bot]` rule stays for GitHub only | GitLab bot users have no fixed name pattern | G7 |
 | G12 | Real proof, read only | On a real company GitLab: the login check and the GitLab `extract` steps on the two projects with the most MRs of the token owner; nothing written; texts may go to the model as in the extract | real data at a real size, many review notes and pipelines | G4 |
-| G13 | Token of the G12 proof | The token the `glab` CLI of the maintainer already holds, loaded in-process and never printed (key name only: `BRIAR_<COMPANY>_GITLAB_TOKEN`) | no extra step for the maintainer | G12 |
+| G13 | Token of the G12 proof | Changed while building 3a: a new personal access token with `read_api` only, saved by the maintainer in `secrets.env` as `BRIAR_<COMPANY>_GITLAB_TOKEN` and never printed. First answer was the token the `glab` CLI holds; that login is OAuth2 (kept in the OS keychain, sent as `Authorization: Bearer`, expires), and briar sends `PRIVATE-TOKEN` | the proof runs the real login path, and GitLab itself refuses any write | G12 |
 | G14 | Real proof with writes | A personal gitlab.com account of the maintainer with a private test project, and a free Jira Cloud site of the maintainer as the tracker: a draft MR, a review round and a pipeline wait | the whole path (Jira ticket to GitLab MR) with no company system written | N16 |
 | G15 | How PR 3 is split | PR 3a: GitLab login, provider and `extract` (base `v2`, independent of PR 1 and PR 2). PR 3b: `serve` on GitLab (G1, G2, G6 to G11, G16), stacked on 3a and PR 2 | each part is reviewable; 3a is proved read only before any write exists | G4, G6 |
 | G16 | `code_host: gitlab` with `serve.repos` set | Refused when the runbook loads, with an error that says GitLab tickets come from `jira.<PROJ>.repos` only | GitLab Issues are out (N12); nothing runs half configured | G1 |
@@ -60,8 +60,7 @@ built, not yet verified live):
 
 - G3: LGPL-3.0 dependency in an MIT project. Fine as an unmodified dependency; anyone who
   ships a bundle (a zipapp, a frozen binary) must keep the LGPL terms for that part.
-- G13: the `glab` token has the `api` scope and can write. The G12 run calls read methods
-  only; nothing in 3a writes, but the token would allow it.
+- An OAuth2 login (as `glab` keeps) is not a GitLab login method of briar; only access tokens.
 - G4: code search on gitlab.com may need advanced search on the plan of the project; not
   verified. A 403 or empty answer returns nothing, as on Bitbucket.
 - G8: merged results pipelines and pipelines of a fork are not looked at separately.

@@ -14,6 +14,13 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Added
 
+- GitLab as a code host for `briar extract` (spec 008 PR 3a): `provider =
+  "gitlab"`, a new `[auth.gitlab]` login (`BRIAR_<COMPANY>_GITLAB_TOKEN`, and
+  `url` for a self-hosted GitLab) and the `python-gitlab` dependency
+  (LGPL-3.0-or-later). A repo is the full project path, of any depth. Every
+  repo extractor works on GitLab except `dependency-health` and
+  `code-scanning`, which find nothing there. A rate limit or a passing server
+  error is tried again a few times.
 - `briar serve DIR`, the agentic development pipeline (first part). For each
   company with a `serve:` block in a runbook of `DIR`, it checks the model
   login (`ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`) and the GitHub and

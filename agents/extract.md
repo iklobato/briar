@@ -3,7 +3,7 @@
 ## What it does
 
 `briar extract` reads the live state of your tools and writes it to one
-markdown file. Sources are GitHub or Bitbucket, Jira or Linear, AWS (or
+markdown file. Sources are GitHub, Bitbucket or GitLab, Jira or Linear, AWS (or
 GCP / Azure), and Fireflies meetings. The result is called a knowledge
 blob (a named markdown document that briar stores for you). Its default
 name is `knowledge:<company>`, for example `knowledge:acme`.
@@ -39,7 +39,7 @@ choices (Jira `site`, Bitbucket `workspace`, the method) go in `[auth]` of
 
 | Extractors | What they need |
 |---|---|
-| Every repo extractor (the 19 in "Repo extractors" below). | `BRIAR_ACME_GITHUB_TOKEN`. With `provider = "bitbucket"`: the Bitbucket login (`BRIAR_ACME_BITBUCKET_EMAIL` and `BRIAR_ACME_BITBUCKET_TOKEN`, or an access token) and `workspace` under `[auth.bitbucket]`. |
+| Every repo extractor (the 19 in "Repo extractors" below). | `BRIAR_ACME_GITHUB_TOKEN`. With `provider = "bitbucket"`: the Bitbucket login (`BRIAR_ACME_BITBUCKET_EMAIL` and `BRIAR_ACME_BITBUCKET_TOKEN`, or an access token) and `workspace` under `[auth.bitbucket]`. With `provider = "gitlab"`: `BRIAR_ACME_GITLAB_TOKEN`, and `url` under `[auth.gitlab]` for a self-hosted GitLab. |
 | `dependency-health`, `code-scanning`. | A GitHub token that can read security alerts (Dependabot alerts and code scanning alerts: read). |
 | `active-tickets`, `ticket-archaeology`. | Jira: `site` under `[auth.jira]` plus `BRIAR_ACME_JIRA_EMAIL` and `BRIAR_ACME_JIRA_TOKEN` (or the cookie). Linear: `BRIAR_ACME_LINEAR_API_KEY`. GitHub Issues: `BRIAR_ACME_GITHUB_TOKEN`. |
 | `aws-infra`. | AWS: the profile in `[auth.aws] profile` (log in with `aws sso login --profile P`), or the boto3 default chain. GCP (`cloud = "gcp"`): `[auth.gcp] project` and the ADC of `config_dir`. Azure (`cloud = "azure"`): `[auth.azure] subscription` and the `az` login of `tenant`. The `tagging-inventory` part also needs the `tag:GetResources` permission. |
@@ -141,8 +141,15 @@ run `briar extract --company acme --repo acme-co/acme-app --include <name>`.
 ### Repo extractors
 
 These read a code host. They need a repo list and a repo token. All of
-them take `--repo`, and `provider = "github"` (default) or `"bitbucket"`
-(in `[repo]`, `[extract]` or `[extract.<name>]`).
+them take `--repo`, and `provider = "github"` (default), `"bitbucket"` or
+`"gitlab"` (in `[repo]`, `[extract]` or `[extract.<name>]`).
+
+On GitLab a repo is the full project path, of any depth
+(`--repo acme/platform/app`), and a pull request is a merge request. Every
+repo extractor works there except two: `dependency-health` and
+`code-scanning` find nothing, since GitLab has no free API for those alerts.
+`repo-governance` counts approval rules only on a GitLab plan that has them.
+Code search (`todo-density`) may need advanced search on gitlab.com.
 
 PR and review history:
 
