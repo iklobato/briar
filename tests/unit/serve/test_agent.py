@@ -124,6 +124,11 @@ class TestBashGuard:
             ("rm -rf build", "forbidden in briar serve: 'rm -rf' (push, PR and comments are done by briar)"),
             ("docker ps", "not in the bash allowlist of this company: 'docker'"),
             ("ls && docker ps", "not in the bash allowlist of this company: 'docker'"),
+            # Real run, 2026-11-12: `2>&1` read as `&&` refused the tests with "'1'".
+            ("python -m pytest tests/test_sweep.py -q 2>&1 | tail -5", ""),
+            ("pytest -q >out.txt 2>&1", ""),
+            ("pytest -q &> out.txt", ""),
+            ("pytest -q 2>&1 && docker ps", "not in the bash allowlist of this company: 'docker'"),
         ],
     )
     def test_bash_runs_only_allowed_programs(self, guard: BashGuard, command: str, refusal: str) -> None:

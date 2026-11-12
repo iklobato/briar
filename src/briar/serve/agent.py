@@ -10,6 +10,7 @@ briar code (D10). Each call gets the money left in the task (`max_usd`, S23) as
 
 from __future__ import annotations
 
+import re
 import shlex
 from dataclasses import dataclass, field
 from enum import Enum
@@ -70,6 +71,7 @@ class BashGuard:
     GLOB_CHARS: ClassVar[str] = "*?["
     EDIT_TOOLS: ClassVar[Tuple[str, ...]] = ("Edit", "MultiEdit", "Write", "NotebookEdit")
     SEPARATORS: ClassVar[str] = ";|\n"
+    REDIRECT: ClassVar["re.Pattern[str]"] = re.compile(r"[0-9]*[<>]&[0-9-]*|&>>?")
 
     def __init__(self, worktree: Path, verbs: Sequence[str], readable: Sequence[Path]) -> None:
         self._worktree = worktree
@@ -121,8 +123,9 @@ class BashGuard:
         return f"not in the bash allowlist of this company: {unknown[0]!r}" if unknown else ""
 
     def _verbs_of(self, command: str) -> List[str]:
-        """The first word of each command of the line (`;`, `|`, `&&` start a new one)."""
-        lexer = shlex.shlex(command, posix=True, punctuation_chars=self.SEPARATORS + "&")
+        """The first word of each command of the line (`;`, `|`, `&&` start a new one). A
+        redirection (`2>&1`, `>&2`, `&>`) is no separator: a real run read `2>&1` as `&&`."""
+        lexer = shlex.shlex(self.REDIRECT.sub(" ", command), posix=True, punctuation_chars=self.SEPARATORS + "&")
         lexer.whitespace_split = True
         words = list(lexer)
         return [word for index, word in enumerate(words) if index == 0 or set(words[index - 1]) <= set(self.SEPARATORS + "&")]
