@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar, Dict, List, Tuple, Type
+from typing import Any, ClassVar, Dict, List, Type
 
 from briar._registry import build_registry
 from briar.env_vars import CredEnv
@@ -165,10 +165,6 @@ _JIRA_AUTHS: Dict[str, Type[JiraAuthStrategy]] = build_registry(
 )
 
 
-def jira_auth_kinds() -> Tuple[str, ...]:
-    return tuple(_JIRA_AUTHS.keys())
-
-
 def make_jira_auth(kind: str) -> JiraAuthStrategy:
     strategy_cls = _JIRA_AUTHS.get(kind)
     if strategy_cls is None:
@@ -196,7 +192,6 @@ __all__ = [
     "JiraAuthStrategy",
     "JiraTokenAuth",
     "JiraSessionAuth",
-    "jira_auth_kinds",
     "make_jira_auth",
     "autodetect_jira_auth",
 ]

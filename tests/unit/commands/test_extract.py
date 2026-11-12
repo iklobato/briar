@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Callable, Dict, Tuple
 
 import pytest
+from pytest_mock import MockerFixture
+from time_machine import TimeMachineFixture
 
 from briar.extract.base import ExtractedSection, empty_section
 
@@ -56,7 +62,7 @@ class TestExtractInclude:
 
         # Pick the first known extractor name.
         target = next(iter(EXTRACTORS.keys()))
-        result = cli(
+        cli(
             "extract",
             "--company", "acme",
             "--include", target,
@@ -261,3 +267,92 @@ class TestExtractKeepsOtherSections:
 
         assert result.code == 0, result.err
         assert "old hotspots" in self._sections(root)["code-hotspots"]
+
+
+class TestExtractOutputSnapshot:
+    """Every file `briar extract` writes, byte for byte, for fixed extractor output.
+
+    The 2.0 refactors move the write path (spec 001) and rewrite the
+    extractors (spec 004) under the rule "same output". A changed byte here
+    is a changed output. Regenerate on purpose with UPDATE_GOLDEN=1 (not a
+    BRIAR_ name: the hermetic fixture in tests/conftest.py strips those)."""
+
+    GOLDEN_DIR = Path(__file__).resolve().parents[2] / "fixtures" / "extract_snapshot"
+    UPDATE_ENV = "UPDATE_GOLDEN"
+    FROZEN_AT = datetime(2026, 11, 10, 12, 0, tzinfo=timezone.utc)
+
+    @pytest.fixture
+    def frozen_clock(self, time_machine: TimeMachineFixture) -> None:
+        time_machine.move_to(self.FROZEN_AT, tick=False)
+
+    @pytest.fixture
+    def stubbed_extractors(self, mocker: MockerFixture) -> None:
+        from briar.extract import EXTRACTORS
+
+        prs, hotspots = EXTRACTORS["pr-archaeology"], EXTRACTORS["code-hotspots"]
+        prs_section = ExtractedSection(
+            title=prs.heading + " \N{EM DASH} 1 repo(s)",
+            body="new prs",
+            data={"repos": 1},
+            subsections=[ExtractedSection(title="acme/widgets", body="- #1 fix login")],
+        )
+        hotspots_section = ExtractedSection(title=hotspots.heading, body="- src/app.py", data={"files": ["src/app.py"]})
+        for extractor, section in ((prs, prs_section), (hotspots, hotspots_section)):
+            mocker.patch.object(extractor, "is_available", return_value=True)
+            mocker.patch.object(extractor, "extract", return_value=section)
+
+    @pytest.fixture
+    def project_dir(self, tmp_root: Path, monkeypatch: pytest.MonkeyPatch, frozen_clock: None) -> Path:
+        """The cwd of the run, with a stored blob holding a section the run must keep."""
+        from briar.extract import EXTRACTORS
+        from briar.extract.composer import render_markdown
+        from briar.storage import make_store
+
+        monkeypatch.chdir(tmp_root)
+        kept = ExtractedSection(title=EXTRACTORS["reviewer-profile"].heading + " \N{EM DASH} old", body="old reviewers")
+        make_store("file", file_root=tmp_root / "knowledge").put("knowledge:acme", render_markdown(company="acme", sections=[kept]))
+        return tmp_root
+
+    @pytest.fixture
+    def outputs(self, cli: Callable[..., SimpleNamespace], project_dir: Path, stubbed_extractors: None) -> Dict[str, str]:
+        extract_run = cli(*self._extract_argv(project_dir))
+        assert extract_run.code == 0, extract_run.err  # fixture guard: a failed run has no files to compare
+        return {
+            "blob.golden.md": (project_dir / "knowledge" / "knowledge" / "acme.md").read_text(),
+            "sidecar.golden.json": (project_dir / "acme.json").read_text(),
+            "claude_md.golden.md": (project_dir / "CLAUDE.md").read_text(),
+            "detail.golden.md": (project_dir / ".briar" / "knowledge" / "acme.md").read_text(),
+        }
+
+    def _extract_argv(self, project_dir: Path) -> Tuple[str, ...]:
+        return (
+            "extract",
+            "--company", "acme",
+            "--include", "pr-archaeology",
+            "--include", "code-hotspots",
+            "--store", "file",
+            "--root", str(project_dir / "knowledge"),
+            "--out-json", str(project_dir / "acme.json"),
+            "--merge-claude-md",
+            "--claude-md-path", str(project_dir / "CLAUDE.md"),
+        )
+
+    @classmethod
+    def _assert_matches_golden(cls, outputs: Dict[str, str], name: str) -> None:
+        golden = cls.GOLDEN_DIR / name
+        if os.environ.get(cls.UPDATE_ENV):
+            golden.parent.mkdir(parents=True, exist_ok=True)
+            golden.write_text(outputs[name])
+        assert outputs[name] == golden.read_text()
+
+    def test_blob_keeps_other_sections_and_matches_golden(self, outputs: Dict[str, str]) -> None:
+        self._assert_matches_golden(outputs, "blob.golden.md")
+
+    def test_json_sidecar_matches_golden(self, outputs: Dict[str, str]) -> None:
+        self._assert_matches_golden(outputs, "sidecar.golden.json")
+
+    def test_claude_md_index_matches_golden(self, outputs: Dict[str, str]) -> None:
+        self._assert_matches_golden(outputs, "claude_md.golden.md")
+
+    def test_claude_md_detail_file_matches_golden(self, outputs: Dict[str, str]) -> None:
+        self._assert_matches_golden(outputs, "detail.golden.md")

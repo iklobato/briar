@@ -1,7 +1,6 @@
 """Closed enumerations for the agent subsystem.
 
-Per ARCHITECTURE_MAP.md §21: enums for closed domain sets, registries
-for open plug-in spaces. `StopReason` is the canonical set every LLM
+Enums for closed domain sets, registries for open plug-in spaces. `StopReason` is the canonical set every LLM
 provider translates its vendor-specific stop_reason into; renaming a
 value is one edit here instead of grep-replace across 10+ sites.
 

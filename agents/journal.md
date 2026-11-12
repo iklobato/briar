@@ -6,12 +6,9 @@ holds a list of **decisions**, each with a name (such as
 `plan.run.card.completed`), a value, a reason, and sometimes the other
 options briar looked at.
 
-Only two commands write sessions:
-
-- `briar plan run` (command name `plan.run`; `plan.dry-run` with
-  `--dry-run`, since 1.1.81)
-- `briar scaffold implementation` and `briar scaffold pr-fixes`
-  (command names `scaffold.implementation` and `scaffold.pr-fixes`)
+Only one command writes sessions: `briar plan run` (command name
+`plan.run`; `plan.dry-run` with `--dry-run`, since 1.1.81). In 1.x,
+`briar scaffold` wrote them too; it was removed in 2.0.
 
 No other command writes a session. A plain `briar agent implement` or
 `briar agent prfix` run does not, and nor do runbook tasks.
@@ -26,7 +23,7 @@ It has three subcommands:
 
 ## Where sessions are saved
 
-When `plan run` or `scaffold` runs, briar saves the session as JSON in
+When `plan run` runs, briar saves the session as JSON in
 `./journal/sessions/<YYYY-MM-DD>/<session_id>.json`, under the folder you
 ran it from. It also writes a markdown copy to
 `./journal/published/<session_id>.md`. A session ID is 12 letters and
@@ -50,13 +47,12 @@ The `journal` commands read from `--root`. If you saved sessions with
 
 Prints one line per session, newest first:
 `<session_id>  <command> target=<target>  decisions=<N>  started=<time>`.
-The target is `<plan>@<owner>/<repo>` for `plan.run`, and the
-`--prefix` value for `scaffold`. With no sessions, it prints `(no sessions)`.
+The target is `<plan>@<owner>/<repo>` for `plan.run`. With no sessions,
+it prints `(no sessions)`.
 
 ### Use it when
 
 - You want to find the session of a `plan run` that just ended.
-- You want to see how many scaffold bundles were made, and when.
 
 ### Examples
 
@@ -73,13 +69,6 @@ briar journal list --command plan.run --limit 10
 ```
 
 You get the 10 newest `plan.run` sessions.
-
-```bash
-# Only scaffold sessions (the dot matches both templates).
-briar journal list --command scaffold.
-```
-
-You get every `scaffold.implementation` and `scaffold.pr-fixes` session.
 
 ```bash
 # Find the runs of plan q3.
@@ -200,19 +189,12 @@ You get `q3-run.json` with the whole session.
 | `plan.replan.requested` | The plan asked to be rebuilt. |
 | `plan.run.stopped` | The loop stopped. The value says why: `limit_reached`, `selector_error`, `blocked`, `replan_cap` or `first_failure`. |
 | `plan.run.completed` | Every card is done (value `all_done`). |
-| `scaffold.template` | The template you picked. |
-| `scaffold.sources` | The `--source` values. |
-| `scaffold.archetype` | The agent role. |
-| `scaffold.shape` | The workflow shape. |
-| `scaffold.trigger` | The trigger kind. |
-| `scaffold.tools.filtered` | How many tools the role kept and dropped. |
-| `scaffold.output` | How many agents, tools and sources the bundle has. |
 
 ## Good to know
 
 - `session '<id>' not found` (exit code 1) usually means `--root` points
   at the wrong folder. Sessions live under the folder where `plan run`
-  or `scaffold` ran.
+  ran.
 - `.briar.toml` can change these defaults by mistake. Its `root` key sets
   `--root` for `journal` too, and its `store` key sets `--store`. With
   `root = "./knowledge"`, `journal list` looks in the wrong folder. With

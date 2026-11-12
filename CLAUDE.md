@@ -133,11 +133,12 @@ only in the private site repo.
   (`briar config show` prints the source of each).
 - **`context` commands** default to the file store even when
   `BRIAR_DATABASE_URL` is set; `BRIAR_STORE=postgres` switches them.
-- **`briar journal`** records only `plan run` and `scaffold` sessions, not
-  standalone agent runs.
+- **`briar journal`** records only `plan run` sessions, not standalone
+  agent runs (`scaffold` also did until it was removed in 2.0).
 - **`agent prfix`** sees failing CI logs in its context but its procedure
-  covers review threads and PR comments only; `pr-ci-fixer` (a scaffold
-  archetype) is the CI bot.
+  covers review threads and PR comments only; `pr-ci-fixer` (an agent
+  archetype in `iac/scaffold/archetypes/`, no command runs it yet) is the
+  CI bot.
 - **Message channels** (`messages:` in a runbook) become a `send_message`
   tool for agents run with `--runbook`; failure alerts are
   `BRIAR_NOTIFY_SINKS`. Slack is read live only (task context); cloud only

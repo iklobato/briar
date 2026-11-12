@@ -59,7 +59,7 @@ git_user_email = "bot@acme.com"
 | `repos` | The repeatable `--repo` list on `extract`. | none |
 | `[repo] owner`, `repo` | Every `--owner` and `--repo`. On `extract`, they form one `owner/repo` entry when `repos` is not set. | none |
 | `[repo] provider` | Every `--provider`. | none |
-| `[agent] model` | Every `--model` (on `agent`, `plan`, `chat` and `scaffold`). | none |
+| `[agent] model` | Every `--model` (on `agent`, `plan` and `chat`). | none |
 | `[agent] git_user_name`, `git_user_email` | `--git-user-name` and `--git-user-email` on `agent` and `plan run`. | none |
 
 In pyproject.toml, put the same keys under `[tool.briar]`, with
