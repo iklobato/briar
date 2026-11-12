@@ -14,9 +14,10 @@ import re
 import shlex
 import shutil
 import tempfile
+import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar, List, Sequence
+from typing import ClassVar, Dict, List, Sequence
 
 from briar.errors import CliError
 
@@ -73,6 +74,9 @@ class RepoCheckout:
     HELPER: ClassVar[str] = "!f() {{ echo username=x-access-token; printf 'password='; cat {path}; echo; }}; f"
     # The prefix of an ignored file in `git status --porcelain --ignored`.
     IGNORED = "!! "
+    # One lock per clone folder, for every task of the process (they run in threads).
+    CLONE_LOCKS: ClassVar[Dict[str, threading.Lock]] = {}
+    CLONE_LOCKS_GUARD: ClassVar[threading.Lock] = threading.Lock()
 
     def __init__(self, shell: Shell, cache: Path, repo: str) -> None:
         self._shell = shell
@@ -84,19 +88,27 @@ class RepoCheckout:
 
     def update(self, token: str) -> None:
         """Clone the repo the first time, then fetch it."""
-        if (self.clone_dir() / ".git").exists():
-            self._git(["fetch", "origin", "--prune"], self.clone_dir(), token)
-            return
-        self.clone_dir().parent.mkdir(parents=True, exist_ok=True)
-        self._git(["clone", f"{self.HOST}/{self._repo}.git", str(self.clone_dir())], self._cache, token)
+        with self._shared_clone():
+            if (self.clone_dir() / ".git").exists():
+                self._git(["fetch", "origin", "--prune"], self.clone_dir(), token)
+                return
+            self.clone_dir().parent.mkdir(parents=True, exist_ok=True)
+            self._git(["clone", f"{self.HOST}/{self._repo}.git", str(self.clone_dir())], self._cache, token)
 
     def worktree(self, branch: str, base: str, path: Path) -> Path:
         """The worktree of a task on `branch`, made from `origin/<base>` the first time."""
         if (path / ".git").exists():
             return path
         path.parent.mkdir(parents=True, exist_ok=True)
-        self._git(["worktree", "add", "-B", branch, str(path), f"origin/{base}"], self.clone_dir(), "")
+        with self._shared_clone():
+            self._git(["worktree", "add", "-B", branch, str(path), f"origin/{base}"], self.clone_dir(), "")
         return path
+
+    def _shared_clone(self) -> threading.Lock:
+        """The lock of the clone folder: the tasks of one repo (`max_parallel`) share the clone,
+        and two `git clone`, `fetch` or `worktree add` at once fail or corrupt it."""
+        with self.CLONE_LOCKS_GUARD:
+            return self.CLONE_LOCKS.setdefault(str(self.clone_dir()), threading.Lock())
 
     def sync(self, path: Path, branch: str) -> None:
         """Bring the worktree to `origin/<branch>` (a reviewer may have pushed a suggestion);
@@ -151,12 +163,14 @@ class RepoCheckout:
         ignores, so verify checks what is pushed, not what only the task folder holds."""
         copy = path.with_name(f"{path.name}.verify")
         self.drop_copy(path, copy)
-        self._git(["worktree", "add", "--detach", str(copy), "HEAD"], path, "")
+        with self._shared_clone():
+            self._git(["worktree", "add", "--detach", str(copy), "HEAD"], path, "")
         return copy
 
     def drop_copy(self, path: Path, copy: Path) -> None:
         shutil.rmtree(copy, ignore_errors=True)
-        self._git(["worktree", "prune"], path, "")
+        with self._shared_clone():
+            self._git(["worktree", "prune"], path, "")
 
     def ignored(self, path: Path) -> List[str]:
         """The files of the worktree that git ignores: they never reach the commit."""

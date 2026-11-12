@@ -3,6 +3,8 @@ the CI state, the plan and the self-review answers, the budget, and the prompt f
 
 from __future__ import annotations
 
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
@@ -22,6 +24,8 @@ MAX_USD = 1.0
 HALF_USD = MAX_USD / 2
 EXIT_CODE = 3
 PR_NUMBER = 11
+# Tasks of one repo that start at the same moment.
+TASKS = 4
 
 
 class TestGit:
@@ -42,6 +46,24 @@ class TestGit:
         assert "+x" in checkout.diff(worktree, "main")
         log = Shell().line("git log -1 --format=%an/%ae/%s", worktree).output.strip()
         assert log == "octo/octo@users.noreply.github.com/ENG-1: add"
+
+    def test_two_tasks_of_one_repo_clone_and_add_worktrees_at_once(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Validation run on the click copy: with `max_parallel: 2` the second task failed with
+        `destination path ... already exists and is not an empty directory`."""
+        origin = LocalOrigin(tmp_path)
+        monkeypatch.setattr(RepoCheckout, "HOST", f"file://{origin.create()}")
+        start = threading.Barrier(TASKS)
+
+        def task(name: str) -> Path:
+            checkout = RepoCheckout(Shell(), tmp_path / "cache", "acme/app")
+            start.wait()
+            checkout.update(TOKEN)
+            return checkout.worktree(f"briar/{name}", "main", tmp_path / "cache" / name)
+
+        with ThreadPoolExecutor(TASKS) as pool:
+            worktrees = list(pool.map(task, [f"ENG-{index}" for index in range(TASKS)]))
+
+        assert [(worktree / "README.md").read_text() for worktree in worktrees] == ["app\n"] * TASKS
 
     def test_a_failed_git_command_names_it_and_hides_the_token(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(RepoCheckout, "HOST", f"file://{tmp_path / 'remotes'}")
