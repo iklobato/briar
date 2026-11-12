@@ -184,6 +184,7 @@ slots (`max_parallel` less the tasks running). It chooses them in three steps
    | priority Highest / High / Low / Lowest | +20 / +10 / -5 / -10 |
    | a label of `priority_labels` | +10 |
    | already in progress in the tracker | +30 |
+   | each person who cited the ticket in Slack in the last 14 days (below) | +25, at most +50 |
 
 3. One model call (the `model` of the company, read only) gets the 5 best, each with
    its allowed repos, and picks the ones to start, the repo of each, and why. A pick
@@ -194,6 +195,37 @@ slots (`max_parallel` less the tasks running). It chooses them in three steps
 
 The reason of each pick is in the log (`serve: acme: picked ENG-7 for acme/api: ...`)
 and in the state entry of the ticket (`reason`). Nothing is posted about the choice.
+
+### Slack
+
+With a `chat:` block and an `[auth.slack]` login (see [logins.md](logins.md)), briar
+reads Slack, read only, on each poll that has a free slot and a workable ticket
+(decisions: `docs/decisions/2026-11-12-briar-2-work-selection-pr2.md`):
+
+```yaml
+    auth:
+      slack: {method: session, workspace: acme}
+    serve:
+      chat:
+        slack:
+          channels: [C0123ABC]        # team channel ids (not names)
+```
+
+- For the points: one search per Jira project (`"ENG-"`) and per GitHub repo
+  (`"acme/web"`) over the last 14 days, in every conversation the token sees. A
+  message counts for the tickets it cites (`ENG-12`, a `/browse/ENG-12` link,
+  `acme/web#4`, a `github.com/acme/web/issues/4` link; a bare `#4` does not). Each
+  person counts once per ticket; the owner of the token and bots do not count.
+- For the model: for each of the 5 best tickets, the whole threads that cite it, and
+  the first 10 threads a search of the words of its title finds in a DM, a mention
+  of the owner of the token, or a team channel. These threads give no points; the
+  model reads them as data, never as orders.
+- A Slack error stops `serve` with exit code 1. A rate limit (HTTP 429) or a timeout
+  is tried again first, waiting the `Retry-After` of Slack (at most 30 seconds, 4
+  tries).
+- The check before the first poll and `doctor --runbooks` call `auth.test` (the
+  token works and is of `workspace`; a bot token is refused) and read each channel
+  with `conversations.info`.
 
 ## Examples
 

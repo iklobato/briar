@@ -148,6 +148,12 @@ class WorkSources:
 
         return make_tracker("jira", self._logins)
 
+    def slack(self) -> Any:
+        from briar.serve.slack import SlackApi, SlackSource
+
+        login = self._logins.slack()
+        return SlackSource(login, SlackApi(login, None))
+
 
 class WorkFinder:
     """The work of one company in one cycle, in the order `serve` takes it."""
@@ -356,6 +362,9 @@ class ServeCheck:
         targets = [LoginTarget(sources.github(), tuple(company.settings.all_repos()))]
         if company.settings.jira:
             targets.append(LoginTarget(sources.jira(), tuple(company.settings.jira.keys())))
+        slack = company.settings.chat.slack
+        if slack is not None:
+            targets.append(LoginTarget(sources.slack(), tuple(slack.channels)))
         read = LoginCheck(company.logins).check(targets)
         return read if not all(line.passed() for line in read) else [*read, *WriteCheck(company, sources).results()]
 

@@ -109,6 +109,29 @@ class JiraProject(_Strict):
     not_workable: List[str] = Field(default_factory=lambda: ["Blocked", "In Review"])
 
 
+class SlackChat(_Strict):
+    """The Slack of `serve` (spec 008 C9): the team channels whose conversations count as
+    related to a ticket (C13); the login is `[auth.slack]`."""
+
+    channels: List[str] = Field(default_factory=list)
+
+    CHANNEL_ID: ClassVar["re.Pattern[str]"] = re.compile(r"^[CG][A-Z0-9]{6,}$")
+
+    @field_validator("channels")
+    @classmethod
+    def _channel_ids(cls, channels: List[str]) -> List[str]:
+        bad = [channel for channel in channels if not cls.CHANNEL_ID.match(channel)]
+        if bad:
+            raise PydanticCustomError("channel_id", "`chat.slack.channels` takes channel ids (C0123ABC), not names: {bad}", {"bad": ", ".join(bad)})
+        return channels
+
+
+class ChatSettings(_Strict):
+    """The chat tools `serve` reads (spec 008 N8); none by default."""
+
+    slack: Optional[SlackChat] = None
+
+
 class ServeSettings(_Strict):
     """`companies.<company>.serve` of a runbook: what `briar serve` watches and the limits
     of one task (decisions S5, S11 to S16, S24 to S27 in
@@ -135,6 +158,7 @@ class ServeSettings(_Strict):
     # The domains the sandboxed bash of the agent may reach (V13); none by default.
     allowed_domains: List[str] = Field(default_factory=list)
     status: StatusNames = Field(default_factory=StatusNames)
+    chat: ChatSettings = Field(default_factory=ChatSettings)
     branch: str = "briar/{key}"
     title: str = "{key}: {title}"
 
