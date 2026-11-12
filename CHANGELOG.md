@@ -153,6 +153,14 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Fixed
 
+- `meeting-digest` found no meeting: the Fireflies API stopped taking the
+  `TranscriptsQueryScope` type and `[String]` participants, and the error read as
+  no data. The query now uses `scope: String` and `participants: [String!]`.
+- An Azure or GCP `aws-infra` section said `region us-east-1`, the AWS default.
+  With no region set, each cloud now uses its own (AWS us-east-1, Azure eastus,
+  GCP us-central1).
+- The bash guard of the `briar serve` agent read `2>&1` as `&&` and refused
+  test commands such as `pytest -q 2>&1 | tail`.
 - `briar doctor` dropped `[repo]` from the `git remote` hint, because the
   table renderer read a word in brackets as style markup. Table cells now
   print as written.
