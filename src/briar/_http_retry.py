@@ -58,6 +58,8 @@ def urlopen_with_retry(
             if attempt >= attempts:
                 break
             wait = _compute_wait(exc, attempt, backoff_base, max_wait)
+            # Dropped for the retry, so close the response it holds.
+            exc.close()
             log.warning("urlopen retry attempt=%d/%d code=%d wait=%.1fs url=%s", attempt, attempts, exc.code, wait, req.full_url)
             time.sleep(wait)
         except urllib.error.URLError as exc:

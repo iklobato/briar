@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import urllib.error
 import urllib.parse
 import urllib.request
 from typing import List
@@ -43,8 +44,13 @@ def _post_form(url: str, fields: dict) -> dict:
         headers={"Accept": "application/json", "User-Agent": "briar-cli"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return json.loads(resp.read())
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        # Callers wrap the error in their own; close the response it holds first.
+        exc.close()
+        raise
 
 
 class GithubDeviceAcquirer(CredentialAcquirer):

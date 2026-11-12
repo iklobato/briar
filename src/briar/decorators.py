@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import functools
 import logging
+import urllib.error
 from typing import Any, Callable, TypeVar
 
 
@@ -49,6 +50,12 @@ def swallow_errors(*, default: Any = None, message: str = "") -> Callable[[Calla
             except (ValueError, TypeError, AssertionError):
                 # Caller error — surface as bugs, don't paper over.
                 raise
+            except urllib.error.HTTPError as exc:
+                # The error holds the open response: close it here, or it stays
+                # open until garbage collection (Python 3.14 warns then).
+                with exc:
+                    log.exception("%s failed", message or fn.__qualname__)
+                return default
             except Exception:  # noqa: BLE001 — runtime/external failures
                 log.exception("%s failed", message or fn.__qualname__)
                 return default

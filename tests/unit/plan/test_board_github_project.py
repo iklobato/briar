@@ -20,9 +20,13 @@ import json
 import urllib.error
 
 import pytest
+from pytest_mock import MockerFixture
 
 from briar.errors import CliError
 from briar.plan._boards.github_project import GithubProjectBoardReader, _field_values
+
+UNAUTHORIZED = 401
+MAX_CARDS = 50
 
 pytestmark = pytest.mark.boundary
 
@@ -302,6 +306,16 @@ class TestErrorEnvelopeAndHttp:
             GithubProjectBoardReader().fetch(_ref(), company="acme", max_cards=50)
         assert f"github graphql HTTP {code}" in str(exc.value)
         assert "Bad credentials" in str(exc.value)
+
+    def test_http_error_response_is_closed(self, mocker: MockerFixture, gh_env: None) -> None:
+        """The HTTPError holds the open response; Python 3.14 warns if it is only garbage collected."""
+        body = io.BytesIO(json.dumps({"message": "Bad credentials"}).encode("utf-8"))
+        err = urllib.error.HTTPError(url="https://api.github.com/graphql", code=UNAUTHORIZED, msg="error", hdrs=None, fp=body)
+        mocker.patch("briar.plan._boards.github_project.urllib.request.urlopen", side_effect=err)
+
+        with pytest.raises(CliError, match="Bad credentials"):
+            GithubProjectBoardReader().fetch(_ref(), company="acme", max_cards=MAX_CARDS)
+        assert body.closed
 
     def test_url_error_raises_request_failed(self, mocker, gh_env):
         mocker.patch(

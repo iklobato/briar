@@ -16,12 +16,16 @@ from __future__ import annotations
 
 import io
 import urllib.error
-from typing import List
+from typing import Callable, List
 
 import pytest
+from pytest_mock import MockerFixture
 
 from briar import _http_retry
 from briar._http_retry import _compute_wait, urlopen_with_retry
+
+SERVER_ERROR, UNAVAILABLE = 500, 503
+THREE_ATTEMPTS = 3
 
 
 def _http_error(code: int, *, retry_after: str | None = None) -> urllib.error.HTTPError:
@@ -147,6 +151,15 @@ class TestUrlopenWithRetry:
         mocker.patch("urllib.request.urlopen", side_effect=seq)
         assert urlopen_with_retry(_req(), timeout=1, attempts=3) is resp
         assert len(no_sleep) == 1  # one backoff between the two attempts
+
+    def test_retried_http_error_responses_are_closed(self, mocker: MockerFixture, no_sleep: List[float], fixed_jitter: Callable[[float], None]) -> None:
+        """Each retried HTTPError holds an open response; it is dropped, so it must be closed."""
+        errors = [_http_error(SERVER_ERROR), _http_error(UNAVAILABLE)]
+        mocker.patch("urllib.request.urlopen", side_effect=[*errors, _Resp()])
+
+        urlopen_with_retry(_req(), timeout=1, attempts=THREE_ATTEMPTS)
+
+        assert [error.fp.closed for error in errors] == [True, True]
 
     def test_429_is_retried_not_treated_as_terminal_4xx(self, mocker, no_sleep, fixed_jitter) -> None:
         resp = _Resp()

@@ -1,0 +1,101 @@
+"""Exit codes and the help I/O contract, as 1.x has them (spec 002, T004).
+
+0 ok, 1 the CLI's own error (`error: <message>` on stderr), 2 a usage error
+or an unexpected crash, 130 Ctrl-C. Usage messages are checked only for the
+word `usage:` and the offending token: Typer words them differently, the
+exit code and the token are the contract.
+"""
+
+from __future__ import annotations
+
+import argparse
+from types import SimpleNamespace
+from typing import Callable, List, Tuple
+
+import pytest
+
+from briar.commands.version import CommandVersion
+from briar.errors import CliError
+
+from .conftest import Tripwire
+
+OK, CLI_ERROR, USAGE_ERROR, INTERRUPTED = 0, 1, 2, 130
+
+
+class RaisingRun:
+    """Stands in for a command's `run()` and raises the given exception."""
+
+    def __init__(self, error: BaseException) -> None:
+        self._error = error
+
+    def raise_error(self, args: argparse.Namespace) -> int:
+        raise self._error
+
+
+class UsageErrors:
+    """Bad command lines and the token stderr must name (empty: none to name)."""
+
+    CASES: Tuple[Tuple[Tuple[str, ...], str], ...] = (
+        ((), ""),
+        (("nope",), "nope"),
+        (("context",), ""),
+        (("config", "show", "--nope"), "--nope"),
+        (("extract",), "--company"),
+        (("--format", "xml", "version"), "xml"),
+    )
+
+    def ids(self) -> List[str]:
+        return [" ".join(argv) or "no-command" for argv, _ in self.CASES]
+
+
+class TestExitCodes:
+    def test_success_is_zero(self, cli: Callable[..., SimpleNamespace]) -> None:
+        assert cli("version").code == OK
+
+    def test_cli_error_is_one_with_the_error_line(self, cli: Callable[..., SimpleNamespace], monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(CommandVersion, "run", RaisingRun(CliError("the runbook is missing")).raise_error)
+
+        run = cli("version")
+
+        assert run.code == CLI_ERROR
+        assert "error: the runbook is missing" in run.err.splitlines()
+
+    def test_global_flag_without_value_is_one(self, cli: Callable[..., SimpleNamespace]) -> None:
+        run = cli("version", "--format")
+
+        assert (run.code, run.err) == (CLI_ERROR, "error: --format requires a value\n")
+
+    @pytest.mark.parametrize(("argv", "token"), UsageErrors.CASES, ids=UsageErrors().ids())
+    def test_usage_error_is_two(self, cli: Callable[..., SimpleNamespace], argv: Tuple[str, ...], token: str) -> None:
+        run = cli(*argv)
+
+        assert run.code == USAGE_ERROR
+        assert "usage:" in run.err.lower()
+        assert token in run.err
+
+    def test_unexpected_crash_is_two(self, cli: Callable[..., SimpleNamespace], monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(CommandVersion, "run", RaisingRun(RuntimeError("bug")).raise_error)
+
+        assert cli("version").code == USAGE_ERROR
+
+    def test_ctrl_c_is_130(self, cli: Callable[..., SimpleNamespace], monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(CommandVersion, "run", RaisingRun(KeyboardInterrupt()).raise_error)
+
+        run = cli("version")
+
+        assert run.code == INTERRUPTED
+        assert "interrupted" in run.err.splitlines()
+
+
+class TestHelpDoesNoIo:
+    @pytest.mark.parametrize("argv", [("--help",), ("-h",), ("context", "--help"), ("context", "put", "-h"), ("plan", "run", "--help")], ids=" ".join)
+    def test_help_exits_zero_without_startup_io(self, cli: Callable[..., SimpleNamespace], tripwire: Tripwire, argv: Tuple[str, ...]) -> None:
+        run = cli(*argv)
+
+        assert (run.code, tripwire.calls) == (OK, [])
+        assert "usage:" in run.out.lower()
+
+    def test_no_command_exits_two_without_startup_io(self, cli: Callable[..., SimpleNamespace], tripwire: Tripwire) -> None:
+        run = cli()
+
+        assert (run.code, tripwire.calls) == (USAGE_ERROR, [])
