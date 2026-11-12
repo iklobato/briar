@@ -116,7 +116,7 @@ class TestStoreAndRootFlags:
     def test_invalid_store_choice_exit_2(self, cli) -> None:
         result = cli("journal", "list", "--store", "postgres")
         assert result.code == 2
-        assert "invalid choice" in result.err
+        assert "Invalid value for '--store'" in result.err
 
     def test_root_value_reaches_factory(self, cli, journal_seam) -> None:
         from pathlib import Path
@@ -215,7 +215,7 @@ class TestExportFlags:
     def test_as_invalid_choice_exit_2(self, cli) -> None:
         result = cli("journal", "export", "sid", "--as", "xml")
         assert result.code == 2
-        assert "invalid choice" in result.err
+        assert "Invalid value for '--as'" in result.err
 
     def test_out_default_dash_goes_to_stdout(self, cli, journal_seam) -> None:
         s = _session()

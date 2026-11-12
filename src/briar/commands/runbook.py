@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import argparse
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar, Dict
 
-from briar.commands.base import Command
+import typer
+
+from briar.commands.base import Command, CommandOptions, Route
 from briar.errors import CliError
 from briar.formatting import render
 from briar.iac.runbook import RunbookScheduler, extract_runbook, load_runbook_file
@@ -31,37 +34,11 @@ class CommandRunbook(Command):
         "serve": "_serve",
     }
 
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        sub = parser.add_subparsers(dest="op", required=True)
-
-        ex = sub.add_parser(
-            "extract",
-            help="walk a YAML's `extract:` or `schedules:` and write knowledge files",
-        )
-        ex.add_argument("file")
-        ex.add_argument(
-            "--task",
-            default="",
-            help="run only the schedule whose `task:` matches this name",
-        )
-
-        sw = sub.add_parser(
-            "sweep",
-            help="run extract for every *.yaml in a directory",
-        )
-        sw.add_argument("directory")
-
-        sv = sub.add_parser(
-            "serve",
-            help="long-running scheduler — registers every (company, task) " "and runs the schedule loop forever",
-        )
-        sv.add_argument("directory")
-        sv.add_argument(
-            "--tick",
-            type=float,
-            default=1.0,
-            help="seconds between schedule.run_pending() ticks (default: 1)",
-        )
+    OP_HELP = {
+        "extract": "walk a YAML's `extract:` or `schedules:` and write knowledge files",
+        "sweep": "run extract for every *.yaml in a directory",
+        "serve": "long-running scheduler: registers every (company, task) and runs the schedule loop forever",
+    }
 
     def run(self, args: argparse.Namespace) -> int:
         # Operational commands — surface INFO progress even though the CLI
@@ -113,3 +90,31 @@ class CommandRunbook(Command):
             log.info("registered company=%s task=%s every=%r", entry.company, entry.task, entry.every)
         scheduler.run_forever(args.tick)
         return 0
+
+
+# ─── Options on Typer ──────────────────────────────────────────────
+
+DEFAULT_TICK_SECONDS = 1.0
+
+
+@dataclass(frozen=True)
+class RunbookExtractOptions(CommandOptions):
+    ROUTE = Route(CommandRunbook.name, "op", "extract")
+
+    file: str = typer.Argument(...)
+    task: str = typer.Option("", "--task", help="run only the schedule whose `task:` matches this name")
+
+
+@dataclass(frozen=True)
+class RunbookSweepOptions(CommandOptions):
+    ROUTE = Route(CommandRunbook.name, "op", "sweep")
+
+    directory: str = typer.Argument(...)
+
+
+@dataclass(frozen=True)
+class RunbookServeOptions(CommandOptions):
+    ROUTE = Route(CommandRunbook.name, "op", "serve")
+
+    directory: str = typer.Argument(...)
+    tick: float = typer.Option(DEFAULT_TICK_SECONDS, "--tick", help="seconds between schedule.run_pending() ticks (default: 1)")

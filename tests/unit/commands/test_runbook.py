@@ -157,4 +157,4 @@ class TestDispatch:
     def test_unknown_op_usage_error(self, cli) -> None:
         result = cli("runbook", "frobnicate")
         assert result.code == 2
-        assert "invalid choice" in result.err
+        assert "No such command 'frobnicate'" in result.err

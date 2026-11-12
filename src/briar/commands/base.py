@@ -12,7 +12,9 @@ import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields
 from enum import Enum
-from typing import ClassVar, Dict, Protocol, Tuple
+from typing import ClassVar, Dict, Mapping, Protocol, Tuple
+
+import typer
 
 from briar.commands._enums import ExitCode
 from briar.errors import CliError
@@ -52,12 +54,42 @@ class CommandOptions:
     line; `run()` gets the same namespace 1.x gave it."""
 
     ROUTE: ClassVar[Route] = Route("")
+    # 1.x defaults Typer cannot hold: a choice option whose 1.x default ("") is not one
+    # of its choices is declared with a None default, and turned back here.
+    UNSET_AS: ClassVar[Mapping[str, object]] = {}
+    # Options the operation shares with its group; see `InheritingOptions`.
+    INHERITED: ClassVar[Tuple[str, ...]] = ()
 
     def namespace(self, source: NamespaceSource) -> argparse.Namespace:
-        return source.from_options(self.ROUTE, {field.name: self._plain(getattr(self, field.name)) for field in fields(self)})
+        return source.from_options(self.ROUTE, self.values())
 
-    def _plain(self, value: object) -> object:
+    def values(self) -> Dict[str, object]:
+        """The option values by 1.x dest; the Typer context is not an option."""
+        named = {field.name: getattr(self, field.name) for field in fields(self)}
+        return {name: self._plain(name, value) for name, value in named.items() if not isinstance(value, typer.Context)}
+
+    def _plain(self, name: str, value: object) -> object:
+        if value is None:
+            return self.UNSET_AS.get(name)
         return value.value if isinstance(value, Enum) else value
+
+
+@dataclass(frozen=True)
+class InheritingOptions(CommandOptions):
+    """Options of an operation whose group takes some of the same options, so both
+    `briar context --store postgres get x` and `briar context get x --store postgres`
+    work. The operation declares them with a None default: a value given on the
+    operation wins, else the group's value (its own default included)."""
+
+    ctx: typer.Context
+
+    def values(self) -> Dict[str, object]:
+        named = super().values()
+        group = self.ctx.parent.params if self.ctx.parent else {}
+        for name in self.INHERITED:
+            if named.get(name) is None:
+                named[name] = self._plain(name, group.get(name))
+        return named
 
 
 def normalize_owner_repo(args: argparse.Namespace) -> None:
@@ -157,6 +189,7 @@ class Command(ABC):
 
     name: str = ""
     help: str = ""
+    OP_HELP: ClassVar[Mapping[str, str]] = {}
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Default: no extra arguments."""
@@ -166,8 +199,8 @@ class Command(ABC):
         """Execute the command. Returns the process exit code."""
 
     def help_for(self, op: str) -> str:
-        """The help line of one operation; a command without operations has only its own."""
-        return self.help
+        """The help line of one operation (`OP_HELP`); without one, the command's own."""
+        return self.OP_HELP.get(op, self.help)
 
     @staticmethod
     def confirm(prompt: str) -> bool:

@@ -18,8 +18,19 @@ import typer
 
 from briar.commands.base import Command, CommandOptions, Route
 from briar.commands.config import ConfigShowOptions
+from briar.commands.context import (
+    ContextCategoriesOptions,
+    ContextDeleteOptions,
+    ContextGetOptions,
+    ContextGroupOptions,
+    ContextListOptions,
+    ContextPutOptions,
+)
 from briar.commands.doctor import DoctorOptions
 from briar.commands.init import InitOptions
+from briar.commands.journal import JournalExportOptions, JournalListOptions, JournalShowOptions
+from briar.commands.runbook import RunbookExtractOptions, RunbookServeOptions, RunbookSweepOptions
+from briar.commands.secrets import SecretsBootstrapOptions, SecretsDoctorOptions
 from briar.commands.telemetry import (
     TelemetryErrorsOnlyOptions,
     TelemetryFullOptions,
@@ -34,6 +45,20 @@ from briar.config import apply_config_defaults
 from briar.infer import apply_inference_defaults
 
 ROUTES: Sequence[Type[CommandOptions]] = (
+    RunbookExtractOptions,
+    RunbookSweepOptions,
+    RunbookServeOptions,
+    ContextGroupOptions,
+    ContextPutOptions,
+    ContextGetOptions,
+    ContextListOptions,
+    ContextDeleteOptions,
+    ContextCategoriesOptions,
+    SecretsDoctorOptions,
+    SecretsBootstrapOptions,
+    JournalListOptions,
+    JournalShowOptions,
+    JournalExportOptions,
     VersionOptions,
     InitOptions,
     ConfigShowOptions,
@@ -137,11 +162,19 @@ class DefaultMap:
         return tree
 
     def _filled(self, options_cls: Type[CommandOptions]) -> Dict[str, str]:
-        return {field.name: self._defaults[field.name] for field in fields(options_cls) if field.name in self._defaults}
+        """An option shared with the group is filled on the group only, or the setting
+        would beat a value given on the group (`briar context --store postgres get x`)."""
+        names = [field.name for field in fields(options_cls) if field.name not in options_cls.INHERITED]
+        return {name: self._defaults[name] for name in names if name in self._defaults}
 
 
 class BriarApp:
     """Builds the Typer app: the global options, the commands on Typer, a pass-through for the rest.
+
+    Only the command the line names (`target`) gets its real options: Typer reads every
+    registered command's options on each run (about 1 ms per operation), so the others
+    are registered by name and help only. They cannot run: a line that names one of
+    them makes it the target.
 
     `rich_markup_mode=None` keeps help and usage errors as plain text: rich styling is
     forced on under GITHUB_ACTIONS or FORCE_COLOR even into a pipe, and it splits tokens
@@ -150,9 +183,10 @@ class BriarApp:
     HELP = "Local agent runner, knowledge extractor, scaffold and runbook tool."
     PASS_THROUGH_SETTINGS = {"allow_extra_args": True, "ignore_unknown_options": True, "help_option_names": []}
 
-    def __init__(self, commands: Mapping[str, Command], parsed: ParsedCommand) -> None:
+    def __init__(self, commands: Mapping[str, Command], parsed: ParsedCommand, target: str) -> None:
         self._commands = commands
         self._parsed = parsed
+        self._target = target
 
     def build(self) -> typer.Typer:
         app = typer.Typer(
@@ -171,17 +205,20 @@ class BriarApp:
 
     def _add(self, app: typer.Typer, name: str, command: Command) -> None:
         """`name` is the registry key, as in 1.x; the command's own `name` attribute is not read."""
-        routes = [options_cls for options_cls in ROUTES if options_cls.ROUTE.command == name]
+        routes = [options_cls for options_cls in ROUTES if options_cls.ROUTE.command == name] if name == self._target else []
         if not routes:
             app.command(name, help=command.help, context_settings=dict(self.PASS_THROUGH_SETTINGS), add_help_option=False)(PassThrough)
             return
-        if not routes[0].ROUTE.op:
+        operations = [options_cls for options_cls in routes if options_cls.ROUTE.op]
+        if not operations:
             app.command(name, help=command.help)(routes[0])
             return
-        group = typer.Typer(help=command.help, rich_markup_mode=None)
-        for options_cls in routes:
+        group = typer.Typer(rich_markup_mode=None)
+        for group_options in [options_cls for options_cls in routes if not options_cls.ROUTE.op]:
+            group.callback()(group_options)
+        for options_cls in operations:
             group.command(options_cls.ROUTE.op, help=command.help_for(options_cls.ROUTE.op))(options_cls)
-        app.add_typer(group, name=name)
+        app.add_typer(group, name=name, help=command.help)
 
 
 @dataclass(frozen=True)
@@ -209,12 +246,18 @@ class CommandLine:
     def parse(self, argv: List[str], pass_through: Callable[[], argparse.ArgumentParser], project_config: Optional[Mapping[str, object]]) -> ParseOutcome:
         """`project_config` is None for help and usage runs: no settings are read then."""
         parsed = ParsedCommand(NamespaceBuilder(self._output_format, PassThroughParser(pass_through, project_config)))
-        app = BriarApp(self._commands, parsed).build()
+        app = BriarApp(self._commands, parsed, self._target(argv)).build()
         try:
             app(argv, prog_name=self.PROG, default_map=self._default_map(project_config))
         except SystemExit as exc:
             return ParseOutcome(parsed.args, int(exc.code or 0))
         return ParseOutcome(parsed.args, 0)
+
+    def _target(self, argv: List[str]) -> str:
+        """The command the line names: its first word that is not an option or the value
+        of `--format` (`main` has already taken the other global flags out)."""
+        words = [token for index, token in enumerate(argv) if not token.startswith("-") and (index == 0 or argv[index - 1] != "--format")]
+        return words[0] if words else ""
 
     def _default_map(self, project_config: Optional[Mapping[str, object]]) -> Optional[Dict[str, Any]]:
         if project_config is None:

@@ -69,7 +69,7 @@ You get one line per extractor or channel that lacks a key.
 | Parameter | What it means | Default | Example |
 |---|---|---|---|
 | `--examples` | The folder with your runbook YAML files. briar reads the `*.yaml` files directly in it (not `.yml`, not subfolders). | `./examples`. If that folder does not exist, briar prints `no runbooks to check` and exits 0. | `--examples runbooks/` |
-| `--cred-store` | Where to look the keys up. Only `envfile` since 2.0: the process environment, which holds your shell vars plus `secrets.env`. `--store` still works as an old name, but prints a note. | `envfile` | `--cred-store envfile` |
+| `--cred-store` | Where to look the keys up. Only `envfile` since 2.0: the process environment, which holds your shell vars plus `secrets.env`. The 1.x name `--store` was removed in 2.0. | `envfile` | `--cred-store envfile` |
 
 ### Good to know
 

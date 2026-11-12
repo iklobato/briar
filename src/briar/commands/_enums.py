@@ -37,3 +37,21 @@ class KnowledgeStoreChoice(str, Enum):
 
     FILE = "file"
     POSTGRES = "postgres"
+
+
+class JournalStoreChoice(str, Enum):
+    """`journal --store` choices; a test keeps them equal to `briar.journal.JOURNAL_STORE_NAMES`."""
+
+    FILE = "file"
+
+
+class CredentialStoreChoice(str, Enum):
+    """`--cred-store` choices; a test keeps them equal to `CredentialStoreRegistry.kinds()`."""
+
+    ENVFILE = "envfile"
+
+
+class BootstrapKindChoice(str, Enum):
+    """`secrets bootstrap --kind` choices; a test keeps them equal to `CredentialBootstrapRegistry.kinds()`."""
+
+    ENVFILE = "envfile"

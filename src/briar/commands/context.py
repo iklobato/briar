@@ -8,74 +8,31 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict
+from typing import Callable, Dict, Optional
 
-from briar.commands.base import Command, confirm
+import typer
+
+from briar.commands._enums import KnowledgeStoreChoice
+from briar.commands.base import Command, CommandOptions, InheritingOptions, Route, confirm
 from briar.errors import CliError
 from briar.formatting import render
-from briar.storage import KNOWLEDGE_STORE_NAMES, KnowledgeRef, make_store
+from briar.storage import KnowledgeRef, make_store
 
 Handler = Callable[[argparse.Namespace], int]
-
-
-def _add_store_flags(parser: argparse.ArgumentParser, *, suppress: bool) -> None:
-    """Add `--store` / `--root` to `parser`, writing the shared `store` /
-    `root` dests.
-
-    The parent parser uses real defaults (`suppress=False`); each sub-op
-    uses `suppress=True` so an absent sub-op flag leaves the parent's value
-    intact instead of clobbering it back to a default."""
-    store_default = argparse.SUPPRESS if suppress else "file"
-    root_default = argparse.SUPPRESS if suppress else "./knowledge"
-    parser.add_argument("--store", dest="store", default=store_default, choices=list(KNOWLEDGE_STORE_NAMES), help="Knowledge store backend (default: file)")
-    parser.add_argument("--root", dest="root", default=root_default, help="Local file root (default: ./knowledge)")
 
 
 class ContextCommand(Command):
     name = "context"
     help = "Store and read named local markdown blobs."
-
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        # `--store`/`--root` are accepted BOTH before the sub-op (the
-        # historic position) and on the sub-op itself, so both
-        # `briar context --store postgres get x` and the more natural
-        # `briar context get x --store postgres` work. The parent carries
-        # the real defaults; the sub-op copies use SUPPRESS so an absent
-        # sub-op flag never clobbers the parent value.
-        _add_store_flags(parser, suppress=False)
-
-        sub = parser.add_subparsers(dest="op", required=True)
-
-        put = sub.add_parser("put", help="create or update a blob")
-        put.add_argument("blob_name", help="e.g. knowledge:acme")
-        put.add_argument("--content", help="inline content (or '-' for stdin)")
-        put.add_argument("--from-file", help="read content from this path")
-        put.add_argument(
-            "--category",
-            default="",
-            help="explicit category (default: derived from blob_name prefix)",
-        )
-        _add_store_flags(put, suppress=True)
-
-        gp = sub.add_parser("get", help="print the markdown body to stdout")
-        gp.add_argument("blob_name")
-        _add_store_flags(gp, suppress=True)
-
-        lst = sub.add_parser("list", help="list stored blobs")
-        lst.add_argument(
-            "--prefix",
-            default="",
-            help="filter to names starting with this prefix",
-        )
-        _add_store_flags(lst, suppress=True)
-
-        de = sub.add_parser("delete", help="remove a blob")
-        de.add_argument("blob_name")
-        de.add_argument("--yes", action="store_true")
-        _add_store_flags(de, suppress=True)
-
-        _add_store_flags(sub.add_parser("categories", help="print distinct category prefixes"), suppress=True)
+    OP_HELP = {
+        "put": "create or update a blob",
+        "get": "print the markdown body to stdout",
+        "list": "list stored blobs",
+        "delete": "remove a blob",
+        "categories": "print distinct category prefixes",
+    }
 
     def run(self, args: argparse.Namespace) -> int:
         handlers: Dict[str, Handler] = {
@@ -153,3 +110,64 @@ class ContextCommand(Command):
         items = [{"category": cat or "(none)", "blob_count": n} for cat, n in sorted(seen.items())]
         render(items, args.format, ["category", "blob_count"])
         return 0
+
+
+# ─── Options on Typer ──────────────────────────────────────────────
+# `--store` / `--root` work before the operation (`briar context --store postgres
+# get x`, the 1.x position) and on it (`briar context get x --store postgres`).
+
+STORE_HELP = "Knowledge store backend (default: file)"
+ROOT_HELP = "Local file root (default: ./knowledge)"
+
+
+@dataclass(frozen=True)
+class ContextGroupOptions(CommandOptions):
+    ROUTE = Route(ContextCommand.name)
+
+    store: KnowledgeStoreChoice = typer.Option(KnowledgeStoreChoice.FILE, "--store", help=STORE_HELP)
+    root: str = typer.Option("./knowledge", "--root", help=ROOT_HELP)
+
+
+@dataclass(frozen=True)
+class ContextOperationOptions(InheritingOptions):
+    INHERITED = ("store", "root")
+
+    store: Optional[KnowledgeStoreChoice] = typer.Option(None, "--store", help=STORE_HELP)
+    root: Optional[str] = typer.Option(None, "--root", help=ROOT_HELP)
+
+
+@dataclass(frozen=True)
+class ContextPutOptions(ContextOperationOptions):
+    ROUTE = Route(ContextCommand.name, "op", "put")
+
+    blob_name: str = typer.Argument(..., help="e.g. knowledge:acme")
+    content: Optional[str] = typer.Option(None, "--content", help="inline content (or '-' for stdin)")
+    from_file: Optional[str] = typer.Option(None, "--from-file", help="read content from this path")
+    category: str = typer.Option("", "--category", help="explicit category (default: derived from blob_name prefix)")
+
+
+@dataclass(frozen=True)
+class ContextGetOptions(ContextOperationOptions):
+    ROUTE = Route(ContextCommand.name, "op", "get")
+
+    blob_name: str = typer.Argument(...)
+
+
+@dataclass(frozen=True)
+class ContextListOptions(ContextOperationOptions):
+    ROUTE = Route(ContextCommand.name, "op", "list")
+
+    prefix: str = typer.Option("", "--prefix", help="filter to names starting with this prefix")
+
+
+@dataclass(frozen=True)
+class ContextDeleteOptions(ContextOperationOptions):
+    ROUTE = Route(ContextCommand.name, "op", "delete")
+
+    blob_name: str = typer.Argument(...)
+    yes: bool = typer.Option(False, "--yes")
+
+
+@dataclass(frozen=True)
+class ContextCategoriesOptions(ContextOperationOptions):
+    ROUTE = Route(ContextCommand.name, "op", "categories")

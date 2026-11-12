@@ -21,14 +21,17 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`.
   tags, so the Sentry library's own scrubber also filters secret-named
   keys. briar's allow-list and secret and path scrubbing are unchanged.
 - The command line is moving from argparse to Typer, a few commands at a
-  time. `briar --help`, `version`, `init`, `config`, `doctor` and
-  `telemetry` are on Typer now: same flags, defaults and exit codes, but
-  their help and usage errors read differently. `briar --install-completion`
+  time. `briar --help`, `version`, `init`, `config`, `doctor`, `telemetry`,
+  `context`, `journal`, `secrets` and `runbook` are on Typer now: same
+  flags, defaults and exit codes, but their help and usage errors read
+  differently. `briar --install-completion`
   and `briar --show-completion` are new. The other commands still use their
   1.x parser for now.
 
 ### Removed
 
+- `briar secrets doctor --store`, the 1.x name of `--cred-store`. It is now
+  an unknown option (exit 2).
 - `briar scaffold implementation` and `briar scaffold pr-fixes`, with the
   scaffold templates, sources, triggers and workflow shapes behind them.
   Their JSON was for the archived web UI; nothing in briar read it. The
