@@ -10,6 +10,17 @@ cut automatically on merge to `main` (patch bump + PyPI + Docker).
 Work for 2.0 lands on the `v2` branch and ships as one release. The scope
 is in `docs/decisions/2026-11-10-briar-2-pipeline.md`.
 
+### Changed
+
+- Telemetry is opt-in: the default tier is `off`, and nothing is sent until
+  you run `briar telemetry errors-only` or `briar telemetry full`. The tier
+  is saved in `telemetry.v2.json`; the 1.x `telemetry.json` is not read
+  (1.x saved `full` for everyone who saw its first-run notice), so a 1.x
+  user starts at `off` too. The first-run notice is gone.
+- Telemetry events carry their fields as Sentry "extra" data instead of
+  tags, so the Sentry library's own scrubber also filters secret-named
+  keys. briar's allow-list and secret and path scrubbing are unchanged.
+
 ### Removed
 
 - `briar scaffold implementation` and `briar scaffold pr-fixes`, with the

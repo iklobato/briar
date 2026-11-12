@@ -44,14 +44,23 @@ class TestPrecedence:
         assert cfg.tier is TelemetryTier.ERRORS_ONLY
         assert cfg.source == "config-file"
 
-    def test_default_full(self) -> None:
+    def test_default_is_off(self) -> None:
         cfg = resolve(env={})
-        assert cfg.tier is TelemetryTier.FULL
+        assert cfg.tier is TelemetryTier.OFF
         assert cfg.source == "default"
 
     def test_invalid_env_value_falls_through_to_default(self) -> None:
         cfg = resolve(env={"BRIAR_TELEMETRY": "supercharged"})
-        assert cfg.tier is TelemetryTier.FULL
+        assert cfg.tier is TelemetryTier.OFF
+        assert cfg.source == "default"
+
+    def test_state_saved_by_1x_is_ignored(self, tmp_path: Path) -> None:
+        # 1.x saved `full` for everyone who saw its first-run banner, so a
+        # saved 1.x tier is not a choice the user made.
+        (tmp_path / "briar").mkdir()
+        (tmp_path / "briar" / "telemetry.json").write_text('{"tier": "full", "banner_shown": true}')
+        cfg = resolve(env={})
+        assert cfg.tier is TelemetryTier.OFF
         assert cfg.source == "default"
 
 
@@ -78,13 +87,14 @@ class TestInstallId:
 
 
 class TestSaveTier:
-    def test_save_writes_state_file(self) -> None:
+    def test_save_writes_the_2x_state_file(self, tmp_path: Path) -> None:
         save_tier(TelemetryTier.ERRORS_ONLY)
-        assert state_path().exists()
+        assert state_path() == tmp_path / "briar" / "telemetry.v2.json"
+        assert state_path().read_text() == '{\n  "tier": "errors-only"\n}'
         # Round-trip via resolve.
         cfg = resolve(env={})
         assert cfg.tier is TelemetryTier.ERRORS_ONLY
-        assert cfg.banner_shown is True
+        assert cfg.source == "config-file"
 
 
 class TestBrokenConfig:
@@ -92,7 +102,7 @@ class TestBrokenConfig:
         state_path().parent.mkdir(parents=True, exist_ok=True)
         state_path().write_text("not json {")
         cfg = resolve(env={})
-        assert cfg.tier is TelemetryTier.FULL
+        assert cfg.tier is TelemetryTier.OFF
         assert cfg.source == "default"
 
     def test_unreadable_install_id_path_still_returns_uuid(self) -> None:

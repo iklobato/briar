@@ -3387,43 +3387,8 @@ class Phase12FollowupTests(unittest.TestCase):
     deferred list: security defaults, constant centralisation, deduplicated
     scaffold helpers, missing tracker timeouts."""
 
-    def test_sentry_emit_does_not_put_message_in_body(self) -> None:
-        """capture_message body bypasses before_send; the Phase 12 fix
-        sends only the error_type as the message body and routes the
-        scrubbed text through a tag."""
-        from briar.telemetry._sinks.base import TelemetryEvent
-        from briar.telemetry._sinks.sentry import SentrySink
-
-        sink = SentrySink(dsn="https://k@example.test/1", release="t")
-        captured: dict = {"messages": [], "tags": {}}
-
-        fake_scope = mock.MagicMock()
-        fake_scope.set_tag = lambda k, v: captured["tags"].update({k: v})
-        fake_scope.__enter__ = lambda s: s
-        fake_scope.__exit__ = lambda *a: None
-
-        fake_sentry = mock.MagicMock()
-        fake_sentry.isolation_scope.return_value = fake_scope
-        fake_sentry.capture_message = lambda msg, level: captured["messages"].append((msg, level))
-
-        with mock.patch.object(sink, "_ensure_init", return_value=True):
-            with mock.patch.dict("sys.modules", {"sentry_sdk": fake_sentry}):
-                event = TelemetryEvent(
-                    kind="error",
-                    command="extract",
-                    outcome="error",
-                    duration_ms=0,
-                    error_type="ValueError",
-                    error_message="raw sk-secret-key-leak",
-                    tags={"baseline": "tag"},
-                )
-                sink.emit(event)
-
-        # Body is just the type, not the message text
-        self.assertEqual(captured["messages"], [("briar.error: ValueError", "error")])
-        # Message text lands in a tag (which goes through the scrubber)
-        self.assertEqual(captured["tags"].get("error_type"), "ValueError")
-        self.assertEqual(captured["tags"].get("error_message"), "raw sk-secret-key-leak")
+    # The "message body holds only the error type" check moved to
+    # tests/unit/telemetry/test_sentry_wire.py, against the real SDK.
 
     def test_meeting_constants_centralised(self) -> None:
         """DEFAULT_MEETING_TOP_K and DEFAULT_MEETING_MAX_BYTES live in

@@ -1,9 +1,9 @@
-"""briar.telemetry — opt-out error + usage analytics for the CLI.
+"""briar.telemetry — opt-in error + usage analytics for the CLI.
 
-Public surface (3 functions, 1 context manager). Everything else is
+Public surface (2 functions, 1 context manager). Everything else is
 package-private:
 
-    from briar.telemetry import install, command_span, capture_error, banner_if_needed
+    from briar.telemetry import install, command_span, capture_error
 
     install()                                # called by briar.cli.main at startup
     with command_span("plan.run", args):     # wraps every command dispatch
@@ -12,7 +12,8 @@ package-private:
 Privacy contract:
 - `DO_NOT_TRACK=1` disables everything.
 - `BRIAR_TELEMETRY={off,errors-only,full}` overrides persisted config.
-- Default tier is `full` (errors + usage).
+- Default tier is `off`: nothing is sent until the user runs
+  `briar telemetry errors-only` or `full`. No banner is printed.
 - `install_id` is a random UUID; we ship its SHA256 prefix, never the
   raw id. No hostname / username / IP / paths.
 - Allow-list-first tags; secret-pattern regexes; 1 KB per-value cap.
@@ -27,13 +28,12 @@ from __future__ import annotations
 import logging
 import os
 import platform
-import sys
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterator, List, Optional
 
-from briar.telemetry._config import TelemetryConfig, TelemetryTier, mark_banner_shown, reset_install_id, resolve, save_tier
+from briar.telemetry._config import TelemetryConfig, TelemetryTier, reset_install_id, resolve, save_tier
 from briar.telemetry._scrubber import Scrubber
 from briar.telemetry._sinks import TelemetryEvent, TelemetrySink, make_sink
 from briar.telemetry._sinks.noop import NoOpSink
@@ -62,8 +62,7 @@ def install(version: str = "") -> TelemetryConfig:
     """Resolve config and install the global sink. Idempotent — safe
     to call multiple times. Called once by `briar.cli.main`.
 
-    Returns the resolved config so the caller can drive the first-run
-    banner without re-resolving."""
+    Returns the resolved config."""
     config = resolve()
     _STATE.config = config
 
@@ -106,50 +105,8 @@ def shutdown(*, timeout_seconds: float = 2.0) -> None:
 
 def active_config() -> Optional[TelemetryConfig]:
     """The current resolved config, or None if `install()` hasn't run.
-    Used by `briar telemetry status` and the first-run banner."""
+    Used by `briar telemetry status`."""
     return _STATE.config
-
-
-# ─── first-run banner ───────────────────────────────────────────────
-
-
-_BANNER = """\
-briar collects anonymous error reports and usage analytics to improve
-the tool. Tier: {tier}. The following are NEVER collected: prompts,
-file contents, ticket keys, repo names, paths, secrets, env values.
-
-Inspect:   briar telemetry preview     (print exact JSON before sending)
-Disable:   briar telemetry off
-Errors-only: briar telemetry errors-only
-Or set:    BRIAR_TELEMETRY=off   /   DO_NOT_TRACK=1
-
-(this notice will not show again)
-"""
-
-
-def banner_if_needed() -> bool:
-    """Print the first-run banner if it hasn't been shown yet. Returns
-    True iff the banner was printed this call.
-
-    The banner is suppressed when:
-    - the user disabled telemetry via env (`BRIAR_TELEMETRY=off` /
-      `DO_NOT_TRACK=1`) — they've already made a choice;
-    - the persisted state file says we've shown it before.
-    """
-    config = _STATE.config or resolve()
-    if config.source in {"do-not-track", "env"}:
-        return False
-    if config.banner_shown:
-        return False
-    try:
-        print(_BANNER.format(tier=config.tier.value), file=sys.stderr)
-    except Exception:  # noqa: BLE001 — stderr write should never crash the CLI
-        return False
-    try:
-        mark_banner_shown()
-    except OSError:
-        log.debug("telemetry: could not persist banner_shown flag")
-    return True
 
 
 # ─── capture API ────────────────────────────────────────────────────
@@ -305,7 +262,6 @@ __all__ = [
     "TelemetrySink",
     "TelemetryTier",
     "active_config",
-    "banner_if_needed",
     "capture_error",
     "command_span",
     "install",

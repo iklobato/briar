@@ -27,7 +27,7 @@ def xdg_home(monkeypatch, tmp_path):
 
 
 def _state(xdg_home) -> dict:
-    return json.loads((xdg_home / "telemetry.json").read_text())
+    return json.loads((xdg_home / "telemetry.v2.json").read_text())
 
 
 # ─────────────────────────── set-tier ──────────────────────────────
@@ -35,7 +35,7 @@ def _state(xdg_home) -> dict:
 
 class TestSetTier:
     def test_off_writes_off_tier_to_state_file(self, cli, xdg_home) -> None:
-        assert not (xdg_home / "telemetry.json").exists()
+        assert not (xdg_home / "telemetry.v2.json").exists()
         result = cli("telemetry", "off")
         assert result.code == 0
         # Side effect: the on-disk tier is now OFF.
@@ -58,11 +58,6 @@ class TestSetTier:
         cli("telemetry", "full")
         # The later choice replaces the earlier one in the same file.
         assert _state(xdg_home)["tier"] == TelemetryTier.FULL.value
-
-    def test_set_tier_marks_banner_shown(self, cli, xdg_home) -> None:
-        # save_tier(banner_shown=True) means the first-run banner won't re-show.
-        cli("telemetry", "off")
-        assert _state(xdg_home)["banner_shown"] is True
 
 
 # ─────────────────────────── status ────────────────────────────────
