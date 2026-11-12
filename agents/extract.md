@@ -149,7 +149,8 @@ On GitLab a repo is the full project path, of any depth
 repo extractor works there except two: `dependency-health` and
 `code-scanning` find nothing, since GitLab has no free API for those alerts.
 `repo-governance` counts approval rules only on a GitLab plan that has them.
-Code search (`todo-density`) may need advanced search on gitlab.com.
+GitLab code search has no `OR`, so `todo-density` searches each marker word
+on its own.
 
 PR and review history:
 

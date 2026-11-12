@@ -61,8 +61,8 @@ built, not yet verified live):
 - G3: LGPL-3.0 dependency in an MIT project. Fine as an unmodified dependency; anyone who
   ships a bundle (a zipapp, a frozen binary) must keep the LGPL terms for that part.
 - An OAuth2 login (as `glab` keeps) is not a GitLab login method of briar; only access tokens.
-- G4: code search on gitlab.com may need advanced search on the plan of the project; not
-  verified. A 403 or empty answer returns nothing, as on Bitbucket.
+- G4: code search worked on gitlab.com in the G12 run, one word per search (GitLab blob
+  search has no `OR`). A plan or a self-hosted GitLab without blob search gives nothing.
 - G8: merged results pipelines and pipelines of a fork are not looked at separately.
 - Self-hosted GitLab with a private CA certificate is not handled (no setting for a CA file).
 - G1: a company with repos on GitHub and GitLab cannot be served by one company entry.
