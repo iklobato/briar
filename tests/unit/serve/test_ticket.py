@@ -16,6 +16,11 @@ from briar.serve.state import WorkStatus
 from tests.unit.serve.ticket_fakes import ISSUE, FakeGithubSide, Files, Items, Plans, ScriptedAgent, Setups, Step
 
 PR = FakeGithubSide.NUMBER
+# Verify commands that pass on the base, as a test suite does (a base that fails stops the task).
+CLEAN = "! grep -qs bad state.txt"
+IGNORED_CHECK = "test ! -e .gitignore || test -f feature.txt"
+NO_OTHER = "test ! -e other.txt"
+TWO_STEPS = 2
 MAX_USD = 5.0
 STEP_COST = 0.1
 THIRD_STEP, FOURTH_STEP = 2, 3
@@ -42,7 +47,7 @@ class TestHappyPath:
         setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()]), Items().jira())
 
         lines = [record.getMessage().strip() for record in caplog.records]
-        assert "serve: ENG-1 verify: `test -f feature.txt` ok" in lines
+        assert "serve: ENG-1 verify on HEAD: `test -f feature.txt` ok" in lines
         assert lines[-1].startswith(f"serve: ENG-1 is done https://github.com/acme/app/pull/{PR} US$ ") and lines[-1].endswith("fix loops")
 
     def test_a_jira_ticket_goes_from_plan_to_green_ci(self, setups: Setups) -> None:
@@ -94,25 +99,37 @@ class TestHappyPath:
 
 class TestLoops:
     def test_a_failed_verify_is_fixed_by_the_agent(self, setups: Setups) -> None:
-        setup = setups.make({})
-        agent = ScriptedAgent([Plans().plan(), Step(), Step(writes=Files().feature()), Plans().approved()])
+        # A verify that passes on the base, as a test suite does, and fails on a bad change.
+        setup = setups.make({"verify": [CLEAN]})
+        agent = ScriptedAgent([Plans().plan(), Step(writes={"state.txt": "bad\n"}), Step(writes={"state.txt": "good\n"}), Plans().approved()])
 
         setup.work_on(agent, Items().jira())
 
-        assert "`test -f feature.txt` failed (exit 1)" in agent.requests[THIRD_STEP].prompt
+        assert f"`{CLEAN}` failed (exit 1)" in agent.requests[THIRD_STEP].prompt
         assert setup.entry("ENG-1").status is WorkStatus.DONE
+
+    def test_a_verify_that_fails_on_the_base_too_stops_without_a_fix(self, setups: Setups) -> None:
+        """Real run, 2026-11-12: a pytest plugin of the machine failed verify; the agent then
+        changed the config and a test of the repo to pass it. Now briar stops with the report."""
+        setup = setups.make({"verify": ["false"]})
+        agent = ScriptedAgent([Plans().plan(), Step(writes=Files().feature())])
+
+        setup.work_on(agent, Items().jira())
+
+        assert (len(agent.requests), setup.entry("ENG-1").status) == (TWO_STEPS, WorkStatus.BLOCKED)
+        assert setup.sources.github_side.pulls[0][1].body.startswith("briar stopped: the verify commands fail on origin/main too, before any change")
 
     def test_verify_checks_the_commit_not_the_files_git_ignores(self, setups: Setups) -> None:
         """A file the agent leaves that git ignores passes verify in its folder but is not
         pushed (first real run: a `pytest.ini` the global gitignore dropped)."""
-        setup = setups.make({})
+        setup = setups.make({"verify": [IGNORED_CHECK]})
         ignored_build = Step(writes={"feature.txt": "done\n", ".gitignore": "feature.txt\n"})
         agent = ScriptedAgent([Plans().plan(), ignored_build, Step(writes={".gitignore": ""}), Plans().approved()])
 
         setup.work_on(agent, Items().jira())
 
         fix = agent.requests[THIRD_STEP].prompt
-        assert "`test -f feature.txt` failed (exit 1)" in fix
+        assert f"`{IGNORED_CHECK}` failed (exit 1)" in fix
         assert "git ignores these files of your folder, so they are not in the commit: feature.txt" in fix
         assert setup.entry("ENG-1").status is WorkStatus.DONE
 
@@ -144,7 +161,7 @@ class TestLimits:
     """S23: on a limit, push, a draft PR with the report, the report on the ticket."""
 
     def test_verify_that_never_passes_hits_max_loops(self, setups: Setups) -> None:
-        setup = setups.make({"max_loops": 1})
+        setup = setups.make({"max_loops": 1, "verify": [NO_OTHER]})
 
         setup.work_on(ScriptedAgent([Plans().plan(), Step(writes={"other.txt": "x"}), Step(writes={"other.txt": "y"})]), Items().jira())
 

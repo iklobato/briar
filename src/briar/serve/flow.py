@@ -57,6 +57,8 @@ class TaskFlow:
         """Commit, run the verify commands, and fix until they pass (S20)."""
         await asyncio.to_thread(self.commit, what)
         failures = await asyncio.to_thread(self._verify_failures)
+        if failures:
+            await self._base_passes()
         while failures:
             self._budget.next_loop("the verify commands")
             await self._steps.fix("the verify commands fail", failures)
@@ -150,16 +152,28 @@ class TaskFlow:
         draft = PullRequestDraft(self._context.branch, self._context.base, self._context.title, text, draft=True)
         return int(github.open_pull(self._context.item.repo, draft))
 
+    async def _base_passes(self) -> None:
+        """A verify that fails on the base too is no failure of the change (a real run: a
+        pytest plugin of the machine); fixing it would put a workaround of this machine in the
+        PR, so the task stops with the report instead."""
+        base = f"origin/{self._context.base}"
+        failures = await asyncio.to_thread(self._failures_at, base)
+        if failures:
+            raise LimitHit(f"the verify commands fail on {base} too, before any change: fix the environment or the `verify` commands of the runbook.\n\n{failures}")
+
     def _verify_failures(self) -> str:
         """The verify commands, run on a clean copy of the commit: what will be pushed."""
+        failures = self._failures_at("HEAD")
+        return f"{failures}{self._ignored_note()}" if failures else ""
+
+    def _failures_at(self, revision: str) -> str:
         checkout, worktree, shell = self._context.checkout, self._context.worktree, Shell()
-        copy = checkout.verify_copy(worktree)
+        copy = checkout.verify_copy(worktree, revision)
         found = [(command, shell.line(command, copy)) for command in self._context.company.settings.verify]
         checkout.drop_copy(worktree, copy)
         results = ", ".join(f"`{command}` {'ok' if done.ok() else f'exit {done.code}'}" for command, done in found) or "no verify commands set"
-        self.LOG.info("serve: %s verify: %s", self._context.item.ref(), results)
-        failures = "\n\n".join(f"`{command}` failed (exit {done.code}):\n{done.output[-self.OUTPUT_TAIL :]}" for command, done in found if not done.ok())
-        return f"{failures}{self._ignored_note()}" if failures else ""
+        self.LOG.info("serve: %s verify on %s: %s", self._context.item.ref(), revision, results)
+        return "\n\n".join(f"`{command}` failed (exit {done.code}):\n{done.output[-self.OUTPUT_TAIL :]}" for command, done in found if not done.ok())
 
     def _ignored_note(self) -> str:
         ignored = self._context.checkout.ignored(self._context.worktree)

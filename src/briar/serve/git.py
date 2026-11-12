@@ -185,13 +185,13 @@ class RepoCheckout:
     def head(self, path: Path) -> str:
         return self._git(["rev-parse", "HEAD"], path, "").output.strip()
 
-    def verify_copy(self, path: Path) -> Path:
-        """A clean detached worktree of HEAD next to `path`: the commit without the files git
-        ignores, so verify checks what is pushed, not what only the task folder holds."""
+    def verify_copy(self, path: Path, revision: str = "HEAD") -> Path:
+        """A clean detached worktree of `revision` next to `path`: the commit without the files
+        git ignores, so verify checks what is pushed, not what only the task folder holds."""
         copy = path.with_name(f"{path.name}.verify")
         self.drop_copy(path, copy)
         with self._shared_clone():
-            self._git(["worktree", "add", "--detach", str(copy), "HEAD"], path, "")
+            self._git(["worktree", "add", "--detach", str(copy), revision], path, "")
         return copy
 
     def drop_copy(self, path: Path, copy: Path) -> None:
