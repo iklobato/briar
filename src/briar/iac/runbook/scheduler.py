@@ -213,6 +213,13 @@ class RunbookScheduler:
     def jobs(self) -> List[RegisteredJob]:
         return list(self._jobs)
 
+    def tick(self) -> None:
+        """Run the jobs that are due once, for a caller with its own loop (`briar serve`);
+        a failed login check of a job stops it, as in `run_forever` (J8)."""
+        schedule.run_pending()
+        if self._login_failures:
+            raise self._login_failures[0]
+
     def run_forever(self, tick_seconds: float = 1.0) -> None:
         """Block + dispatch jobs until `stop()` or KeyboardInterrupt."""
         log.info("scheduler starting: %d job(s), tick=%.1fs (Ctrl-C to stop)", len(self._jobs), tick_seconds)

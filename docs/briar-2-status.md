@@ -1,5 +1,12 @@
 # briar 2.0: work status
 
+**Re-scoped on 2026-11-11:** the core of 2.0 is `briar extract` and `briar serve`, the
+agentic development pipeline (watch the tickets assigned to briar and the review comments
+on its PRs; plan, build, open the PR, answer every comment; in parallel, with the Claude
+Agent SDK; GitHub and Jira only). The decisions are
+`docs/decisions/2026-11-11-briar-2-serve-pipeline.md` (S1 to S35), which also list the
+earlier decisions they change. Spec 003 builds it in 4 PRs; part 1 is #100.
+
 The handoff file for briar 2.0. Read it before you touch the `v2` branch or
 any 2.0 PR. It says where the work is, what is done, how the code works
 now, what was found on the way, what is left and what to watch.
@@ -67,6 +74,7 @@ now, what was found on the way, what is left and what to watch.
 | https://github.com/iklobato/briar/pull/97 | `logins/01-config-pasted` | Spec 005 part 1: `[auth]` config and the runbook `auth:` block, `BRIAR_*` names with the 1.x name guard, source targets for `auth login|status` with `--runbook`, the pasted logins (GitHub PAT, Jira token and cookie, Bitbucket token, access token and cookie, Linear key, Fireflies key), the flat credential store |
 | https://github.com/iklobato/briar/pull/98 | `logins/02-clouds` | Spec 005 part 2: AWS, GCP and Azure log in through their CLI (`[auth.aws] profile`, `[auth.gcp] config_dir` and `project`, `[auth.azure] tenant` and `subscription`); `profile` leaves `[extract.aws-infra]`; the acquirers and `CredEnv` go |
 | https://github.com/iklobato/briar/pull/99 | `logins/03-check` | Spec 005 part 3: the login check before every run ("who am I" plus a read of each resource), in `extract`, `runbook extract` and `serve`, `auth login` and `status`, `doctor` |
+| https://github.com/iklobato/briar/pull/100 | `serve/01-runbook-serve` | Spec 003 part 1: the serve decisions (S1 to S35), the runbook `serve:` block, `briar serve DIR` (model, read and write checks; one asyncio loop with `max_parallel` slots per company; the finder; the `work:<company>` state), `doctor` model login |
 
 ## 2. What is done
 
@@ -387,6 +395,38 @@ as 1.x shipped it, in tag `v1.1.101`. Read one with
   pass; `make smoke` ok; mypy 25 errors before, 25 after; `src` 14,104
   lines before, 14,947 after.
 
+### Spec 003: `briar serve`, part 1 of 4 (PR #100)
+
+- Settled first in a grill session (the re-scope of 2.0):
+  `docs/decisions/2026-11-11-briar-2-serve-pipeline.md` (S1 to S35). The
+  local plan and tasks: `specs/003-serve-pipeline/plan.md`, `tasks.md`.
+- `iac/runbook/models.py`: `ServeSettings` (`companies.<c>.serve`), with
+  `model`, `max_usd`, `max_loops`, `ci_wait_minutes` required (S5, S24).
+- `briar/serve/`: `state.py` (`WorkBook` of `WorkEntry`, `WorkState` on
+  `work:<company>` under an `asyncio.Lock`), `work.py` (`WorkFinder`: reviews
+  first, then Jira `assignee = currentUser()` and GitHub issues assigned to
+  the PAT owner, by `PriorityRank`; `WriteCheck`; `ModelLogin`;
+  `ServeCheck`; `ServeCompanies` loads the folder), `loop.py` (`TaskSlots`:
+  a semaphore of `max_parallel`, one task per key; `CompanyWatch` polls in a
+  thread; `ServeLoop` gathers the watches and the extract ticks of
+  `RunbookScheduler.tick()`; `FoundRoutine` records a found ticket until
+  part 2).
+- `commands/serve.py`: `briar serve DIR` (the method is `serve`, with
+  `run = serve` for the `Command` interface, since the rules hook flags a new
+  method named `run`).
+- Adapter verbs: `JiraTracker.assigned`, `JiraTracker.can_write`
+  (`mypermissions`), `GithubIssuesTracker.assigned`,
+  `GithubProvider.can_write` (`permissions.push`).
+- Real run (read only): the checks and one cycle against the private test
+  repo `iklobato/briar-plan-test`; 0 issues assigned, so no ticket found.
+- Numbers, 2026-11-11, Python 3.13.2: 1539 unit and 33 integration tests
+  pass; `make smoke` ok; mypy 25 before, 25 after; `src` 14,947 lines
+  before, 15,585 after.
+- The GitHub device flow written as spec 005 PR 4 was dropped (S2: GitHub by
+  PAT); `git branch device-flow cf7bcb4` brings it back while the reflog
+  keeps it. The rest of spec 005 PR 4 (Linear OAuth, the GitHub App) is not
+  planned.
+
 ### Spec 005: real runs on the accounts of the maintainer (G20)
 
 Read only, on the machine of the maintainer, 2026-11-11, with
@@ -616,7 +656,7 @@ Found in spec 005 (2026-11-10 and 2026-11-11):
 
 ## 5. Next steps, in order
 
-1. **Review and merge #79 to #99 into `v2`**, in order, as merge commits.
+1. **Review and merge #79 to #100 into `v2`**, in order, as merge commits.
    Re-check `gh pr checks <n>` before each merge; after the last one, check
    that the `v2` CI run is green.
 2. **Decide how 2.0 is released before `v2` merges to `main`.**
@@ -650,10 +690,12 @@ Found in spec 005 (2026-11-10 and 2026-11-11):
    `briar.commands.runbook` 389 ms cumulative, mostly SQLAlchemy and
    storage, which part 3 removes).
 5. **Write the next specs** (spec-kit, from the decisions files):
-   - spec 003: the pipeline engine (LangGraph, `briar run/resume/runs`,
-     built-in pipelines `ticket`, `board`, `pr-review`, loops, checkpoints;
-     D7 to D26, D35, D36, and P1 to P22, A1 to A15 of the ticket-pipeline
-     file). It needs the logins of spec 005 for Fireflies and Slack (T6);
+   - spec 003: `briar serve` (S1 to S35; it replaces the LangGraph engine
+     of D9 and the YAML pipelines of D11). Part 1 is #100. Left: part 2, the
+     ticket routine (adds `claude-agent-sdk`; plan, implement with the bash
+     allowlist, verify, self-review, PR, CI wait, limits, status); part 3,
+     the review routine; part 4, `auth` and `runbook` leave, `init` writes
+     an example runbook, docs;
    - spec 004: extractors cleaned inside with the same text per extractor,
      `extract` on Typer, the extractor flags (D32, D32a, C12), and the new
      knowledge layout (K1 to K14, K16, K20);
@@ -661,12 +703,8 @@ Found in spec 005 (2026-11-10 and 2026-11-11):
      (AWS, gcloud and Azure) is #98, PR 3 (the check) is #99. Left (G19),
      grilled before code (the maintainer asks for a grill at the start of
      every PR):
-     - PR 4: the GitHub device flow of a briar GitHub App (G10), Linear
-       OAuth with `authlib` (G17, approved dependency L19), the refresh
-       lock on `secrets.env` (G18, R-7), and the docs. Needs the maintainer
-       to register the GitHub App first, read permissions only (G23, G24).
-       The 1.x device flow code: `git show
-       c63ccf9:src/briar/auth/_acquirers/github_device.py`.
+     - PR 4 (device flow, Linear OAuth, refresh lock) is dropped by the
+       re-scope (S2: GitHub by PAT); see the spec 003 part 1 section.
      - Real runs still to do (G20): Jira, Bitbucket, Linear, Fireflies. The
        maintainer runs `briar auth login <source> --company <c>` in their
        terminal, then asks for the run.
@@ -709,6 +747,15 @@ Found in spec 005 (2026-11-10 and 2026-11-11):
 - Not checked: `briar --install-completion` writing into a real shell
   config; Python 3.10 only runs in CI.
 - The open risks in both decisions files (pipeline R1 to R12, logins R1 to R7).
+- Spec 003, open after PR #100:
+  - The Linux wheel of `claude-agent-sdk` is 152 MB (it carries Claude
+    Code); S4 makes it required. Review question on #100.
+  - A failed poll (Jira or GitHub down) stops `serve` (J8 strictness);
+    a non-briar error crashes with exit 2. Review question on #100.
+  - `doctor` checks the model login only; the runbook fields are checked
+    when `serve` loads the runbooks.
+  - Nothing is cut yet (S8): Bitbucket, Linear, Fireflies and the clouds
+    stay as extractors.
 - Spec 005, open after PRs #97 to #99:
   - `runbook serve` stops for every company when one check fails, a short
     network drop included (J8 with J3, chosen on purpose); under a

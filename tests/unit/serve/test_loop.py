@@ -1,0 +1,122 @@
+"""The loop of `briar serve` (spec 003 PR 1: S15, S16, S17): parallel tasks with a limit,
+never two on the same ticket, and the state they write. No network: the finder reads
+the fakes of `fakes.py`."""
+
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import List
+
+import pytest
+
+from briar.serve.loop import CompanyWatch, FoundRoutine, TaskSlots
+from briar.serve.state import WorkEntry, WorkSource, WorkStatus
+from briar.serve.work import WorkItem, WorkKind
+from tests.unit.serve.fakes import Companies, FakeJira, FakeSources, Tickets
+
+TWO_SLOTS = 2
+FIVE_TASKS = 5
+
+
+@dataclass(frozen=True)
+class CountingRoutine:
+    """Holds each task until `release` is set, and counts how many run at once."""
+
+    release: asyncio.Event
+    started: List[str] = field(default_factory=list)
+    most_at_once: List[int] = field(default_factory=lambda: [0])
+    running: List[int] = field(default_factory=lambda: [0])
+
+    async def work_on(self, item: WorkItem) -> None:
+        self.started.append(item.key)
+        self.running[0] += 1
+        self.most_at_once[0] = max(self.most_at_once[0], self.running[0])
+        await self.release.wait()
+        self.running[0] -= 1
+
+
+class TaskBroke(Exception):
+    """What a broken routine raises."""
+
+
+class FailingRoutine:
+    async def work_on(self, item: WorkItem) -> None:
+        raise TaskBroke(f"broke on {item.key}")
+
+
+class Items:
+    def ticket(self, key: str) -> WorkItem:
+        return WorkItem(WorkKind.TICKET, key, WorkSource.JIRA, "acme/app", f"title of {key}")
+
+
+class TestTaskSlots:
+    def test_at_most_max_parallel_tasks_run_at_once(self) -> None:
+        async def scenario() -> CountingRoutine:
+            routine = CountingRoutine(asyncio.Event())
+            slots = TaskSlots(asyncio.Semaphore(TWO_SLOTS), set(), set())
+            for number in range(FIVE_TASKS):
+                slots.dispatch(Items().ticket(f"ENG-{number}"), routine)
+            await asyncio.sleep(0)
+            routine.release.set()
+            await slots.drain()
+            return routine
+
+        routine = asyncio.run(scenario())
+
+        assert (routine.most_at_once[0], len(routine.started)) == (TWO_SLOTS, FIVE_TASKS)
+
+    def test_a_ticket_already_running_is_not_started_again(self) -> None:
+        async def scenario() -> List[bool]:
+            routine = CountingRoutine(asyncio.Event())
+            slots = TaskSlots(asyncio.Semaphore(TWO_SLOTS), set(), set())
+            dispatched = [slots.dispatch(Items().ticket("ENG-1"), routine), slots.dispatch(Items().ticket("ENG-1"), routine)]
+            routine.release.set()
+            await slots.drain()
+            return dispatched + [slots.dispatch(Items().ticket("ENG-1"), routine)]
+
+        assert asyncio.run(scenario()) == [True, False, True]
+
+    def test_a_failed_task_is_logged_and_frees_its_slot(self, caplog: pytest.LogCaptureFixture) -> None:
+        async def scenario() -> bool:
+            slots = TaskSlots(asyncio.Semaphore(1), set(), set())
+            slots.dispatch(Items().ticket("ENG-1"), FailingRoutine())
+            await slots.drain()
+            await asyncio.sleep(0)
+            return slots.dispatch(Items().ticket("ENG-1"), FailingRoutine())
+
+        assert asyncio.run(scenario()) is True
+        assert "serve: task ENG-1 failed: broke on ENG-1" in caplog.text
+
+
+class TestCycle:
+    def test_a_found_ticket_is_recorded_once(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        jira = FakeJira({"ENG": [Tickets().jira("ENG-1", "High", "2026-01-03")]})
+        monkeypatch.setattr("briar.serve.loop.WorkSources", lambda logins: FakeSources(jira_adapter=jira))
+        company = Companies(tmp_path / "knowledge").company({"jira": {"ENG": "acme/app"}})
+        slots = TaskSlots(asyncio.Semaphore(TWO_SLOTS), set(), set())
+        watch = CompanyWatch(company, slots, FoundRoutine(company.state))
+
+        async def scenario() -> List[int]:
+            first = await watch.cycle()
+            await slots.drain()
+            return [first, await watch.cycle()]
+
+        assert asyncio.run(scenario()) == [1, 0]
+        expected = WorkEntry(key="ENG-1", source=WorkSource.JIRA, repo="acme/app", title="title of ENG-1", status=WorkStatus.FOUND)
+        assert company.state.book().entries == {"ENG-1": expected}
+
+
+class TestState:
+    def test_tasks_that_write_at_once_keep_every_entry(self, tmp_path: Path) -> None:
+        company = Companies(tmp_path / "knowledge").company({"repos": ["acme/app"]})
+        entries = [Items().ticket(f"ENG-{number}").entry() for number in range(FIVE_TASKS)]
+
+        async def scenario() -> None:
+            await asyncio.gather(*(company.state.record(entry) for entry in entries))
+
+        asyncio.run(scenario())
+
+        assert sorted(company.state.book().entries) == [f"ENG-{number}" for number in range(FIVE_TASKS)]
+        assert (tmp_path / "knowledge" / "work" / "acme.md").exists()

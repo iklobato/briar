@@ -56,6 +56,12 @@ class GithubIssuesTracker(TrackerProvider):
     def who_am_i(self) -> str:
         return self._api().account()
 
+    def assigned(self, repo: str, login: str) -> List[Ticket]:
+        """Open issues of `repo` assigned to `login`, pull requests left out (`briar serve`,
+        spec 003 S9). Errors are not swallowed."""
+        rows = self._api().get_paginated(f"/repos/{repo}/issues?state=open&assignee={login}&sort=created&direction=asc")
+        return [self._to_ticket(row, repo) for row in rows if "pull_request" not in row]
+
     def read(self, resource: str) -> None:
         self._api().read_repo(resource)
 
