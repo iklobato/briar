@@ -75,13 +75,12 @@ def logins_pass(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def fake_sources(monkeypatch: pytest.MonkeyPatch) -> Any:
-    """`auth` and `doctor` check `FakeProbe` adapters, and the run reads no resource: no
+    """`doctor` and `extract` check `FakeProbe` adapters, and the run reads no resource: no
     network. Set a probe with `fake_sources.probe(FakeProbe("jira", refused=...))`."""
     from tests.unit.fake_logins import FakeSources
 
     sources = FakeSources()
     monkeypatch.setattr("briar.extract.login_probes.SourceProbes.target", lambda probes, source: sources.target(source))
-    monkeypatch.setattr("briar.commands.auth.AuthChoices.run_targets", lambda choices, logins: [])
     monkeypatch.setattr("briar.commands.extract.ExtractPlan.run_targets", lambda plan: [])
     return sources
 

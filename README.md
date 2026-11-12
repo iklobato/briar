@@ -37,16 +37,17 @@ you.
   for example "how long PRs take to merge" or "which files change the
   most".
 - **Once or on a schedule.** Run them by hand with `briar extract`, or list
-  them in a YAML runbook and let `briar runbook serve` keep the facts fresh.
+  them in a YAML runbook and let `briar serve` keep the facts fresh.
 - **Runs on your computer.** There is no briar server and no account.
   briar only talks to the services you set up, and your tokens stay in a
   file on your machine.
 
-**What comes next:** pipelines. A pipeline will take a ticket, read the
-knowledge, and have AI agents write the code, run your tests and open a
-draft PR that you review and merge. This is planned for briar 2.0 and not
-built yet. briar 1.x had a first version of it (`briar agent`,
-`briar plan`); to use that today, install `pip install 'briar-cli<2'`.
+**The pipeline:** `briar serve` takes the tickets assigned to the account
+of its GitHub token (GitHub issues and Jira tickets), writes a plan, has a
+Claude agent build it in its own git worktree, runs your checks, opens the
+PR, waits for CI, and then answers the review comments on that PR. It needs
+a Claude login and spends model money, within the limits you set in the
+runbook. See [serve.md](https://github.com/iklobato/briar/blob/main/agents/serve.md).
 
 ## Install
 
@@ -78,9 +79,12 @@ The short version, for a GitHub repo with Jira tickets. New to briar?
 # 1. Say where your Jira site is (briar reads this file, it never writes it)
 printf 'company = "acme"\n[auth.jira]\nsite = "acme.atlassian.net"\n' >> .briar.toml
 
-# 2. Save a GitHub token and a Jira login. They go to ~/.config/briar/secrets.env
-briar auth login github --company acme
-briar auth login jira --company acme
+# 2. Write a GitHub token and a Jira login where briar reads them
+mkdir -p ~/.config/briar && chmod 700 ~/.config/briar
+printf 'BRIAR_ACME_GITHUB_TOKEN=%s\nBRIAR_ACME_JIRA_EMAIL=%s\nBRIAR_ACME_JIRA_TOKEN=%s\n' \
+    "<GitHub token>" "<Atlassian email>" "<Atlassian API token>" >> ~/.config/briar/secrets.env
+chmod 600 ~/.config/briar/secrets.env
+briar doctor    # checks both logins, live
 
 # 3. Read the recent PRs and the tools of the repo into the knowledge file of acme
 briar extract --company acme --repo acme-co/acme-app \
@@ -92,16 +96,18 @@ cat ./knowledge/knowledge/acme.md
 
 ## Commands
 
-briar has 5 commands. Each one has a manual in
+briar has 4 commands. Each one has a manual in
 [`agents/`](https://github.com/iklobato/briar/blob/main/agents/README.md).
 
 | Command | What it does | Manual |
 |---|---|---|
 | `briar extract` | Runs extractors and saves what they find in one knowledge file. | [extract.md](https://github.com/iklobato/briar/blob/main/agents/extract.md) |
-| `briar runbook` | Runs extractors from a YAML file: once (`extract`) or on a schedule (`serve`). | [runbook.md](https://github.com/iklobato/briar/blob/main/agents/runbook.md) |
-| `briar auth` | Saves a login (`login`) and shows which ones are set (`status`). | [auth.md](https://github.com/iklobato/briar/blob/main/agents/auth.md) |
-| `briar init` | Writes a starter `.briar.toml` in your repo. | [setup.md](https://github.com/iklobato/briar/blob/main/agents/setup.md) |
-| `briar doctor` | Shows each setting and where it came from, then checks your setup. | [setup.md](https://github.com/iklobato/briar/blob/main/agents/setup.md) |
+| `briar serve` | Runs the pipeline of the runbooks in a folder, and their scheduled extracts. | [serve.md](https://github.com/iklobato/briar/blob/main/agents/serve.md), [runbooks.md](https://github.com/iklobato/briar/blob/main/agents/runbooks.md) |
+| `briar init` | Writes a starter `.briar.toml` and an example runbook in your repo. | [setup.md](https://github.com/iklobato/briar/blob/main/agents/setup.md) |
+| `briar doctor` | Shows each setting and where it came from, then checks your setup (and a folder of runbooks with `--runbooks`). | [setup.md](https://github.com/iklobato/briar/blob/main/agents/setup.md) |
+
+1.x also had `briar auth` and `briar runbook`. 2.0 removed them: write the
+logins by hand (below), and use `briar serve DIR` for the schedules.
 
 Recipes that chain these commands are in
 [flows.md](https://github.com/iklobato/briar/blob/main/agents/flows.md).
@@ -110,7 +116,7 @@ Three flags work with every command, anywhere on the line:
 
 | Flag | What it does |
 |---|---|
-| `--format table\|json` | Output shape, for `doctor` and `runbook extract`. |
+| `--format table\|json` | Output shape, for `doctor`. |
 | `--verbose`, `-v` | Debug logs on stderr. |
 | `--version`, `-V` | Print the version and exit. |
 
@@ -138,7 +144,7 @@ since_days = 30
 tracker = "jira"
 projects = ["ACME"]
 
-# Login choices; the secrets go in secrets.env (`briar auth login`)
+# Login choices; the secrets go in secrets.env (see Logins below)
 [auth.jira]
 site = "acme.atlassian.net"
 ```
@@ -147,6 +153,26 @@ A value for one extractor wins over the value in `[extract]`. A key briar
 does not know stops the run and says what to fix. `briar extract -h` lists
 every key with its default, and `briar doctor` shows which settings briar
 found and where.
+
+### Logins
+
+You write the secrets yourself, in the environment or in
+`~/.config/briar/secrets.env` (`/etc/briar/secrets.env` on a server, or the
+path in `$BRIAR_SECRETS_FILE`), one `NAME=value` per line, readable by you
+only. `ACME` is your company name in capital letters:
+
+| Source | Names | Also in the config |
+|---|---|---|
+| GitHub | `BRIAR_ACME_GITHUB_TOKEN` (a fine-grained token; `briar serve` needs read and write on Contents, Pull requests and Issues) | nothing |
+| Jira | `BRIAR_ACME_JIRA_EMAIL`, `BRIAR_ACME_JIRA_TOKEN` (or `BRIAR_ACME_JIRA_COOKIE`) | `site` under `[auth.jira]` |
+| Bitbucket | `BRIAR_ACME_BITBUCKET_EMAIL`, `BRIAR_ACME_BITBUCKET_TOKEN` (or an access token, or a cookie) | `workspace` under `[auth.bitbucket]` |
+| Linear | `BRIAR_ACME_LINEAR_API_KEY` | nothing |
+| Fireflies | `BRIAR_ACME_FIREFLIES_API_KEY` | nothing |
+| AWS, GCP, Azure | nothing: log in with their own CLI | `profile`, `config_dir` and `project`, `tenant` and `subscription` |
+| The `briar serve` agent | `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` | the `serve:` block of the runbook |
+
+`briar doctor` checks them. Every method and the 1.x names are in
+[logins.md](https://github.com/iklobato/briar/blob/main/agents/logins.md).
 
 ## Learn briar in 2 examples
 
@@ -162,8 +188,8 @@ cd path/to/your-repo                   # go into any GitHub repo you can read
 export BRIAR_MYTEAM_GITHUB_TOKEN=$(gh auth token)   # gives briar your GitHub login for the team "myteam"
 ```
 
-If you do not use the GitHub CLI `gh`, run
-`briar auth login github --company myteam` and paste a GitHub token
+If you do not use the GitHub CLI `gh`, put a GitHub token in
+`~/.config/briar/secrets.env` as `BRIAR_MYTEAM_GITHUB_TOKEN=<token>`
 instead. That token is all both examples need. Nothing is sent to an AI,
 so they cost nothing.
 
@@ -182,8 +208,7 @@ how your team works: how fast PRs get merged, who writes them, how often
 you release, how often CI passes.
 
 ```bash
-briar init --company myteam    # creates .briar.toml, a small settings file in your repo
-briar auth login github --company myteam   # saves a GitHub token, once GitHub accepts it
+briar init --company myteam    # creates .briar.toml, a small settings file, and runbooks/myteam.yaml
 briar doctor                   # shows your settings and checks that briar has what it needs
 briar extract --include pr-archaeology --include release-cadence --include ci-health
                                # collects three kinds of facts
@@ -196,9 +221,6 @@ cat ./knowledge/knowledge/myteam.md  # prints the facts briar saved
   name, and writes them into `.briar.toml` with the team name you chose
   (`myteam` is just a label). After this, no command needs `--company` or
   `--repo`.
-- `auth login github` asks for a fine-grained token, asks GitHub who it
-  belongs to, and saves it to `~/.config/briar/secrets.env` only when
-  GitHub accepts it.
 - `doctor` prints two tables. The first lists each setting (`company`,
   `owner`, `repo`, `telemetry` and more) and where it came from. The
   second checks Python, the settings file, the git remote and each login
@@ -231,8 +253,9 @@ briar repo that takes a few minutes.
 **The problem:** facts from last month are wrong today, and you do not want
 to type the extract command every day.
 
-Save this as `runbooks/myteam.yaml`. It lists the same three extractors as
-example 1:
+Replace `runbooks/myteam.yaml` (the example `init` wrote, whose `serve:`
+block waits for a model and limits) with this. It lists the same three
+extractors as example 1:
 
 ```yaml
 version: 1
@@ -251,7 +274,8 @@ companies:
 ```
 
 ```bash
-briar runbook serve runbooks   # start a scheduler for every runbook in the folder
+briar doctor --runbooks runbooks   # checks the runbook and its logins, without starting
+briar serve runbooks              # start a scheduler for every runbook in the folder
 ```
 
 **What happens:**
@@ -261,8 +285,7 @@ briar runbook serve runbooks   # start a scheduler for every runbook in the fold
 - When the job is due, it does the same work as `briar extract` and saves
   `knowledge:myteam` again. The log lines show each step.
 - It runs until you press Ctrl+C. On a server you leave it running.
-- To run the file once, right now, use
-  `briar runbook extract runbooks/myteam.yaml`.
+- This runbook has no `serve:` block, so `serve` runs only its extracts.
 - More teams go under `companies:`. Their first runs start a few seconds
   apart, so they do not all call GitHub at the same moment.
 - A runbook writes its whole file each time, so list in it every extractor

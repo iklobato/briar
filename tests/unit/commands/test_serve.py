@@ -10,6 +10,7 @@ from typing import Callable, List
 import pytest
 
 from briar.serve.loop import ServeLoop
+from tests.unit.fake_logins import Fixes
 
 CLI_ERROR = 1
 SERVE_BLOCK = "    serve:\n      model: claude-test\n      max_usd: 5\n      max_loops: 3\n      ci_wait_minutes: 30\n      max_review_rounds: 2\n      repos: [acme/app]\n"
@@ -44,12 +45,12 @@ class TestBeforeTheLoop:
 
         assert (run.code, run.err.strip().splitlines()[-1]) == (CLI_ERROR, f"error: serve: {tmp_path / 'missing'} is not a directory")
 
-    def test_no_company_with_a_serve_block_stops(self, cli: Callable[..., SimpleNamespace], runbooks: Runbooks) -> None:
+    def test_a_folder_with_nothing_to_serve_stops(self, cli: Callable[..., SimpleNamespace], runbooks: Runbooks) -> None:
         folder = runbooks.write("    extract: []\n")
 
         run = cli("serve", str(folder))
 
-        assert run.err.strip().splitlines()[-1] == f"error: serve: no runbook in {folder} has a company with a `serve:` block"
+        assert run.err.strip().splitlines()[-1] == f"error: serve: nothing to serve in {folder}: no company has a `serve:` block or a schedule"
 
     def test_a_serve_block_without_the_model_stops_the_load(self, cli: Callable[..., SimpleNamespace], runbooks: Runbooks) -> None:
         folder = runbooks.write(SERVE_BLOCK.replace("      model: claude-test\n", ""))
@@ -80,7 +81,7 @@ class TestBeforeTheLoop:
         run = cli("serve", str(runbooks.write(SERVE_BLOCK)))
 
         assert run.code == CLI_ERROR
-        assert "  - github (acme): no login saved (BRIAR_ACME_GITHUB_TOKEN); run `briar auth login github --company acme --runbook " in run.err
+        assert f"  - github (acme): no login saved (BRIAR_ACME_GITHUB_TOKEN); {Fixes().github()}" in run.err
 
 
 class TestTheLoop:
@@ -91,5 +92,19 @@ class TestTheLoop:
         monkeypatch.setattr(ServeLoop, "serve_forever", lambda loop: started.append("serve_forever"))
 
         run = cli("serve", str(runbooks.write(SERVE_BLOCK)))
+
+        assert (run.code, started) == (0, ["serve_forever"])
+
+    def test_a_folder_with_only_schedules_runs_the_extracts(
+        self, cli: Callable[..., SimpleNamespace], runbooks: Runbooks, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """X1: what `briar runbook serve` did; no model login, no sandbox, no pipeline check."""
+        started: List[str] = []
+        monkeypatch.setattr("briar.iac.runbook.RunbookScheduler.check_logins", lambda scheduler: None)
+        monkeypatch.setattr("briar.serve.work.ServeCheck.require", lambda check: started.append("pipeline check"))
+        monkeypatch.setattr(ServeLoop, "serve_forever", lambda loop: started.append("serve_forever"))
+        schedule = '    schedules:\n      - task: daily\n        every: "day at 03:17"\n        extract:\n          - name: pr-archaeology\n'
+
+        run = cli("serve", str(runbooks.write(schedule)))
 
         assert (run.code, started) == (0, ["serve_forever"])

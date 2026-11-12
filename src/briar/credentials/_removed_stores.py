@@ -23,4 +23,4 @@ class RemovedCredentialStoreGuard:
     def check(self) -> None:
         kind = (self._environ.get(self.ENV_VAR) or "").strip()
         if kind in self.REMOVED_KINDS:
-            raise CliError(f"credential store {kind!r} was removed in briar 2.0; " f"unset {self.ENV_VAR} or move the keys to the env file (briar auth login)")
+            raise CliError(f"credential store {kind!r} was removed in briar 2.0; " f"unset {self.ENV_VAR} or move the keys to secrets.env")

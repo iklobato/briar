@@ -6,7 +6,7 @@ own:
 
 | Value | Stands for |
 |---|---|
-| `acme` | Your company key. It names the knowledge blob and the credential variables (`JIRA_ACME_TOKEN`). |
+| `acme` | Your company key. It names the knowledge blob and the credential variables (`BRIAR_ACME_JIRA_TOKEN`). |
 | `acme-co/acme-app` | Your repo, as `owner/repo`. |
 | `ACME` | Your Jira project. |
 | `runbooks/` | A folder of runbook YAML files. |
@@ -23,14 +23,19 @@ Save credentials, check them, then take the first snapshot.
 # 1. Say where the Jira site is and which AWS profile (briar never writes this file)
 printf 'company = "acme"\n[auth.jira]\nsite = "acme.atlassian.net"\n[auth.aws]\nprofile = "acme"\n' >> .briar.toml
 
-# 2. Save credentials. Each one goes to ~/.config/briar/secrets.env
-briar auth login github --company acme
-briar auth login jira --company acme
-briar auth login aws --company acme      # runs aws sso login (or aws configure) for the acme profile
-briar auth login fireflies --company acme
+# 2. Write the secrets (logins.md lists the names), readable by you only
+mkdir -p ~/.config/briar
+cat >> ~/.config/briar/secrets.env <<'ENV'
+BRIAR_ACME_GITHUB_TOKEN=<a fine-grained GitHub token>
+BRIAR_ACME_JIRA_EMAIL=<your Atlassian email>
+BRIAR_ACME_JIRA_TOKEN=<an Atlassian API token>
+BRIAR_ACME_FIREFLIES_API_KEY=<a Fireflies API key>
+ENV
+chmod 600 ~/.config/briar/secrets.env
+aws sso login --profile acme             # AWS keeps its own login
 
-# 3. Check which keys one source still lacks
-briar auth status jira --company acme
+# 3. Check every login of acme, live
+briar doctor
 
 # 4. Name the Jira project in .briar.toml (a Jira key is not a repo)
 cat >> .briar.toml <<'TOML'
@@ -87,10 +92,10 @@ companies:
               aws_extract_service: [tagging-inventory]
 ```
 
-Then run it once:
+Then serve the folder; the task first runs at its next 03:00 UTC:
 
 ```bash
-briar runbook extract runbooks/acme.yaml
+briar serve runbooks/
 ```
 
 You get `inventory:acme` (`./knowledge/inventory/acme.md`), a JSON blob
@@ -100,37 +105,36 @@ its file date shows when they last changed.
 ## Flow 3: Keep knowledge fresh on a server
 
 ```bash
-# 1. Run every runbook once, now
-for f in runbooks/*.yaml; do briar runbook extract "$f"; done
+# 1. Check the logins of every runbook, without starting
+briar doctor --runbooks runbooks/
 
 # 2. Stay running and fire each task on its schedule
-briar runbook serve runbooks/
+briar serve runbooks/
 ```
 
-`runbook serve` logs `scheduler starting: N job(s)`, then
-`fire task=... company=...` and `result task=... status=...` for each
-run. It does not go to the background by itself. Run it under systemd,
-for example:
+`serve` logs `fire task=... company=...` and `result task=... status=...`
+for each run; a folder with no `serve:` block runs only these. It does not
+go to the background by itself. Run it under systemd, for example:
 
 ```ini
-# /etc/systemd/system/briar-scheduler.service
+# /etc/systemd/system/briar.service
 [Service]
-ExecStart=/usr/local/bin/briar runbook serve /etc/briar/runbooks/
+ExecStart=/usr/local/bin/briar serve /etc/briar/runbooks/
 Restart=on-failure
 User=briar
 EnvironmentFile=/etc/briar/secrets.env
 ```
 
 When a task fails, the error is in the log; 2.0 sends no alert yet. See
-[runbook.md](runbook.md).
+[runbooks.md](runbooks.md).
 
 ## Flow 4: Bitbucket and Linear instead of GitHub and Jira
 
 ```bash
-# 1. Say which Bitbucket workspace, then save credentials for both
+# 1. Say which Bitbucket workspace, then write the secrets of both
 printf '[auth.bitbucket]\nworkspace = "acme"\n' >> .briar.toml
-briar auth login bitbucket --company acme
-briar auth login linear --company acme
+printf 'BRIAR_ACME_BITBUCKET_EMAIL=%s\nBRIAR_ACME_BITBUCKET_TOKEN=%s\nBRIAR_ACME_LINEAR_API_KEY=%s\n' \
+    "<email>" "<Atlassian API token>" "<Linear API key>" >> ~/.config/briar/secrets.env
 
 # 2. Point the repo extractors at Bitbucket
 printf '[extract]\nprovider = "bitbucket"\n' >> .briar.toml

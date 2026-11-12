@@ -51,7 +51,7 @@ provider = "github"
 | `tracker` | The tracker of `active-tickets` and `ticket-archaeology`; `[extract]` beats it (see [extract.md](extract.md)). | none |
 | `repos` | The repeatable `--repo` list on `extract`. | none |
 | `[extract]`, `[extract.<name>]` | Every `briar extract` value besides the three flags. See [extract.md](extract.md). | none |
-| `[auth.<source>]` | The login choices of a source: `method`, the Jira `site`, the Bitbucket `workspace`. Secrets never go here. See [auth.md](auth.md). | none |
+| `[auth.<source>]` | The login choices of a source: `method`, the Jira `site`, the Bitbucket `workspace`. Secrets never go here. See [logins.md](logins.md). | none |
 | `telemetry` | No flag: the telemetry tier, `off` (the default), `errors-only` or `full`. See [Telemetry](#telemetry). | `BRIAR_TELEMETRY`; `DO_NOT_TRACK=1` beats both |
 | `[repo] owner`, `repo` | Every `--owner` and `--repo`. On `extract`, they form one `owner/repo` entry when `repos` is not set. | none |
 | `[repo] provider` | The code host of the repo extractors; `[extract]` beats it. | none |
@@ -68,15 +68,17 @@ In pyproject.toml, put the same keys under `[tool.briar]`, with
   no longer read.
 - The **credential** store is always the env file in 2.0; a
   `BRIAR_DEFAULT_STORE` left from 1.x that names a removed store stops
-  the command (see [auth.md](auth.md)).
+  the command (see [logins.md](logins.md)).
 
 ## `briar init`
 
 ### What it does
 
-Writes a starter `.briar.toml` in the current folder and prints it.
-It fills in the company and the repo. The owner and repo
-come from your flags, else from your git `origin` remote.
+Writes a starter `.briar.toml` in the current folder and prints it, and an
+example runbook `runbooks/<company>.yaml` next to it for `briar serve` (see
+[runbooks.md](runbooks.md) and [serve.md](serve.md)). It fills in the company
+and the repo. The owner and repo come from your flags, else from your git
+`origin` remote.
 
 ### Use it when
 
@@ -91,8 +93,10 @@ briar init --company acme
 ```
 
 You get `.briar.toml` with `company = "acme"` and the owner and repo
-from your git remote. briar prints `wrote .briar.toml` on
-stderr and the file on stdout.
+from your git remote, and `runbooks/acme.yaml` with a daily extract and a
+`serve:` block for that repo. briar prints
+`wrote .briar.toml and runbooks/acme.yaml` on stderr and the `.briar.toml`
+on stdout.
 
 ```bash
 # Set the repo by hand. Replace an old file.
@@ -116,12 +120,19 @@ You get `../.briar.toml`. Commands run in any folder below it find it.
 | `--owner` | The repo owner to write. | From your git `origin` remote, else empty. | `--owner acme-co` |
 | `--repo` | The repo name to write. | From your git `origin` remote, else empty. | `--repo acme-app` |
 | `--path` | Where to write the file. | `./.briar.toml` | `--path ../.briar.toml` |
-| `--force` | Replace the file if it already exists. | off | `--force` |
+| `--force` | Replace the two files if they already exist. | off | `--force` |
 
 ### Good to know
 
 - Without `--force`, an existing file stops `init` with
-  `.briar.toml already exists`, and exit code 1.
+  `.briar.toml already exists: pass --force to overwrite` (or the runbook
+  path), and exit code 1. Nothing is written then.
+- The example runbook leaves the model and the limits of `serve:`
+  commented out, because they have no default: `briar serve` (and
+  `briar doctor --runbooks runbooks/`) stops with `Field required` until you
+  choose them and remove the `#`. With no `--company` the runbook is
+  `runbooks/example.yaml`; with no git `origin` its repo is
+  `your-org/your-repo`.
 - briar only finds a file named `.briar.toml` (or a `pyproject.toml`).
   A file written with another `--path` name is not read.
 - The file also has a commented-out `telemetry` line. Remove the `#`
@@ -163,6 +174,9 @@ fails, so you can use it in CI.
 | `git remote` | An `origin` remote gives an owner and repo. | `warn`: run `briar init --owner OWNER --repo REPO`, or set them under `[repo]` in `.briar.toml`. |
 | `<source> login` | One row per configured source of the company (an `[auth.<source>]` block, a saved value, or a 1.x name): the source says who the login is, and briar reads the repos and projects `briar extract` would read. Shows the account. | `fail`: no login saved, the login was refused, or a resource it cannot read, with the fix; a 1.x name says where the value goes now. `warn`: briar could not reach the source. |
 | `logins` | Shown instead of the rows above when there is nothing to check. | `warn`: no company set, or no login configured for it. `fail`: the `[extract]` table has an error. |
+| `model login` | `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` is set (not tested). | `warn`: only `briar serve` needs it. |
+| `agent sandbox` | The programs of the agent sandbox are there: `sandbox-exec` on macOS, `bwrap` and `socat` on Linux. | `warn`: what to install; only `briar serve` needs it. |
+| `runbooks` | With `--runbooks DIR`: the runbooks load (the required keys), then one `<source> login` row per login `briar serve DIR` checks before its first cycle (the scheduled extracts, and read and write for each company with a `serve:` block). | `fail`: the folder is missing, or a runbook does not load (the key is named). |
 
 ### Use it when
 
@@ -196,9 +210,21 @@ BRIAR_COMPANY=acme briar doctor
 
 You get `company  acme  env (BRIAR_COMPANY)` in the settings table.
 
+```bash
+# Check a folder of runbooks before you serve it.
+briar doctor --runbooks runbooks/
+```
+
+You get the usual rows, then `runbooks  ok  runbooks: 1 companies with a
+`serve:` block` and one login row per check `briar serve runbooks/` makes.
+
 ### All parameters
 
-`doctor` has no flags of its own. The global `--format` flag works.
+| Parameter | What it means | Default | Example |
+|---|---|---|---|
+| `--runbooks` | Also run the checks of `briar serve` on this folder of runbooks, without starting it. | none | `--runbooks runbooks/` |
+
+The global `--format` flag works.
 
 ### Good to know
 
@@ -206,15 +232,15 @@ You get `company  acme  env (BRIAR_COMPANY)` in the settings table.
   network for them; offline they show `warn` and the exit code stays 0.
 - The settings table cannot see flags, because you type those per
   command. A flag always wins over what it shows.
-- For the keys one source needs, use `briar auth status <target>
-  --company <name>` (see [auth.md](auth.md)).
+- A failed login row names the `BRIAR_*` keys to write and where (see
+  [logins.md](logins.md)).
 
 ## Shell completion
 
 ### What it does
 
-Adds tab completion to your shell. It completes command names, subcommand
-names, flag names and the values of flags with a fixed list (such as
+Adds tab completion to your shell. It completes command names, flag
+names and the values of flags with a fixed list (such as
 `--format table|json`). It does not complete hidden flags. `briar extract`
 completes as a command name only: its flags still use the 1.x parser
 until a later 2.0 change.
@@ -224,7 +250,7 @@ global flags below replace it.
 
 ### Use it when
 
-- You want `briar <Tab>` to list commands, and `briar auth login --<Tab>` to list flags.
+- You want `briar <Tab>` to list commands, and `briar doctor --<Tab>` to list flags.
 
 ### Examples
 
@@ -275,8 +301,7 @@ same thing.
 
 - `table` prints a table for lists. One record prints as JSON instead.
 - `json` prints the same data as JSON.
-- Only `doctor` and `runbook extract` use `--format`. Other commands
-  ignore it.
+- Only `doctor` uses `--format`. Other commands ignore it.
 
 ```bash
 # Read the doctor checks as JSON with jq.
@@ -306,7 +331,7 @@ and which flags the config file and git filled in.
 
 Before any command runs (but not for `-h` or `--version`), briar:
 
-1. Loads `secrets.env` into the environment (see [auth.md](auth.md)).
+1. Loads `secrets.env` into the environment (see [logins.md](logins.md)).
 2. Reads `.briar.toml` and your git remote for default values.
 3. Sets up telemetry, which is off unless you turned it on (see [Telemetry](#telemetry)).
 

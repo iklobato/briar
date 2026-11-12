@@ -129,7 +129,7 @@ class RunbookLogins:
         self._runbook_file = runbook_file
 
     def company(self, name: str) -> CompanyLogins:
-        scope = LoginScope(name, "the runbook", f"companies.{name}.auth", runbook="FILE")
+        scope = LoginScope(name, "the runbook", f"companies.{name}.auth")
         return CompanyLogins(scope, self._runbook_file.companies[name].auth, os.environ)
 
 

@@ -1,0 +1,37 @@
+# runbooks/@@COMPANY@@.yaml: what `briar serve runbooks/` reads (written by `briar init`).
+#
+# Secrets never go here: set BRIAR_@@PREFIX@@_GITHUB_TOKEN (and, for Jira,
+# BRIAR_@@PREFIX@@_JIRA_EMAIL and BRIAR_@@PREFIX@@_JIRA_TOKEN) in the environment or in
+# secrets.env. `briar doctor --runbooks runbooks/` checks them without starting serve.
+
+version: 1
+
+companies:
+  @@COMPANY@@:
+    knowledge:
+      store: file
+      name: knowledge:@@COMPANY@@
+
+    # auth:
+    #   jira: {site: acme.atlassian.net}
+
+    # `briar serve` runs these extracts on their schedule.
+    schedules:
+      - task: knowledge
+        every: "day at 03:17"
+        extract:
+          - name: pr-archaeology
+            args:
+              pr_repo: [@@SLUG@@]
+
+    # The agentic pipeline (agents/serve.md). The model and the limits have no
+    # default, so this block stops the load ("Field required") until you choose
+    # them and uncomment them.
+    serve:
+      repos: [@@SLUG@@]
+      # model: claude-sonnet-4-5
+      # max_usd: 5
+      # max_loops: 5
+      # ci_wait_minutes: 60
+      # max_review_rounds: 5
+      # verify: ["make test"]

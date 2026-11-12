@@ -1,6 +1,5 @@
 """The adapter that checks a source when no extractor of a run names it (spec 005 PR 3):
-`briar auth login` (J9), and the configured sources of `briar auth status` and
-`briar doctor` that no run uses (J10, J11)."""
+the configured sources of `briar doctor` that no run uses (J10, J11)."""
 
 from __future__ import annotations
 

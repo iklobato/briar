@@ -97,7 +97,7 @@ class SourceCheck:
         except SourceUnreachable as error:
             return [self._result(CheckState.UNREACHABLE, f"could not reach it ({error})")]
         except LoginRejected as error:
-            return [self._result(CheckState.FAILED, f"the login was refused ({error})", self._login.login_command())]
+            return [self._result(CheckState.FAILED, f"the login was refused ({error})", self._login.fix())]
         except CliError as error:
             # Not the answer of the source: a missing SDK or setting, whose message says what to do.
             return [self._result(CheckState.FAILED, f"could not check it: {error}")]

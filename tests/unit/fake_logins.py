@@ -8,7 +8,22 @@ from typing import Any, Dict, List, Tuple
 
 from briar.auth.check import LoginRejected, LoginTarget, SourceUnreachable
 from briar.auth.config import AuthTable
-from briar.auth.logins import CompanyLogins, LoginScope
+from briar.auth.logins import CompanyLogins, GithubLogin, JiraLogin, LoginScope
+from briar.credentials._paths import secrets_path
+
+
+class Fixes:
+    """The fix a missing login names since `briar auth` left (spec 003 part 4, X4): the
+    `BRIAR_*` names, where to write them (the `secrets.env` of the test), and how to get one."""
+
+    def secrets(self, names: List[str], how: str) -> str:
+        return f"set {' and '.join(names)} in the environment or in {secrets_path()} ({how})"
+
+    def github(self) -> str:
+        return self.secrets(["BRIAR_ACME_GITHUB_TOKEN"], GithubLogin.HELP["token"])
+
+    def jira(self) -> str:
+        return self.secrets(["BRIAR_ACME_JIRA_EMAIL", "BRIAR_ACME_JIRA_TOKEN"], JiraLogin.HELP["token"])
 
 
 @dataclass(frozen=True)

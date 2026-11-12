@@ -16,11 +16,9 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol, Seque
 
 import typer
 
-from briar.commands.auth import AuthLoginOptions, AuthStatusOptions
 from briar.commands.base import Command, CommandOptions, Route
 from briar.commands.doctor import DoctorOptions
 from briar.commands.init import InitOptions
-from briar.commands.runbook import RunbookExtractOptions, RunbookServeOptions
 from briar.commands.serve import ServeOptions
 from briar.commands._enums import OutputFormat
 from briar.config import apply_config_defaults
@@ -28,10 +26,6 @@ from briar.infer import apply_inference_defaults
 
 ROUTES: Sequence[Type[CommandOptions]] = (
     ServeOptions,
-    RunbookExtractOptions,
-    RunbookServeOptions,
-    AuthLoginOptions,
-    AuthStatusOptions,
     InitOptions,
     DoctorOptions,
 )

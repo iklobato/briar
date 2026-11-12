@@ -3,26 +3,33 @@
 Reads every runbook in DIR. For each company with a `serve:` block it polls Jira and
 GitHub for the tickets assigned to the account of the token and for new review comments
 on the PRs briar opened, and runs up to `max_parallel` tasks at once. It also runs the
-scheduled extracts of the runbooks, as `briar runbook serve` does. Before the first
-cycle it checks the model login and the read and write access of every company, and
-stops (exit 1) when one fails. Decisions: `docs/decisions/2026-11-11-briar-2-serve-pipeline.md`."""
+scheduled extracts of the runbooks, as `briar runbook serve` did in 1.x; a folder with
+no `serve:` block runs only those (X1). Before the first cycle it checks the model
+login and the read and write access of every company, and stops (exit 1) when one
+fails. Decisions: `docs/decisions/2026-11-11-briar-2-serve-pipeline.md`."""
 
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import platform
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, ClassVar, Sequence
 
 import typer
 
 from briar.commands.base import Command, CommandOptions, Route
 from briar.errors import CliError
 
+if TYPE_CHECKING:
+    from briar.serve.work import ServeCompany
+
 
 class CommandServe(Command):
+    LOG: ClassVar[logging.Logger] = logging.getLogger(__name__)
     name = "serve"
     help = "Watch the assigned tickets and the PRs of briar, and run the scheduled extracts of the runbooks in DIR."
 
@@ -30,21 +37,29 @@ class CommandServe(Command):
         from briar.iac.runbook import RunbookScheduler
         from briar.logging import daemon_logging
         from briar.serve.loop import ServeLoops
-        from briar.serve.work import AgentSandbox, ServeCheck, ServeCompanies
+        from briar.serve.work import ServeCompanies
 
         daemon_logging()
         directory = Path(args.directory)
         if not directory.is_dir():
             raise CliError(f"serve: {directory} is not a directory")
         companies = ServeCompanies(directory, os.environ).load()
-        if not companies:
-            raise CliError(f"serve: no runbook in {directory} has a company with a `serve:` block")
         scheduler = RunbookScheduler(directory)
-        scheduler.register_all()
+        if not scheduler.register_all() and not companies:
+            raise CliError(f"serve: nothing to serve in {directory}: no company has a `serve:` block or a schedule")
         scheduler.check_logins()
-        ServeCheck(companies, os.environ, AgentSandbox(platform.system(), shutil.which)).require()
+        self._check(companies, directory)
         ServeLoops(companies, scheduler).loop().serve_forever()
         return 0
+
+    def _check(self, companies: Sequence["ServeCompany"], directory: Path) -> None:
+        """The checks of the pipeline; a folder with no `serve:` block needs none (X1)."""
+        from briar.serve.work import AgentSandbox, ServeCheck
+
+        if not companies:
+            self.LOG.info("serve: no company in %s has a `serve:` block; running only the scheduled extracts", directory)
+            return
+        ServeCheck(companies, os.environ, AgentSandbox(platform.system(), shutil.which)).require()
 
     # The `Command` interface calls `run`.
     run = serve

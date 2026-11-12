@@ -25,15 +25,16 @@ the blob first: in the file store, delete `./knowledge/knowledge/acme.md`.
 - You set up briar for a new company and there is no `knowledge:acme` yet.
 - The blob is old and you want fresh data before you or an agent read it.
 
-To refresh on a schedule, use `briar runbook` instead (see
-[runbook.md](runbook.md)). It runs the same extractors from a YAML file.
+To refresh on a schedule, put the extractors in a runbook and run
+`briar serve` (see [runbooks.md](runbooks.md)). It runs the same extractors
+from a YAML file.
 
 ## Before you start
 
 Each extractor needs the login of its source for the company. The
 choices (Jira `site`, Bitbucket `workspace`, the method) go in `[auth]` of
-`.briar.toml`; the secrets go in `~/.config/briar/secrets.env`, which
-`briar auth login <source> --company acme` writes. See [auth.md](auth.md).
+`.briar.toml`; the secrets go in the environment or in
+`~/.config/briar/secrets.env`, which you write. See [logins.md](logins.md).
 `ACME` below stands for your company name in upper case.
 
 | Extractors | What they need |
@@ -41,8 +42,8 @@ choices (Jira `site`, Bitbucket `workspace`, the method) go in `[auth]` of
 | Every repo extractor (the 19 in "Repo extractors" below). | `BRIAR_ACME_GITHUB_TOKEN`. With `provider = "bitbucket"`: the Bitbucket login (`BRIAR_ACME_BITBUCKET_EMAIL` and `BRIAR_ACME_BITBUCKET_TOKEN`, or an access token) and `workspace` under `[auth.bitbucket]`. |
 | `dependency-health`, `code-scanning`. | A GitHub token that can read security alerts (Dependabot alerts and code scanning alerts: read). |
 | `active-tickets`, `ticket-archaeology`. | Jira: `site` under `[auth.jira]` plus `BRIAR_ACME_JIRA_EMAIL` and `BRIAR_ACME_JIRA_TOKEN` (or the cookie). Linear: `BRIAR_ACME_LINEAR_API_KEY`. GitHub Issues: `BRIAR_ACME_GITHUB_TOKEN`. |
-| `aws-infra`. | AWS: the profile in `[auth.aws] profile` (`briar auth login aws`), or the boto3 default chain. GCP (`cloud = "gcp"`): `[auth.gcp] project` and the ADC of `config_dir`. Azure (`cloud = "azure"`): `[auth.azure] subscription` and the `az` login of `tenant`. The `tagging-inventory` part also needs the `tag:GetResources` permission. |
-| `meeting-digest`. | `BRIAR_ACME_FIREFLIES_API_KEY` (`briar auth login fireflies --company acme`). |
+| `aws-infra`. | AWS: the profile in `[auth.aws] profile` (log in with `aws sso login --profile P`), or the boto3 default chain. GCP (`cloud = "gcp"`): `[auth.gcp] project` and the ADC of `config_dir`. Azure (`cloud = "azure"`): `[auth.azure] subscription` and the `az` login of `tenant`. The `tagging-inventory` part also needs the `tag:GetResources` permission. |
+| `meeting-digest`. | `BRIAR_ACME_FIREFLIES_API_KEY`. |
 
 Before any extractor runs, `briar extract` checks the login of each
 source the run uses: the source says who the login is, and briar reads
@@ -54,12 +55,12 @@ only under its 1.x name (`GITHUB_TOKEN`, `JIRA_ACME_TOKEN`, ...):
 
 ```text
 error: the login check failed; fix these, then run again:
-  - github (acme): no login saved (BRIAR_ACME_GITHUB_TOKEN); run `briar auth login github --company acme`
+  - github (acme): no login saved (BRIAR_ACME_GITHUB_TOKEN); set BRIAR_ACME_GITHUB_TOKEN in the environment or in /home/me/.config/briar/secrets.env (Create a fine-grained token at ...)
   - jira (acme): bot@acme.example cannot read ENG (HTTP 404: ...); check the name and the access of this login
 ```
 
-`briar auth status <source> --company acme` runs the same check without
-extracting. A bad key in `[auth]` stops the run too.
+`briar doctor` runs the same check without extracting. A bad key in
+`[auth]` stops the run too.
 
 Repo extractors also need a repo list. Without one they are skipped, and
 their source is not checked.
@@ -128,7 +129,7 @@ briar extract --company acme --include aws-infra
 
 The markdown gets a count per AWS service. For the full list as JSON, run
 it from a runbook with `config: {inventory: "true"}` (see
-[runbook.md](runbook.md)). 1.x also had `--out-json`, `--merge-claude-md`
+[runbooks.md](runbooks.md)). 1.x also had `--out-json`, `--merge-claude-md`
 and `--blob-name`; 2.0 removed them (decision C13).
 
 ## The 23 extractors
@@ -342,7 +343,7 @@ a repo list (repo lists come only from `--repo`, `repos` or `[repo]`), or
 a value is not one of a fixed list (`provider = "gitlab"`). Types are not
 checked yet: `max = "fifty"` fails inside the extractor. A runbook's
 `args:` block still takes the 1.x option names (see
-[runbook.md](runbook.md)). `briar extract -h` prints the same keys.
+[runbooks.md](runbooks.md)). `briar extract -h` prints the same keys.
 
 Every `[extract.<name>]` key, its default and its allowed values (built
 from the code; a test fails when this table and the code differ):
@@ -460,7 +461,7 @@ the file store.
   resources. Untagged ones are not counted.
 - A runbook can save a JSON "inventory" copy next to the blob on every
   scheduled run (`config: {inventory: "true"}` on its `knowledge:`
-  block). See [runbook.md](runbook.md).
+  block). See [runbooks.md](runbooks.md).
 - Add `-v` to see why an extractor was skipped or failed.
 
 | Problem | What to do |

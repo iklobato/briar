@@ -169,7 +169,7 @@ class CompanyEntry(BaseModel):
     extract: List[ExtractEntry] = Field(default_factory=list)
     schedules: List[ScheduleEntry] = Field(default_factory=list)
     # The login choices of this company (spec 005, G2, G3): same keys as `[auth]` of
-    # `.briar.toml`, and the only ones `briar runbook` reads.
+    # `.briar.toml`, and the only ones `briar serve` reads for a runbook.
     auth: AuthBlock = Field(default_factory=AuthBlock)
     # What `briar serve` watches for this company (spec 003); None: serve leaves it alone.
     serve: Optional[ServeSettings] = None

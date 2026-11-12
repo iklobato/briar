@@ -11,6 +11,7 @@ from __future__ import annotations
 import platform
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import List
 
 OK = "ok"
@@ -62,6 +63,7 @@ class LoginChecks:
 
     NAME = "logins"
     STATUS_OF = {"ok": OK, "failed": FAIL, "unreachable": WARN}
+    FIX = "set its BRIAR_* secrets in the environment or in secrets.env (the README lists them)"
 
     def checks(self) -> List[Check]:
         from briar.auth.check import LoginCheck
@@ -80,9 +82,41 @@ class LoginChecks:
             return [Check(self.NAME, FAIL, str(error))]
         sources = plan.logins().configured()
         if not sources:
-            return [Check(self.NAME, WARN, f"no login configured for {company}: run `briar auth login <source> --company {company}`")]
+            return [Check(self.NAME, WARN, f"no login configured for {company}: {self.FIX}")]
         lines = LoginCheck(plan.logins()).check(SourceProbes(plan.logins()).for_sources(sources, plan.run_targets()))
         return [Check(f"{line.source} login", self.STATUS_OF[line.state.value], line.line()) for line in lines]
+
+
+class RunbookChecks:
+    """`doctor --runbooks DIR` (spec 003 part 4, X2): what `briar serve DIR` checks before
+    its first cycle, without starting it: the runbooks load (the required keys), the
+    logins of the scheduled extracts, and the read and write logins of each company with
+    a `serve:` block. The model login and the sandbox have their own lines."""
+
+    NAME = "runbooks"
+
+    def __init__(self, directory: Path) -> None:
+        self._directory = directory
+
+    def checks(self) -> List[Check]:
+        import os
+        import shutil
+
+        from briar.errors import CliError
+        from briar.iac.runbook import RunbookScheduler
+        from briar.serve.work import AgentSandbox, ServeCheck, ServeCompanies
+
+        if not self._directory.is_dir():
+            return [Check(self.NAME, FAIL, f"{self._directory} is not a directory")]
+        try:
+            companies = ServeCompanies(self._directory, os.environ).load()
+            sandbox = AgentSandbox(platform.system(), shutil.which)
+            # The scheduled extracts and the pipeline can check the same login: show it once.
+            lines = list(dict.fromkeys([*RunbookScheduler(self._directory).login_results(), *ServeCheck(companies, os.environ, sandbox).lines()]))
+        except CliError as error:
+            return [Check(self.NAME, FAIL, str(error))]
+        summary = Check(self.NAME, OK, f"{self._directory}: {len(companies)} companies with a `serve:` block")
+        return [summary, *(Check(f"{line.source} login", LoginChecks.STATUS_OF[line.state.value], line.line()) for line in lines)]
 
 
 class ModelLoginCheck:

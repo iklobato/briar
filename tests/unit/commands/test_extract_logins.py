@@ -15,6 +15,7 @@ import requests
 from github import GithubException
 
 from briar.config import load_project_config
+from tests.unit.fake_logins import Fixes
 
 CLI_ERROR = 1
 NOT_FOUND = 404
@@ -65,7 +66,7 @@ class TestExtractLogins:
         run = cli("extract", "--company", "acme", "--include", "active-tickets")
 
         assert run.code == CLI_ERROR
-        assert "`JIRA_ACME_TOKEN` is a 1.x name: use `BRIAR_ACME_JIRA_TOKEN`. Or run `briar auth login jira --company acme`" in run.err
+        assert "`JIRA_ACME_TOKEN` is a 1.x name: use `BRIAR_ACME_JIRA_TOKEN`\n" in run.err
 
     def test_github_token_alone_stops_with_the_new_place(self, cli: Callable[..., SimpleNamespace], monkeypatch: pytest.MonkeyPatch) -> None:
         """G25: briar no longer reads `GITHUB_TOKEN`."""
@@ -93,8 +94,7 @@ class TestTheCheckBeforeTheRun:
 
         assert run.code == CLI_ERROR
         assert run.err.strip() == (
-            "error: the login check failed; fix these, then run again:\n"
-            "  - github (acme): no login saved (BRIAR_ACME_GITHUB_TOKEN); run `briar auth login github --company acme`"
+            "error: the login check failed; fix these, then run again:\n" f"  - github (acme): no login saved (BRIAR_ACME_GITHUB_TOKEN); {Fixes().github()}"
         )
         assert "running" not in run.err
 

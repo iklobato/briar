@@ -121,6 +121,12 @@ class RunbookScheduler:
     def check_logins(self) -> None:
         """J8: every company and task of every runbook passes the login check before
         `serve` starts, or it does not start."""
+        found = self.login_results()
+        if not all(line.passed() for line in found):
+            raise LoginCheckFailed.from_results(found)
+
+    def login_results(self) -> List[CheckResult]:
+        """The login check of every company and task of every runbook (`doctor --runbooks`, X2)."""
         from briar.extract import EXTRACTORS
         from briar.iac.runbook import load_runbook_file
         from briar.iac.runbook.executor import RunbookLoginCheck, RunSelection
@@ -128,8 +134,7 @@ class RunbookScheduler:
         found: List[CheckResult] = []
         for path in sorted(self._dir.glob("*.yaml")):
             found.extend(RunbookLoginCheck(load_runbook_file(path), EXTRACTORS).results(RunSelection()))
-        if not all(line.passed() for line in found):
-            raise LoginCheckFailed.from_results(found)
+        return found
 
     def register_all(self) -> List[RegisteredJob]:
         """Walk YAMLs + register one job per (company, task).

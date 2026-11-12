@@ -24,7 +24,7 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
   `max_parallel` tasks of a company run at once, never two on the same
   ticket, and the tickets it took go in `work:<company>` of the knowledge
   store. It also runs the scheduled extracts of the runbooks, as
-  `briar runbook serve` does. The `serve:` block needs `model`, `max_usd`,
+  `briar runbook serve` did in 1.x. The `serve:` block needs `model`, `max_usd`,
   `max_loops` and `ci_wait_minutes`. See `agents/serve.md`.
 - `briar serve` works each ticket with the Claude Agent SDK
   (`claude-agent-sdk`, a new required dependency), in its own git worktree:
@@ -55,6 +55,16 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
   programs (`bubblewrap` and `socat` on Linux, now in the Docker image).
 - `briar doctor` has a `model login` line.
 
+- `briar doctor --runbooks DIR` runs the checks `briar serve DIR` runs before
+  its first cycle (the runbooks load, the logins of the scheduled extracts,
+  the read and write logins of each company with a `serve:` block), without
+  starting it. `doctor` also has an `agent sandbox` line.
+- `briar init` also writes an example runbook, `runbooks/<company>.yaml`,
+  with a daily extract and a `serve:` block whose model and limits stay
+  commented out until you choose them.
+- `briar serve DIR` runs a folder where no company has a `serve:` block: it
+  runs only the scheduled extracts, as `briar runbook serve` did.
+
 ### Changed
 
 - Telemetry is opt-in: the default tier is `off`, and nothing is sent until
@@ -66,7 +76,7 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 - `--format` takes `table` or `json` only (`yaml`, `csv` and `quiet` are
   usage errors, exit 2). Logs go up with `-v` / `--verbose` only:
   `BRIAR_VERBOSE` and `BRIAR_LOG_LEVEL` are no longer read.
-- `briar runbook` sends no alert when a task fails (the error is logged):
+- `briar serve` sends no alert when a scheduled extract fails (the error is logged):
   `BRIAR_NOTIFY_SINKS` and its Slack, Telegram, email and PagerDuty
   channels are gone until the ticket pipeline brings alerts back.
 - Telemetry events carry their fields as Sentry "extra" data instead of
@@ -81,26 +91,21 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
   then the checks. `briar doctor --format json` prints one object,
   `{"settings": [...], "checks": [...]}`, instead of the list of checks: a
   script that read the 1.x list reads `.checks` now.
-- `briar auth status` with no target and no company lists the name of
-  every credential that is set (never a value), as `briar auth list` did.
-- `briar runbook serve` checks for due jobs every second, always.
+- `briar serve` checks for due extract jobs every second, always.
 - The `briar init` template has a commented `[extract]` example.
-- The README is rewritten around the 5 commands. It shows no GIF or
+- The README is rewritten around the 4 commands. It shows no GIF or
   diagram until they are made again for 2.0 (the 1.x ones show removed
   commands). The PyPI description and keywords match 2.0.
 - Logins are per source per company (spec 005). The choices go in
   `[auth.<source>]` of `.briar.toml` (`method`, the Jira `site`, the
   Bitbucket `workspace`, the optional Jira `user_agent`), or in
-  `companies.<company>.auth` of a runbook, which `briar runbook` reads
+  `companies.<company>.auth` of a runbook, which `briar serve` reads
   instead of `.briar.toml`. The secrets go in `secrets.env` under
   `BRIAR_<COMPANY>_<SOURCE>_<FIELD>`. Every command that reads `[auth]`
   checks the whole block: an unknown key, source or method stops it with
   exit 1 and names it.
-- `briar auth login` and `briar auth status` take a source name:
-  `github`, `jira`, `bitbucket`, `linear`, `fireflies` (and the AWS targets
-  `aws-static`, `aws-sso` until AWS moves to a profile). `--runbook FILE`
-  reads the choices of a runbook company. A missing Jira `site` or
-  Bitbucket `workspace` stops the login before it asks anything.
+- A missing Jira `site` or Bitbucket `workspace` stops a run that needs it
+  and says what to add where.
 - GitHub has one login per company, a pasted fine-grained token
   (`BRIAR_<COMPANY>_GITHUB_TOKEN`). briar no longer reads `GITHUB_TOKEN`.
 - Jira takes the API token or, with `method = "cookie"`, the whole
@@ -111,15 +116,15 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 - A 1.x name (`GITHUB_TOKEN`, `JIRA_<C>_TOKEN`, `JIRA_<C>_URL`,
   `BITBUCKET_<C>_APP_PASSWORD`, `LINEAR_<C>_TOKEN`,
   `FIREFLIES_<C>_API_KEY`, ...) that stands in for a missing 2.0 login
-  stops `briar extract` and `briar runbook` with exit 1 and names the new
-  place. `agents/auth.md` has the full map, old to new.
+  stops `briar extract` and `briar serve` with exit 1 and names the new
+  place. `agents/logins.md` has the full map, old to new.
 - AWS, GCP and Azure log in per company through their own CLI, and briar
   saves nothing for them: `[auth.aws] profile`, `[auth.gcp] config_dir`
   and `project`, `[auth.azure] tenant` and `subscription`.
-  `briar auth login aws` runs `aws sso login --profile P` (or
-  `aws configure --profile P` for a profile with no SSO), `gcp` runs
-  `CLOUDSDK_CONFIG=<dir> gcloud auth application-default login`, `azure`
-  runs `az login --tenant T`; each needs its value. A run with no value
+  You log in with `aws sso login --profile P` (or
+  `aws configure --profile P` for a profile with no SSO),
+  `CLOUDSDK_CONFIG=<dir> gcloud auth application-default login`, or
+  `az login --tenant T`; a failed login names that command. A run with no value
   uses the default chain of the cloud. Azure with a tenant needs `az` at
   run time too.
 - 1.x used an AWS profile named like the company when one existed; 2.0
@@ -135,18 +140,10 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
   not installed, is still skipped, and its source is not checked. So a
   bare `briar extract` needs every login its default extractors use:
   pass `--include`.
-- `briar runbook extract` checks every company and task it will run
-  before it runs any of them, and runs nothing if one fails.
-  `briar runbook serve` does not start if a check fails, and stops (exit 1)
-  when the check before a job fails later, a network error included.
-- `briar auth login` asks the source "who am I" with the values entered
-  and saves them only when it answers (for `aws`, `gcp` and `azure`, after
-  their CLI login). It prints the account.
-- `briar auth status <source>` checks that login live, with the resources
-  of `[extract]` (or of the runbook tasks with `--runbook`).
-  `briar auth status --company C` checks every configured login: a source
-  with an `[auth.<source>]` block, a saved secret, or a 1.x name. A network
-  error is shown and exits 0; any other failure exits 1.
+- `briar serve` checks the logins of every company and task of its
+  runbooks before it starts, and does not start if one fails; it stops
+  (exit 1) when the check before a job fails later, a network error
+  included.
 - `briar doctor` checks every configured login of the company live, one
   `<source> login` line each: a login that is missing or refused, or a
   resource it cannot read, is `fail`; a network error is `warn`. It
@@ -163,6 +160,19 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Removed
 
+- `briar auth` (`login`, `status`) and `briar runbook` (`extract`, `serve`),
+  with their manuals (spec 003 part 4). Write the logins by hand, in the
+  environment or in `secrets.env` (the README and `agents/logins.md` list the
+  `BRIAR_*` names); check them with `briar doctor`, or
+  `briar doctor --runbooks DIR` for runbooks. `briar serve DIR` runs the
+  scheduled extracts that `runbook serve` ran; a one-shot runbook extract has
+  no command (use `briar extract`). The old names give `No such command`.
+  Every hint that said `briar auth login` now names the `BRIAR_*` variable,
+  the `secrets.env` path and how to get the value. The terminal prompt and
+  the `secrets.env` writer behind `auth login` went with it; reading
+  `secrets.env` at startup stays. The manuals `agents/auth.md` and
+  `agents/runbook.md` became `agents/logins.md` and `agents/runbooks.md`,
+  without the commands.
 - The 1.x names `--store` on `briar secrets doctor` and `briar auth`
   (`--cred-store` left too, see below), `--knowledge` on `briar agent` (use `--root`) and
   `--storage` on `briar extract` (use `--store`). They are now unknown
@@ -223,7 +233,7 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
   the `llm key` check of `briar doctor`.
 - `briar context` (read the blob file: `knowledge:acme` is
   `./knowledge/knowledge/acme.md`), `briar secrets` (use
-  `briar auth status <target>`), `briar journal` (nothing writes sessions
+  `briar doctor`), `briar journal` (nothing writes sessions
   since `plan` left), `briar telemetry` (see the telemetry change above)
   and `briar version` (use `briar --version`). Each now gets the usual
   `No such command` error. The `journal`, `messaging` and `notify`
@@ -254,22 +264,18 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 - `briar extract --out-json`, `--merge-claude-md`, `--claude-md-path` and
   `--blob-name`: `extract` writes only the blob `knowledge:<company>`.
   The legacy-flag notice goes with the old flags.
-- `briar auth logout`, `briar auth refresh` and `briar auth list`, and the
-  `--cred-store` flag (the env file is the only credential store). Use
-  `briar auth status` with no target to list what is set, run
-  `briar auth login` again to replace a credential, and delete its lines
-  from the secrets file (`~/.config/briar/secrets.env` by default) to
-  remove it.
-- `briar runbook sweep`: use `briar runbook serve DIR` to run every
-  runbook in a folder on its schedule, or `briar runbook extract` once per
-  file. The `--tick` flag of `briar runbook serve` goes too.
+- The `--cred-store` flag (the env file is the only credential store):
+  edit the secrets file (`~/.config/briar/secrets.env` by default) to add,
+  replace or remove a credential.
+- `briar runbook sweep` and the `--tick` flag (the rest of `briar runbook`
+  left too, see above): `briar serve DIR` runs every runbook in a folder on
+  its schedule.
 - `briar config` (`briar config show`): `briar doctor` prints the same
   settings table. Each removed operation now gets the usual usage error
   (exit 2).
 - The login targets `github-pat`, `github-device`, `jira-token`,
-  `jira-session`, `bitbucket-app-password` and `linear-api-key`: a 1.x
-  target name is now a usage error (exit 2) that lists the sources.
-  `JIRA_<C>_USER_AGENT` becomes `user_agent` under `[auth.jira]`. The
+  `jira-session`, `bitbucket-app-password` and `linear-api-key` (they went
+  with `briar auth`). `JIRA_<C>_USER_AGENT` becomes `user_agent` under `[auth.jira]`. The
   GitHub device flow comes back with a GitHub App of briar later in 2.0.
 - `profile` under `[extract.aws-infra]` (it held the AWS profile, the GCP
   project or the Azure subscription) and the runbook args

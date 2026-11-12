@@ -1,7 +1,8 @@
-"""`briar init` — generate a starter `.briar.toml`.
+"""`briar init`: generate a starter `.briar.toml` (for `briar extract`) and an example
+runbook `runbooks/<company>.yaml` (for `briar serve`; spec 003 part 4, X3).
 
-Pre-fills the repo owner/name from the git `origin` remote when present,
-so a new project gets a working config without hand-authoring TOML."""
+Pre-fills the repo owner/name from the git `origin` remote when present, so a new
+project gets a working config without hand-authoring TOML."""
 
 from __future__ import annotations
 
@@ -10,6 +11,7 @@ import sys
 from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
+from typing import Mapping
 
 import typer
 
@@ -21,17 +23,27 @@ _TEMPLATE = "briar.init_templates"
 
 class CommandInit(Command):
     name = "init"
-    help = "Generate a starter .briar.toml (repo inferred from git)."
+    help = "Generate a starter .briar.toml and an example runbook (repo inferred from git)."
+    # The company of the example runbook when `--company` is not given, and its repo
+    # when git has no `origin`.
+    EXAMPLE_COMPANY = "example"
+    EXAMPLE_REPO = "your-org/your-repo"
 
     def run(self, args: argparse.Namespace) -> int:
         path = Path(args.path)
-        if path.exists() and not args.force:
-            raise CliError(f"{path} already exists — pass --force to overwrite")
+        company = args.company or self.EXAMPLE_COMPANY
+        runbook = path.parent / "runbooks" / f"{company}.yaml"
+        taken = [str(target) for target in (path, runbook) if target.exists()]
+        if taken and not args.force:
+            raise CliError(f"{' and '.join(taken)} already exists: pass --force to overwrite")
         owner, repo = self._resolve_repo(args.owner, args.repo)
-        content = self._render(company=args.company, owner=owner, repo=repo)
+        content = self._render("briar_toml.tmpl", {"COMPANY": args.company, "OWNER": owner, "REPO": repo})
         path.write_text(content)
-        print(f"wrote {path}", file=sys.stderr)
-        print(content, end="")
+        slug = f"{owner}/{repo}" if owner and repo else self.EXAMPLE_REPO
+        runbook.parent.mkdir(parents=True, exist_ok=True)
+        runbook.write_text(self._render("runbook.yaml.tmpl", {"COMPANY": company, "PREFIX": company.upper().replace("-", "_"), "SLUG": slug}))
+        sys.stderr.write(f"wrote {path} and {runbook}\n")
+        sys.stdout.write(content)
         return 0
 
     @staticmethod
@@ -46,13 +58,11 @@ class CommandInit(Command):
             return owner, repo
         return owner or slug[0], repo or slug[1]
 
-    @staticmethod
-    def _render(*, company: str, owner: str, repo: str) -> str:
-        template = files(_TEMPLATE).joinpath("briar_toml.tmpl").read_text(encoding="utf-8")
-        markers = {"COMPANY": company, "OWNER": owner, "REPO": repo}
+    def _render(self, template: str, markers: Mapping[str, str]) -> str:
+        text = files(_TEMPLATE).joinpath(template).read_text(encoding="utf-8")
         for key, value in markers.items():
-            template = template.replace(f"@@{key}@@", value)
-        return template
+            text = text.replace(f"@@{key}@@", value)
+        return text
 
 
 @dataclass(frozen=True)

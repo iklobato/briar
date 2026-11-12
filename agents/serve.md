@@ -3,8 +3,9 @@
 `briar serve DIR` is the agentic development pipeline of briar 2.0. It reads every
 runbook in `DIR`, and for each company with a `serve:` block it watches GitHub and
 Jira: the tickets assigned to the account of the token, and new review comments on the
-PRs briar opened. It also runs the scheduled extracts of the runbooks, as
-`briar runbook serve` does.
+PRs briar opened. It also runs the scheduled extracts of the runbooks (see
+[runbooks.md](runbooks.md)), as `briar runbook serve` did in 1.x; a folder where no
+company has a `serve:` block runs only those.
 
 It works each ticket from the plan to a pull request with green CI, then answers the
 review comments on that PR and merges the base when the PR is in conflict, until the PR
@@ -90,13 +91,16 @@ A git, GitHub or Jira failure in the middle of a task stops it the same way.
 ## Use it when
 
 - You want briar to pick up tickets assigned to its account, on a server.
-- You run `briar runbook serve` today: `briar serve` does the same extracts, plus this.
+- You ran `briar runbook serve` in 1.x: `briar serve` does the same extracts, plus this.
 
 ## Before you start
 
-- A runbook with a `serve:` block for the company (below), and the logins of its
-  `auth:` block saved (`BRIAR_<COMPANY>_GITHUB_TOKEN`, and for Jira `site` under
-  `auth.jira` plus `BRIAR_<COMPANY>_JIRA_EMAIL` and `BRIAR_<COMPANY>_JIRA_TOKEN`).
+- A runbook with a `serve:` block for the company (below; `briar init` writes an
+  example), and the logins of its `auth:` block written in the environment or in
+  `secrets.env` (`BRIAR_<COMPANY>_GITHUB_TOKEN`, and for Jira `site` under
+  `auth.jira` plus `BRIAR_<COMPANY>_JIRA_EMAIL` and `BRIAR_<COMPANY>_JIRA_TOKEN`; see
+  [logins.md](logins.md)). `briar doctor --runbooks DIR` checks them without
+  starting `serve`.
 - A fine-grained GitHub token with read and write on Contents, Pull requests and
   Issues of the repos, and read on Actions (for the CI logs). briar acts as the owner
   of that token: every issue assigned to that person becomes briar work, and the

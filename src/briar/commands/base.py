@@ -13,7 +13,7 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields
 from enum import Enum
-from typing import Callable, ClassVar, Dict, Iterable, Mapping, Protocol, Tuple
+from typing import Callable, ClassVar, Dict, Mapping, Protocol, Tuple
 
 import typer
 
@@ -45,25 +45,6 @@ class NamespaceSource(Protocol):
     """Builds the namespace a command's `run()` takes (`briar.cli_app.NamespaceBuilder`)."""
 
     def from_options(self, route: Route, values: Dict[str, object]) -> argparse.Namespace: ...
-
-
-class KindRegistry(Protocol):
-    def kinds(self) -> Iterable[str]: ...
-
-
-class RegistryChoice:
-    """A choice read from its registry when the command runs, as 1.x did, for a registry
-    that gains kinds at run time (tests register fake ones). Typer calls `check`."""
-
-    def __init__(self, registry: KindRegistry) -> None:
-        self._registry = registry
-
-    def check(self, value: str) -> str:
-        """An empty value is an optional argument left out (`auth status`)."""
-        known = list(self._registry.kinds())
-        if value and value not in known:
-            raise typer.BadParameter(f"{value!r} is not one of {', '.join(repr(kind) for kind in known)}.")
-        return value
 
 
 @dataclass(frozen=True)
