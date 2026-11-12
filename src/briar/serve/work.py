@@ -265,6 +265,22 @@ class BaseDrift:
         return not checkout.merges_clean(pull.base, entry.branch, self._sources.code_host().resolve_token())
 
 
+class Replied:
+    """V4 when the state is lost: the answers of briar on the PR itself say what it answered.
+    A conversation comment is answered when a later briar comment quotes its first line
+    (`<author> wrote:\\n> <line>`); an inline one, when briar replied later in its thread."""
+
+    def __init__(self, comments: Sequence[ReviewComment]) -> None:
+        self._comments = comments
+
+    def answered(self, comment: ReviewComment) -> bool:
+        later = [answer for answer in self._comments if not Marker().absent(answer.body) and answer.created_at >= comment.updated_at]
+        if comment.kind is CommentKind.INLINE:
+            return any(answer.kind is CommentKind.INLINE and answer.thread == comment.thread for answer in later)
+        quote = f"{comment.author} wrote:\n> {(comment.body.splitlines() or [''])[0]}"
+        return any(quote in answer.body for answer in later)
+
+
 class ReviewFilter:
     """The new comments of a briar PR that briar answers: from people with write access or
     a bot of `review_bots` (V1), not its own (V2), never answered or edited since (V4), and
@@ -279,7 +295,8 @@ class ReviewFilter:
         self._resolved = resolved
 
     def new(self, comments: Sequence[ReviewComment]) -> List[ReviewComment]:
-        fresh = [comment for comment in comments if self._fresh(comment)]
+        replied = Replied(comments)
+        fresh = [comment for comment in comments if self._fresh(comment) and not replied.answered(comment)]
         strangers = [comment for comment in fresh if not self._trusted(comment)]
         if strangers:
             self.LOG.info("serve: %s#%d: %d comments from accounts with no write access left alone", self._entry.repo, self._entry.pr, len(strangers))

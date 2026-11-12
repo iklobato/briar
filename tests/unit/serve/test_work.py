@@ -119,6 +119,21 @@ class TestReviewFinder:
             (WorkKind.REVIEW, PR_NUMBER, ["1", "6"], False)
         ]
 
+    def test_a_comment_briar_already_answered_on_the_pr_is_not_new_with_a_lost_state(self, companies: Companies) -> None:
+        """Real run, 2026-11-12: with a fresh state briar answered a review comment of the day
+        before a second time. The answers on the PR itself say what was answered."""
+        talk = ReviewComment(id="1", author="ann", body="please rename it\nto load", kind=CommentKind.CONVERSATION, association="MEMBER", created_at="2026-11-11T10:00:00Z", updated_at="2026-11-11T10:00:00Z")
+        reply = ReviewComment(id="2", author="octo", body=f"ann wrote:\n> please rename it\n> to load\n\nRenamed.\n\n{Marker.TEXT}", kind=CommentKind.CONVERSATION, association="OWNER", created_at="2026-11-11T10:05:00Z")
+        inline = ReviewComment(id="3", author="ann", body="typo here", kind=CommentKind.INLINE, association="MEMBER", created_at="2026-11-11T10:00:00Z", updated_at="2026-11-11T10:00:00Z", thread="3")
+        inline_reply = ReviewComment(id="4", author="octo", body=f"Fixed.\n\n{Marker.TEXT}", kind=CommentKind.INLINE, association="OWNER", created_at="2026-11-11T10:06:00Z", thread="3")
+        open_one = ReviewComment(id="5", author="ann", body="and add a test", kind=CommentKind.CONVERSATION, association="MEMBER", created_at="2026-11-11T11:00:00Z", updated_at="2026-11-11T11:00:00Z")
+        company = Watched(companies).company({}, {})
+        github = FakeGithub(comments={("acme/app", PR_NUMBER): [talk, reply, inline, inline_reply, open_one]})
+
+        items = WorkFinder(company, FakeSources(github, jira_adapter=FakeJira({"ENG": []}))).find()
+
+        assert [comment.id for comment in items[0].comments] == ["5"]
+
     def test_a_comment_edited_after_the_answer_is_new_again(self, companies: Companies) -> None:
         edited = ReviewComment(id="4", author="ann", body="rename it to load", kind=CommentKind.INLINE, association="MEMBER", updated_at="t2")
         company = Watched(companies).company({}, {"answered": {"inline:4": "t1", "conversation:4": "t2"}})
