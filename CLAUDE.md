@@ -34,10 +34,10 @@ only in the private site repo.
 | Latest version | 1.1.101 (PyPI and GitHub Release `v1.1.101` = latest) |
 | Python | 3.10, 3.11, 3.12 (CI unit jobs); the integration job runs on whatever `uv` picks (3.14 in CI) |
 | Release trigger | every push to `main`, except `chore(release):` commits; it bumps the patch only |
-| 2.0 | in progress on branch `v2` (still equal to `main`); 15 stacked PRs open, #79 to #93. Status and handoff: `docs/briar-2-status.md` |
+| 2.0 | in progress on branch `v2` (still equal to `main`); 16 stacked PRs open, #79 to #94. Status and handoff: `docs/briar-2-status.md` |
 | MCP registry | `io.github.iklobato/briar`, latest 1.1.94; stays there, 2.0 has no MCP server |
 | Open issues | #76, #77 (section 8) |
-| Open PRs | #79 to #93, all into `v2`, not reviewed |
+| Open PRs | #79 to #94, all into `v2`, not reviewed |
 | Stars / forks | 3 / 0 |
 
 ## 3. Repo layout
@@ -45,7 +45,7 @@ only in the private site repo.
 | Path | What is there |
 |---|---|
 | `src/briar/cli.py` | Entry point `main()`: global flags (`--format`, `-v`, `--version` anywhere), startup work (skipped for help, completion and `--version`), then runs the parsed command with exit codes 0/1/2/130. On `main` (1.x) it still builds the whole argparse parser |
-| `src/briar/cli_app.py` | The Typer app (2.0, spec 002). Each command declares its options as a `CommandOptions` dataclass in its own module; only `extract` still goes through `PassThrough` to its argparse parser (until spec 004), and `config.py` keeps the argparse shim it needs |
+| `src/briar/cli_app.py` | The Typer app (2.0, spec 002). Each command declares its options as a `CommandOptions` dataclass in its own module; only `extract` still goes through `PassThrough` to its argparse parser (until spec 004), and `config.py` keeps the argparse shim it needs. Since spec 006 part 4 that parser has only `--company`, `--include`, `--repo`; every other extractor value comes from `[extract]` / `[extract.<name>]` (`ExtractConfig` in `commands/extract.py`, decisions in `docs/decisions/2026-11-10-briar-2-extract-config.md`) |
 | `src/briar/settings.py` | Where a setting comes from: env > `.briar.toml` / `[tool.briar]` > git origin > default; feeds `config show` and the Typer default map |
 | `src/briar/commands/` | One module per top-level command (`extract`, `runbook`, `auth`, `init`, `config`, `doctor`) |
 | `tests/unit/cli/` | The CLI contract from 1.x (`flags_1x.json`, precedence, global flags, exit codes); must pass unchanged through the Typer move |
@@ -68,7 +68,7 @@ only in the private site repo.
   `briar/main`.
 - **2.0 work goes to `v2`, not `main`** (decision D27). The open 2.0 PRs are
   stacked: branch a new 2.0 PR from the top of the stack (now
-  `core/03-file-store-only`, PR #93) and target `v2`. Read
+  `core/04-extract-config`, PR #94) and target `v2`. Read
   `docs/briar-2-status.md` first.
 - **A merge to `main` is a public release.** `.github/workflows/release.yml`
   runs the unit tests (`uv run pytest -n auto -m "not integration"`),
@@ -182,12 +182,14 @@ Full detail per version is in `CHANGELOG.md`. In short:
   `src/briar/prompts/`; PR #92: `context`, `secrets`, `journal`,
   `telemetry`, `version`, `messaging`, `notify` removed, `--format
   table|json`, `-v` only, telemetry tier from env or `.briar.toml`; PR #93:
-  the Postgres store, `--store` and the `store` setting removed.
+  the Postgres store, `--store` and the `store` setting removed; PR #94:
+  `extract` keeps 3 flags, the rest moved to `[extract]` in `.briar.toml`,
+  the output modes removed.
   Details and numbers: `docs/briar-2-status.md`.
 
 ## 7. Next steps (in order)
 
-0. **2.0**: review and merge PRs #79 to #93 into `v2` in order; decide how
+0. **2.0**: review and merge PRs #79 to #94 into `v2` in order; decide how
    2.0 is released before `v2` merges to `main` (the workflow would publish
    1.1.102); then specs 003, 004, 005. Order and detail:
    `docs/briar-2-status.md` section 5.
@@ -196,8 +198,9 @@ Full detail per version is in `CHANGELOG.md`. In short:
    `@swallow_errors` pattern for other expected 404s (for example a
    missing ticket in `agent implement --dry-run`, which logs a full
    traceback and carries on).
-2. Fix #76: build the `CLAUDE.md` index and detail file from the merged
-   blob, not from the run's sections.
+2. Fix #76 on `main` (1.x only; `--merge-claude-md` is gone on `v2`):
+   build the `CLAUDE.md` index and detail file from the merged blob, not
+   from the run's sections.
 3. The plan-run findings in section 8, branch-name slug first (1.x only:
    2.0 has no `plan`).
 4. The untested paths in section 8 that need real credentials (Bitbucket,

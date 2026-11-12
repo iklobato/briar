@@ -109,13 +109,30 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`.
   in a runbook now stop the command with exit code 1 and name what to
   delete. `BRIAR_DATABASE_URL` and `BRIAR_<COMPANY>_DATABASE_URL` are no
   longer read. The `SQLAlchemy` and `psycopg` dependencies go too.
+- Every `briar extract` flag but `--company`, `--include` and `--repo`:
+  the shared ones (`--max`, `--since-days`, `--top-n`, `--sample`, the
+  author and assignee filters), the source ones (`--provider`,
+  `--tracker`, `--meeting`, `--cloud`), the 69 per-extractor ones
+  (`--pr-max`, `--stale-days`, `--aws-extract-region`, ...), `--root` and
+  `--advanced-help`. They are unknown arguments now (exit 2). Their
+  values go in `.briar.toml`: `[extract]` for every extractor and
+  `[extract.<name>]` for one, with short key names (`max`, `days`,
+  `region`, `projects` for a tracker project list). `root` in
+  `.briar.toml` sets the folder. An unknown key, a 1.x key name (the
+  error names the short one) or a value outside a fixed list stops the
+  run with exit code 1. `briar extract -h` and `agents/extract.md` list
+  every key. A runbook's `args:` still takes the 1.x names.
+- `briar extract --out-json`, `--merge-claude-md`, `--claude-md-path` and
+  `--blob-name`: `extract` writes only the blob `knowledge:<company>`.
+  The legacy-flag notice goes with the old flags.
 
 ### Tests
 
-- `briar extract` output is pinned byte for byte (blob, JSON sidecar,
-  `CLAUDE.md` index and detail file) against files in
-  `tests/fixtures/extract_snapshot/`, so the 2.0 refactors cannot change
-  it by accident. Regenerate on purpose with `UPDATE_GOLDEN=1`.
+- `briar extract` output is pinned byte for byte (the blob) against
+  `tests/fixtures/extract_snapshot/blob.golden.md`, so the 2.0 refactors
+  cannot change it by accident. Regenerate on purpose with
+  `UPDATE_GOLDEN=1`. The JSON sidecar and `CLAUDE.md` goldens left with
+  their modes.
 
 ## [1.1.101] - 2026-10-29
 

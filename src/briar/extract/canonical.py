@@ -1,12 +1,13 @@
-"""Canonical extract flags — one shared knob per concept.
+"""Canonical extractor values: one shared knob per concept.
 
-Every repo-backed extractor used to register its own private copy of the
-same five concepts (`--pr-repo`, `--risk-repo`, `--hotspots-repo`, … all
-mean "which repo(s)"). That produced ~80 flags on `briar extract`. This
-module collapses them: the command exposes ONE canonical flag per concept
-(`--repo`, `--since-days`, `--max`, `--top-n`, `--sample`, plus the four
-author/assignee filters) and this resolver fans each canonical value out
-to whichever private dest the included extractor actually reads.
+Every repo-backed extractor registers its own private copy of the same
+concepts (`pr_repo`, `risk_repo`, `hotspots_repo`, … all mean "which
+repo(s)"). This resolver fans one canonical value (`repo`, `since_days`,
+`max`, `top_n`, `sample`, the four author/assignee filters) out to
+whichever private dest the included extractor actually reads. Since 2.0
+the values come from `--repo` and the `[extract]` table of the project
+config (decision C12), and from a runbook's `args`; the private flags are
+no longer on the command line.
 
 The mapping is *derived*, not hand-maintained: each extractor already
 declares its private flags in `add_arguments`, and their dests follow a
@@ -14,7 +15,7 @@ consistent suffix convention (`*_repo`, `*_since_days`, `*_top_n`, …).
 `_concept_for_dest` reads that convention off the extractor's own parser,
 so a new extractor that follows the naming convention is covered for free.
 
-Precedence: an explicitly-passed private flag (e.g. `--reviewer-top-n 3`)
+Precedence: an explicitly-set private value (e.g. `reviewer_top_n = 3`)
 always wins over the canonical one — `apply_canonical` only fills a private
 dest that is still sitting at its registered default.
 """
@@ -53,47 +54,25 @@ _EXACT_DEST_TO_CONCEPT: Dict[str, str] = {
 }
 
 
-# Canonical concept → the shared flag that replaces every legacy
-# per-extractor / per-source flag of that concept.
-_CONCEPT_TO_FLAG: Dict[str, str] = {
-    "repo": "--repo",
-    "since_days": "--since-days",
-    "max": "--max",
-    "top_n": "--top-n",
-    "sample": "--sample",
-    "authors_allow": "--authors-allow",
-    "authors_block": "--authors-block",
-    "assignees_allow": "--assignees-allow",
-    "assignees_block": "--assignees-block",
-}
+# The concepts the `[extract]` table may set for every included extractor.
+# `repo` is not one of them: it is `--repo` (or `repos` / `[repo]`).
+SHARED_CONCEPTS: Tuple[str, ...] = (
+    "since_days",
+    "max",
+    "top_n",
+    "sample",
+    "authors_allow",
+    "authors_block",
+    "assignees_allow",
+    "assignees_block",
+)
 
 
 # Tracker-project flags are mapped to the `repo` concept so `--repo` can
 # also feed `active-tickets` / `ticket-archaeology`, but only for trackers
 # whose projects are repo slugs (GitHub / Bitbucket Issues): a Jira key or
-# Linear team is never `owner/repo`. They are NOT deprecated: they remain the
-# documented way to name a tracker project. Don't nag about them.
+# Linear team is never `owner/repo`.
 _TRACKER_PROJECT_DESTS = frozenset({"ticket_project", "ticket_archaeology_project"})
-
-
-def legacy_flag_suggestions(argv: List[str]) -> Dict[str, str]:
-    """Map each legacy per-extractor / per-source flag present in `argv`
-    to the canonical flag that now covers it. A flag counts as legacy
-    when its dest maps to a canonical concept (the canonical flags
-    themselves never do). Empty when the command line uses none."""
-    suggestions: Dict[str, str] = {}
-    for token in argv:
-        if not token.startswith("--"):
-            continue
-        name = token.split("=", 1)[0]
-        dest = name[2:].replace("-", "_")
-        if dest in _TRACKER_PROJECT_DESTS:
-            continue
-        concept = _concept_for_dest(dest)
-        canonical = _CONCEPT_TO_FLAG.get(concept) if concept else None
-        if canonical and name != canonical:
-            suggestions[name] = canonical
-    return suggestions
 
 
 def _concept_for_dest(dest: str) -> Optional[str]:
@@ -174,6 +153,17 @@ def apply_canonical(ns: argparse.Namespace, extractor) -> None:
         setattr(ns, flag.dest, canonical_value)
 
 
+class OptionConcept:
+    """Which shared concept one extractor option answers to, by the suffix rules above."""
+
+    def __init__(self, dest: str) -> None:
+        self._dest = dest
+
+    def concept(self) -> Optional[str]:
+        """`max` for `pr_max`; None for an extractor-specific option such as `gov_branch`."""
+        return _concept_for_dest(self._dest)
+
+
 def _tracker_takes_repo_slugs(ns: argparse.Namespace, extractor) -> bool:
     tracker_cls = extractor.provider_class_for(ns)
     return tracker_cls is not None and tracker_cls.project_is_repo_slug
@@ -190,71 +180,3 @@ class _ReplaceDefaultAppend(argparse._AppendAction):
         if getattr(namespace, self.dest, None) is self.default:
             setattr(namespace, self.dest, [])
         super().__call__(parser, namespace, values, option_string)
-
-
-def register_canonical_flags(parser: argparse.ArgumentParser) -> argparse._ArgumentGroup:
-    """Register the canonical flags on `parser` inside a labelled group
-    and return the group (so the caller can place core flags alongside).
-
-    These replace the per-extractor private flags on the day-to-day path;
-    the private flags remain registered (hidden) for back-compat and for
-    the rare same-invocation-divergent case."""
-    group = parser.add_argument_group(
-        "common extractor options",
-        "Apply to every extractor selected with --include. A per-extractor " "override (see --advanced-help) wins over these when both are given.",
-    )
-    group.add_argument(
-        "--repo",
-        action=_ReplaceDefaultAppend,
-        default=[],
-        metavar="OWNER/REPO",
-        help="Repository (or tracker project) to mine. Repeatable. " "Feeds every included extractor's repo/project list.",
-    )
-    group.add_argument("--since-days", type=int, default=None, help="Lookback window in days (history-based extractors).")
-    group.add_argument("--max", type=int, default=None, help="Max items / commits to inspect per repo.")
-    group.add_argument("--top-n", type=int, default=None, help="How many results to surface per repo.")
-    group.add_argument("--sample", type=int, default=None, help="How many recent PRs to sample per repo.")
-    group.add_argument("--authors-allow", action="append", default=[], help="Only include items whose author is in this list (repeatable).")
-    group.add_argument("--authors-block", action="append", default=[], help="Exclude items whose author is in this list (repeatable).")
-    group.add_argument("--assignees-allow", action="append", default=[], help="Only include items whose assignee is in this list (repeatable).")
-    group.add_argument("--assignees-block", action="append", default=[], help="Exclude items whose assignee is in this list (repeatable).")
-    return group
-
-
-def hide_canonicalised_flags(parser: argparse.ArgumentParser) -> List[str]:
-    """Suppress every per-extractor flag that a canonical flag now covers
-    from `--help`, so the default help shows only the canonical + core
-    surface. Genuinely extractor-specific flags (``--gov-branch``,
-    ``--stale-days``, the ``aws-extract-*`` trio, ``--provider`` …) keep
-    their help. Returns the list of suppressed flag strings for the
-    deprecation notice / advanced-help dump."""
-    hidden: List[str] = []
-    for action in parser._actions:
-        if _concept_for_dest(action.dest) is None:
-            continue
-        if action.help is argparse.SUPPRESS:
-            continue
-        action.help = argparse.SUPPRESS
-        hidden.extend(action.option_strings)
-    return hidden
-
-
-class AdvancedHelpAction(argparse.Action):
-    """`--advanced-help`: print the full per-extractor override surface
-    (the flags hidden from the default help) and exit. Mirrors argparse's
-    own ``_HelpAction`` so it short-circuits before required-flag checks."""
-
-    def __init__(self, option_strings, dest=argparse.SUPPRESS, default=argparse.SUPPRESS, help=None):
-        super().__init__(option_strings=option_strings, dest=dest, default=default, nargs=0, help=help)
-
-    def __call__(self, parser, namespace, values, option_string=None):
-        from briar.extract import EXTRACTORS
-
-        detail = argparse.ArgumentParser(prog="briar extract", add_help=False)
-        for extractor in EXTRACTORS.values():
-            extractor.add_arguments(detail)
-        print("Per-extractor override flags (advanced — prefer the canonical")
-        print("--repo / --since-days / --max / --top-n / --sample / --*-allow")
-        print("/ --*-block flags shown in `briar extract -h`):\n")
-        print(detail.format_help())
-        parser.exit()

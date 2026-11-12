@@ -12,7 +12,15 @@ import pytest
 from pytest_mock import MockerFixture
 from time_machine import TimeMachineFixture
 
+from briar.config import load_project_config
 from briar.extract.base import ExtractedSection, empty_section
+
+
+@pytest.fixture(autouse=True)
+def run_in_tmp_root(tmp_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The knowledge root is the `root` setting, default `./knowledge` (decision C11), so
+    each run happens in `tmp_root` and writes under `tmp_root/knowledge`."""
+    monkeypatch.chdir(tmp_root)
 
 
 class TestExtractFailureMode:
@@ -26,7 +34,6 @@ class TestExtractFailureMode:
         result = cli(
             "extract",
             "--company", "acme",
-            "--root", str(tmp_root / "knowledge"),
         )
         assert result.code == 1
         assert "nothing extracted" in result.err
@@ -39,7 +46,6 @@ class TestExtractFailureMode:
         result = cli(
             "extract",
             "--company", "acme",
-            "--root", str(tmp_root / "knowledge"),
         )
         assert result.code == 1
 
@@ -64,7 +70,6 @@ class TestExtractInclude:
             "extract",
             "--company", "acme",
             "--include", target,
-            "--root", str(tmp_root / "knowledge"),
         )
         # All-empty path: rc=1, but only the included one was called.
         assert called_names == [target]
@@ -85,7 +90,6 @@ class TestExtractInclude:
         cli(
             "extract",
             "--company", "acme",
-            "--root", str(tmp_root / "knowledge"),
         )
         assert called == set(EXTRACTORS.keys())
 
@@ -107,77 +111,9 @@ class TestExtractWriteSuccess:
             "extract",
             "--company", "acme",
             "--include", first_name,
-            "--root", str(tmp_root / "knowledge"),
         )
         assert result.code == 0
         assert (tmp_root / "knowledge" / "knowledge" / "acme.md").exists()
-
-    def test_writes_blob_with_custom_name(self, cli, tmp_root, mocker) -> None:
-        from briar.extract import EXTRACTORS
-
-        first_name, first_ext = next(iter(EXTRACTORS.items()))
-        for name, ext in EXTRACTORS.items():
-            mocker.patch.object(ext, "is_available", return_value=(name == first_name))
-        mocker.patch.object(
-            first_ext,
-            "extract",
-            return_value=ExtractedSection(title="x", body="body"),
-        )
-        result = cli(
-            "extract",
-            "--company", "acme",
-            "--blob-name", "custom:name",
-            "--include", first_name,
-            "--root", str(tmp_root / "knowledge"),
-        )
-        assert result.code == 0
-        # The custom name routes through StoreFile's "category:rest" parser.
-        assert (tmp_root / "knowledge" / "custom" / "name.md").exists()
-
-
-class TestExtractJsonSidecar:
-    def test_out_json_writes_parallel_file(self, cli, tmp_root, mocker) -> None:
-        from briar.extract import EXTRACTORS
-
-        first_name, first_ext = next(iter(EXTRACTORS.items()))
-        for name, ext in EXTRACTORS.items():
-            mocker.patch.object(ext, "is_available", return_value=(name == first_name))
-        mocker.patch.object(
-            first_ext,
-            "extract",
-            return_value=ExtractedSection(title="x", body="body"),
-        )
-        out = tmp_root / "json-out" / "acme.json"
-        result = cli(
-            "extract",
-            "--company", "acme",
-            "--include", first_name,
-            "--root", str(tmp_root / "knowledge"),
-            "--out-json", str(out),
-        )
-        assert result.code == 0
-        assert out.exists()
-
-    def test_out_json_empty_string_no_json_file(self, cli, tmp_root, mocker) -> None:
-        from briar.extract import EXTRACTORS
-
-        first_name, first_ext = next(iter(EXTRACTORS.items()))
-        for name, ext in EXTRACTORS.items():
-            mocker.patch.object(ext, "is_available", return_value=(name == first_name))
-        mocker.patch.object(
-            first_ext,
-            "extract",
-            return_value=ExtractedSection(title="x", body="body"),
-        )
-        # Pass empty string — no JSON sidecar should be written.
-        result = cli(
-            "extract",
-            "--company", "acme",
-            "--include", first_name,
-            "--root", str(tmp_root / "knowledge"),
-        )
-        assert result.code == 0
-
 
 class TestExtractKeepsOtherSections:
     """`--include x` refreshes x's section and keeps the rest of the blob.
@@ -206,7 +142,7 @@ class TestExtractKeepsOtherSections:
 
     @staticmethod
     def _run(cli, root, *include: str):
-        args = ["extract", "--company", "acme", "--root", str(root)]
+        args = ["extract", "--company", "acme"]
         for name in include:
             args += ["--include", name]
         return cli(*args)
@@ -296,26 +232,24 @@ class TestExtractOutputSnapshot:
 
     @pytest.fixture
     def project_dir(self, tmp_root: Path, monkeypatch: pytest.MonkeyPatch, frozen_clock: None) -> Path:
-        """The cwd of the run, with a stored blob holding a section the run must keep."""
+        """The cwd of the run, with a stored blob holding a section the run must keep. The
+        knowledge root comes from `.briar.toml`, the way `--root` moved there (C11, T021)."""
         from briar.extract import EXTRACTORS
         from briar.extract.composer import render_markdown
         from briar.storage import make_store
 
         monkeypatch.chdir(tmp_root)
+        monkeypatch.setattr("briar.config.load_project_config", load_project_config)
+        (tmp_root / ".briar.toml").write_text('root = "kb"\n')
         kept = ExtractedSection(title=EXTRACTORS["reviewer-profile"].heading + " \N{EM DASH} old", body="old reviewers")
-        make_store("file", file_root=tmp_root / "knowledge").put("knowledge:acme", render_markdown(company="acme", sections=[kept]))
+        make_store("file", file_root=tmp_root / "kb").put("knowledge:acme", render_markdown(company="acme", sections=[kept]))
         return tmp_root
 
     @pytest.fixture
     def outputs(self, cli: Callable[..., SimpleNamespace], project_dir: Path, stubbed_extractors: None) -> Dict[str, str]:
         extract_run = cli(*self._extract_argv(project_dir))
         assert extract_run.code == 0, extract_run.err  # fixture guard: a failed run has no files to compare
-        return {
-            "blob.golden.md": (project_dir / "knowledge" / "knowledge" / "acme.md").read_text(),
-            "sidecar.golden.json": (project_dir / "acme.json").read_text(),
-            "claude_md.golden.md": (project_dir / "CLAUDE.md").read_text(),
-            "detail.golden.md": (project_dir / ".briar" / "knowledge" / "acme.md").read_text(),
-        }
+        return {"blob.golden.md": (project_dir / "kb" / "knowledge" / "acme.md").read_text()}
 
     def _extract_argv(self, project_dir: Path) -> Tuple[str, ...]:
         return (
@@ -323,10 +257,6 @@ class TestExtractOutputSnapshot:
             "--company", "acme",
             "--include", "pr-archaeology",
             "--include", "code-hotspots",
-            "--root", str(project_dir / "knowledge"),
-            "--out-json", str(project_dir / "acme.json"),
-            "--merge-claude-md",
-            "--claude-md-path", str(project_dir / "CLAUDE.md"),
         )
 
     @classmethod
@@ -339,12 +269,3 @@ class TestExtractOutputSnapshot:
 
     def test_blob_keeps_other_sections_and_matches_golden(self, outputs: Dict[str, str]) -> None:
         self._assert_matches_golden(outputs, "blob.golden.md")
-
-    def test_json_sidecar_matches_golden(self, outputs: Dict[str, str]) -> None:
-        self._assert_matches_golden(outputs, "sidecar.golden.json")
-
-    def test_claude_md_index_matches_golden(self, outputs: Dict[str, str]) -> None:
-        self._assert_matches_golden(outputs, "claude_md.golden.md")
-
-    def test_claude_md_detail_file_matches_golden(self, outputs: Dict[str, str]) -> None:
-        self._assert_matches_golden(outputs, "detail.golden.md")

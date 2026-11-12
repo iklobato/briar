@@ -63,12 +63,7 @@ class _ConfigSpec:
 # The `briar extract` options a project config / env may satisfy: the only
 # command still on argparse (until spec 004). The commands on Typer get their
 # settings from `briar.settings`.
-_CONFIG_SPECS: Tuple[_ConfigSpec, ...] = (
-    _ConfigSpec("company", "BRIAR_COMPANY", "", "company"),
-    _ConfigSpec("root", None, "", "root"),
-    _ConfigSpec("tracker", None, "", "tracker"),
-    _ConfigSpec("provider", None, "repo", "provider"),
-)
+_CONFIG_SPECS: Tuple[_ConfigSpec, ...] = (_ConfigSpec("company", "BRIAR_COMPANY", "", "company"),)
 
 
 def find_config_file(start: Optional[Path] = None) -> Optional[Path]:

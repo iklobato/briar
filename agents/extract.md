@@ -8,12 +8,13 @@ GCP / Azure), and Fireflies meetings. The result is called a knowledge
 blob (a named markdown document that briar stores for you). Its default
 name is `knowledge:<company>`, for example `knowledge:acme`.
 
-Other commands read this blob. `briar agent` adds the sections it needs
-to the AI agent's prompt, so the agent knows how your team works.
-`briar plan` gives the blob to its planning LLM.
+You, Claude Code or any other agent read this file. The 2.0 ticket
+pipeline (spec 003) will read it too.
 
 Each source is handled by an extractor (a small plugin that reads one
-kind of data). There are 23 of them. You pick them with `--include`.
+kind of data). There are 23 of them. You pick them with `--include`. The
+command line has only three flags (`--company`, `--include`, `--repo`);
+every other value goes in `.briar.toml` (see "Settings" below).
 Since 1.1.82 a run updates only the sections of the extractors it ran
 and keeps the rest of the blob, so you can refresh one source at a time.
 Before 1.1.82 each run replaced the whole blob. To start over, delete
@@ -22,9 +23,7 @@ the blob first: in the file store, delete `./knowledge/knowledge/acme.md`.
 ## Use it when
 
 - You set up briar for a new company and there is no `knowledge:acme` yet.
-- The blob is old and you want fresh data before an agent run.
-- You want to give Claude Code a summary of your repo in `CLAUDE.md`.
-- You want a JSON dump of your AWS resources or PR stats for other tools.
+- The blob is old and you want fresh data before you or an agent read it.
 
 To refresh on a schedule, use `briar runbook` instead (see
 [runbook.md](runbook.md)). It runs the same extractors from a YAML file.
@@ -37,7 +36,7 @@ that file). `acme` below stands for your company name in upper case.
 
 | Extractors | What they need |
 |---|---|
-| Every repo extractor (the 19 in "Repo extractors" below). | `GITHUB_TOKEN`. With `--provider bitbucket`: `BITBUCKET_ACME_USERNAME` and `BITBUCKET_ACME_APP_PASSWORD`. |
+| Every repo extractor (the 19 in "Repo extractors" below). | `GITHUB_TOKEN`. With `provider = "bitbucket"`: `BITBUCKET_ACME_USERNAME` and `BITBUCKET_ACME_APP_PASSWORD`. |
 | `dependency-health`, `code-scanning`. | A GitHub token that can read security alerts (`security_events` scope on a classic token). |
 | `active-tickets`, `ticket-archaeology`. | Jira: `JIRA_ACME_URL` plus `JIRA_ACME_EMAIL` and `JIRA_ACME_TOKEN` (or Jira session cookies). Linear: `LINEAR_ACME_TOKEN`. GitHub Issues: `GITHUB_TOKEN`. |
 | `aws-infra`. | `AWS_ACME_ACCESS_KEY_ID` and `AWS_ACME_SECRET_ACCESS_KEY`, or an AWS profile, or your normal AWS login. The `tagging-inventory` part also needs the `tag:GetResources` permission. |
@@ -62,74 +61,67 @@ briar extract --company acme --repo acme-co/acme-app
 You get `./knowledge/knowledge/acme.md`. Extractors without credentials
 print `skipped <name>  (not available in this env)` and are left out.
 
-Run only two extractors, and look at the last 50 merged PRs:
+Run only two extractors, and look at the last 50 merged PRs. Put the
+limit in `.briar.toml` first:
+
+```toml
+[extract]
+max = 50
+```
 
 ```bash
 briar extract --company acme \
     --include pr-archaeology --include reviewer-profile \
-    --repo acme-co/acme-app --max 50
+    --repo acme-co/acme-app
 ```
 
 You get a blob with two sections: merged-PR patterns and reviewer habits.
 
 Read open and closed Jira tickets for the `ACME` project:
 
+```toml
+[extract.active-tickets]
+projects = ["ACME"]
+
+[extract.ticket-archaeology]
+projects = ["ACME"]
+```
+
 ```bash
-briar extract --company acme \
-    --include active-tickets --include ticket-archaeology \
-    --ticket-project ACME --ticket-archaeology-project ACME
+briar extract --company acme --include active-tickets --include ticket-archaeology
 ```
 
 You get the open tickets (up to 25) and stats on closed ones. Jira keys
-are not `owner/repo`, so `--repo` does not feed them. Use the two
-project flags.
+are not `owner/repo`, so `--repo` does not feed them: use `projects`.
 
-List every tagged AWS resource in one region, with full detail in JSON:
+Count every tagged AWS resource in one region:
 
-```bash
-briar extract --company acme --include aws-infra \
-    --aws-extract-service tagging-inventory \
-    --aws-extract-region eu-west-1 \
-    --out-json ./acme-aws.json
+```toml
+[extract.aws-infra]
+region = "eu-west-1"
+services = ["tagging-inventory"]
 ```
 
-The markdown gets a count per AWS service. `./acme-aws.json` gets every
-resource with its ARN, type, region and tags.
-
-Give Claude Code an index of the knowledge in `CLAUDE.md`:
-
 ```bash
-briar extract --company acme --repo acme-co/acme-app \
-    --include codebase-conventions --include code-hotspots \
-    --merge-claude-md
+briar extract --company acme --include aws-infra
 ```
 
-You get `.briar/knowledge/acme.md` with the full detail. `CLAUDE.md` gets
-a short index between `<!-- BEGIN briar-knowledge -->` and
-`<!-- END briar-knowledge -->`. Running it again replaces only that block.
-
-Save under a different name, so the main blob stays as is:
-
-```bash
-briar extract --company acme --repo acme-co/acme-app \
-    --blob-name knowledge:acme.snapshot-2026q3
-```
-
-You get `./knowledge/knowledge/acme.snapshot-2026q3.md`.
+The markdown gets a count per AWS service. For the full list as JSON, run
+it from a runbook with `config: {inventory: "true"}` (see
+[runbook.md](runbook.md)). 1.x also had `--out-json`, `--merge-claude-md`
+and `--blob-name`; 2.0 removed them (decision C13).
 
 ## The 23 extractors
 
-Each extractor adds one section to the blob. `briar agent implement`
-puts six of them in its prompt: `codebase-conventions`, `code-hotspots`,
-`reviewer-profile`, `active-work`, `pr-archaeology` and `meeting-digest`.
-`briar agent prfix` uses the same ones except `pr-archaeology`. The other
-sections are for you, for `briar plan`, and for Claude Code (through
-`--merge-claude-md`).
+Each extractor adds one section to the blob. Set its values in
+`.briar.toml` under `[extract.<name>]` (the keys are in "Settings"), then
+run `briar extract --company acme --repo acme-co/acme-app --include <name>`.
 
 ### Repo extractors
 
 These read a code host. They need a repo list and a repo token. All of
-them take `--repo`, and `--provider github` (default) or `bitbucket`.
+them take `--repo`, and `provider = "github"` (default) or `"bitbucket"`
+(in `[repo]`, `[extract]` or `[extract.<name>]`).
 
 PR and review history:
 
@@ -140,13 +132,25 @@ PR and review history:
 - `active-work`: lists open PRs, so the agent does not edit files that are already in review.
 - `stale-prs`: lists open PRs older than a number of days, counted from when the PR was opened.
 
-```bash
-briar extract --company acme --repo acme-co/acme-app --include pr-archaeology --max 50
-briar extract --company acme --repo acme-co/acme-app --include reviewer-profile --sample 20 --top-n 3
-briar extract --company acme --repo acme-co/acme-app --include review-nits --sample 50
-briar extract --company acme --repo acme-co/acme-app --include pr-hygiene --prhygiene-large-loc 600
-briar extract --company acme --repo acme-co/acme-app --include active-work --authors-block 'dependabot[bot]'
-briar extract --company acme --repo acme-co/acme-app --include stale-prs --stale-days 30
+```toml
+[extract.pr-archaeology]
+max = 50
+
+[extract.reviewer-profile]
+sample = 20
+top_n = 3
+
+[extract.review-nits]
+sample = 50
+
+[extract.pr-hygiene]
+large_loc = 600
+
+[extract.active-work]
+authors_block = ["dependabot[bot]"]
+
+[extract.stale-prs]
+days = 30
 ```
 
 Commit history:
@@ -156,11 +160,19 @@ Commit history:
 - `revert-signals`: finds revert and hotfix commits, and the files they touched.
 - `commit-message-quality`: checks commit subjects against Conventional Commits (`feat:`, `fix:`) and subject length.
 
-```bash
-briar extract --company acme --repo acme-co/acme-app --include code-hotspots --since-days 60
-briar extract --company acme --repo acme-co/acme-app --include defect-hotspots --since-days 180 --top-n 5
-briar extract --company acme --repo acme-co/acme-app --include revert-signals --since-days 30
-briar extract --company acme --repo acme-co/acme-app --include commit-message-quality --max 100
+```toml
+[extract.code-hotspots]
+since_days = 60
+
+[extract.defect-hotspots]
+since_days = 180
+top_n = 5
+
+[extract.revert-signals]
+since_days = 30
+
+[extract.commit-message-quality]
+max = 100
 ```
 
 Code and tooling:
@@ -169,10 +181,12 @@ Code and tooling:
 - `test-discipline`: shows the ratio of test files to source files, and source files with no obvious test.
 - `todo-density`: counts `TODO`, `FIXME` and `HACK` markers and lists the files with the most. It reads one page of code search, so treat it as a sample.
 
-```bash
-briar extract --company acme --repo acme-co/acme-app --include codebase-conventions
-briar extract --company acme --repo acme-co/acme-app --include test-discipline --top-n 20
-briar extract --company acme --repo acme-co/acme-app --include todo-density --top-n 5
+```toml
+[extract.test-discipline]
+top_n = 20
+
+[extract.todo-density]
+top_n = 5
 ```
 
 CI, releases and repo rules:
@@ -182,11 +196,15 @@ CI, releases and repo rules:
 - `release-cadence`: shows how often the repo ships: number of releases, the latest one, and the median days between them.
 - `repo-governance`: checks branch protection and whether `CODEOWNERS`, pre-commit, linter and editor config files exist.
 
-```bash
-briar extract --company acme --repo acme-co/acme-app --include ci-health --max 50
-briar extract --company acme --repo acme-co/acme-app --include github-deployments
-briar extract --company acme --repo acme-co/acme-app --include release-cadence --max 20
-briar extract --company acme --repo acme-co/acme-app --include repo-governance --gov-branch develop
+```toml
+[extract.ci-health]
+max = 50
+
+[extract.release-cadence]
+max = 20
+
+[extract.repo-governance]
+branch = "develop"
 ```
 
 Security alerts (GitHub only):
@@ -194,185 +212,194 @@ Security alerts (GitHub only):
 - `dependency-health`: lists open Dependabot alerts, highest severity first.
 - `code-scanning`: lists open code scanning alerts (for example CodeQL), grouped by rule, with one example file each.
 
-```bash
-briar extract --company acme --repo acme-co/acme-app --include dependency-health --max 100
-briar extract --company acme --repo acme-co/acme-app --include code-scanning --top-n 5
+```toml
+[extract.dependency-health]
+max = 100
+
+[extract.code-scanning]
+top_n = 5
 ```
 
 ### Tracker extractors
 
-These read an issue tracker. Pick it with `--tracker` (default `jira`).
+These read an issue tracker. Pick it with `tracker` (default `jira`) at
+the top of `.briar.toml`, in `[extract]` or in `[extract.<name>]`.
 
 - `active-tickets`: lists open tickets in a project (up to 25), with the assignee.
 - `ticket-archaeology`: studies closed tickets: median time to close, top reporters and assignees, and labels.
 
+```toml
+[extract.active-tickets]
+projects = ["ACME"]
+
+[extract.ticket-archaeology]
+tracker = "github-issues"
+```
+
 ```bash
-briar extract --company acme --include active-tickets --ticket-project ACME
-briar extract --company acme --include ticket-archaeology --tracker github-issues --repo acme-co/acme-app
+briar extract --company acme --include active-tickets --include ticket-archaeology --repo acme-co/acme-app
 ```
 
 For GitHub Issues and Bitbucket Issues the project is a repo slug, so
-`--repo` works. For Jira and Linear, use `--ticket-project` and
-`--ticket-archaeology-project`.
+`--repo` works. For Jira and Linear, set `projects`.
 
 ### Cloud extractor
 
 - `aws-infra`: lists cloud resources. On AWS it covers ECS, Lambda, CloudWatch log groups, RDS and SQS, plus a count of every tagged resource (`tagging-inventory`).
 
-```bash
-briar extract --company acme --include aws-infra --aws-extract-region us-east-1 --aws-extract-service ecs --aws-extract-service rds
+```toml
+[extract.aws-infra]
+region = "us-east-1"
+services = ["ecs", "rds"]
 ```
 
-`--cloud gcp` and `--cloud azure` need the `[gcp]` or `[azure]` extra.
+`cloud = "gcp"` and `cloud = "azure"` need the `[gcp]` or `[azure]` extra.
 
 ### Meeting extractor
 
 - `meeting-digest`: lists recent Fireflies meetings with their summary, action items and attendees.
 
-```bash
-briar extract --company acme --include meeting-digest --since-days 14 --meeting-attendee-allow lead@acme.com
+```toml
+[extract.meeting-digest]
+since_days = 14
+attendee_allow = ["lead@acme.com"]
 ```
 
-## All parameters
+## Command line
 
-### Main parameters
-
-| Parameter | What it means | Default | Example |
+| Flag | What it means | Default | Example |
 |---|---|---|---|
 | `--company` | Company name. It names the blob and picks per-company credentials like `JIRA_ACME_TOKEN`. Required, unless `BRIAR_COMPANY` or `company` in `.briar.toml` sets it. | None. | `--company acme` |
-| `--include` | Run only this extractor. Repeat it to run several. Since 1.1.82 the other sections already in the blob are kept; only the sections of the extractors that ran are replaced (one that ran and found nothing loses its old section; one that is not set up keeps it). | All 23. Ones that are not set up are skipped. | `--include stale-prs` |
-| `--blob-name` | Name to save the blob under. | `knowledge:<company>`. | `--blob-name knowledge:acme.old` |
-| `--root` | Folder of the knowledge store. The blob goes to `<root>/knowledge/<company>.md`. 1.x also had `--store` (and `--storage`) to pick Postgres; 2.0 removed both (exit code 2). | `./knowledge`, or `root` in `.briar.toml`. | `--root ./kb` |
-| `--out-json` | Also write all sections as JSON to this path. JSON keeps the full detail that the markdown leaves out. | Empty (no JSON). | `--out-json ./acme.json` |
-| `--merge-claude-md` | Also write `.briar/knowledge/<company>.md` and put a short index of it into `CLAUDE.md`. | Off. | `--merge-claude-md` |
-| `--claude-md-path` | Which `CLAUDE.md` to update. Used only with `--merge-claude-md`. | `./CLAUDE.md` | `--claude-md-path docs/CLAUDE.md` |
-| `--advanced-help` | Print the per-extractor flags (table below) and exit. | Off. | `--advanced-help` |
+| `--include` | Run only this extractor. Repeat it to run several. The other sections already in the blob are kept; only the sections of the extractors that ran are replaced (one that ran and found nothing loses its old section; one that is not set up keeps it). | All 23. Ones that are not set up are skipped. | `--include stale-prs` |
+| `--repo` | Repo to read, as `owner/repo`. Repeat for more. It also sets the project for GitHub Issues and Bitbucket Issues. Without it, briar takes `repos = [...]` or `[repo] owner` / `repo` from `.briar.toml`, then the git `origin` remote; a `--repo` you type replaces those. | From the config or git. | `--repo acme-co/acme-app` |
 
-### Common extractor parameters
+Every other 1.x flag (`--max`, `--pr-repo`, `--provider`, `--root`,
+`--out-json`, `--merge-claude-md`, `--blob-name`, `--advanced-help`, ...)
+was removed in 2.0 and is now an unknown argument (exit code 2). Its
+value goes in `.briar.toml`, below, or the mode is gone (C13). The blob
+goes to `<root>/knowledge/<company>.md`; `root` in `.briar.toml` sets the
+folder (default `./knowledge`).
 
-These go to every extractor in `--include` that uses them. A
-per-extractor flag (next section) wins when you give both.
+## Settings
 
-| Parameter | What it means | Default | Example |
-|---|---|---|---|
-| `--repo` | Repo to read, as `owner/repo`. Repeat for more repos. It also sets the project for GitHub Issues and Bitbucket Issues. When you pass it, it replaces the default repo (since 1.1.91; before, it was added to it). | From `.briar.toml` (`repos` list or `[repo]`), else the git `origin` remote, else none. | `--repo acme-co/acme-app` |
-| `--since-days` | How many days of history to read. | Per extractor: `code-hotspots` 30, `defect-hotspots` 90, `revert-signals` 90, `commit-message-quality` 90, `meeting-digest` 7. | `--since-days 60` |
-| `--max` | Most items (PRs, commits, alerts, runs, releases, tickets, meetings) to read per repo or project. | Per extractor, 25 to 200. See the table below. | `--max 50` |
-| `--top-n` | How many top results to show per repo. | Per extractor, 5 to 15. See the table below. | `--top-n 5` |
-| `--sample` | How many recent PRs to sample per repo. Used by `reviewer-profile`, `review-nits` and `pr-hygiene`. | 20 or 30. See the table below. | `--sample 40` |
-| `--authors-allow` | Keep only PRs by these authors. Repeat for more. Used by `pr-archaeology` and `active-work`. | No filter. | `--authors-allow alice` |
-| `--authors-block` | Drop PRs by these authors. Repeat for more. Same extractors. | No filter. | `--authors-block 'dependabot[bot]'` |
-| `--assignees-allow` | Keep only PRs assigned to these people. Same extractors. | No filter. | `--assignees-allow bob` |
-| `--assignees-block` | Drop PRs assigned to these people. Same extractors. | No filter. | `--assignees-block carol` |
+Two tables in `.briar.toml` (or under `[tool.briar]` in `pyproject.toml`)
+hold every extractor value:
 
-### Provider and extractor-specific parameters
+- `[extract]`: values for every extractor in `--include`. Allowed keys:
+  `since_days`, `max`, `top_n`, `sample`, `authors_allow`,
+  `authors_block`, `assignees_allow`, `assignees_block`, and the source
+  kinds `provider`, `tracker`, `meeting`, `cloud`.
+- `[extract.<name>]`: values for one extractor, by short name (the table
+  below). A table for an extractor that does not run this time is
+  checked and otherwise ignored.
 
-| Parameter | What it means | Default | Example |
-|---|---|---|---|
-| `--provider` | Code host for the repo extractors: `github` or `bitbucket`. | `github`, or `provider` under `[repo]` in `.briar.toml`. | `--provider bitbucket` |
-| `--cloud` | Cloud for `aws-infra`: `aws`, `gcp` or `azure`. | `aws` | `--cloud gcp` |
-| `--aws-extract-profile` | Local AWS profile name to use. | None. briar tries `AWS_ACME_*` env vars, then a profile named like the company, then your normal AWS login. | `--aws-extract-profile acme-prod` |
-| `--aws-extract-region` | AWS region to read. | `us-east-1` | `--aws-extract-region eu-west-1` |
-| `--aws-extract-service` | AWS part to read: `ecs`, `lambda`, `logs`, `rds`, `sqs` or `tagging-inventory`. Repeat for more. | All six. | `--aws-extract-service sqs` |
-| `--tracker` | Issue tracker for the tracker extractors: `jira`, `github-issues`, `bitbucket-issues` or `linear`. | `jira`, or `tracker` in `.briar.toml`. | `--tracker linear` |
-| `--meeting` | Meeting tool for `meeting-digest`. Only `fireflies` exists today. | `fireflies` | `--meeting fireflies` |
-| `--meeting-attendee-allow` | Keep only meetings where one of these emails attended. Repeat for more. | No filter (every meeting you can see). | `--meeting-attendee-allow lead@acme.com` |
-| `--prhygiene-large-loc` | Lines changed (added plus deleted) that make a PR "large" for `pr-hygiene`. | `400` | `--prhygiene-large-loc 800` |
-| `--gov-branch` | Branch whose protection `repo-governance` checks. | The repo's default branch. | `--gov-branch release` |
-| `--stale-days` | A PR open longer than this many days counts as stale for `stale-prs`. | `14` | `--stale-days 7` |
+```toml
+tracker = "jira"
 
-### Per-extractor override parameters (advanced)
+[extract]
+max = 50
+authors_block = ["dependabot[bot]"]
 
-`briar extract --advanced-help` lists these 69 flags. They are hidden
-from `-h`. Each one sets a value for one extractor only. Use them when
-two extractors in the same run need different values.
+[extract.pr-archaeology]
+max = 100
 
-Most of them are old names for the common flags. When you use one,
-briar prints `note: these flags are deprecated in favour of shared
-canonical flags`. They still work. `--ticket-project` and
-`--ticket-archaeology-project` print no note, because they are the
-normal way to name a Jira or Linear project.
+[extract.active-tickets]
+projects = ["ACME", "OPS"]
 
-```bash
-# reviewer-profile samples 10 PRs, review-nits samples 40
-briar extract --company acme --repo acme-co/acme-app \
-    --include reviewer-profile --include review-nits \
-    --sample 40 --reviewer-pr-sample 10
+[extract.aws-infra]
+region = "eu-west-1"
+services = ["ecs", "rds"]
 ```
 
-You get both sections. Only `reviewer-profile` uses the smaller sample.
+Precedence, lowest first: the extractor default, `tracker` (top level)
+and `[repo] provider`, `[extract]`, `[extract.<name>]`. In the example,
+`pr-archaeology` reads 100 PRs and every other extractor 50.
 
-| Extractor | Parameter | What it changes | Default | Example |
-|---|---|---|---|---|
-| All repo extractors | `--provider` | Code host. Same as above. | `github` | `--provider bitbucket` |
-| `aws-infra` | `--cloud` | Cloud. Same as above. | `aws` | `--cloud azure` |
-| `aws-infra` | `--aws-extract-profile` | AWS profile. Same as above. | None. | `--aws-extract-profile acme-prod` |
-| `aws-infra` | `--aws-extract-region` | AWS region. Same as above. | `us-east-1` | `--aws-extract-region us-west-2` |
-| `aws-infra` | `--aws-extract-service` | AWS part. Same as above. | All six. | `--aws-extract-service lambda` |
-| `active-tickets`, `ticket-archaeology` | `--tracker` | Issue tracker. Same as above. | `jira` | `--tracker linear` |
-| `active-tickets` | `--ticket-project` | Project to list open tickets from. Repeat for more. | None. | `--ticket-project ACME` |
-| `ticket-archaeology` | `--ticket-archaeology-project` | Project to study closed tickets in. Repeat for more. | None. | `--ticket-archaeology-project ACME` |
-| `ticket-archaeology` | `--ticket-max` | Most closed tickets per project. Same as `--max`. | `100` | `--ticket-max 300` |
-| `pr-archaeology` | `--pr-repo` | Repo to read. Same as `--repo`. | None. | `--pr-repo acme-co/acme-app` |
-| `pr-archaeology` | `--pr-max` | Most merged PRs per repo. Same as `--max`. | `100` | `--pr-max 40` |
-| `pr-archaeology` | `--pr-authors-allow` | Keep only these PR authors. | No filter. | `--pr-authors-allow alice` |
-| `pr-archaeology` | `--pr-authors-block` | Drop these PR authors. | No filter. | `--pr-authors-block 'dependabot[bot]'` |
-| `pr-archaeology` | `--pr-assignees-allow` | Keep only PRs with these assignees. | No filter. | `--pr-assignees-allow bob` |
-| `pr-archaeology` | `--pr-assignees-block` | Drop PRs with these assignees. | No filter. | `--pr-assignees-block carol` |
-| `active-work` | `--active-repo` | Repo to list open PRs from. Same as `--repo`. | None. | `--active-repo acme-co/acme-api` |
-| `active-work` | `--active-authors-allow` | Keep only these PR authors. | No filter. | `--active-authors-allow alice` |
-| `active-work` | `--active-authors-block` | Drop these PR authors. | No filter. | `--active-authors-block 'renovate[bot]'` |
-| `active-work` | `--active-assignees-allow` | Keep only PRs with these assignees. | No filter. | `--active-assignees-allow bob` |
-| `active-work` | `--active-assignees-block` | Drop PRs with these assignees. | No filter. | `--active-assignees-block carol` |
-| `github-deployments` | `--deploy-repo` | Repo to read deployments from. | None. | `--deploy-repo acme-co/acme-app` |
-| `codebase-conventions` | `--conventions-repo` | Repo to detect tools in. | None. | `--conventions-repo acme-co/acme-app` |
-| `reviewer-profile` | `--reviewer-repo` | Repo to profile reviewers in. | None. | `--reviewer-repo acme-co/acme-app` |
-| `reviewer-profile` | `--reviewer-pr-sample` | How many recent merged PRs to sample. Same as `--sample`. | `20` | `--reviewer-pr-sample 10` |
-| `reviewer-profile` | `--reviewer-top-n` | How many top reviewers to profile. Same as `--top-n`. | `5` | `--reviewer-top-n 3` |
-| `code-hotspots` | `--hotspots-repo` | Repo to read commits from. | None. | `--hotspots-repo acme-co/acme-app` |
-| `code-hotspots` | `--hotspots-since-days` | Days of commits to read. | `30` | `--hotspots-since-days 14` |
-| `code-hotspots` | `--hotspots-max-commits` | Most commits per repo. | `100` | `--hotspots-max-commits 300` |
-| `code-hotspots` | `--hotspots-top-n` | How many hotspot files to show. | `10` | `--hotspots-top-n 20` |
-| `meeting-digest` | `--meeting` | Meeting tool. Same as above. | `fireflies` | `--meeting fireflies` |
-| `meeting-digest` | `--meeting-since-days` | Days of meetings to read. | `7` | `--meeting-since-days 30` |
-| `meeting-digest` | `--meeting-max` | Most meetings in the digest. | `25` | `--meeting-max 10` |
-| `meeting-digest` | `--meeting-attendee-allow` | Keep only meetings with these attendees. Same as above. | No filter. | `--meeting-attendee-allow lead@acme.com` |
-| `defect-hotspots` | `--risk-repo` | Repo to rank files in. | None. | `--risk-repo acme-co/acme-app` |
-| `defect-hotspots` | `--risk-since-days` | Days of commits to read. | `90` | `--risk-since-days 365` |
-| `defect-hotspots` | `--risk-max-commits` | Most commits per repo. | `200` | `--risk-max-commits 500` |
-| `defect-hotspots` | `--risk-top-n` | How many risky files to show. | `10` | `--risk-top-n 5` |
-| `review-nits` | `--nits-repo` | Repo to read review comments from. | None. | `--nits-repo acme-co/acme-app` |
-| `review-nits` | `--nits-pr-sample` | How many recent merged PRs to sample. | `30` | `--nits-pr-sample 60` |
-| `review-nits` | `--nits-top-n` | How many comment groups to keep. | `15` | `--nits-top-n 5` |
-| `pr-hygiene` | `--prhygiene-repo` | Repo to check. | None. | `--prhygiene-repo acme-co/acme-app` |
-| `pr-hygiene` | `--prhygiene-max` | Most merged PRs for the "merged with zero comments" rate. | `100` | `--prhygiene-max 200` |
-| `pr-hygiene` | `--prhygiene-diffstat-sample` | How many PRs to open one by one for size and first-review time. | `30` | `--prhygiene-diffstat-sample 10` |
-| `pr-hygiene` | `--prhygiene-large-loc` | Lines changed that make a PR large. Same as above. | `400` | `--prhygiene-large-loc 1000` |
-| `ci-health` | `--cihealth-repo` | Repo to read CI runs from. | None. | `--cihealth-repo acme-co/acme-app` |
-| `ci-health` | `--cihealth-limit` | Most CI runs per repo. Same as `--max`. | `100` | `--cihealth-limit 30` |
-| `dependency-health` | `--deps-repo` | Repo to read Dependabot alerts from. | None. | `--deps-repo acme-co/acme-app` |
-| `dependency-health` | `--deps-max` | Most alerts per repo. | `200` | `--deps-max 50` |
-| `code-scanning` | `--scan-repo` | Repo to read code scanning alerts from. | None. | `--scan-repo acme-co/acme-app` |
-| `code-scanning` | `--scan-max` | Most alerts per repo. | `200` | `--scan-max 50` |
-| `code-scanning` | `--scan-top-n` | How many rules to show. | `10` | `--scan-top-n 3` |
-| `repo-governance` | `--gov-repo` | Repo to check. | None. | `--gov-repo acme-co/acme-app` |
-| `repo-governance` | `--gov-branch` | Branch to check. Same as above. | The default branch. | `--gov-branch main` |
-| `revert-signals` | `--revert-repo` | Repo to scan for reverts. | None. | `--revert-repo acme-co/acme-app` |
-| `revert-signals` | `--revert-since-days` | Days of commits to read. | `90` | `--revert-since-days 30` |
-| `revert-signals` | `--revert-max-commits` | Most commits per repo. | `200` | `--revert-max-commits 400` |
-| `stale-prs` | `--stale-repo` | Repo to scan for stale PRs. | None. | `--stale-repo acme-co/acme-app` |
-| `stale-prs` | `--stale-max` | Most open PRs per repo. | `100` | `--stale-max 50` |
-| `stale-prs` | `--stale-days` | Days open before a PR is stale. Same as above. | `14` | `--stale-days 21` |
-| `test-discipline` | `--testdisc-repo` | Repo to check. | None. | `--testdisc-repo acme-co/acme-app` |
-| `test-discipline` | `--testdisc-top-n` | How many untested files to show. | `10` | `--testdisc-top-n 25` |
-| `todo-density` | `--todo-repo` | Repo to search for markers. | None. | `--todo-repo acme-co/acme-app` |
-| `todo-density` | `--todo-max` | Most code search matches per repo. | `200` | `--todo-max 100` |
-| `todo-density` | `--todo-top-n` | How many files to show. | `10` | `--todo-top-n 5` |
-| `release-cadence` | `--release-repo` | Repo to read releases from. | None. | `--release-repo acme-co/acme-app` |
-| `release-cadence` | `--release-max` | Most releases per repo. | `100` | `--release-max 30` |
-| `commit-message-quality` | `--msg-repo` | Repo to read commits from. | None. | `--msg-repo acme-co/acme-app` |
-| `commit-message-quality` | `--msg-since-days` | Days of commits to read. | `90` | `--msg-since-days 30` |
-| `commit-message-quality` | `--msg-max-commits` | Most commits per repo. | `200` | `--msg-max-commits 100` |
+The run stops with exit code 1, naming what to fix, when a key is not a
+setting (`extract.foo`), a name is not an extractor (`extract.nope`), a
+key is the 1.x name (`pr_max`: the error says to use `max`), a key names
+a repo list (repo lists come only from `--repo`, `repos` or `[repo]`), or
+a value is not one of a fixed list (`provider = "gitlab"`). Types are not
+checked yet: `max = "fifty"` fails inside the extractor. A runbook's
+`args:` block still takes the 1.x option names (see
+[runbook.md](runbook.md)). `briar extract -h` prints the same keys.
+
+Every `[extract.<name>]` key, its default and its allowed values (built
+from the code; a test fails when this table and the code differ):
+
+<!-- BEGIN extract-keys -->
+| Extractor | Key | Default | Allowed values |
+|---|---|---|---|
+| `active-tickets` | `projects` | `[]` |  |
+| `active-tickets` | `tracker` | `"jira"` | jira, github-issues, bitbucket-issues, linear |
+| `active-work` | `assignees_allow` | `[]` |  |
+| `active-work` | `assignees_block` | `[]` |  |
+| `active-work` | `authors_allow` | `[]` |  |
+| `active-work` | `authors_block` | `[]` |  |
+| `active-work` | `provider` | `"github"` | github, bitbucket |
+| `aws-infra` | `cloud` | `"aws"` | aws, gcp, azure |
+| `aws-infra` | `profile` | `unset` |  |
+| `aws-infra` | `region` | `"us-east-1"` |  |
+| `aws-infra` | `services` | `[]` | ecs, lambda, logs, rds, sqs, tagging-inventory |
+| `ci-health` | `max` | `100` |  |
+| `ci-health` | `provider` | `"github"` | github, bitbucket |
+| `code-hotspots` | `max` | `100` |  |
+| `code-hotspots` | `provider` | `"github"` | github, bitbucket |
+| `code-hotspots` | `since_days` | `30` |  |
+| `code-hotspots` | `top_n` | `10` |  |
+| `code-scanning` | `max` | `200` |  |
+| `code-scanning` | `provider` | `"github"` | github, bitbucket |
+| `code-scanning` | `top_n` | `10` |  |
+| `codebase-conventions` | `provider` | `"github"` | github, bitbucket |
+| `commit-message-quality` | `max` | `200` |  |
+| `commit-message-quality` | `provider` | `"github"` | github, bitbucket |
+| `commit-message-quality` | `since_days` | `90` |  |
+| `defect-hotspots` | `max` | `200` |  |
+| `defect-hotspots` | `provider` | `"github"` | github, bitbucket |
+| `defect-hotspots` | `since_days` | `90` |  |
+| `defect-hotspots` | `top_n` | `10` |  |
+| `dependency-health` | `max` | `200` |  |
+| `dependency-health` | `provider` | `"github"` | github, bitbucket |
+| `github-deployments` | `provider` | `"github"` | github, bitbucket |
+| `meeting-digest` | `attendee_allow` | `[]` |  |
+| `meeting-digest` | `max` | `25` |  |
+| `meeting-digest` | `meeting` | `"fireflies"` | fireflies |
+| `meeting-digest` | `since_days` | `7` |  |
+| `pr-archaeology` | `assignees_allow` | `[]` |  |
+| `pr-archaeology` | `assignees_block` | `[]` |  |
+| `pr-archaeology` | `authors_allow` | `[]` |  |
+| `pr-archaeology` | `authors_block` | `[]` |  |
+| `pr-archaeology` | `max` | `100` |  |
+| `pr-archaeology` | `provider` | `"github"` | github, bitbucket |
+| `pr-hygiene` | `large_loc` | `400` |  |
+| `pr-hygiene` | `max` | `100` |  |
+| `pr-hygiene` | `provider` | `"github"` | github, bitbucket |
+| `pr-hygiene` | `sample` | `30` |  |
+| `release-cadence` | `max` | `100` |  |
+| `release-cadence` | `provider` | `"github"` | github, bitbucket |
+| `repo-governance` | `branch` | `""` |  |
+| `repo-governance` | `provider` | `"github"` | github, bitbucket |
+| `revert-signals` | `max` | `200` |  |
+| `revert-signals` | `provider` | `"github"` | github, bitbucket |
+| `revert-signals` | `since_days` | `90` |  |
+| `review-nits` | `provider` | `"github"` | github, bitbucket |
+| `review-nits` | `sample` | `30` |  |
+| `review-nits` | `top_n` | `15` |  |
+| `reviewer-profile` | `provider` | `"github"` | github, bitbucket |
+| `reviewer-profile` | `sample` | `20` |  |
+| `reviewer-profile` | `top_n` | `5` |  |
+| `stale-prs` | `days` | `14` |  |
+| `stale-prs` | `max` | `100` |  |
+| `stale-prs` | `provider` | `"github"` | github, bitbucket |
+| `test-discipline` | `provider` | `"github"` | github, bitbucket |
+| `test-discipline` | `top_n` | `10` |  |
+| `ticket-archaeology` | `max` | `100` |  |
+| `ticket-archaeology` | `projects` | `[]` |  |
+| `ticket-archaeology` | `tracker` | `"jira"` | jira, github-issues, bitbucket-issues, linear |
+| `todo-density` | `max` | `200` |  |
+| `todo-density` | `provider` | `"github"` | github, bitbucket |
+| `todo-density` | `top_n` | `10` |  |
+<!-- END extract-keys -->
 
 ## What you see when it runs
 
@@ -397,9 +424,7 @@ the file store.
 ## Good to know
 
 - Inside a repo with `.briar.toml` or a git `origin`, that repo is
-  already in the `--repo` list. A `--repo` you type is added to it, not
-  used instead. If you type the same repo, it is read twice. Leave
-  `--repo` out in that case.
+  already the `--repo` list. A `--repo` you type replaces it.
 - With no `--include`, `aws-infra` always runs. Without AWS access it
   writes a section titled `AWS infrastructure (UNREACHABLE)`. Use
   `--include` to skip it.
@@ -407,14 +432,10 @@ the file store.
   `todo-density` and `test-discipline` come back empty. `repo-governance`
   cannot read branch protection there.
 - Heavy extractors make many API calls: `code-hotspots`,
-  `defect-hotspots`, `revert-signals`. Lower `--max` or `--since-days`
-  if you hit GitHub rate limits.
+  `defect-hotspots`, `revert-signals`. Lower `max` or `since_days` in
+  `[extract]` if you hit GitHub rate limits.
 - `GetResources` (used by `tagging-inventory`) sees only tagged AWS
   resources. Untagged ones are not counted.
-- The agent looks in every blob whose name starts with `knowledge:acme`,
-  so a runbook can split the sections across several blobs. It keeps
-  only the sections it uses (listed above), found by their `## ` heading.
-  Other text in those blobs is not added to its prompt.
 - A runbook can save a JSON "inventory" copy next to the blob on every
   scheduled run (`config: {inventory: "true"}` on its `knowledge:`
   block). See [runbook.md](runbook.md).
@@ -425,4 +446,5 @@ the file store.
 | Every extractor says `skipped`. | Credentials or `--repo` are missing. Run `briar auth status <target> --company acme`, then pass `--repo`. |
 | `403` or `404` from GitHub. | The token lacks access to the repo. A classic token needs `repo`, and `read:org` for org data. |
 | Jira calls hang or fail. | Check `JIRA_ACME_URL`. It should look like `https://acme.atlassian.net`. |
-| The run is slow. | Lower `--max` (for example `--max 20`) or use `--include` to run fewer extractors. |
+| The run is slow. | Lower `max` in `[extract]` (for example `max = 20`) or use `--include` to run fewer extractors. |
+| `unrecognized arguments: --pr-max` (or another 1.x flag). | The flag moved to `.briar.toml`: see "Settings". |
