@@ -36,7 +36,6 @@ class ExtractTestDiscipline(RepoBackedExtractor):
     name = "test-discipline"
     heading = "Test discipline"
     description = "test-to-source file ratio and source files without an obvious test"
-    requires_github = True  # legacy flag
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         super().add_arguments(parser)

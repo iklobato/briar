@@ -15,9 +15,8 @@ from briar.extract import EXTRACTORS
 from briar.extract.base import ExtractedSection
 from briar.extract.canonical import AdvancedHelpAction, apply_canonical, hide_canonicalised_flags, register_canonical_flags
 from briar.extract.claude_md import ClaudeMdMerger
-from briar.extract.composer import render_json, render_markdown
-from briar.service.extract import write_knowledge_blob
-from briar.storage import KNOWLEDGE_STORE_NAMES, default_store_kind, make_store
+from briar.extract.composer import KnowledgeComposer, render_json, render_markdown
+from briar.storage import KNOWLEDGE_STORE_NAMES, KnowledgeRef, default_store_kind, make_store
 
 _CLAUDE_MD_DETAIL_ROOT = Path(".briar/knowledge")
 
@@ -121,14 +120,7 @@ class CommandExtract(Command):
         if not sections:
             raise CliError("nothing extracted — every enabled extractor returned empty")
 
-        blob_name = args.blob_name or f"knowledge:{args.company}"
-        ref = write_knowledge_blob(
-            make_store(args.storage, file_root=Path(args.root)),
-            blob_name=blob_name,
-            company=args.company,
-            sections=sections,
-            refreshed=refreshed,
-        )
+        ref = self._write_blob(args, sections, refreshed)
         _status(f"\nwrote blob '{ref.name}' " f"({ref.byte_count} bytes, {len(sections)} sections) " f"via store={args.storage}")
 
         if args.out_json:
@@ -141,6 +133,22 @@ class CommandExtract(Command):
             self._merge_claude_md(args, sections)
 
         return 0
+
+    def _write_blob(self, args: argparse.Namespace, sections: List[ExtractedSection], refreshed: List[str]) -> KnowledgeRef:
+        """Merge `sections` into the stored blob and write it back.
+
+        `refreshed` holds the headings of the extractors that ran, with or
+        without data: their old sections are replaced (or dropped when
+        empty). Sections of every other extractor stay."""
+        store = make_store(args.storage, file_root=Path(args.root))
+        blob_name = args.blob_name or f"knowledge:{args.company}"
+        merged = KnowledgeComposer.merge_markdown(
+            company=args.company,
+            existing=store.get(blob_name),
+            fresh=render_markdown(company=args.company, sections=sections),
+            refreshed=refreshed,
+        )
+        return store.put(blob_name, merged, category="knowledge")
 
     def _merge_claude_md(self, args: argparse.Namespace, sections: List[ExtractedSection]) -> None:
         """Write the full bundle to a local detail file and splice a

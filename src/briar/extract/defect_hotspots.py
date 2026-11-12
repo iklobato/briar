@@ -33,7 +33,6 @@ class ExtractDefectHotspots(RepoBackedExtractor):
     name = "defect-hotspots"
     heading = "Defect hotspots"
     description = "files most likely to break — churn × bug-fixes × size risk score"
-    requires_github = True  # legacy flag
 
     _availability_arg = "risk_repo"
 

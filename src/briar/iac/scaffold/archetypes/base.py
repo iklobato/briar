@@ -7,9 +7,8 @@ An archetype declares:
   the agent gets bound to (an engineer keeps `commit_files` + `open_pr`,
   a triager doesn't);
 - `consumes`: the names of the extractor outputs this archetype should
-  consult before acting. Used by the scaffold composer to wire the
-  right knowledge-file sections into the agent's prompt, and by the
-  dashboard to show which extractor each archetype depends on.
+  consult before acting. Used by the knowledge splicer to wire the
+  right knowledge-file sections into the agent's prompt.
 
 Tool filtering is what makes archetypes more than prompt boilerplate
 — a triager that has no `commit_files` tool literally can't open a PR,

@@ -86,7 +86,7 @@ class KnowledgeStore(ABC):
         Default implementation just calls `get()` per-name. Backends that
         can do this in one round-trip (Postgres uses `WHERE blob_name = ANY(%s)`)
         should override — that's the point of having this on the ABC, it lets
-        callers (KnowledgeSplicer, dashboard collectors, plan context) be
+        callers (KnowledgeSplicer, plan context) be
         backend-agnostic while still avoiding the N+1 connection pattern."""
         out: Dict[str, str] = {}
         for name in names:

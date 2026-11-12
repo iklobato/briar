@@ -38,8 +38,8 @@ companies:
   # ==========================================================================
   # acme — GitHub + AWS + Jira (classic stack)
   # ==========================================================================
-  # File-backed knowledge so the markdown lives next to the runbook and
-  # `briar dashboard` can serve it without a database. Four tasks split
+  # File-backed knowledge so the markdown lives next to the runbook,
+  # without a database. Four tasks split
   # by cadence: heavy daily, repo-state every 4h, hot every hour, tickets
   # every 2h.
   # --------------------------------------------------------------------------
@@ -133,7 +133,7 @@ companies:
   #   `tracker: linear` routes ticket extractors onto LinearTracker
   #   (stdlib GraphQL via urllib).
   #
-  # Knowledge goes to Postgres so the dashboard + scheduler can share one
+  # Knowledge goes to Postgres so the agents + scheduler can share one
   # source of truth without file-locking. `BRIAR_DATABASE_URL` must be set.
   # --------------------------------------------------------------------------
   bitspark:

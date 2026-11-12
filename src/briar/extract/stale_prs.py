@@ -29,7 +29,6 @@ class ExtractStalePrs(RepoBackedExtractor):
     name = "stale-prs"
     heading = "Stale PRs"
     description = "open PRs idle beyond a threshold — review backlog to avoid colliding with"
-    requires_github = True  # legacy flag
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         super().add_arguments(parser)

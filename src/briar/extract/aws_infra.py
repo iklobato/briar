@@ -25,7 +25,6 @@ class ExtractAwsInfra(CloudBackedExtractor):
     name = "aws-infra"
     heading = "AWS infrastructure"
     description = "cloud resources via CloudProvider (AWS / GCP / Azure)"
-    requires_aws = True  # legacy flag — kept for back-compat
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         super().add_arguments(parser)

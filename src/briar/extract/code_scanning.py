@@ -26,7 +26,6 @@ class ExtractCodeScanning(RepoBackedExtractor):
     name = "code-scanning"
     heading = "Code scanning alerts"
     description = "open static-analysis findings grouped by rule and file"
-    requires_github = True  # legacy flag
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         super().add_arguments(parser)

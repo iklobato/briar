@@ -30,7 +30,6 @@ class ExtractRevertSignals(RepoBackedExtractor):
     name = "revert-signals"
     heading = "Revert & hotfix signals"
     description = "reverts and emergency fixes — fragile areas the test/review net missed"
-    requires_github = True  # legacy flag
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         super().add_arguments(parser)

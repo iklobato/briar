@@ -23,7 +23,6 @@ class ExtractActiveWork(RepoBackedExtractor):
     name = "active-work"
     heading = "Active work"
     description = "open PRs across the configured repos"
-    requires_github = True  # legacy flag
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         super().add_arguments(parser)

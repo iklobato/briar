@@ -14,7 +14,7 @@ tests/conftest.py) strips every credential-shaped env var, so:
 `BRIAR_SECRETS_FILE` is already redirected per-test by `env_sandbox`.
 
 These cover: secrets (envfile store + bootstrap), telemetry off/full/status, context put/get/list/delete,
-journal list/show/export, dashboard --once, runbook extract/sweep.
+journal list/show/export, runbook extract/sweep.
 """
 
 from __future__ import annotations
@@ -344,42 +344,6 @@ class TestJournalRealStore:
         )
         assert result.code == 0, result.err
         assert "# scaffold.implementation — acme/widgets" in result.out
-
-
-# ════════════════════════════ dashboard ═════════════════════════════
-
-
-class TestDashboardOnceReal:
-    def test_once_renders_seeded_schedules_into_html(self, cli, tmp_path) -> None:
-        """`dashboard --once` runs the REAL collectors over a tmp sandbox
-        and renders the HTML to stdout (no serve). The seeded runbook's
-        company + extractor surface in the schedules section."""
-        examples = tmp_path / "examples"
-        examples.mkdir()
-        (examples / "acme.yaml").write_text(
-            "version: 1\n" "companies:\n" "  zzcorp:\n" "    extract:\n" "      - name: pr-archaeology\n" "        args: {pr_repo: [zzcorp/api]}\n"
-        )
-
-        result = cli(
-            "dashboard",
-            "--once",
-            "--examples",
-            str(examples),
-            "--log-file",
-            str(tmp_path / "no-such.log"),
-            "--repo-path",
-            str(tmp_path),
-            env=_local_env(tmp_path),
-        )
-        assert result.code == 0, result.err
-        html = result.out
-        assert "<html" in html.lower() or "<!doctype" in html.lower()
-        # SchedulesCollector surfaced the seeded company + its extractor.
-        assert "zzcorp" in html
-        assert "pr-archaeology" in html
-        # Self-contained: no Chart.js / CDN in the slim dashboard.
-        assert "cdn.jsdelivr" not in html
-        assert "<canvas" not in html
 
 
 # ════════════════════════════ runbook ═══════════════════════════════

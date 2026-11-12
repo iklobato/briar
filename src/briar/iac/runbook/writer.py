@@ -1,8 +1,7 @@
 """Runbook YAML writer — the inverse of `RunbookLoader.load`.
 
-`save_runbook_file` serializes a validated `RunbookFile` back to YAML so the
-control surfaces (MCP server, `briar chat`, the read-write dashboard) can edit
-config that `load_runbook_file` reads. Three guarantees:
+`save_runbook_file` serializes a validated `RunbookFile` back to YAML so a
+caller can write config that `load_runbook_file` reads. Three guarantees:
 
   1. **Round-trip safety.** The serialized text is re-parsed through the schema
      in memory *before* any disk write — an unserializable model never reaches

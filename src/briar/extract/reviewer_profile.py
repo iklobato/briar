@@ -23,7 +23,6 @@ class ExtractReviewerProfile(RepoBackedExtractor):
     name = "reviewer-profile"
     heading = "Reviewer profiles"
     description = "per-reviewer comment cadence, file hotspots, common asks"
-    requires_github = True  # legacy flag
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         super().add_arguments(parser)

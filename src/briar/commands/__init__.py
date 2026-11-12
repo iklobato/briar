@@ -1,7 +1,7 @@
 """Command registry — Strategy + Factory composition.
 
-Top-level commands: agent · auth · chat · context · dashboard · extract ·
-journal · mcp · plan · runbook · secrets · telemetry · version.
+Top-level commands: agent · auth · completion · config · context · doctor ·
+extract · init · journal · plan · runbook · secrets · telemetry · version.
 """
 
 from __future__ import annotations
@@ -11,16 +11,13 @@ from typing import Dict, List, Type
 from briar.commands.agent import CommandAgent
 from briar.commands.auth import CommandAuth
 from briar.commands.base import Command, confirm
-from briar.commands.chat import CommandChat
 from briar.commands.completion import CommandCompletion
 from briar.commands.config import CommandConfig
 from briar.commands.context import ContextCommand
-from briar.commands.dashboard import CommandDashboard
 from briar.commands.doctor import CommandDoctor
 from briar.commands.extract import CommandExtract
 from briar.commands.init import CommandInit
 from briar.commands.journal import CommandJournal
-from briar.commands.mcp import CommandMcp
 from briar.commands.plan import CommandPlan
 from briar.commands.runbook import CommandRunbook
 from briar.commands.secrets import CommandSecrets
@@ -36,14 +33,11 @@ class CommandRegistry:
         CommandExtract,
         CommandRunbook,
         ContextCommand,
-        CommandDashboard,
         CommandAgent,
         CommandAuth,
         CommandPlan,
         CommandSecrets,
         CommandJournal,
-        CommandMcp,
-        CommandChat,
         CommandTelemetry,
         CommandVersion,
         CommandCompletion,

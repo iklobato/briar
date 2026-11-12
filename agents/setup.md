@@ -59,7 +59,7 @@ git_user_email = "bot@acme.com"
 | `repos` | The repeatable `--repo` list on `extract`. | none |
 | `[repo] owner`, `repo` | Every `--owner` and `--repo`. On `extract`, they form one `owner/repo` entry when `repos` is not set. | none |
 | `[repo] provider` | Every `--provider`. | none |
-| `[agent] model` | Every `--model` (on `agent`, `plan` and `chat`). | none |
+| `[agent] model` | Every `--model` (on `agent` and `plan`). | none |
 | `[agent] git_user_name`, `git_user_email` | `--git-user-name` and `--git-user-email` on `agent` and `plan run`. | none |
 
 In pyproject.toml, put the same keys under `[tool.briar]`, with
@@ -71,8 +71,6 @@ In pyproject.toml, put the same keys under `[tool.briar]`, with
   set `--store` and `--root` on `briar journal`, which only knows the
   `file` store and the `./journal` folder. Pass
   `--store file --root ./journal` to `journal` if you set them.
-- `[agent] model` also becomes the default for `briar chat --model`.
-  That name may not fit another `--llm` provider.
 - `BRIAR_STORE` sets the **knowledge** store. The **credential** store
   for `briar auth` is set by `BRIAR_DEFAULT_STORE`. They are different.
 

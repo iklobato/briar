@@ -4,16 +4,12 @@
 # release.yml), so the image always matches the version published to PyPI.
 #
 #   docker run --rm iklob1/briar version
-#   docker run --rm -p 8080:8080 iklob1/briar dashboard --host 0.0.0.0
 FROM python:3.11-slim
 
-# Ownership proof for the official MCP registry; must match `name` in its server.json.
-LABEL io.modelcontextprotocol.server.name="io.github.iklobato/briar"
-
-# Install the wheel CI just built, WITH the `mcp` extra so `briar mcp serve`
-# (FastMCP) works in the image — without it the server crashes on
-# `ModuleNotFoundError: No module named 'mcp'`. The glob resolves to the
-# single versioned wheel in dist/; `[mcp]` pulls the extra from PyPI.
+# Install the wheel CI just built, WITH the `mcp` extra so agents can use the
+# MCP servers a runbook's `mcp:` block names. The glob resolves to the single
+# versioned wheel in dist/; `[mcp]` pulls the extra from PyPI. (The MCP
+# registry entry points at the 1.x images; 2.0 has no `briar mcp serve`.)
 COPY dist/ /tmp/dist/
 RUN whl="$(ls /tmp/dist/*.whl)" && pip install --no-cache-dir "${whl}[mcp]" && rm -rf /tmp/dist
 

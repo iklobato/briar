@@ -90,7 +90,7 @@ class TestSmokeVersionAndHelp:
 
     @pytest.mark.parametrize(
         "command",
-        ["context", "telemetry", "journal", "runbook", "secrets", "dashboard", "version"],
+        ["context", "telemetry", "journal", "runbook", "secrets", "version"],
         ids=lambda c: f"help-{c}",
     )
     def test_per_command_help_exit_0(self, tmp_path, command) -> None:

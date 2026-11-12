@@ -26,7 +26,6 @@ class ExtractRepoGovernance(RepoBackedExtractor):
     name = "repo-governance"
     heading = "Repo governance"
     description = "branch protection + presence of CODEOWNERS, pre-commit, linter/editor config"
-    requires_github = True  # legacy flag
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         super().add_arguments(parser)

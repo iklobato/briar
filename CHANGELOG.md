@@ -19,6 +19,16 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`.
   `briar scaffold` is still in 1.x: `pip install 'briar-cli<2'`.
 - The unused config-file loader (`briar.iac.config_file`, `briar.iac.models`)
   and two unused symbols: `ApiError` and `jira_auth_kinds`.
+- `briar dashboard`, `briar chat` and `briar mcp serve`, with the MCP
+  server and the `service/` layer that only the MCP server used. The MCP
+  registry entry `io.github.iklobato/briar` stays on 1.1.94, the last
+  release with the server; the 2.0 Docker image drops the registry label.
+  Agents still use the MCP servers a runbook's `mcp:` block names (the
+  `[mcp]` extra). These commands are still in 1.x:
+  `pip install 'briar-cli<2'`.
+- The `jinja2` dependency (only the dashboard used it).
+- The `requires_github` / `requires_aws` markers on extractors (only the
+  dashboard read them).
 - The design docs from the archived SaaS at the repo root
   (`ARCHITECTURE.md`, `ARCHITECTURE_DEEP.md`, `ARCHITECTURE_MAP.md`,
   `IMPLEMENTATION_PLAN.md`, `REFACTORING.md`, `FEATURES.md`,

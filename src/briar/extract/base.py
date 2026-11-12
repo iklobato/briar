@@ -54,13 +54,6 @@ class KnowledgeExtractor(ABC):
     # output is consumed by an archetype (default empty = JIT-only or
     # not splicer-bound).
     heading: ClassVar[str] = ""
-    # `requires_github` / `requires_aws` are read ONLY by the dashboard
-    # collector (dashboard/collectors.py:SourcesCollector) for the
-    # secrets-doctor inventory surface. The 4 other `requires_*` flags
-    # that used to live on the base + *Backed subclasses were dead
-    # ClassVars (zero readers) — Phase 13 deleted them.
-    requires_github: ClassVar[bool] = False
-    requires_aws: ClassVar[bool] = False
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Subclasses contribute their own CLI flags. Default: no-op."""

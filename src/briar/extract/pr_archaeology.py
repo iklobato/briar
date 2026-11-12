@@ -32,7 +32,6 @@ class ExtractPrArchaeology(RepoBackedExtractor):
     name = "pr-archaeology"
     heading = "PR archaeology"
     description = "merged-PR patterns, review focus, reviewer profiles"
-    requires_github = True  # legacy flag — kept for back-compat; new gate is requires_repository_provider
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         super().add_arguments(parser)

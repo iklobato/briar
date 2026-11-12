@@ -1,12 +1,12 @@
 """Logging configuration — one place to set the format, level, and
 output stream so every module can `logging.getLogger(__name__)` and
-get consistent output across the CLI, scheduler, and dashboard.
+get consistent output across the CLI and the scheduler.
 
 Output shape (line-prefix):
     2026-05-20T15:32:19Z [INFO   ] briar.iac.runbook.scheduler: …
 
 Always UTC. Always to stdout (so the existing `nohup` redirects on
-the droplet capture into `scheduler.log` / `dashboard.log`). Errors
+a server capture into `scheduler.log`). Errors
 caught in broad-except sites should call `logger.exception(...)`,
 which appends the traceback automatically."""
 
@@ -101,5 +101,5 @@ def _lib_debug_enabled() -> bool:
 
 def env_verbose() -> bool:
     """`BRIAR_VERBOSE=1` flips DEBUG for daemonised invocations where
-    no `--verbose` flag is being passed (the dashboard / serve units)."""
+    no `--verbose` flag is being passed (the `runbook serve` unit)."""
     return os.environ.get("BRIAR_VERBOSE", "").strip().lower() in {"1", "true", "yes"}
