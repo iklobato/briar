@@ -24,6 +24,8 @@ THREAD_START, REPLY, APPROVAL, REVIEW = 1, 2, 9, 10
 OPEN_THREAD_COMMENT = 3
 LINE = 3
 LONG_BODY = 2000
+# Open issues a GitHub issue blocks, in its dependencies summary.
+BLOCKING = 2
 
 
 class Logins:
@@ -43,6 +45,20 @@ class JiraClient:
         client.post.return_value = {"issues": [{"key": "ENG-1", "fields": fields}]}
         client.get.return_value = {"permissions": {name: {"havePermission": have} for name, have in granted.items()}}
         return client
+
+    def linked_fields(self) -> Dict[str, Any]:
+        """The shape of a real `search/jql` issue with links: one open and one done blocker,
+        one open ticket it blocks, a relates link, a due date and an epic parent."""
+        blocks = {"name": "Blocks", "inward": "is blocked by", "outward": "blocks"}
+        relates = {"name": "Relates", "inward": "relates to", "outward": "relates to"}
+        links = [
+            {"type": blocks, "inwardIssue": {"key": "ENG-2", "fields": {"status": {"statusCategory": {"key": "indeterminate"}}}}},
+            {"type": blocks, "inwardIssue": {"key": "ENG-3", "fields": {"status": {"statusCategory": {"key": "done"}}}}},
+            {"type": blocks, "outwardIssue": {"key": "ENG-4", "fields": {"status": {"statusCategory": {"key": "new"}}}}},
+            {"type": relates, "outwardIssue": {"key": "ENG-5", "fields": {"status": {"statusCategory": {"key": "new"}}}}},
+        ]
+        status = {"name": "In Progress", "statusCategory": {"key": "indeterminate"}}
+        return {"summary": "Fix login", "status": status, "issuelinks": links, "duedate": "2026-11-18", "parent": {"key": "ENG-100"}, "created": "2026-01-02"}
 
 
 class TestJira:
@@ -73,6 +89,26 @@ class TestJira:
 
 
 class TestGithub:
+    def test_assigned_tickets_carry_the_signals_of_the_selector(self) -> None:
+        """Spec 008 N3: open blockers, the open tickets it unblocks, due date, epic and
+        progress, from the fields of a real Jira search answer (names replaced)."""
+        client = JiraClient().client({})
+        client.post.return_value = {"issues": [{"key": "ENG-1", "fields": JiraClient().linked_fields()}]}
+
+        with mock.patch("atlassian.Jira", return_value=client):
+            (ticket,) = make_tracker("jira", Logins().jira()).assigned("ENG", MAX_TICKETS)
+
+        assert (ticket.open_blockers, ticket.unblocks, ticket.due_date, ticket.epic, ticket.in_progress) == (1, 1, "2026-11-18", "ENG-100", True)
+        assert {"issuelinks", "duedate", "parent"} <= set(client.post.call_args.kwargs["data"]["fields"])
+
+    def test_assigned_issues_carry_the_native_dependencies(self) -> None:
+        rows = [{"number": ISSUE_NUMBER, "title": "Fix it", "state": "open", "issue_dependencies_summary": {"blocked_by": 1, "blocking": BLOCKING}}]
+
+        with mock.patch("briar.extract._gh.GithubApi.get_paginated", return_value=rows):
+            (ticket,) = make_tracker("github-issues", Logins().github()).assigned("acme/app", "octo")
+
+        assert (ticket.open_blockers, ticket.unblocks) == (1, BLOCKING)
+
     def test_assigned_issues_leave_the_pull_requests_out(self) -> None:
         rows = [
             {"number": ISSUE_NUMBER, "title": "Fix it", "state": "open", "labels": [{"name": "p0"}], "created_at": "2026-01-01"},

@@ -12,7 +12,7 @@ import logging
 import re
 from dataclasses import replace
 from functools import partial
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from briar.auth.check import LoginRejected
 from briar.auth.logins import CompanyLogins, JiraLogin
@@ -45,10 +45,29 @@ _ADF_BLOCK_NODES = frozenset(
 )
 
 
+class JiraLinks:
+    """The `Blocks` links of one issue: an `inwardIssue` blocks it, an `outwardIssue` is
+    blocked by it. Only open issues count (status category not `done`)."""
+
+    BLOCKS = "Blocks"
+    DONE = "done"
+
+    def __init__(self, fields: Mapping[str, Any]) -> None:
+        self._fields = fields
+
+    def open_count(self, side: str) -> int:
+        links = self._fields.get("issuelinks") or []
+        return sum(1 for link in links if (link.get("type") or {}).get("name") == self.BLOCKS and self._open(link.get(side)))
+
+    def _open(self, issue: Any) -> bool:
+        category = (((issue or {}).get("fields") or {}).get("status") or {}).get("statusCategory") or {}
+        return bool(issue) and category.get("key") != self.DONE
+
+
 class JiraTracker(TrackerProvider):
     kind = "jira"
     login_source = "jira"
-    TICKET_FIELDS = ("summary", "status", "issuetype", "priority", "reporter", "assignee", "labels", "created", "updated")
+    TICKET_FIELDS = ("summary", "status", "issuetype", "priority", "reporter", "assignee", "labels", "created", "updated", "issuelinks", "duedate", "parent")
     # The most results one Jira search page gives.
     PAGE_LIMIT = 100
 
@@ -234,4 +253,9 @@ class JiraTracker(TrackerProvider):
             updated_at=str(fields.get("updated") or ""),
             labels=labels,
             url=str(issue.get("self") or ""),
+            open_blockers=JiraLinks(fields).open_count("inwardIssue"),
+            unblocks=JiraLinks(fields).open_count("outwardIssue"),
+            due_date=str(fields.get("duedate") or ""),
+            epic=str((fields.get("parent") or {}).get("key") or ""),
+            in_progress=((fields.get("status") or {}).get("statusCategory") or {}).get("key") == "indeterminate",
         )

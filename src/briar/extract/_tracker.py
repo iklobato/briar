@@ -58,6 +58,13 @@ class Ticket:
     # The list/scan verbs (`list_tickets`) leave this empty — they don't
     # fetch the body to avoid N round-trips.
     description: str = ""
+    # The signals the `serve` selector ranks by (spec 008 N3), from `assigned`: open tickets
+    # that block this one, open tickets this one blocks, due date, epic, started.
+    open_blockers: int = 0
+    unblocks: int = 0
+    due_date: str = ""
+    epic: str = ""
+    in_progress: bool = False
 
 
 @dataclass(frozen=True)
