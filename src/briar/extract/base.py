@@ -81,8 +81,8 @@ class KnowledgeExtractor(ABC):
 
 # ─── *Backed* shared helpers ──────────────────────────────────────────
 #
-# Every *Backed*Extractor (Cloud / Tracker / Meeting / Repo) and the 3
-# TaskScoped variants of them share the same three-method shape:
+# Every *Backed*Extractor (Cloud / Tracker / Meeting / Repo) shares the
+# same three-method shape:
 #   1. `add_arguments` registers a `--<flag>` choice from the registry
 #   2. `_<flag>(args)` reads `args.<flag>` + builds a provider instance
 #   3. `provider_class_for` looks up the class in the registry dict
@@ -234,67 +234,6 @@ class TrackerBackedExtractor(KnowledgeExtractor):
         return _provider_class_for_flag(args, flag="tracker", default="jira", classes_dict=TRACKERS)
 
 
-class TaskScopedExtractor(ABC):
-    """JIT-invoked extractor — fetched at agent-invocation time for one
-    specific task (a single ticket, a single PR), NOT pre-baked into
-    the per-company markdown blob.
-
-    Distinct from `KnowledgeExtractor` because the lifecycle differs:
-
-      ``KnowledgeExtractor.extract(args)``  runs on a cron-equivalent
-                                            schedule; output goes into
-                                            ``knowledge:<company>``
-                                            and applies to every task.
-      ``TaskScopedExtractor.fetch(args)``   runs once at agent
-                                            invocation; output is
-                                            spliced into ONE agent's
-                                            system prompt only.
-
-    Same `ExtractedSection` output shape so the agent prompt builder
-    can treat both uniformly. Concrete subclasses pick a partial base
-    below (``TaskScopedTrackerExtractor`` / ``TaskScopedRepoExtractor``)
-    that registers the right ``--tracker`` / ``--provider`` flag and
-    factory helper."""
-
-    name: ClassVar[str] = ""
-    description: ClassVar[str] = ""
-    # Same role as `KnowledgeExtractor.heading` — splicer uses this to
-    # find the JIT section in the agent's prompt. Subclasses MUST
-    # override when their output is consumed by an archetype.
-    heading: ClassVar[str] = ""
-
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        """Default: no extra arguments. Concrete subclasses register
-        their identity flags (--ticket-key, --pr-number, etc.) here."""
-
-    @abstractmethod
-    def fetch(self, args: argparse.Namespace) -> ExtractedSection:
-        """Pull JIT context + return one section. Use ``empty_section()``
-        when there's nothing to report. Called once per agent run, NOT
-        on the runbook schedule."""
-
-
-class TaskScopedTrackerExtractor(TaskScopedExtractor):
-    """TaskScoped + tracker-backed. Same shape as
-    `TrackerBackedExtractor` but for the JIT lifecycle."""
-
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        from briar.extract._trackers import TrackerRegistry
-
-        _register_provider_flag(
-            parser,
-            flag="tracker",
-            default="jira",
-            choices=list(TrackerRegistry.kinds()),
-            help_text="Tracker provider this extractor uses (default: jira)",
-        )
-
-    def _tracker(self, args: argparse.Namespace):
-        from briar.extract._trackers import make_tracker
-
-        return _resolve_provider_from_args(args, flag="tracker", default="jira", make_fn=make_tracker)
-
-
 class MeetingBackedExtractor(KnowledgeExtractor):
     """Base class for extractors that talk to a meeting-transcription
     tool (Fireflies, future Otter / Granola / …). Symmetric to
@@ -321,73 +260,6 @@ class MeetingBackedExtractor(KnowledgeExtractor):
         from briar.extract._meetings import MEETINGS
 
         return _provider_class_for_flag(args, flag="meeting", default="fireflies", classes_dict=MEETINGS)
-
-
-class TaskScopedMeetingExtractor(TaskScopedExtractor):
-    """TaskScoped + meeting-backed. Same shape as
-    `MeetingBackedExtractor` but for the JIT lifecycle."""
-
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        from briar.extract._meetings import meeting_kinds
-
-        _register_provider_flag(
-            parser,
-            flag="meeting",
-            default="fireflies",
-            choices=list(meeting_kinds()),
-            help_text="Meeting provider this extractor uses (default: fireflies)",
-        )
-
-    def _meeting(self, args: argparse.Namespace):
-        from briar.extract._meetings import make_meeting
-
-        return _resolve_provider_from_args(args, flag="meeting", default="fireflies", make_fn=make_meeting)
-
-
-class TaskScopedChatExtractor(TaskScopedExtractor):
-    """TaskScoped + chat-backed. Same shape as `TaskScopedMeetingExtractor`
-    but for team-chat providers (Slack, …)."""
-
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        from briar.extract._chats import chat_kinds
-
-        _register_provider_flag(
-            parser,
-            flag="chat",
-            default="slack",
-            choices=list(chat_kinds()),
-            help_text="Chat provider this extractor uses (default: slack)",
-        )
-
-    def _chat(self, args: argparse.Namespace):
-        from briar.extract._chats import make_chat
-
-        return _resolve_provider_from_args(args, flag="chat", default="slack", make_fn=make_chat)
-
-
-class TaskScopedRepoExtractor(TaskScopedExtractor):
-    """TaskScoped + repo-backed."""
-
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        from briar.extract._providers import RepositoryProviderRegistry
-
-        _register_provider_flag(
-            parser,
-            flag="provider",
-            default="github",
-            choices=list(RepositoryProviderRegistry.kinds()),
-            help_text="Repository provider this extractor uses (default: github)",
-        )
-
-    def _provider(self, args: argparse.Namespace):
-        from briar.extract._providers import make_provider
-
-        return _resolve_provider_from_args(args, flag="provider", default="github", make_fn=make_provider)
-
-    def provider_class_for(self, args: argparse.Namespace):
-        from briar.extract._providers import PROVIDERS
-
-        return _provider_class_for_flag(args, flag="provider", default="github", classes_dict=PROVIDERS)
 
 
 class RepoBackedExtractor(KnowledgeExtractor):

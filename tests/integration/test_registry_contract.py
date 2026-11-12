@@ -11,27 +11,22 @@ import pytest
 from briar.auth import AcquirerRegistry
 from briar.credentials import STORES
 from briar.credentials._bootstraps import CredentialBootstrapRegistry
-from briar.extract import EXTRACTORS, TASK_SCOPED_EXTRACTORS
+from briar.extract import EXTRACTORS
 from briar.formatting import FORMATTERS
-from briar.iac.scaffold.archetypes import ARCHETYPES
 from briar.journal.sinks import JOURNAL_SINKS
 from briar.messaging import WRITERS
 from briar.notify import SINKS
-from briar.plan._boards import BOARD_READERS
 
 
 # (registry, name_attribute) — passed in so the test knows which attr to read.
 _REGISTRIES = [
     pytest.param(EXTRACTORS, "name", id="EXTRACTORS"),
-    pytest.param(TASK_SCOPED_EXTRACTORS, "name", id="TASK_SCOPED_EXTRACTORS"),
     pytest.param(STORES, "kind", id="STORES"),
     pytest.param(ACQUIRERS_AS_REGISTRY := AcquirerRegistry, "kind", id="ACQUIRERS"),
     pytest.param(WRITERS, "kind", id="WRITERS"),
     pytest.param(SINKS, "kind", id="SINKS"),
-    pytest.param(BOARD_READERS, "kind", id="BOARD_READERS"),
     pytest.param(FORMATTERS, "name", id="FORMATTERS"),
     pytest.param(JOURNAL_SINKS, "name", id="JOURNAL_SINKS"),
-    pytest.param(ARCHETYPES, "name", id="ARCHETYPES"),
 ]
 
 
@@ -60,14 +55,11 @@ def _items(registry) -> list:
 class TestRegistryContract:
     @pytest.mark.parametrize("registry,name_attr", [
         (EXTRACTORS, "name"),
-        (TASK_SCOPED_EXTRACTORS, "name"),
         (STORES, "kind"),
         (WRITERS, "kind"),
         (SINKS, "kind"),
-        (BOARD_READERS, "kind"),
         (FORMATTERS, "name"),
         (JOURNAL_SINKS, "name"),
-        (ARCHETYPES, "name"),
     ])
     def test_no_duplicate_names(self, registry, name_attr) -> None:
         keys = _kinds(registry)
@@ -78,9 +70,7 @@ class TestRegistryContract:
         (STORES, "kind"),
         (WRITERS, "kind"),
         (SINKS, "kind"),
-        (BOARD_READERS, "kind"),
         (FORMATTERS, "name"),
-        (ARCHETYPES, "name"),
     ])
     def test_every_name_nonempty(self, registry, name_attr) -> None:
         keys = _kinds(registry)

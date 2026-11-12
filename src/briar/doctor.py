@@ -61,16 +61,10 @@ def _env_present(*names: str) -> bool:
     return any(os.environ.get(n) for n in names)
 
 
-def _llm_key_check() -> Check:
-    if _env_present("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
-        return Check("llm key", OK, "found")
-    return Check("llm key", WARN, "no ANTHROPIC_API_KEY/OPENAI_API_KEY/GEMINI_API_KEY — agent/plan need one")
-
-
 def _github_check() -> Check:
     if _env_present("GITHUB_TOKEN"):
         return Check("github token", OK, "GITHUB_TOKEN set")
-    return Check("github token", WARN, "GITHUB_TOKEN not set — GitHub extractors/agents need it")
+    return Check("github token", WARN, "GITHUB_TOKEN not set: the GitHub extractors need it")
 
 
 def _store_check() -> Check:
@@ -91,7 +85,6 @@ _CHECKS = (
     _version_check,
     _config_check,
     _git_check,
-    _llm_key_check,
     _github_check,
     _store_check,
 )

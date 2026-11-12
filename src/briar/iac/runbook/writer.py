@@ -8,8 +8,8 @@ caller can write config that `load_runbook_file` reads. Three guarantees:
      disk and never leaves a half-written file behind.
   2. **Atomic write.** Write to a sibling temp file, then `os.replace` — a
      concurrent reader sees either the old file or the new one, never a torn one.
-  3. **Secret hygiene.** The fields that hold env-var *names* (mcp `env`/`headers`,
-     any `*_env` config key) must stay names, never literal secrets. A literal
+  3. **Secret hygiene.** The fields that hold env-var *names* (any `*_env`
+     config key) must stay names, never literal secrets. A literal
      leaking in through the write path is rejected with a locator-aware error —
      the same env-var-name indirection `RunbookLoader` relies on, enforced on write.
 """
@@ -48,7 +48,7 @@ def _reject_literal(field: str, value: str) -> None:
 
 def _guard_secrets(rb: RunbookFile) -> None:
     """Walk the model and enforce env-var-name indirection on every field that
-    carries one: mcp `env`/`headers` values and any config key ending `_env`."""
+    carries one: any config key ending `_env`."""
     for company_name, company in rb.companies.items():
         loc = f"companies.{company_name}"
         for key, value in (company.knowledge.config or {}).items():
@@ -58,11 +58,6 @@ def _guard_secrets(rb: RunbookFile) -> None:
             for key, value in (binding.config or {}).items():
                 if key.endswith("_env"):
                     _reject_literal(f"{loc}.messages.{handle}.config.{key}", str(value))
-        for handle, server in company.mcp.items():
-            for key, value in (server.env or {}).items():
-                _reject_literal(f"{loc}.mcp.{handle}.env.{key}", str(value))
-            for key, value in (server.headers or {}).items():
-                _reject_literal(f"{loc}.mcp.{handle}.headers.{key}", str(value))
 
 
 def _serialize(rb: RunbookFile) -> str:

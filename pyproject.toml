@@ -34,10 +34,8 @@ dependencies = [
     "pytz",                # `schedule`'s tz support for `at("HH:MM", tz)`
     "psycopg[binary]>=3.1,<4",  # postgres KnowledgeStore backend (lazy-imported)
     "SQLAlchemy>=2.0,<3", # ORM + pooled Engine for the postgres KnowledgeStore
-    "anthropic>=0.40,<1",  # `briar agent` runner — autonomous prfix loop
     "PyGithub>=2.5,<3",    # GitHub API — backs the GithubProvider adapter
     "atlassian-python-api>=3.41,<4",  # Bitbucket Cloud — backs the BitbucketProvider adapter
-    "GitPython>=3.1,<4",   # Pythonic git wrapper — used by `briar agent` for clone + config
     "sentry-sdk>=2.0,<3", # error + performance telemetry; on by default, opt-out via `briar telemetry off`
     "tomli>=2.0,<3; python_version < '3.11'",  # tomllib backport: `.briar.toml` parsing on 3.10
 ]
@@ -55,7 +53,6 @@ test = [
     "hypothesis>=6.110,<7",
     "time-machine>=2.14,<3",
     "moto>=5,<6",
-    "mcp>=1.0,<2",  # hermetic live MCP test (in-repo stdio server, no network) — like moto above
 ]
 dev = [
     "black>=25,<26",
@@ -66,9 +63,6 @@ dev = [
 # only install what they actually use. Each adapter's `is_available()`
 # reports False when its SDK is missing; each `complete()` / `read()` /
 # `caller_identity()` raises a clear ImportError-derived message.
-openai = ["openai>=1.40,<2"]
-gemini = ["google-generativeai>=0.7,<1"]
-mcp = ["mcp>=1.0,<2"]  # `briar agent` MCP-server tools — runbook `mcp:` block
 gcp = [
     "google-cloud-run>=0.10,<1",
     "google-cloud-pubsub>=2.18,<3",
@@ -86,7 +80,7 @@ azure = [
 ]
 # Convenience meta-extra — `pip install briar-cli[all]` pulls everything.
 all = [
-    "briar-cli[openai,gemini,mcp,gcp,azure]",
+    "briar-cli[gcp,azure]",
 ]
 
 

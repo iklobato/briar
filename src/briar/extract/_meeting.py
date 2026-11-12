@@ -39,10 +39,9 @@ def render_meeting_header(
     show_more_suffix: bool = False,
 ) -> List[str]:
     """Return the canonical ID/Date/Organizer/Attendees/Duration/URL
-    header lines for one meeting. Two callers — `meeting_context`
-    (uses `attendee_cap=12`, no overflow suffix) and `meeting_digest`
-    (uses `attendee_cap=8` with `+N more` suffix) — shared the same
-    six lines verbatim before this helper existed."""
+    header lines for one meeting. `meeting_digest` passes
+    `attendee_cap=8` with the `+N more` suffix; the defaults were the
+    1.x `meeting_context` extractor's, removed in spec 006."""
     lines: List[str] = [
         f"**ID**: `{m.meeting_id}`",
         f"**Date**: {m.started_at or '(unknown)'}",

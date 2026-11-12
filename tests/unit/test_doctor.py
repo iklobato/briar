@@ -24,13 +24,12 @@ def test_checks_ok_when_environment_is_set_up(monkeypatch, tmp_path):
     cfg.write_text('store = "file"\n')
     monkeypatch.setattr("briar.config.find_config_file", lambda *a, **k: cfg)
     monkeypatch.setattr("briar.infer.git_remote_slug", lambda cwd=None: ("acme", "app"))
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
     monkeypatch.setenv("GITHUB_TOKEN", "y")
     monkeypatch.delenv("BRIAR_STORE", raising=False)
     checks = _by_name(run_checks())
+    assert "llm key" not in checks
     assert checks["project config"].status == OK
     assert checks["git remote"].status == OK
-    assert checks["llm key"].status == OK
     assert checks["github token"].status == OK
     assert checks["store"].status == OK
     assert worst_status(list(checks.values())) == OK
@@ -39,14 +38,10 @@ def test_checks_ok_when_environment_is_set_up(monkeypatch, tmp_path):
 def test_missing_creds_and_config_warn(monkeypatch):
     monkeypatch.setattr("briar.config.find_config_file", lambda *a, **k: None)
     monkeypatch.setattr("briar.infer.git_remote_slug", lambda cwd=None: None)
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     checks = _by_name(run_checks())
     assert checks["project config"].status == WARN
     assert checks["git remote"].status == WARN
-    assert checks["llm key"].status == WARN
     assert checks["github token"].status == WARN
 
 

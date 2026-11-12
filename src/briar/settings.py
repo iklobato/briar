@@ -114,14 +114,6 @@ class RepoSettings(BaseModel):
     provider: Optional[str] = None
 
 
-class AgentSettings(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    model: Optional[str] = None
-    git_user_name: Optional[str] = None
-    git_user_email: Optional[str] = None
-
-
 class BriarSettings(BaseModel):
     """The resolved settings. None means no layer set the value, so the command's own default applies."""
 
@@ -132,7 +124,6 @@ class BriarSettings(BaseModel):
     root: Optional[str] = None
     tracker: Optional[str] = None
     repo: RepoSettings = RepoSettings()
-    agent: AgentSettings = AgentSettings()
 
 
 class SettingsResolver:
@@ -146,9 +137,6 @@ class SettingsResolver:
         SettingKey("owner", "repo"),
         SettingKey("repo", "repo"),
         SettingKey("provider", "repo"),
-        SettingKey("model", "agent"),
-        SettingKey("git_user_name", "agent"),
-        SettingKey("git_user_email", "agent"),
     )
 
     def __init__(self, layers: Sequence[SettingsLayer]) -> None:

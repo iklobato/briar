@@ -18,9 +18,11 @@ user's machine and does two things:
 1. **Collects facts** ("knowledge") from a team's tools with extractors
    and writes them as markdown blobs to a file store (`./knowledge/`) or
    Postgres.
-2. **Runs AI coding agents** that read those facts: `agent implement`
-   (ticket to draft PR), `agent prfix` (answers review comments on a PR),
-   `plan` (works a whole board card by card).
+2. **Runs AI coding agents** that read those facts. In 1.x (`main`) that
+   is `agent implement` (ticket to draft PR), `agent prfix` (answers review
+   comments on a PR) and `plan` (works a whole board card by card). 2.0
+   (`v2`) removed all three (spec 006); the ticket pipeline of spec 003,
+   not built yet, replaces them.
 
 No server, no account. There was a SaaS version; it is archived and lives
 only in the private site repo.
@@ -32,10 +34,10 @@ only in the private site repo.
 | Latest version | 1.1.101 (PyPI and GitHub Release `v1.1.101` = latest) |
 | Python | 3.10, 3.11, 3.12 (CI unit jobs); the integration job runs on whatever `uv` picks (3.14 in CI) |
 | Release trigger | every push to `main`, except `chore(release):` commits; it bumps the patch only |
-| 2.0 | in progress on branch `v2` (still equal to `main`); 11 stacked PRs open, #79 to #89. Status and handoff: `docs/briar-2-status.md` |
+| 2.0 | in progress on branch `v2` (still equal to `main`); 13 stacked PRs open, #79 to #91. Status and handoff: `docs/briar-2-status.md` |
 | MCP registry | `io.github.iklobato/briar`, latest 1.1.94; stays there, 2.0 has no MCP server |
 | Open issues | #76, #77 (section 8) |
-| Open PRs | #79 to #89, all into `v2`, CI green, not reviewed |
+| Open PRs | #79 to #91, all into `v2`, not reviewed |
 | Stars / forks | 3 / 0 |
 
 ## 3. Repo layout
@@ -45,12 +47,11 @@ only in the private site repo.
 | `src/briar/cli.py` | Entry point `main()`: global flags (`--format`, `-v`, `--version` anywhere), startup work (skipped for help, completion and `--version`), then runs the parsed command with exit codes 0/1/2/130. On `main` (1.x) it still builds the whole argparse parser |
 | `src/briar/cli_app.py` | The Typer app (2.0, spec 002). Each command declares its options as a `CommandOptions` dataclass in its own module; only `extract` still goes through `PassThrough` to its argparse parser (until spec 004), and `config.py` keeps the argparse shim it needs |
 | `src/briar/settings.py` | Where a setting comes from: env > `.briar.toml` / `[tool.briar]` > git origin > default; feeds `config show` and the Typer default map |
-| `src/briar/commands/` | One module per top-level command (`extract`, `agent`, `plan`, `runbook`, `context`, `auth`, ...) |
+| `src/briar/commands/` | One module per top-level command (`extract`, `runbook`, `context`, `auth`, ...) |
 | `tests/unit/cli/` | The CLI contract from 1.x (`flags_1x.json`, precedence, global flags, exit codes); must pass unchanged through the Typer move |
-| `src/briar/extract/` | The extractors. 23 scheduled ones in `EXTRACTORS`, 4 task-scoped ones (ticket, PR review, meeting, Slack context) in `TASK_SCOPED_EXTRACTORS`, both in `extract/__init__.py`. Providers in `_providers/`, `_trackers/`, `_clouds/`, `_meetings/` |
+| `src/briar/extract/` | The extractors: the 23 in `EXTRACTORS` (`extract/__init__.py`). The 4 task-scoped ones of 1.x left in spec 006. Providers in `_providers/`, `_trackers/`, `_clouds/`, `_meetings/` |
 | `src/briar/extract/composer.py` | `KnowledgeComposer`: writes `## <heading> - <detail>` sections, `split_sections` parses them, `merge_markdown` merges a run into a stored blob (called from `CommandExtract._write_blob`, the one write path of `briar extract`) |
-| `src/briar/agent/` | `runner.py` (the tool loop), `tools.py` (bash allowlist and forbidden tokens), persona and prompt building |
-| `src/briar/plan/` | Board readers (`_boards/`), selector, store, run loop |
+| `src/briar/prompts/` | The agent prompt text for the spec 003 pipeline: `roles/`, `tasks/` (moved from the 1.x personas) and the 8 shared `rules/`. Nothing reads them at run time yet. The 1.x `agent/`, `plan/` and `mcp/` packages are gone; `docs/briar-2-status.md` says where to find them in git |
 | `src/briar/iac/runbook/` | Runbook loader, executor, `scheduler.py` (`runbook serve`) |
 | `src/briar/credentials/` | The env-file credential store (2.0 removed AWS Secrets Manager, SSM and Vault) and `_removed_stores.py`, which stops a run whose `BRIAR_DEFAULT_STORE` names a removed one |
 | `agents/*.md` | The user manual, one file per command (linked from the README) |
@@ -67,7 +68,7 @@ only in the private site repo.
   `briar/main`.
 - **2.0 work goes to `v2`, not `main`** (decision D27). The open 2.0 PRs are
   stacked: branch a new 2.0 PR from the top of the stack (now
-  `cli/06-removals-docs`, PR #89) and target `v2`. Read
+  `core/01-remove-plan-agent`, PR #91) and target `v2`. Read
   `docs/briar-2-status.md` first.
 - **A merge to `main` is a public release.** `.github/workflows/release.yml`
   runs the unit tests (`uv run pytest -n auto -m "not integration"`),
@@ -87,7 +88,7 @@ only in the private site repo.
   `cli` fixture, `-p no:tldr`, `-p no:randomly`).
 - **Lint.** black (line length 160, from `pyproject.toml`) and ruff (its
   default rules; no `[tool.ruff]` section). The repo is not clean repo-wide
-  under black, ruff and mypy (73 mypy errors on 2026-11-10); keep your
+  under black, ruff and mypy (39 mypy errors on `v2` on 2026-11-10); keep your
   changed files clean and compare counts before and after.
 - **Fake secrets in docs must look fake.** GitGuardian blocks PRs on
   realistic ones (`ghp_...` with a real-looking body, `sk-ant-api03-...`,
@@ -112,16 +113,6 @@ only in the private site repo.
 
 ## 5. Behavior that is easy to get wrong (checked in code)
 
-- Coding agents (`agent implement`, `agent prfix`) always run on
-  **Anthropic**: `AgentRunner` is built without `llm_kind`. Only `plan`
-  (the selector) takes `--llm` (anthropic, openai, gemini, bedrock). An OpenRouter key works through `ANTHROPIC_BASE_URL` +
-  `ANTHROPIC_API_KEY`; if `CLAUDE_CODE_OAUTH_TOKEN` is set, briar prefers it.
-- **`--dry-run` on agents**: builds and prints the prompt and the tool
-  list, makes a temp dir, but does not clone (`_prepare_agent_workdir`:
-  "clone + set git identity unless `--dry-run`") and makes no model call.
-  It still fetches the ticket or PR, so it needs the GitHub token.
-- **`plan run --dry-run`** saves nothing (since 1.1.81) but still calls the
-  selector LLM, so it costs tokens.
 - **`briar extract` merges** into the stored blob (since 1.1.82, MCP
   `extract_run` since 1.1.83): only the sections of the extractors that
   ran are replaced or dropped. **`runbook extract` and `runbook serve`
@@ -145,26 +136,18 @@ only in the private site repo.
   each). Pinned by `tests/unit/cli/test_settings_precedence.py` on `v2`.
 - **`context` commands** default to the file store even when
   `BRIAR_DATABASE_URL` is set; `BRIAR_STORE=postgres` switches them.
-- **`briar journal`** records only `plan run` sessions, not standalone
-  agent runs (`scaffold` also did until it was removed in 2.0).
-- **`agent prfix`** sees failing CI logs in its context but its procedure
-  covers review threads and PR comments only; `pr-ci-fixer` (an agent
-  archetype in `iac/scaffold/archetypes/`, no command runs it yet) is the
-  CI bot.
-- **Message channels** (`messages:` in a runbook) become a `send_message`
-  tool for agents run with `--runbook`; failure alerts are
-  `BRIAR_NOTIFY_SINKS`. Slack is read live only (task context); cloud only
-  by extractors.
-- **The bash tool** parses quotes before splitting on `;`, `|`, `&&`
-  (since 1.1.95); its forbidden-token check (`--force`, `--amend`,
-  `rebase`, `squash`, `reset --hard`, ...) still matches inside quoted text
-  (section 8).
-- **Docker image** (`iklob1/briar`): has `git`, `gh`, the `[mcp]` extra,
+- **`briar journal`**: on `v2` no command writes a session (1.x `plan run`
+  was the only writer); the command only reads old ones.
+- **Message channels** (`messages:` in a runbook): on `v2` only
+  `briar secrets doctor` reads them, to list missing credentials (the 1.x
+  `send_message` agent tool is gone); failure alerts are
+  `BRIAR_NOTIFY_SINKS`.
+- **A runbook with `mcp:` or `git_identity:`** stops with exit 1 and
+  names the block (`CompanyEntry.REMOVED_KEYS` in `iac/runbook/models.py`).
+- **Docker image** (`iklob1/briar`): has `git`, `gh`,
   `safe.directory '*'`, `gh` also linked at `/usr/local/bin/gh` and
   `/opt/homebrew/bin/gh` (Mac gitconfigs), `linux/amd64` only, runs as uid 1000. The git login is set up for GitHub
-  only.
-- **`[mcp]` extra**: needed only for runbook `mcp:` servers. 2.0 has no
-  built-in MCP servers (1.x started `think` and `time` for every agent).
+  only. The `[mcp]` extra is gone on `v2`.
 
 ## 6. What was done (summary)
 
@@ -195,11 +178,13 @@ Full detail per version is in `CHANGELOG.md`. In short:
   credential stores removed; telemetry opt-in) and spec 002 (PRs #84 to #89:
   every command but `extract` parsed by Typer with the same namespace in
   `run()`, the 1.x aliases and `briar completion` removed, Typer completion
-  added). Details and numbers: `docs/briar-2-status.md`.
+  added), then spec 006 (core cleanup) PR #91: `agent`, `plan` and the code
+  only they used removed, the personas and rules moved to
+  `src/briar/prompts/`. Details and numbers: `docs/briar-2-status.md`.
 
 ## 7. Next steps (in order)
 
-0. **2.0**: review and merge PRs #79 to #89 into `v2` in order; decide how
+0. **2.0**: review and merge PRs #79 to #91 into `v2` in order; decide how
    2.0 is released before `v2` merges to `main` (the workflow would publish
    1.1.102); then specs 003, 004, 005. Order and detail:
    `docs/briar-2-status.md` section 5.
@@ -210,7 +195,8 @@ Full detail per version is in `CHANGELOG.md`. In short:
    traceback and carries on).
 2. Fix #76: build the `CLAUDE.md` index and detail file from the merged
    blob, not from the run's sections.
-3. The plan-run findings in section 8, branch-name slug first.
+3. The plan-run findings in section 8, branch-name slug first (1.x only:
+   2.0 has no `plan`).
 4. The untested paths in section 8 that need real credentials (Bitbucket,
    Jira or Linear over MCP, Postgres).
 5. The MCP registry stays at 1.1.94; 2.0 has no MCP server.
@@ -234,7 +220,8 @@ criteria in each):**
 
 **Found, not filed yet:**
 
-- From the real `plan run` (2026-10-13, not re-checked since): branch
+- From the real `plan run` (2026-10-13, not re-checked since; 1.x only,
+  `plan` is gone on `v2`): branch
   names for GitHub Project cards come out as
   `chore/<owner>-<repo>issue-1` (missing dash, whole repo in the name);
   `briar plan show --format json` prints markdown; a plan built from a
@@ -252,9 +239,9 @@ criteria in each):**
 - `auth refresh` supports no target: a real GitHub refresh needs a GitHub
   App and its client secret. Help text and docs say it is not supported.
 
-**Never run for real (unit tests only):** a successful Bitbucket PR, Jira
-and Linear over MCP, Postgres for the extract merge, a full MCP client run
-that writes data.
+**Never run for real (unit tests only):** Postgres for the extract merge;
+in 1.x also a successful Bitbucket PR, Jira and Linear over MCP, and a full
+MCP client run that writes data.
 
 ## 9. What to watch
 

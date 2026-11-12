@@ -84,7 +84,7 @@ def _extract_global_flags(argv: List[str]) -> Tuple[Dict[str, str], Set[str], Li
 def _build_parser(commands: Dict[str, Command]) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="briar",
-        description="Local agent runner, knowledge extractor, scaffold and runbook tool.",
+        description="Local knowledge extractor and runbook tool.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(

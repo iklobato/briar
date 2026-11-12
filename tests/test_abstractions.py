@@ -82,70 +82,6 @@ class TrackerRegistryTests(unittest.TestCase):
         self.assertIn("bug", tickets[0].labels)
 
 
-class LLMRegistryTests(unittest.TestCase):
-    def test_all_kinds_registered(self) -> None:
-        from briar.agent._llms import LLMRegistry
-
-        kinds = LLMRegistry.kinds()
-        for expected in ("anthropic", "openai", "gemini", "bedrock"):
-            self.assertIn(expected, kinds)
-
-    def test_anthropic_available_with_oauth_token(self) -> None:
-        from briar.agent._llms import make_llm
-
-        with mock.patch.dict("os.environ", {"CLAUDE_CODE_OAUTH_TOKEN": "tok_xxx"}, clear=False):
-            llm = make_llm("anthropic")
-            self.assertTrue(llm.is_available())
-
-    def test_openai_unavailable_without_api_key(self) -> None:
-        from briar.agent._llms import make_llm
-
-        with mock.patch.dict("os.environ", {}, clear=True):
-            llm = make_llm("openai")
-            self.assertFalse(llm.is_available())
-
-    def test_openai_complete_raises_when_sdk_missing(self) -> None:
-        """SDK is an opt-in extra. Without `openai` installed, `complete`
-        must raise a clear message — never silently return empty."""
-        from briar.agent._llms import make_llm
-
-        with mock.patch.dict("os.environ", {"OPENAI_API_KEY": "sk-x"}):
-            llm = make_llm("openai")
-            with mock.patch("briar.agent._llms.openai_llm._import_openai", return_value=None):
-                with self.assertRaises(RuntimeError) as ctx:
-                    llm.complete(system="", messages=[], tools=[], max_tokens=10)
-                self.assertIn("briar-cli[openai]", str(ctx.exception))
-
-    def test_bedrock_format_tool_result_uses_toolresult_shape(self) -> None:
-        """Bedrock Converse API uses camelCase `toolResult` blocks
-        wrapped in a user message."""
-        from briar.agent._llms import make_llm
-
-        llm = make_llm("bedrock")
-        msg = llm.format_tool_result(tool_call_id="t_1", output="hello")
-        self.assertEqual(msg["role"], "user")
-        self.assertEqual(msg["content"][0]["toolResult"]["toolUseId"], "t_1")
-
-    def test_anthropic_format_tool_result_shape(self) -> None:
-        from briar.agent._llms import make_llm
-
-        llm = make_llm("anthropic")
-        block = llm.format_tool_result(tool_call_id="t_1", output="hello")
-        self.assertEqual(block["type"], "tool_result")
-        self.assertEqual(block["tool_use_id"], "t_1")
-
-    def test_openai_format_tool_result_shape(self) -> None:
-        """OpenAI uses a fundamentally different echo-back shape.
-        This test pins the contract so any future "let's unify them"
-        refactor fails loudly here first."""
-        from briar.agent._llms import make_llm
-
-        llm = make_llm("openai")
-        block = llm.format_tool_result(tool_call_id="call_1", output="hello")
-        self.assertEqual(block["role"], "tool")
-        self.assertEqual(block["tool_call_id"], "call_1")
-
-
 class CloudRegistryTests(unittest.TestCase):
     def test_all_kinds_registered(self) -> None:
         from briar.extract._clouds import CloudRegistry
@@ -327,48 +263,6 @@ class ExecutorNotificationTests(unittest.TestCase):
                 _notify_failure("acme", "extractors", "x", "y")
 
 
-class AgentOpRegistryTests(unittest.TestCase):
-    """`briar agent` dispatches via AGENT_OPS registry, NOT an if-chain.
-    This test pins that contract — a regression to `if op == 'prfix':`
-    style would break it."""
-
-    def test_agent_ops_registered(self) -> None:
-        from briar.commands.agent import AGENT_OPS
-
-        self.assertIn("prfix", AGENT_OPS)
-        self.assertIn("implement", AGENT_OPS)
-
-    def test_run_returns_2_on_unknown_op(self) -> None:
-        from briar.commands.agent import CommandAgent
-
-        cmd = CommandAgent()
-        ns = mock.MagicMock(agent_op="frobnicate")
-        rc = cmd.run(ns)
-        self.assertEqual(rc, 2)
-
-    def test_run_dispatches_via_registry(self) -> None:
-        """If `run` ever reverts to `if op == 'prfix':`, this test
-        catches it — we swap the registry entry and confirm dispatch
-        followed the new pointer."""
-        from briar.commands.agent import AGENT_OPS, CommandAgent
-
-        called = {}
-
-        class FakeOp:
-            name = "prfix"
-
-            def run(self, agent_cmd, args):
-                called["happened"] = True
-                return 42
-
-        with mock.patch.dict(AGENT_OPS, {"prfix": FakeOp()}):
-            cmd = CommandAgent()
-            ns = mock.MagicMock(agent_op="prfix")
-            rc = cmd.run(ns)
-        self.assertEqual(rc, 42)
-        self.assertTrue(called.get("happened"))
-
-
 class MessageWriterRegistryTests(unittest.TestCase):
     """The 6 message writers register correctly + the runbook
     `messages:` block validates against the live WRITERS registry +
@@ -430,46 +324,6 @@ class MessageWriterRegistryTests(unittest.TestCase):
         self.assertEqual(parse_pr_target("acme/app", {"pr": 7}), ("acme/app", 7))
         # Garbage
         self.assertEqual(parse_pr_target("nonsense", {}), ("", 0))
-
-    def test_send_message_tool_lists_channels(self) -> None:
-        from briar.agent.tools import SendMessageTool
-        from briar.iac.runbook.models import MessageBinding
-
-        tool = SendMessageTool(
-            messages={
-                "ticket_comment": MessageBinding(kind="jira-comment"),
-                "ops_chat": MessageBinding(kind="slack-channel"),
-            },
-            company="acme",
-        )
-        self.assertEqual(tool.channels(), ["ops_chat", "ticket_comment"])
-
-    def test_send_message_tool_rejects_unknown_channel(self) -> None:
-        from briar.agent.tools import SendMessageTool, ToolError
-
-        tool = SendMessageTool(messages={}, company="acme")
-        with self.assertRaises(ToolError):
-            tool.run(channel="nonexistent", body="x")
-
-    def test_send_message_tool_dispatches_via_make_writer(self) -> None:
-        """Regression-pin: the tool resolves channel → kind → writer
-        via the messaging registry. A regression to a `if kind ==
-        'jira'` chain would break this."""
-        from briar.agent.tools import SendMessageTool
-        from briar.iac.runbook.models import MessageBinding
-        from briar.messaging._writer import SendResult
-
-        fake_writer = mock.MagicMock()
-        fake_writer.is_available.return_value = True
-        fake_writer.send.return_value = SendResult(ok=True, ref="cmt-1")
-        with mock.patch("briar.messaging.make_writer", return_value=fake_writer):
-            tool = SendMessageTool(
-                messages={"ticket_comment": MessageBinding(kind="jira-comment")},
-                company="acme",
-            )
-            out = tool.run(channel="ticket_comment", target="ACME-42", body="LGTM")
-        self.assertIn("sent via", out)
-        fake_writer.send.assert_called_once_with(target="ACME-42", body="LGTM")
 
     def test_jira_writers_required_env_vars(self) -> None:
         from briar.messaging.jira_comment import JiraCommentWriter
@@ -748,168 +602,6 @@ class GitProviderRegistryTests(unittest.TestCase):
             p.authed_clone_url("acme", "app", "ATBB-xxx"),
             "https://x-token-auth:ATBB-xxx@bitbucket.org/acme/app.git",
         )
-
-    def test_pr_recipe_dispatches_to_provider(self) -> None:
-        """If anyone reverts to `if provider == 'bitbucket':` in
-        _implement_specific_instructions, this test catches it — we
-        hand in a fake provider directly and confirm its recipe is
-        what gets rendered."""
-        from briar.commands.agent import CommandAgent
-
-        class FakeProvider:
-            kind = "github"
-
-            def pr_creation_recipe(self, *, owner, repo, branch, base=""):
-                return "  6. DO THE FAKE THING.\n  7. DONE.\n"
-
-        text = CommandAgent._implement_specific_instructions(provider=FakeProvider(), owner="acme", repo="app", ticket_key="ACME-1")
-        self.assertIn("DO THE FAKE THING", text)
-
-
-class AgentCommandTests(unittest.TestCase):
-    """`briar agent` subcommands wire the task-scoped extractors
-    correctly. These tests don't run the agent — they just verify
-    that the JIT fetch helpers return what they should."""
-
-    def test_implement_fetches_ticket_context_via_task_scoped_extractor(self) -> None:
-        from briar.commands.agent import CommandAgent
-        from briar.extract.base import ExtractedSection
-
-        fake_section = ExtractedSection(title="Ticket context — ACME-42: do thing", body="full body here")
-        fake_extractor = mock.MagicMock()
-        fake_extractor.fetch.return_value = fake_section
-
-        with mock.patch.dict(
-            "briar.extract.TASK_SCOPED_EXTRACTORS",
-            {"ticket-context": fake_extractor},
-        ):
-            sections = CommandAgent._fetch_ticket_context(
-                company="acme",
-                tracker="jira",
-                ticket_project="ACME",
-                ticket_key="ACME-42",
-            )
-
-        self.assertEqual(len(sections), 1)
-        self.assertEqual(sections[0].title, "Ticket context — ACME-42: do thing")
-        # The fetch helper passes the right kwargs to the extractor.
-        call_args = fake_extractor.fetch.call_args.args[0]
-        self.assertEqual(call_args.company, "acme")
-        self.assertEqual(call_args.tracker, "jira")
-        self.assertEqual(call_args.ticket_project, "ACME")
-        self.assertEqual(call_args.ticket_key, "ACME-42")
-
-    def test_implement_returns_empty_when_extractor_raises(self) -> None:
-        """A broken tracker call must NOT crash the agent invocation —
-        the agent still has the worktree and falls back to the ticket
-        key alone."""
-        from briar.commands.agent import CommandAgent
-
-        fake_extractor = mock.MagicMock()
-        fake_extractor.fetch.side_effect = RuntimeError("api down")
-
-        with mock.patch.dict(
-            "briar.extract.TASK_SCOPED_EXTRACTORS",
-            {"ticket-context": fake_extractor},
-        ):
-            sections = CommandAgent._fetch_ticket_context(company="acme", tracker="jira", ticket_project="ACME", ticket_key="ACME-42")
-        self.assertEqual(sections, [])
-
-    def test_dry_run_skips_llm_call_and_returns_marker(self) -> None:
-        """`AgentRunner(dry_run=True).run()` prints the rendered prompt
-        and returns without invoking the LLM. The LLM provider's
-        is_available() is NOT checked — we want to render the prompt
-        even on hosts without LLM creds (that's the whole point)."""
-        import io
-        import sys
-        from pathlib import Path
-
-        from briar.agent.runner import AgentRunConfig, AgentRunner
-
-        fake_llm = mock.MagicMock()
-        fake_llm.kind = "anthropic"
-        # If the dry-run path is broken and falls through to .complete,
-        # this would fail the test instead of silently calling the API.
-        fake_llm.complete.side_effect = AssertionError("dry-run must NOT call complete()")
-
-        fake_store = mock.MagicMock()
-        # KnowledgeSplicer wraps store.list/get; let it return nothing
-        # so the prologue ends up empty (we're testing dry-run plumbing,
-        # not knowledge splicing).
-        fake_store.list.return_value = []
-        fake_store.get.return_value = ""
-
-        runner = AgentRunner(
-            AgentRunConfig(
-                company="acme",
-                task="implement",
-                archetype_name="engineer",
-                workdir=Path("/tmp/briar-test"),
-                knowledge_store=fake_store,
-                target="acme-co/acme-app",
-                dry_run=True,
-            ),
-            llm=fake_llm,
-        )
-        captured = io.StringIO()
-        old_stdout = sys.stdout
-        try:
-            sys.stdout = captured
-            result = runner.run()
-        finally:
-            sys.stdout = old_stdout
-
-        self.assertEqual(result.stop_reason, "dry_run")
-        self.assertEqual(result.iterations, 0)
-        output = captured.getvalue()
-        self.assertIn("DRY RUN", output)
-        self.assertIn("SYSTEM PROMPT", output)
-        self.assertIn("INITIAL USER MESSAGE", output)
-        self.assertIn("TOOLS BOUND", output)
-        # The engineer archetype's role + goal must be in the system
-        # prompt — that's the headline thing the operator wants to
-        # validate before spending tokens.
-        self.assertIn("acme-co/acme-app", output)
-
-    def test_implement_instructions_include_ticket_key_and_branch_name(self) -> None:
-        """The instruction string is what the agent sees — must contain
-        the ticket key + a derived branch name + the no-force constraint."""
-        from briar.commands.agent import CommandAgent
-        from briar.extract._providers import make_provider
-
-        provider = make_provider("github", company="acme")
-        instructions = CommandAgent._implement_specific_instructions(provider=provider, owner="acme-co", repo="acme-app", ticket_key="ACME-42")
-        self.assertIn("ACME-42", instructions)
-        self.assertIn("chore/acme-42", instructions)
-        self.assertIn("NEVER --force", instructions)
-
-
-class ArchetypeConsumesOrderingTests(unittest.TestCase):
-    """The `consumes` ordering on engineer/pr-fixer is load-bearing —
-    it controls what the agent reads first. Pin the new order so a
-    later careless reorder breaks the test, not production."""
-
-    def test_engineer_consumes_ticket_context_first(self) -> None:
-        from briar.iac.scaffold.archetypes import ARCHETYPES
-
-        engineer = ARCHETYPES["engineer"]
-        self.assertEqual(engineer.consumes[0], "ticket-context")
-        # The two new context-rich extractors must precede the legacy
-        # active-work / pr-archaeology pair.
-        self.assertLess(engineer.consumes.index("code-hotspots"), engineer.consumes.index("active-work"))
-        self.assertLess(engineer.consumes.index("reviewer-profile"), engineer.consumes.index("pr-archaeology"))
-        # github-deployments + aws-infra are NO LONGER in engineer's
-        # consumes — they were dropped as low-signal for implementation work.
-        self.assertNotIn("github-deployments", engineer.consumes)
-        self.assertNotIn("aws-infra", engineer.consumes)
-
-    def test_pr_fixer_consumes_pr_review_context_first(self) -> None:
-        from briar.iac.scaffold.archetypes import ARCHETYPES
-
-        pr_fixer = ARCHETYPES["pr-fixer"]
-        self.assertEqual(pr_fixer.consumes[0], "pr-review-context")
-        self.assertIn("reviewer-profile", pr_fixer.consumes)
-        self.assertIn("code-hotspots", pr_fixer.consumes)
 
 
 class NewExtractorTests(unittest.TestCase):
@@ -1474,189 +1166,6 @@ class JiraAcquirerInteractiveTests(unittest.TestCase):
         self.assertEqual(int(creds.expires_at.timestamp()), 1800000000)
 
 
-class GitIdentityResolutionTests(unittest.TestCase):
-    """`CommandAgent._resolve_git_identity` resolves commit author from
-    (priority order): CLI flag → runbook YAML → hardcoded default.
-
-    Pins the precedence so future refactors can't silently change
-    which identity ends up on production commits. Per-field
-    resolution is independently asserted — a regression to
-    "all-or-nothing" pickup would break the partial-override use case."""
-
-    @staticmethod
-    def _ns(**overrides) -> argparse.Namespace:
-        """Build a Namespace mirroring what argparse would emit, with
-        the new empty-default git fields."""
-        base = {
-            "company": "",
-            "runbook": "",
-            "git_user_name": "",
-            "git_user_email": "",
-        }
-        base.update(overrides)
-        return argparse.Namespace(**base)
-
-    def _yaml(self, name: str, email: str) -> str:
-        """Minimal valid runbook YAML with a git_identity block."""
-        return (
-            "version: 1\n"
-            "companies:\n"
-            "  acme:\n"
-            "    knowledge:\n"
-            "      store: file\n"
-            "      name: knowledge:acme\n"
-            "    git_identity:\n"
-            f"      name: {name}\n"
-            f"      email: {email}\n"
-            "    schedules: []\n"
-        )
-
-    def test_yaml_parses_git_identity_block(self) -> None:
-        """Round-trip the new field through Pydantic."""
-        from briar.iac.runbook.models import CompanyEntry, GitIdentity
-
-        gi = GitIdentity(name="briar-bot", email="briar@acme.com")
-        self.assertEqual(gi.name, "briar-bot")
-        self.assertEqual(gi.email, "briar@acme.com")
-
-        ce = CompanyEntry(git_identity=GitIdentity(name="x", email="y@z"))
-        self.assertEqual(ce.git_identity.name, "x")
-
-    def test_empty_block_is_unconfigured(self) -> None:
-        """Missing block → empty GitIdentity with both fields ``""``."""
-        from briar.iac.runbook.models import CompanyEntry
-
-        ce = CompanyEntry()
-        self.assertEqual(ce.git_identity.name, "")
-        self.assertEqual(ce.git_identity.email, "")
-
-    def test_resolve_raises_when_nothing_set(self) -> None:
-        """No CLI flag, no runbook, no ambient git identity → CliError.
-        Ambient is mocked empty so the result doesn't depend on the test
-        machine's git config (or whether CI is set)."""
-        from briar.commands.agent import CommandAgent
-        from briar.errors import CliError
-
-        with mock.patch.object(CommandAgent, "_ambient_git_identity", return_value=("", "")):
-            with self.assertRaises(CliError) as ctx:
-                CommandAgent._resolve_git_identity(self._ns())
-        self.assertIn("git identity not configured", str(ctx.exception))
-
-    def test_ambient_git_config_used_as_last_resort(self) -> None:
-        """No CLI flag, no runbook → fall back to local `git config`."""
-        from briar.commands.agent import CommandAgent
-
-        with mock.patch.object(CommandAgent, "_ambient_git_identity", return_value=("Local Dev", "dev@local")):
-            name, email = CommandAgent._resolve_git_identity(self._ns())
-        self.assertEqual((name, email), ("Local Dev", "dev@local"))
-
-    def test_ambient_git_identity_suppressed_in_ci(self) -> None:
-        """`$CI` set → ambient identity is not read (returns empty)."""
-        from briar.commands.agent import CommandAgent
-
-        with mock.patch.dict(os.environ, {"CI": "true"}):
-            self.assertEqual(CommandAgent._ambient_git_identity(), ("", ""))
-
-    def test_cli_flag_wins_over_default(self) -> None:
-        from briar.commands.agent import CommandAgent
-
-        ns = self._ns(git_user_name="cli-name", git_user_email="cli@e.x")
-        name, email = CommandAgent._resolve_git_identity(ns)
-        self.assertEqual(name, "cli-name")
-        self.assertEqual(email, "cli@e.x")
-
-    def test_yaml_used_when_cli_empty(self) -> None:
-        import tempfile
-
-        from briar.commands.agent import CommandAgent
-
-        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-            f.write(self._yaml("yaml-name", "yaml@e.x"))
-            path = f.name
-        try:
-            ns = self._ns(company="acme", runbook=path)
-            name, email = CommandAgent._resolve_git_identity(ns)
-            self.assertEqual(name, "yaml-name")
-            self.assertEqual(email, "yaml@e.x")
-        finally:
-            os.unlink(path)
-
-    def test_cli_flag_wins_over_yaml(self) -> None:
-        import tempfile
-
-        from briar.commands.agent import CommandAgent
-
-        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-            f.write(self._yaml("yaml-name", "yaml@e.x"))
-            path = f.name
-        try:
-            ns = self._ns(
-                company="acme",
-                runbook=path,
-                git_user_name="cli-name",
-                git_user_email="cli@e.x",
-            )
-            name, email = CommandAgent._resolve_git_identity(ns)
-            self.assertEqual(name, "cli-name")
-            self.assertEqual(email, "cli@e.x")
-        finally:
-            os.unlink(path)
-
-    def test_per_field_resolution_is_independent(self) -> None:
-        """CLI sets only name; YAML provides both → CLI's name + YAML's email."""
-        import tempfile
-
-        from briar.commands.agent import CommandAgent
-
-        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-            f.write(self._yaml("yaml-name", "yaml@e.x"))
-            path = f.name
-        try:
-            ns = self._ns(
-                company="acme",
-                runbook=path,
-                git_user_name="cli-name",
-                git_user_email="",  # not passed
-            )
-            name, email = CommandAgent._resolve_git_identity(ns)
-            self.assertEqual(name, "cli-name")
-            self.assertEqual(email, "yaml@e.x")
-        finally:
-            os.unlink(path)
-
-    def test_missing_company_in_runbook_raises(self) -> None:
-        """Runbook loads but company key absent → CliError. The runbook
-        provided nothing; CLI flags weren't passed; no source supplied
-        an identity."""
-        import tempfile
-
-        from briar.commands.agent import CommandAgent
-        from briar.errors import CliError
-
-        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-            f.write(self._yaml("yaml-name", "yaml@e.x"))
-            path = f.name
-        try:
-            ns = self._ns(company="other-company", runbook=path)
-            with mock.patch.object(CommandAgent, "_ambient_git_identity", return_value=("", "")):
-                with self.assertRaises(CliError):
-                    CommandAgent._resolve_git_identity(ns)
-        finally:
-            os.unlink(path)
-
-    def test_unreadable_runbook_is_non_fatal_but_still_raises_without_cli(self) -> None:
-        """YAML load failure must not crash the resolver — it must log
-        and stay quiet. With no CLI flag and no ambient identity to fall
-        back on, the resolver then raises CliError."""
-        from briar.commands.agent import CommandAgent
-        from briar.errors import CliError
-
-        ns = self._ns(company="acme", runbook="/nonexistent/runbook.yaml")
-        with mock.patch.object(CommandAgent, "_ambient_git_identity", return_value=("", "")):
-            with self.assertRaises(CliError):
-                CommandAgent._resolve_git_identity(ns)
-
-
 class ErrorPolicyTests(unittest.TestCase):
     """`briar.error_policy` — pluggable error-response strategies.
 
@@ -1855,39 +1364,6 @@ class ErrorPolicyTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             RetryingExecutor(ErrorPolicyRegistry(), max_attempts=0)
-
-    def test_anthropic_rate_limit_policy_aborts_instead_of_long_sleep(self) -> None:
-        """Anthropic 429 → `Abort`, NOT `RetryAfter(3600)`.
-
-        The previous contract (wait an hour, retry up to 5 times) silently
-        wedged the agent for up to 5 hours when an OAuth subscription
-        token hit its rate-limit window. With `load=0.00` and no
-        progress logged, the behaviour was indistinguishable from a hang.
-
-        Aborting fast surfaces the rate-limit to the operator, who can
-        decide whether to wait (API key: ~1h reset; OAuth subscription:
-        up to 5h Claude.ai window) or rotate credentials. Anthropic's
-        OAuth 429s come with no `retry-after` header, so the agent has
-        no honest basis for predicting recovery time anyway."""
-        import anthropic
-
-        from briar.agent._llms.anthropic_llm import AnthropicLLM
-        from briar.error_policy import Abort, ExceptionTypePolicy
-
-        registry = AnthropicLLM.default_error_policies()
-        rate_limit_policy = next(p for p in registry.policies if isinstance(p, ExceptionTypePolicy) and p.exception_type is anthropic.RateLimitError)
-        self.assertIsInstance(rate_limit_policy.decision, Abort)
-
-    def test_anthropic_aborts_on_401_immediately(self) -> None:
-        """401 auth errors should NOT retry — they won't fix
-        themselves and they burn the retry budget."""
-
-        from briar.agent._llms.anthropic_llm import AnthropicLLM
-        from briar.error_policy import Abort, HttpStatusPolicy
-
-        registry = AnthropicLLM.default_error_policies()
-        auth_policy = next(p for p in registry.policies if isinstance(p, HttpStatusPolicy) and p.status == 401)
-        self.assertIsInstance(auth_policy.decision, Abort)
 
 
 class CredentialAcquirerTests(unittest.TestCase):
@@ -2516,12 +1992,6 @@ class Phase3ErrorHandlingTests(unittest.TestCase):
 class Phase4PythonStyleHygieneTests(unittest.TestCase):
     """Regression tests for Phase 4 mechanical-style hygiene fixes."""
 
-    def test_planop_is_abstract(self) -> None:
-        from briar.commands.plan import PlanOp
-
-        with self.assertRaises(TypeError):
-            PlanOp()  # noqa: F841 — should fail because ABC
-
     def test_telemetryop_is_abstract(self) -> None:
         from briar.commands.telemetry import TelemetryOp
 
@@ -2545,14 +2015,6 @@ class Phase4PythonStyleHygieneTests(unittest.TestCase):
         from briar.env_vars import CredEnv
 
         self.assertEqual(CredEnv.AWS_KEY_ID.read(""), "")
-
-    def test_knowledge_splicer_can_be_constructed_without_io(self) -> None:
-        """Two-step construction lets unit tests bypass the store
-        entirely. Pre-Phase-4 __init__ did the store fetch eagerly."""
-        from briar.iac.scaffold._knowledge import KnowledgeSplicer
-
-        splicer = KnowledgeSplicer("acme", {"PR archaeology": "## PR archaeology\n- foo\n"})
-        self.assertEqual(splicer.section("pr-archaeology"), "## PR archaeology\n- foo\n")
 
     def test_scheduler_warns_on_tz_with_sub_day_cadence(self) -> None:
         """schedule library's tz support is day-or-coarser. Sub-day
@@ -2686,32 +2148,6 @@ class Phase6PrimitiveObsessionTests(unittest.TestCase):
         sig = inspect.signature(RunbookExtractor.extract)
         # Default is now None, not ""
         self.assertIs(sig.parameters["task"].default, None)
-
-    def test_tool_filter_needle_is_literal(self) -> None:
-        """Constraining the substring needle set catches typos in
-        archetype subclass tool_filter assignments at type-check time."""
-        from typing import get_args
-
-        from briar.iac.scaffold.archetypes.base import ToolFilterNeedle
-
-        needles = set(get_args(ToolFilterNeedle))
-        # The canonical set from the source build_tools shape
-        self.assertEqual(needles, {"comment_on_issue", "add_labels", "comment", "commit", "open_pr"})
-
-    def test_every_archetype_tool_filter_uses_valid_needles(self) -> None:
-        """Belt-and-suspenders: every concrete archetype's tool_filter
-        entries are members of ToolFilterNeedle. If a new archetype
-        adds a typo, this test catches it at runtime too."""
-        from typing import get_args
-
-        from briar.iac.scaffold.archetypes import ARCHETYPES
-        from briar.iac.scaffold.archetypes.base import ToolFilterNeedle
-
-        allowed = set(get_args(ToolFilterNeedle))
-        for name, archetype in ARCHETYPES.items():
-            with self.subTest(archetype=name):
-                for needle in archetype.tool_filter:
-                    self.assertIn(needle, allowed, f"archetype {name!r} uses unknown needle {needle!r}")
 
 
 class Phase7DeduplicationTests(unittest.TestCase):
@@ -2864,15 +2300,6 @@ class Phase8GodClassSplitsTests(unittest.TestCase):
         from briar.commands._enums import ExitCode
 
         self.assertEqual({e.name for e in ExitCode}, {"OK", "GENERAL_ERROR", "USAGE_ERROR"})
-
-    def test_agent_no_longer_returns_granular_exit_codes(self) -> None:
-        """Belt-and-suspenders: grep the agent module for any leftover
-        ExitCode reference. (`replace_all` should have caught these.)"""
-        from pathlib import Path
-
-        agent_src = Path("src/briar/commands/agent.py").read_text()
-        for name in ("STORE_OPEN_FAILED", "CLONE_FAILED", "GIT_CONFIG_FAILED", "AGENT_ERROR"):
-            self.assertNotIn(name, agent_src, f"agent.py still references ExitCode.{name}")
 
     def test_failure_ctx_records_through_one_object(self) -> None:
         """_FailureCtx bundles the 4 constant per-schedule fields so
@@ -3385,31 +2812,6 @@ class Phase14StructuralCleanupTests(unittest.TestCase):
         self.assertNotIn("requires_github", KnowledgeExtractor.__dict__)
         self.assertNotIn("requires_aws", KnowledgeExtractor.__dict__)
 
-    def test_command_agent_helpers_extracted(self) -> None:
-        """Phase 14 extracted `_prepare_agent_workdir` +
-        `_finalize_agent_result` + `_fetch_meeting_context_from_args`
-        from `_run_prfix` / `_run_implement` (which used to share
-        ~70% of their bodies)."""
-        from briar.commands.agent import CommandAgent
-
-        for name in ("_prepare_agent_workdir", "_finalize_agent_result", "_fetch_meeting_context_from_args"):
-            with self.subTest(helper=name):
-                self.assertTrue(hasattr(CommandAgent, name), f"CommandAgent missing {name}")
-
-    def test_run_prfix_and_run_implement_shrank(self) -> None:
-        """Body-length sanity — both methods used to be ~100+ lines
-        each with ~70% overlap. Post-extraction both should be well
-        under 50 lines (the spec + per-op context-fetch + AgentRunner
-        construction, no boilerplate)."""
-        import inspect
-
-        from briar.commands.agent import CommandAgent
-
-        prfix_lines = len(inspect.getsource(CommandAgent._run_prfix).splitlines())
-        implement_lines = len(inspect.getsource(CommandAgent._run_implement).splitlines())
-        self.assertLess(prfix_lines, 60, f"_run_prfix is {prfix_lines} lines — should be <60 after extraction")
-        self.assertLess(implement_lines, 65, f"_run_implement is {implement_lines} lines — should be <65 after extraction")
-
 
 class Phase14BackedExtractorHelpersTests(unittest.TestCase):
     """Regression tests for the *Backed*Extractor dispatch-shape
@@ -3508,43 +2910,6 @@ class JiraAuthModuleFunctionsTests(unittest.TestCase):
             hasattr(mod, "JiraAuthRegistry"),
             "JiraAuthRegistry must not be reintroduced — use module functions instead",
         )
-
-
-class ExtractorHeadingDerivationTests(unittest.TestCase):
-    """Phase 14 follow-up — `_EXTRACTOR_HEADINGS` is derived from the
-    `heading` ClassVar on each extractor instead of a hardcoded dict.
-    Regression: adding a new extractor must not require touching
-    `_knowledge.py`."""
-
-    def test_every_registered_extractor_with_heading_appears(self) -> None:
-        from briar.extract import EXTRACTORS, TASK_SCOPED_EXTRACTORS
-        from briar.iac.scaffold._knowledge import _EXTRACTOR_HEADINGS
-
-        for name, ext in {**EXTRACTORS, **TASK_SCOPED_EXTRACTORS}.items():
-            if ext.heading:
-                self.assertEqual(
-                    _EXTRACTOR_HEADINGS.get(name),
-                    ext.heading,
-                    f"derived map must mirror {name}.heading",
-                )
-
-    def test_extractor_without_heading_omitted(self) -> None:
-        """If a new extractor ships without a heading (e.g. internal-
-        only), the derived map silently omits it — the splicer's
-        consumer-side lookup returns empty string for unknown names."""
-        from briar.iac.scaffold._knowledge import _EXTRACTOR_HEADINGS
-
-        for heading in _EXTRACTOR_HEADINGS.values():
-            self.assertTrue(heading, "no empty-string headings should leak into the derived map")
-
-    def test_splicer_section_lookup_works_through_derived_map(self) -> None:
-        """End-to-end: the splicer's `section()` resolves a known
-        extractor name → heading → body via the derived mapping."""
-        from briar.iac.scaffold._knowledge import KnowledgeSplicer
-
-        splicer = KnowledgeSplicer("acme", {"PR archaeology": "## PR archaeology\nbody"})
-        self.assertIn("PR archaeology", splicer.section("pr-archaeology"))
-        self.assertEqual(splicer.section("does-not-exist"), "")
 
 
 if __name__ == "__main__":

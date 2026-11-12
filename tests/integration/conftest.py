@@ -3,8 +3,8 @@ wire-level fake, so parsing, serialization, pagination, and output rendering all
 execute — only the remote server is faked.
 
 A real `http.server` on 127.0.0.1 (not a function patch) so it works for every
-transport the code uses: PyGithub's urllib requester, atlassian's `requests`,
-and the Anthropic SDK's httpx. AWS goes through `moto` instead (see those tests).
+transport the code uses: PyGithub's urllib requester and atlassian's `requests`.
+AWS goes through `moto` instead (see those tests).
 """
 
 from __future__ import annotations
@@ -119,15 +119,6 @@ def github_at(mock_api, monkeypatch):
         return Github(base_url=mock_api.base_url, auth=Auth.Token(tok), per_page=100, retry=0, timeout=10)
 
     monkeypatch.setattr(_gh.GithubApi, "client", classmethod(client))
-    return mock_api
-
-
-@pytest.fixture
-def anthropic_at(mock_api, monkeypatch):
-    """Point the REAL Anthropic SDK at the mock server via the base-url env it
-    honors natively. Caller seeds POST /v1/messages with a Messages-API body."""
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "PLACEHOLDER-not-a-secret")
-    monkeypatch.setenv("ANTHROPIC_BASE_URL", mock_api.base_url)
     return mock_api
 
 

@@ -20,17 +20,6 @@ _FULL = {
         "acme": {
             "knowledge": {"store": "postgres", "name": "knowledge:acme", "config": {"dsn_env": "ACME_DATABASE_URL"}},
             "extract": [{"name": "pr-archaeology", "args": {"pr_repo": ["acme/web"]}}],
-            "mcp": {
-                "github": {
-                    "transport": "stdio",
-                    "command": "docker",
-                    "args": ["run", "-i", "ghcr.io/github/github-mcp-server"],
-                    "env": {"GITHUB_TOKEN": "GITHUB_TOKEN"},
-                    "tools": ["search_issues"],
-                },
-                "sentry": {"transport": "http", "url": "https://mcp.sentry.dev/mcp", "headers": {"Authorization": "SENTRY_MCP_BEARER"}},
-            },
-            "git_identity": {"name": "Briar Agent", "email": "briar@usebriar.com"},
         }
     },
 }
@@ -48,8 +37,7 @@ def test_load_save_load_roundtrips(tmp_path) -> None:
     assert reloaded.model_dump(exclude_defaults=True) == rb.model_dump(exclude_defaults=True)
     acme = reloaded.companies["acme"]
     assert acme.knowledge.config["dsn_env"] == "ACME_DATABASE_URL"
-    assert acme.mcp["github"].env == {"GITHUB_TOKEN": "GITHUB_TOKEN"}
-    assert acme.mcp["sentry"].headers == {"Authorization": "SENTRY_MCP_BEARER"}
+    assert acme.extract[0].args == {"pr_repo": ["acme/web"]}
 
 
 def test_returns_resolved_path(tmp_path) -> None:
@@ -60,30 +48,16 @@ def test_returns_resolved_path(tmp_path) -> None:
     assert out.exists()
 
 
-def test_literal_secret_in_mcp_env_is_rejected(tmp_path) -> None:
-    rb = RunbookFile.model_validate({"companies": {"acme": {"mcp": {"gh": {"command": "docker", "env": {"GITHUB_TOKEN": "ghp_realtokenvalue123"}}}}}})
+def test_literal_secret_in_dsn_env_config_is_rejected(tmp_path) -> None:
+    rb = RunbookFile.model_validate(
+        {"companies": {"acme": {"knowledge": {"store": "postgres", "name": "k:acme", "config": {"dsn_env": "postgres://user:pw@host/db"}}}}}
+    )
     out = tmp_path / "rb.yaml"
     with pytest.raises(ConfigError, match="env-var NAME"):
         save_runbook_file(out, rb)
     # Fail closed: nothing written, no temp file left behind.
     assert not out.exists()
     assert list(tmp_path.iterdir()) == []
-
-
-def test_literal_secret_in_http_header_is_rejected(tmp_path) -> None:
-    rb = RunbookFile.model_validate(
-        {"companies": {"acme": {"mcp": {"s": {"transport": "http", "url": "https://x/mcp", "headers": {"Authorization": "Bearer abc123"}}}}}}
-    )
-    with pytest.raises(ConfigError, match="env-var NAME"):
-        save_runbook_file(tmp_path / "rb.yaml", rb)
-
-
-def test_literal_secret_in_dsn_env_config_is_rejected(tmp_path) -> None:
-    rb = RunbookFile.model_validate(
-        {"companies": {"acme": {"knowledge": {"store": "postgres", "name": "k:acme", "config": {"dsn_env": "postgres://user:pw@host/db"}}}}}
-    )
-    with pytest.raises(ConfigError, match="env-var NAME"):
-        save_runbook_file(tmp_path / "rb.yaml", rb)
 
 
 def test_non_env_config_keys_are_not_secret_checked(tmp_path) -> None:

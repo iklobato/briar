@@ -62,11 +62,11 @@ class TestResolved:
 
 class TestDefaultsAndSettings:
     def test_defaults_hold_only_the_settings_some_layer_set(self, layers: Layers) -> None:
-        resolver = layers.resolver({"BRIAR_COMPANY": "acme"}, {"agent": {"model": "m-1"}}, ("o", "r"))
+        resolver = layers.resolver({"BRIAR_COMPANY": "acme"}, {"root": "kb"}, ("o", "r"))
 
-        assert resolver.defaults() == {"company": "acme", "model": "m-1", "owner": "o", "repo": "r"}
+        assert resolver.defaults() == {"company": "acme", "root": "kb", "owner": "o", "repo": "r"}
 
     def test_settings_are_typed_by_table(self, layers: Layers) -> None:
         settings = layers.resolver({}, {"store": "postgres", "repo": {"provider": "bitbucket"}}, ("o", "r")).settings()
 
-        assert (settings.store, settings.repo.owner, settings.repo.provider, settings.agent.model) == ("postgres", "o", "bitbucket", None)
+        assert (settings.store, settings.repo.owner, settings.repo.provider, settings.root) == ("postgres", "o", "bitbucket", None)
