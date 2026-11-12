@@ -176,7 +176,10 @@ class GitlabHost:
         """The head pipeline counts only for the head commit: right after a push the MR still
         shows the pipeline of the commit before (a real review round read it as passed)."""
         found = self._merge_request(repo, number)
-        pipeline, head = found.get("head_pipeline"), str(found.get("sha") or "")
+        # The MR sha lags a push (GitLab refreshes the MR later); the source branch moves at once.
+        branch = str(found.get("source_branch") or "")
+        head = self.branch_head(repo, branch) if branch else str(found.get("sha") or "")
+        pipeline = found.get("head_pipeline")
         if pipeline:
             return PipelineState(pipeline).state() if pipeline.get("sha") == head else CiState.PENDING
         return CiState.PENDING if CiConfig(self._rest, self._project(repo)).exists(head) else CiState.NONE

@@ -144,6 +144,17 @@ class TestMergeRequestState:
 
         assert Host.of(answers).host().ci_state(REPO, IID) is CiState.PENDING
 
+    def test_the_pipeline_of_an_older_commit_is_pending_while_the_mr_lags(self) -> None:
+        """Real review round 2, 2026-11-12: right after the push the MR sha itself was still
+        the old commit (GitLab refreshes an MR after a push), so the old pipeline matched it.
+        The source branch moves at once: its head is the commit to wait for."""
+        answers = {
+            MR: {"sha": "old", "source_branch": "briar/ENG-1", "head_pipeline": {"status": "success", "sha": "old"}},
+            f"{PROJECT}/repository/branches/briar%2FENG-1": {"commit": {"id": "new"}},
+        }
+
+        assert Host.of(answers).host().ci_state(REPO, IID) is CiState.PENDING
+
     def test_no_pipeline_yet_in_a_repo_with_ci_is_pending(self) -> None:
         answers = {MR: {"sha": "new", "head_pipeline": None}, PROJECT: {"ci_config_path": ""}, f"{PROJECT}/repository/files/.gitlab-ci.yml": {"file_name": ".gitlab-ci.yml"}}
 
