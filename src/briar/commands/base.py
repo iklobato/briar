@@ -4,7 +4,9 @@ Lives in its own module so sibling concretes can import it without
 triggering the package `__init__` (which itself imports the concretes
 to assemble the registry — a classic circular-import trap)."""
 
-from __future__ import annotations
+# No `from __future__ import annotations` here: Typer resolves a dataclass field's type
+# in the module of the subclass that inherits it, so the option classes below need real
+# types, not strings naming this module's imports.
 
 import argparse
 import logging
@@ -12,11 +14,11 @@ import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields
 from enum import Enum
-from typing import ClassVar, Dict, Mapping, Protocol, Tuple
+from typing import Callable, ClassVar, Dict, Iterable, Mapping, Protocol, Tuple
 
 import typer
 
-from briar.commands._enums import ExitCode
+from briar.commands._enums import ExitCode, MeetingChoice
 from briar.errors import CliError
 
 log = logging.getLogger(__name__)
@@ -47,6 +49,24 @@ class NamespaceSource(Protocol):
     def from_options(self, route: Route, values: Dict[str, object]) -> argparse.Namespace: ...
 
 
+class KindRegistry(Protocol):
+    def kinds(self) -> Iterable[str]: ...
+
+
+class RegistryChoice:
+    """A choice read from its registry when the command runs, as 1.x did, for a registry
+    that gains kinds at run time (tests register fake ones). Typer calls `check`."""
+
+    def __init__(self, registry: KindRegistry) -> None:
+        self._registry = registry
+
+    def check(self, value: str) -> str:
+        known = list(self._registry.kinds())
+        if value not in known:
+            raise typer.BadParameter(f"{value!r} is not one of {', '.join(repr(kind) for kind in known)}.")
+        return value
+
+
 @dataclass(frozen=True)
 class CommandOptions:
     """A command's options on Typer (spec 002): one field per 1.x option, named after its
@@ -54,11 +74,14 @@ class CommandOptions:
     line; `run()` gets the same namespace 1.x gave it."""
 
     ROUTE: ClassVar[Route] = Route("")
-    # 1.x defaults Typer cannot hold: a choice option whose 1.x default ("") is not one
-    # of its choices is declared with a None default, and turned back here.
-    UNSET_AS: ClassVar[Mapping[str, object]] = {}
+    # 1.x defaults Typer cannot hold, declared with a None default and made here when the
+    # option is not given: a choice whose 1.x default ("") is not one of its choices, or a
+    # default read from the environment at run time.
+    UNSET_AS: ClassVar[Mapping[str, Callable[[], object]]] = {}
     # Options the operation shares with its group; see `InheritingOptions`.
     INHERITED: ClassVar[Tuple[str, ...]] = ()
+    # Option name to setting name, where they differ (1.x `agent --root` has dest `knowledge`).
+    SETTING_NAMES: ClassVar[Mapping[str, str]] = {}
 
     def namespace(self, source: NamespaceSource) -> argparse.Namespace:
         return source.from_options(self.ROUTE, self.values())
@@ -70,7 +93,8 @@ class CommandOptions:
 
     def _plain(self, name: str, value: object) -> object:
         if value is None:
-            return self.UNSET_AS.get(name)
+            make_default = self.UNSET_AS.get(name)
+            return make_default() if make_default else None
         return value.value if isinstance(value, Enum) else value
 
 
@@ -275,3 +299,27 @@ class SubcommandCommand(Command):
             log.error("unknown %s: %s (known: %s)", self.op_noun, getattr(args, self.dest, None), known)
             return ExitCode.USAGE_ERROR
         return op.run(self, args)
+
+
+MEETING_TOP_K = 3
+MEETING_MAX_BYTES = 50_000
+SLACK_TOP_K = 3
+SLACK_MAX_BYTES = 30_000
+
+
+@dataclass(frozen=True)
+class EnrichmentOptions(CommandOptions):
+    """Meeting and Slack context options on Typer, shared by `agent` and `plan run` (the
+    argparse twins are `add_meeting_arguments` / `add_chat_arguments`). An operation
+    redefines `meeting_query` and `slack_query` with its own help. The provider and
+    sizing knobs are hidden from help but still work."""
+
+    meeting_key: str = typer.Option("", "--meeting-key", help="Specific meeting ID to splice into the agent prompt")
+    meeting_query: str = typer.Option("", "--meeting-query", help="Keyword search across recent meetings.")
+    meeting: MeetingChoice = typer.Option(MeetingChoice.FIREFLIES, "--meeting", hidden=True)
+    meeting_top_k: int = typer.Option(MEETING_TOP_K, "--meeting-top-k", hidden=True)
+    meeting_max_bytes: int = typer.Option(MEETING_MAX_BYTES, "--meeting-max-bytes", hidden=True)
+    slack_query: str = typer.Option("", "--slack-query", help="Keyword search across Slack.")
+    chat: str = typer.Option("slack", "--chat", hidden=True)
+    slack_top_k: int = typer.Option(SLACK_TOP_K, "--slack-top-k", hidden=True)
+    slack_max_bytes: int = typer.Option(SLACK_MAX_BYTES, "--slack-max-bytes", hidden=True)

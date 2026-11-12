@@ -167,7 +167,7 @@ class SecretsDoctorOptions(CommandOptions):
 @dataclass(frozen=True)
 class SecretsBootstrapOptions(CommandOptions):
     ROUTE = Route(CommandSecrets.name, "secrets_action", "bootstrap")
-    UNSET_AS = {"kind": ""}
+    UNSET_AS = {"kind": str}
 
     kind: Optional[BootstrapKindChoice] = typer.Option(None, "--kind", help="Force one bootstrap backend. Default: auto-detect via is_available().")
     dry_run: bool = typer.Option(

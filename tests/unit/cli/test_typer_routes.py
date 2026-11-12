@@ -11,15 +11,29 @@ from typing import Callable, Dict, Optional, Tuple
 
 import pytest
 
-from briar.commands._enums import BootstrapKindChoice, CredentialStoreChoice, JournalStoreChoice, KnowledgeStoreChoice, OutputFormat
+from briar.commands._enums import (
+    BootstrapKindChoice,
+    CredentialStoreChoice,
+    JournalStoreChoice,
+    KnowledgeStoreChoice,
+    MeetingChoice,
+    OutputFormat,
+    ProviderChoice,
+    TrackerChoice,
+)
 from briar.config import load_project_config
 from briar.credentials import CredentialStoreRegistry
 from briar.credentials._bootstraps import CredentialBootstrapRegistry
+from briar.extract._meetings import meeting_kinds
+from briar.extract._providers import RepositoryProviderRegistry
+from briar.extract._trackers import TrackerRegistry
 from briar.formatting import FORMATTERS
 from briar.journal import JOURNAL_STORE_NAMES
 from briar.storage import KNOWLEDGE_STORE_NAMES
 
 USAGE_ERROR = 2
+IMPLEMENT = ("agent", "implement", "--ticket-key", "T-1")
+ALIAS_POSITION = -2  # each removed-alias line ends with the alias and its value
 
 
 class FakeGitRemote:
@@ -69,6 +83,15 @@ class TestChoicesMatchTheRegistries:
 
     def test_bootstrap_kinds_are_the_bootstraps(self) -> None:
         assert [choice.value for choice in BootstrapKindChoice] == list(CredentialBootstrapRegistry.kinds())
+
+    def test_provider_choices_are_the_providers(self) -> None:
+        assert [choice.value for choice in ProviderChoice] == list(RepositoryProviderRegistry.kinds())
+
+    def test_tracker_choices_are_the_trackers(self) -> None:
+        assert [choice.value for choice in TrackerChoice] == list(TrackerRegistry.kinds())
+
+    def test_meeting_choices_are_the_meeting_sources(self) -> None:
+        assert [choice.value for choice in MeetingChoice] == list(meeting_kinds())
 
 
 class TestSettingsFillTyperOptions:
@@ -138,11 +161,44 @@ class TestGroupOptions:
         assert (recorded_run["args"].store, recorded_run["args"].root) == ("postgres", "kb")
 
 
+class TestAgentDefaults:
+    def test_root_setting_fills_the_agent_file_store_root(
+        self, cli: Callable[..., SimpleNamespace], project: Project, recorded_run: Dict[str, argparse.Namespace]
+    ) -> None:
+        """`agent --root` has the 1.x dest `knowledge`; the `root` setting still fills it."""
+        project.write('root = "kb"\n')
+
+        run = cli(*IMPLEMENT)
+
+        assert run.code == 0, run.err
+        assert recorded_run["args"].knowledge == "kb"
+
+    @pytest.mark.parametrize("url_and_store", [("", "file"), ("postgres://db.invalid/briar", "postgres")], ids=["no url", "url"])
+    def test_store_default_follows_the_database_url(
+        self, cli: Callable[..., SimpleNamespace], recorded_run: Dict[str, argparse.Namespace], url_and_store: Tuple[str, str]
+    ) -> None:
+        """Read when the command runs, as 1.x did, so an env file loaded at startup counts."""
+        database_url, store = url_and_store
+
+        run = cli(*IMPLEMENT, env={"BRIAR_DATABASE_URL": database_url})
+
+        assert run.code == 0, run.err
+        assert recorded_run["args"].store == store
+
+
 class TestRemovedAliases:
-    def test_secrets_store_alias_is_an_unknown_option(self, cli: Callable[..., SimpleNamespace], recorded_run: Dict[str, argparse.Namespace]) -> None:
-        """The 1.x alias of `--cred-store` (D29a); the other aliases go in spec 002 PR 6."""
-        run = cli("secrets", "doctor", "--store", "envfile")
+    """The 1.x hidden aliases (D29a). `extract --storage` goes in spec 002 PR 6."""
+
+    @pytest.mark.parametrize(
+        "argv",
+        [("secrets", "doctor", "--store", "envfile"), ("auth", "list", "--store", "envfile"), IMPLEMENT + ("--knowledge", "kb")],
+        ids=["secrets --store", "auth --store", "agent --knowledge"],
+    )
+    def test_alias_is_an_unknown_option(self, cli: Callable[..., SimpleNamespace], recorded_run: Dict[str, argparse.Namespace], argv: Tuple[str, ...]) -> None:
+        alias = argv[ALIAS_POSITION]
+
+        run = cli(*argv)
 
         assert run.code == USAGE_ERROR
-        assert "No such option: --store" in run.err
+        assert f"No such option: {alias}" in run.err
         assert "args" not in recorded_run

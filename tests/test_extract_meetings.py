@@ -370,24 +370,6 @@ class MeetingContextExtractorTests(unittest.TestCase):
 
 
 class AgentMeetingWiringTests(unittest.TestCase):
-    def test_implement_op_registers_meeting_flags(self) -> None:
-        from briar.commands.agent import ImplementOp
-
-        parser = argparse.ArgumentParser()
-        ImplementOp().add_arguments(parser)
-        flags = {a.dest for a in parser._actions}
-        for expected in ("meeting", "meeting_key", "meeting_query", "meeting_top_k", "meeting_max_bytes"):
-            self.assertIn(expected, flags)
-
-    def test_prfix_op_registers_meeting_flags(self) -> None:
-        from briar.commands.agent import PrfixOp
-
-        parser = argparse.ArgumentParser()
-        PrfixOp().add_arguments(parser)
-        flags = {a.dest for a in parser._actions}
-        for expected in ("meeting", "meeting_key", "meeting_query", "meeting_top_k", "meeting_max_bytes"):
-            self.assertIn(expected, flags)
-
     def test_fetch_meeting_context_empty_when_no_inputs(self) -> None:
         from briar.commands.agent import CommandAgent
 

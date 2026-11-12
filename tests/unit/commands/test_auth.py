@@ -62,14 +62,14 @@ class TestUnknownAction:
 
 class TestList:
     def test_empty_store_says_no_credentials(self, cli) -> None:
-        result = cli("auth", "list", "--store", "envfile")
+        result = cli("auth", "list", "--cred-store", "envfile")
         assert result.code == 0
         assert "no credentials" in result.out
 
     def test_company_filter_substring(self, cli, monkeypatch) -> None:
         monkeypatch.setenv("AWS_ACME_ACCESS_KEY_ID", "AKIA")
         monkeypatch.setenv("AWS_OTHER_ACCESS_KEY_ID", "BKIA")
-        result = cli("auth", "list", "--store", "envfile", "--company", "acme")
+        result = cli("auth", "list", "--cred-store", "envfile", "--company", "acme")
         assert result.code == 0
         assert "AWS_ACME_ACCESS_KEY_ID" in result.out
         assert "AWS_OTHER_ACCESS_KEY_ID" not in result.out
@@ -81,7 +81,7 @@ class TestStatus:
 
         mocker.patch.object(AcquirerRegistry, "kinds", return_value=["github-pat"])
         mocker.patch.object(AcquirerRegistry, "make", return_value=_FakeAcquirer())
-        result = cli("auth", "status", "github-pat", "--store", "envfile")
+        result = cli("auth", "status", "github-pat", "--cred-store", "envfile")
         assert result.code == 1
         assert "MISS" in result.out
 
@@ -91,7 +91,7 @@ class TestStatus:
         monkeypatch.setenv("FAKE_VAR", "value")
         mocker.patch.object(AcquirerRegistry, "kinds", return_value=["github-pat"])
         mocker.patch.object(AcquirerRegistry, "make", return_value=_FakeAcquirer())
-        result = cli("auth", "status", "github-pat", "--store", "envfile")
+        result = cli("auth", "status", "github-pat", "--cred-store", "envfile")
         assert result.code == 0
         assert "ok" in result.out
 
@@ -103,7 +103,7 @@ class TestLogoutGuard:
         mocker.patch.object(AcquirerRegistry, "kinds", return_value=["github-pat"])
         mocker.patch.object(AcquirerRegistry, "make", return_value=_FakeAcquirer())
         monkeypatch.setattr("builtins.input", lambda _: "n")
-        result = cli("auth", "logout", "github-pat", "--store", "envfile")
+        result = cli("auth", "logout", "github-pat", "--cred-store", "envfile")
         assert result.code == 1
         assert "aborted" in result.out
 
@@ -113,7 +113,7 @@ class TestLogoutGuard:
         mocker.patch.object(AcquirerRegistry, "kinds", return_value=["github-pat"])
         mocker.patch.object(AcquirerRegistry, "make", return_value=_FakeAcquirer())
         monkeypatch.setenv("FAKE_VAR", "v")
-        result = cli("auth", "logout", "github-pat", "--store", "envfile", "--yes")
+        result = cli("auth", "logout", "github-pat", "--cred-store", "envfile", "--yes")
         assert result.code == 0
         assert "removed" in result.out
 
@@ -124,5 +124,5 @@ class TestBootstrapPolicy:
 
         mocker.patch.object(AcquirerRegistry, "kinds", return_value=["fake"])
         mocker.patch.object(AcquirerRegistry, "make", return_value=_FakeBootstrapAcquirer())
-        result = cli("auth", "status", "fake", "--store", "envfile")
+        result = cli("auth", "status", "fake", "--cred-store", "envfile")
         assert result.code in (0, 1)  # missing creds → 1 is fine; just verify no crash

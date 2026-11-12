@@ -1959,25 +1959,6 @@ class CredentialAcquirerTests(unittest.TestCase):
 class CommandAuthStoreResolutionTests(unittest.TestCase):
     """`briar auth` CLI surface — positional target + destination policy."""
 
-    def test_resolve_default_store_uses_env_when_known(self) -> None:
-        from briar.commands.auth import _resolve_default_store
-
-        with mock.patch.dict(os.environ, {"BRIAR_DEFAULT_STORE": "vault"}, clear=False):
-            self.assertEqual(_resolve_default_store(["envfile", "vault", "ssm"]), "vault")
-
-    def test_resolve_default_store_ignores_unknown_env(self) -> None:
-        from briar.commands.auth import _resolve_default_store
-
-        with mock.patch.dict(os.environ, {"BRIAR_DEFAULT_STORE": "not-a-real-store"}, clear=False):
-            # Unknown → fall back to envfile (safe default)
-            self.assertEqual(_resolve_default_store(["envfile", "vault"]), "envfile")
-
-    def test_resolve_default_store_falls_back_to_envfile(self) -> None:
-        from briar.commands.auth import _resolve_default_store
-
-        with mock.patch.dict(os.environ, {"BRIAR_DEFAULT_STORE": ""}, clear=False):
-            self.assertEqual(_resolve_default_store(["envfile", "vault"]), "envfile")
-
     def test_effective_store_forces_envfile_for_bootstrap(self) -> None:
         """A BOOTSTRAP_LOCAL acquirer's credentials can't be stored in a
         remote store — ``_effective_store_kind`` must force envfile."""
