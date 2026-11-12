@@ -34,10 +34,10 @@ only in the private site repo.
 | Latest version | 1.1.101 (PyPI and GitHub Release `v1.1.101` = latest) |
 | Python | 3.10, 3.11, 3.12 (CI unit jobs); the integration job runs on whatever `uv` picks (3.14 in CI) |
 | Release trigger | every push to `main`, except `chore(release):` commits; it bumps the patch only |
-| 2.0 | in progress on branch `v2` (still equal to `main`); 20 stacked PRs open, #79 to #98. Status and handoff: `docs/briar-2-status.md` |
+| 2.0 | in progress on branch `v2` (still equal to `main`); 21 stacked PRs open, #79 to #99. Status and handoff: `docs/briar-2-status.md` |
 | MCP registry | `io.github.iklobato/briar`, latest 1.1.94; stays there, 2.0 has no MCP server |
 | Open issues | #76, #77 (section 8) |
-| Open PRs | #79 to #98, all into `v2`, not reviewed |
+| Open PRs | #79 to #99, all into `v2`, not reviewed |
 | Stars / forks | 3 / 0 |
 
 ## 3. Repo layout
@@ -53,10 +53,10 @@ only in the private site repo.
 | `src/briar/extract/composer.py` | `KnowledgeComposer`: writes `## <heading> - <detail>` sections, `split_sections` parses them, `merge_markdown` merges a run into a stored blob (called from `CommandExtract._write_blob`, the one write path of `briar extract`) |
 | `src/briar/prompts/` | The agent prompt text for the spec 003 pipeline: `roles/`, `tasks/` (moved from the 1.x personas) and the 8 shared `rules/`. Nothing reads them at run time yet. The 1.x `agent/`, `plan/` and `mcp/` packages are gone; `docs/briar-2-status.md` says where to find them in git |
 | `src/briar/iac/runbook/` | Runbook loader, executor, `scheduler.py` (`runbook serve`) |
-| `src/briar/auth/` | The logins (spec 005): `config.py` (the `[auth]` block, same pydantic models as the runbook `auth:` block), `logins.py` (`CompanyLogins`, one `SourceLogin` per source: secret names `BRIAR_<COMPANY>_<SOURCE>_<FIELD>`, the `login` prompts, the 1.x names guard; `CliLogin` for AWS, GCP and Azure runs the CLI login and saves nothing). Adapters get `args.logins` from `briar extract` or the runbook executor. `_prompt.py` is the terminal (`run_login` uses `os.system`) |
+| `src/briar/auth/` | The logins (spec 005): `config.py` (the `[auth]` block, same pydantic models as the runbook `auth:` block), `logins.py` (`CompanyLogins`, one `SourceLogin` per source: secret names `BRIAR_<COMPANY>_<SOURCE>_<FIELD>`, the `login` prompts, the 1.x names guard; `CliLogin` for AWS, GCP and Azure runs the CLI login and saves nothing), `check.py` (`LoginCheck`: "who am I" plus a read of each resource, before every run; spec 005 PR 3). Adapters get `args.logins` from `briar extract` or the runbook executor, and each has `who_am_i` and `read` (`extract/_login_failures.py` turns vendor errors into check errors; `extract/login_probes.py` is the default adapter per source). `_prompt.py` is the terminal (`run_login` uses `os.system`) |
 | `src/briar/credentials/` | `EnvFileStore`, the only credential store and no interface since spec 005 (2.0 removed AWS Secrets Manager, SSM and Vault), the startup bootstrap, and `_removed_stores.py`, which stops a run whose `BRIAR_DEFAULT_STORE` names a removed one |
 | `agents/*.md` | The user manual, one file per command (linked from the README) |
-| `docs/decisions/` | The agreed 2.0 scope: `2026-11-10-briar-2-pipeline.md` (D1-D36, plus D29a, D29b, D32a), `2026-11-10-briar-2-source-logins.md` (L1-L21), `2026-11-10-briar-2-logins-spec.md` (G1-G26: spec 005, logins per source and company) and `2026-11-10-briar-2-logins-pr1.md` (H1-H10), `2026-11-11-briar-2-logins-pr2.md` (I1-I10), `2026-11-10-briar-2-core-cleanup.md` (C1-C22: 2.0 keeps 5 commands), `2026-11-10-briar-2-ticket-pipeline.md` (P1-P22, A1-A15: ticket pipeline, agent roles, pipeline YAML) and `2026-11-10-briar-2-knowledge.md` (K1-K20: knowledge layout for agents). The reference for every 2.0 PR |
+| `docs/decisions/` | The agreed 2.0 scope: `2026-11-10-briar-2-pipeline.md` (D1-D36, plus D29a, D29b, D32a), `2026-11-10-briar-2-source-logins.md` (L1-L21), `2026-11-10-briar-2-logins-spec.md` (G1-G26: spec 005, logins per source and company) and `2026-11-10-briar-2-logins-pr1.md` (H1-H10), `2026-11-11-briar-2-logins-pr2.md` (I1-I10), `2026-11-11-briar-2-logins-pr3.md` (J1-J19: the login check), `2026-11-10-briar-2-core-cleanup.md` (C1-C22: 2.0 keeps 5 commands), `2026-11-10-briar-2-ticket-pipeline.md` (P1-P22, A1-A15: ticket pipeline, agent roles, pipeline YAML) and `2026-11-10-briar-2-knowledge.md` (K1-K20: knowledge layout for agents). The reference for every 2.0 PR |
 | `docs/briar-2-status.md` | 2.0 handoff: the PR stack, what is done, how the 2.0 CLI works, findings, next steps, what to watch |
 | `docs/diagrams/`, `docs/demo/` | 1.x README images, still loaded by the site; the 2.0 README shows none until they are redone (section 9) |
 | `examples/` | Runbook YAML examples |
@@ -69,7 +69,7 @@ only in the private site repo.
   `briar/main`.
 - **2.0 work goes to `v2`, not `main`** (decision D27). The open 2.0 PRs are
   stacked: branch a new 2.0 PR from the top of the stack (now
-  `logins/02-clouds`, PR #98) and target `v2`. Read
+  `logins/03-check`, PR #99) and target `v2`. Read
   `docs/briar-2-status.md` first.
 - **A merge to `main` is a public release.** `.github/workflows/release.yml`
   runs the unit tests (`uv run pytest -n auto -m "not integration"`),
@@ -90,7 +90,7 @@ only in the private site repo.
 - **Lint.** black (line length 160, from `pyproject.toml`) and ruff (its
   default rules; no `[tool.ruff]` section). The repo is not clean repo-wide
   under black, ruff and mypy (39 mypy errors on `v2` on 2026-11-10, 25 on
-  the top of the 2.0 stack, `logins/02-clouds`, on 2026-11-11); keep your
+  the top of the 2.0 stack, `logins/03-check`, on 2026-11-11); keep your
   changed files clean and compare counts before and after.
 - **Fake secrets in docs must look fake.** GitGuardian blocks PRs on
   realistic ones (`ghp_...` with a real-looking body, `sk-ant-api03-...`,
@@ -178,8 +178,18 @@ only in the private site repo.
   - The AWS profile, GCP project and Azure subscription are in `[auth]`,
     not `[extract.aws-infra] profile` (that key stops the run and names the
     new place).
-  - Until spec 005 PR 3, a missing login skips its extractor; in a
-    runbook, a 1.x-name stop fails the task and the command exits 0.
+  - Every run checks its logins first (spec 005 PR 3): for each source,
+    "who am I", then a read of each repo, project, team, workspace, GCP
+    project or Azure subscription it will read. Any failure, a network
+    error included, stops `briar extract` and `runbook extract` (which
+    then runs no task at all) with exit 1 and every failure listed;
+    `runbook serve` does not start, or stops. A skip for no repo, project
+    or SDK stays, and that source is not checked. `auth login` checks
+    before it saves; `auth status` and `doctor` check live (network:
+    shown, exit 0).
+  - Tests of a command meet the check: use the `logins_pass` or
+    `fake_sources` fixtures (`tests/conftest.py`), or the wire fake of
+    `tests/integration/conftest.py`, which answers the check calls.
 - **Docker image** (`iklob1/briar`): has `git`, `gh`,
   `safe.directory '*'`, `gh` also linked at `/usr/local/bin/gh` and
   `/opt/homebrew/bin/gh` (Mac gitconfigs), `linux/amd64` only, runs as uid 1000. The git login is set up for GitHub
@@ -231,17 +241,18 @@ Full detail per version is in `CHANGELOG.md`. In short:
   `[auth]` config, `BRIAR_*` names with the 1.x name guard, source targets
   for `auth`, the pasted logins (GitHub PAT, Jira, Bitbucket, Linear,
   Fireflies), the flat credential store; PR #98: AWS, GCP and Azure log in
-  through their CLI (`[auth.aws|gcp|azure]`), the acquirers and `CredEnv` go.
-  Details and numbers: `docs/briar-2-status.md`.
+  through their CLI (`[auth.aws|gcp|azure]`), the acquirers and `CredEnv` go;
+  PR #99: the login check before every run, in `auth login|status` and in
+  `doctor`. Details and numbers: `docs/briar-2-status.md`.
 
 ## 7. Next steps (in order)
 
-0. **2.0**: review and merge PRs #79 to #98 into `v2` in order; decide how
+0. **2.0**: review and merge PRs #79 to #99 into `v2` in order; decide how
    2.0 is released before `v2` merges to `main` (the workflow would publish
-   1.1.102); spec 005 PR 3 (the "who am I" check before a run) and PR 4
-   (GitHub device flow, Linear OAuth, refresh lock; needs the briar GitHub
-   App registered by the maintainer), each grilled first; the real runs
-   left for Jira, Bitbucket, Linear and Fireflies; then specs 004 and 003.
+   1.1.102); spec 005 PR 4 (GitHub device flow, Linear OAuth, refresh lock;
+   needs the briar GitHub App registered by the maintainer), grilled first;
+   the real runs left for Jira, Bitbucket, Linear and Fireflies; then specs
+   004 and 003.
    Order and detail: `docs/briar-2-status.md` section 5.
 1. Fix #77 (small): treat GitHub's `404 no analysis found` as "no data"
    without a traceback; keep other errors logged. Then check the same

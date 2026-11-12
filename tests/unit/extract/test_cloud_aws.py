@@ -28,7 +28,6 @@ from moto import mock_aws
 from briar.extract._cloud import ComputeResource, DatabaseResource, LogGroup, QueueResource
 from briar.extract._clouds import make_cloud
 from briar.extract._clouds.aws import AwsCloudProvider
-from briar.errors import CliError
 from tests.unit.fake_logins import FakeLogins
 
 REGION = "us-east-1"
@@ -93,20 +92,6 @@ def test_caller_identity_returns_account_and_region(provider: AwsCloudProvider) 
     # moto's default STS account id.
     assert identity.account_id == "123456789012"
     assert identity.region == REGION
-
-
-def test_1x_company_keys_without_a_profile_stop_the_run() -> None:
-    """G8, I10: the 1.x `AWS_<COMPANY>_*` keys are no longer read; with no
-    `[auth.aws] profile` the run stops and names the new place."""
-    logins = FakeLogins(environ={"AWS_ACME_ACCESS_KEY_ID": "PLACEHOLDER-not-a-secret"}).logins()
-
-    with pytest.raises(CliError) as ctx:
-        AwsCloudProvider(logins=logins, region="eu-west-1").is_available()
-
-    assert (
-        str(ctx.value)
-        == "`AWS_ACME_ACCESS_KEY_ID` is a 1.x name: use an AWS profile, named in `profile` under `[auth.aws]`. Or run `briar auth login aws --company acme`"
-    )
 
 
 def _session_profile(*, profile: str = "", local_profiles: list[str]) -> Any:

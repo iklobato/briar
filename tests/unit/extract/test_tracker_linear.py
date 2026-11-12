@@ -269,9 +269,6 @@ class AvailabilityAndTransportTests(unittest.TestCase):
     def test_is_available_true_with_token(self) -> None:
         self.assertTrue(_tracker().is_available())
 
-    def test_is_available_false_without_token(self) -> None:
-        self.assertFalse(_tracker(token="").is_available())
-
     def test_transport_error_swallowed_to_empty(self) -> None:
         # urlopen_with_retry re-raises after exhausting retries; the public
         # verb's @swallow_errors(default=[]) absorbs it.

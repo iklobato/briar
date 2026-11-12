@@ -1,15 +1,13 @@
 """Environment health checks for `briar doctor`.
 
-Lightweight and offline: inspects the Python/briar version, project config,
-git inference, and whether the company GitHub login is saved.
-No network, no store read: just "is this machine set up to run
-briar?". Each check is a `Check`; the command renders them and exits
-non-zero if any is a hard ``fail``.
+Inspects the Python/briar version, project config and git inference
+offline, then checks the logins of the company live (spec 005, G14, G15,
+J10 to J12): one line per configured source. Each check is a `Check`; the
+command renders them and exits non-zero if any is a hard ``fail``.
 """
 
 from __future__ import annotations
 
-import os
 import platform
 import sys
 from dataclasses import dataclass
@@ -57,24 +55,34 @@ def _git_check() -> Check:
     return Check("git remote", OK, f"{slug[0]}/{slug[1]} (inferred)")
 
 
-def _github_check() -> Check:
-    """The GitHub login of the company (spec 005 PR 1); PR 3 checks every source live."""
-    from briar.auth.config import AuthTable
-    from briar.auth.logins import CompanyLogins, LoginScope
-    from briar.config import load_project_config
-    from briar.settings import SettingsResolver
+class LoginChecks:
+    """The live login lines of the company in `.briar.toml` (J10 to J12): every configured
+    source, with the resources `briar extract` would read. A failed check is `fail`
+    (a run would stop), a network error is `warn` (G15)."""
 
-    project_config = load_project_config()
-    company = SettingsResolver.from_project(project_config).settings().company or ""
-    if not company:
-        return Check("github login", WARN, "no company: set `company` in .briar.toml to check its logins")
-    login = CompanyLogins(LoginScope(company), AuthTable(project_config, ".briar.toml").block(), os.environ).github()
-    hint = login.legacy_hint()
-    if hint:
-        return Check("github login", WARN, hint)
-    if login.missing_secrets():
-        return Check("github login", WARN, f"run `briar auth login github --company {company}`: the GitHub extractors need it")
-    return Check("github login", OK, f"{', '.join(login.names())} set")
+    NAME = "logins"
+    STATUS_OF = {"ok": OK, "failed": FAIL, "unreachable": WARN}
+
+    def checks(self) -> List[Check]:
+        from briar.auth.check import LoginCheck
+        from briar.commands.extract import ExtractPlan
+        from briar.config import load_project_config
+        from briar.errors import CliError
+        from briar.extract.login_probes import SourceProbes
+        from briar.settings import SettingsResolver
+
+        company = SettingsResolver.from_project(load_project_config()).settings().company or ""
+        if not company:
+            return [Check(self.NAME, WARN, "no company: set `company` in .briar.toml to check its logins")]
+        try:
+            plan = ExtractPlan.for_project(company)
+        except CliError as error:
+            return [Check(self.NAME, FAIL, str(error))]
+        sources = plan.logins().configured()
+        if not sources:
+            return [Check(self.NAME, WARN, f"no login configured for {company}: run `briar auth login <source> --company {company}`")]
+        lines = LoginCheck(plan.logins()).check(SourceProbes(plan.logins()).for_sources(sources, plan.run_targets()))
+        return [Check(f"{line.source} login", self.STATUS_OF[line.state.value], line.line()) for line in lines]
 
 
 _CHECKS = (
@@ -82,13 +90,12 @@ _CHECKS = (
     _version_check,
     _config_check,
     _git_check,
-    _github_check,
 )
 
 
 def run_checks() -> List[Check]:
-    """Run every health check in display order."""
-    return [check() for check in _CHECKS]
+    """Run every health check in display order: the offline ones, then the logins."""
+    return [check() for check in _CHECKS] + LoginChecks().checks()
 
 
 def worst_status(checks: List[Check]) -> str:

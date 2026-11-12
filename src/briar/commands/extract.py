@@ -14,8 +14,9 @@ import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import ClassVar, Dict, List, Mapping, Optional, Tuple
+from typing import ClassVar, Dict, List, Mapping, Optional, Sequence, Tuple
 
+from briar.auth.check import LoginCheck, LoginTarget
 from briar.auth.config import AuthTable
 from briar.auth.logins import CompanyLogins, LoginScope
 from briar.commands.base import Command
@@ -102,8 +103,28 @@ class ExtractConfig:
         self._settings = settings
         self._config_path = config_path
 
+    @classmethod
+    def from_project(cls) -> "ExtractConfig":
+        """The config of the project found from the current folder."""
+        from briar.config import find_config_file, load_project_config
+        from briar.settings import SettingsResolver
+
+        project_config = load_project_config()
+        return cls(project_config, SettingsResolver.from_project(project_config).settings(), find_config_file())
+
     def root(self) -> str:
         return self._settings.root or DEFAULT_ROOT
+
+    def command_line(self, company: str) -> argparse.Namespace:
+        """`briar extract --company C` as the CLI parses it, with this config and the git
+        origin folded in (for `doctor` and `auth status`, J11)."""
+        from briar.config import apply_config_defaults
+        from briar.infer import apply_inference_defaults
+
+        parser = argparse.ArgumentParser(add_help=False)
+        CommandExtract().add_arguments(parser)
+        apply_inference_defaults(parser, apply_config_defaults(parser, dict(self._project_config)))
+        return parser.parse_args(["--company", company])
 
     def logins(self, company: str) -> CompanyLogins:
         """The company logins from `[auth]` (spec 005); checks the whole block (H6)."""
@@ -230,6 +251,54 @@ class ExtractRun:
     refreshed: List[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class ExtractStep:
+    """One included extractor and the namespace it runs with."""
+
+    extractor: KnowledgeExtractor
+    namespace: argparse.Namespace
+
+    def runs(self) -> bool:
+        """False for the skips that are not a login: no repo or project, no SDK (J2)."""
+        return self.extractor.is_available(self.namespace)
+
+
+class ExtractPlan:
+    """What `briar extract` runs with a config and a command line, and the logins it needs
+    (spec 005 PR 3: J1, J2, J5)."""
+
+    def __init__(self, config: ExtractConfig, command_line: argparse.Namespace, logins: CompanyLogins) -> None:
+        self._config = config
+        self._command_line = command_line
+        self._logins = logins
+
+    @classmethod
+    def for_project(cls, company: str) -> "ExtractPlan":
+        """The plan of `briar extract --company C` in this project (J11)."""
+        config = ExtractConfig.from_project()
+        config.check()
+        return cls(config, config.command_line(company), config.logins(company))
+
+    def logins(self) -> CompanyLogins:
+        return self._logins
+
+    def steps(self) -> List[ExtractStep]:
+        steps: List[ExtractStep] = []
+        for name in self._command_line.include or list(EXTRACTORS.keys()):
+            namespace = self._config.namespace_for(EXTRACTORS[name], self._command_line)
+            namespace.logins = self._logins
+            steps.append(ExtractStep(EXTRACTORS[name], namespace))
+        return steps
+
+    def targets(self, steps: Sequence[ExtractStep]) -> List[LoginTarget]:
+        found = [step.extractor.login_target(step.namespace) for step in steps]
+        return [target for target in found if target is not None]
+
+    def run_targets(self) -> List[LoginTarget]:
+        """The targets of the steps that run (J2)."""
+        return self.targets([step for step in self.steps() if step.runs()])
+
+
 class CommandExtract(Command):
     name = "extract"
     help = "Mine the live state of GitHub / AWS / etc. into a markdown " "knowledge blob written to local disk."
@@ -254,40 +323,37 @@ class CommandExtract(Command):
         )
 
     def run(self, args: argparse.Namespace) -> int:
-        config = self._config()
+        config = ExtractConfig.from_project()
         config.check()
-        outcome = self._extract(config, args, config.logins(args.company))
+        plan = ExtractPlan(config, args, config.logins(args.company))
+        running = [step for step in plan.steps() if self._announced(step)]
+        for line in LoginCheck(plan.logins()).require(plan.targets(running)):
+            _status(f"  login {line.line()}")
+        outcome = self._extract(running)
         if not outcome.sections:
             raise CliError("nothing extracted — every enabled extractor returned empty")
         ref = self._write_blob(config.root(), args.company, outcome)
         _status(f"\nwrote blob '{ref.name}' ({ref.byte_count} bytes, {len(outcome.sections)} sections) under {config.root()}")
         return 0
 
-    def _config(self) -> ExtractConfig:
-        from briar.config import find_config_file, load_project_config
-        from briar.settings import SettingsResolver
+    def _announced(self, step: ExtractStep) -> bool:
+        if step.runs():
+            return True
+        _status(f"  skipped {step.extractor.name}  (not available in this env)")
+        return False
 
-        project_config = load_project_config()
-        return ExtractConfig(project_config, SettingsResolver.from_project(project_config).settings(), find_config_file())
-
-    def _extract(self, config: ExtractConfig, args: argparse.Namespace, logins: CompanyLogins) -> ExtractRun:
+    def _extract(self, steps: Sequence[ExtractStep]) -> ExtractRun:
         outcome = ExtractRun()
-        for name in args.include or list(EXTRACTORS.keys()):
-            extractor = EXTRACTORS[name]
-            namespace = config.namespace_for(extractor, args)
-            namespace.logins = logins
-            self._run_one(extractor, namespace, outcome)
+        for step in steps:
+            self._run_one(step, outcome)
         return outcome
 
-    def _run_one(self, extractor: KnowledgeExtractor, namespace: argparse.Namespace, outcome: ExtractRun) -> None:
-        if not extractor.is_available(namespace):
-            _status(f"  skipped {extractor.name}  (not available in this env)")
-            return
-        _status(f"  running {extractor.name} ...")
-        outcome.refreshed.append(extractor.heading)
-        section = extractor.extract(namespace)
+    def _run_one(self, step: ExtractStep, outcome: ExtractRun) -> None:
+        _status(f"  running {step.extractor.name} ...")
+        outcome.refreshed.append(step.extractor.heading)
+        section = step.extractor.extract(step.namespace)
         if section.is_empty:
-            _status(f"  {extractor.name}: no data")
+            _status(f"  {step.extractor.name}: no data")
             return
         outcome.sections.append(section)
 

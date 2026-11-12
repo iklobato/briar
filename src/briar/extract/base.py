@@ -12,7 +12,9 @@ from __future__ import annotations
 import argparse
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Dict, List
+from typing import Any, ClassVar, Dict, List, Optional
+
+from briar.auth.check import LoginTarget
 
 
 @dataclass
@@ -57,6 +59,11 @@ class KnowledgeExtractor(ABC):
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Subclasses contribute their own CLI flags. Default: no-op."""
+
+    def login_target(self, args: argparse.Namespace) -> Optional[LoginTarget]:
+        """The adapter this extractor reads through and the resources it reads, for the
+        login check before a run (spec 005, J1, J5). None: no source to check."""
+        return None
 
     def is_available(self, args: argparse.Namespace) -> bool:
         """Return False to skip this extractor in the current env (no
@@ -177,6 +184,10 @@ class CloudBackedExtractor(KnowledgeExtractor):
             help_text="Cloud provider this extractor uses (default: aws)",
         )
 
+    def login_target(self, args: argparse.Namespace) -> Optional[LoginTarget]:
+        cloud = self._cloud(args)
+        return LoginTarget(cloud, cloud.scope())
+
     def _cloud(self, args: argparse.Namespace):
         from briar.extract._clouds import make_cloud
 
@@ -218,6 +229,9 @@ class TrackerBackedExtractor(KnowledgeExtractor):
             help_text="Tracker provider this extractor uses (default: jira)",
         )
 
+    def login_target(self, args: argparse.Namespace) -> Optional[LoginTarget]:
+        return LoginTarget(self._tracker(args), tuple(vars(args).get(self._availability_arg) or ()))
+
     def _tracker(self, args: argparse.Namespace):
         from briar.extract._trackers import make_tracker
 
@@ -245,6 +259,9 @@ class MeetingBackedExtractor(KnowledgeExtractor):
             choices=list(meeting_kinds()),
             help_text="Meeting provider this extractor uses (default: fireflies)",
         )
+
+    def login_target(self, args: argparse.Namespace) -> Optional[LoginTarget]:
+        return LoginTarget(self._meeting(args))
 
     def _meeting(self, args: argparse.Namespace):
         from briar.extract._meetings import make_meeting
@@ -294,6 +311,9 @@ class RepoBackedExtractor(KnowledgeExtractor):
             choices=list(RepositoryProviderRegistry.kinds()),
             help_text="Repository provider this extractor uses (default: github)",
         )
+
+    def login_target(self, args: argparse.Namespace) -> Optional[LoginTarget]:
+        return LoginTarget(self._provider(args), tuple(vars(args).get(self._availability_arg) or ()))
 
     def _provider(self, args: argparse.Namespace):
         from briar.extract._providers import make_provider

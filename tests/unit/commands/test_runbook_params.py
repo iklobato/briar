@@ -91,6 +91,7 @@ class TestServeFlags:
 
         fake = SimpleNamespace(
             register_all=mocker.MagicMock(return_value=[]),
+            check_logins=mocker.MagicMock(),
             run_forever=mocker.MagicMock(),
         )
         ctor = mocker.patch("briar.commands.runbook.RunbookScheduler", return_value=fake)
@@ -101,6 +102,7 @@ class TestServeFlags:
     def test_tick_default_is_one(self, cli, mocker, tmp_path) -> None:
         fake = SimpleNamespace(
             register_all=mocker.MagicMock(return_value=[]),
+            check_logins=mocker.MagicMock(),
             run_forever=mocker.MagicMock(),
         )
         mocker.patch("briar.commands.runbook.RunbookScheduler", return_value=fake)

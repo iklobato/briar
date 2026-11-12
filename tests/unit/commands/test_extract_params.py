@@ -50,6 +50,9 @@ from briar.extract.canonical import SHARED_CONCEPTS
 from briar.extract._provider import CiRun, Commit, Deployment, Environment, PullRequest, ReviewComment
 from briar.extract._tracker import Ticket
 
+# The login check passes: these tests are about what a run does after it (spec 005 PR 3).
+pytestmark = pytest.mark.usefixtures("logins_pass")
+
 # ─── recording doubles ────────────────────────────────────────────────
 
 

@@ -183,6 +183,7 @@ you release, how often CI passes.
 
 ```bash
 briar init --company myteam    # creates .briar.toml, a small settings file in your repo
+briar auth login github --company myteam   # saves a GitHub token, once GitHub accepts it
 briar doctor                   # shows your settings and checks that briar has what it needs
 briar extract --include pr-archaeology --include release-cadence --include ci-health
                                # collects three kinds of facts
@@ -195,12 +196,17 @@ cat ./knowledge/knowledge/myteam.md  # prints the facts briar saved
   name, and writes them into `.briar.toml` with the team name you chose
   (`myteam` is just a label). After this, no command needs `--company` or
   `--repo`.
+- `auth login github` asks for a fine-grained token, asks GitHub who it
+  belongs to, and saves it to `~/.config/briar/secrets.env` only when
+  GitHub accepts it.
 - `doctor` prints two tables. The first lists each setting (`company`,
   `owner`, `repo`, `telemetry` and more) and where it came from. The
-  second checks Python, the settings file, the git remote and your GitHub
-  token: `ok` means ready, `warn` tells you what is missing and what needs
-  it.
-- `extract` runs the extractors you name with `--include`. They ask the
+  second checks Python, the settings file, the git remote and each login
+  you set up, live: `ok` means ready, `fail` says what to fix, `warn` means
+  briar could not reach the source.
+- `extract` first checks the login of each source it will read, and the
+  repo it reads, and stops with the fix if one fails. Then it runs the
+  extractors you name with `--include`. They ask the
   GitHub API for your merged PRs (`pr-archaeology`), your releases
   (`release-cadence`) and your last 100 CI runs (`ci-health`), and sum
   them up. The result is saved as one markdown file under `./knowledge/`,

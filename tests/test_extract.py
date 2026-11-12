@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import argparse
 import unittest
+
+import pytest
 from unittest import mock
 
 from briar.extract import EXTRACTORS
@@ -237,22 +239,12 @@ class RepositoryProviderTests(unittest.TestCase):
         provider = make_provider("github", FakeLogins(environ={"BRIAR_ACME_GITHUB_TOKEN": "PLACEHOLDER-not-a-secret"}).logins())
         self.assertTrue(provider.is_available())
 
-    def test_github_provider_unavailable_without_token(self) -> None:
-        from briar.extract._providers import make_provider
-
-        self.assertFalse(make_provider("github", FakeLogins().logins()).is_available())
-
     def test_bitbucket_provider_reads_per_company_creds(self) -> None:
         from briar.extract._providers import make_provider
 
         environ = {"BRIAR_ACME_BITBUCKET_EMAIL": "bot@example.test", "BRIAR_ACME_BITBUCKET_TOKEN": "PLACEHOLDER-not-a-secret"}
         provider = make_provider("bitbucket", FakeLogins({"bitbucket": {"workspace": "acme"}}, environ).logins())
         self.assertTrue(provider.is_available())
-
-    def test_bitbucket_provider_unavailable_without_company_creds(self) -> None:
-        from briar.extract._providers import make_provider
-
-        self.assertFalse(make_provider("bitbucket", FakeLogins({"bitbucket": {"workspace": "acme"}}).logins()).is_available())
 
     def test_pull_request_dataclass_is_provider_neutral(self) -> None:
         """The PR shape extractors consume must NOT carry provider-specific
@@ -331,6 +323,7 @@ class ExtractCodebaseConventionsTests(unittest.TestCase):
         self.assertEqual(sub.data["linter"], "ruff")
 
 
+@pytest.mark.usefixtures("logins_pass")
 class RunbookExtractTests(unittest.TestCase):
     """End-to-end: runbook YAML with `extract:` → executor.extract_runbook
     writes the markdown to disk."""

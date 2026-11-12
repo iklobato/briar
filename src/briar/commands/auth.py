@@ -4,14 +4,16 @@ The thing you log into is the **positional target**, a source name (spec 005, G9
 
   briar auth login jira --company acme                            # asks what `[auth.jira] method` needs
   briar auth login jira --company acme --runbook runbooks/a.yaml  # the choices of a runbook company (G6)
-  briar auth status jira --company acme                           # the names that login needs, set or missing
+  briar auth status jira --company acme                           # checks that login live
+  briar auth status --company acme                                # checks every configured login
   briar auth status                                               # every credential name held
 
 The values go to `secrets.env`, the only store (L3, G16); the choices (`method`,
 `site`, `workspace`) come from the config, which briar never writes (H1). Two
 operations since 2.0 (decision C15). AWS, GCP and Azure log in through their
 own CLI (`aws`, `gcloud`, `az`; spec 005 I1 to I3), and briar saves nothing
-for them."""
+for them. `login` checks the login ("who am I") before it saves (J9); `status`
+checks it live with the resources the run reads (J11, J13, J14)."""
 
 from __future__ import annotations
 
@@ -21,11 +23,12 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar, Dict, List, Tuple
+from typing import ClassVar, Dict, List, Sequence, Tuple
 
 import typer
 
 from briar.auth import TerminalPromptIO
+from briar.auth.check import CheckResult, CheckState, LoginCheck, LoginTarget
 from briar.auth.config import AuthTable
 from briar.auth.logins import CompanyLogins, LoginScope
 from briar.commands._enums import ExitCode
@@ -57,6 +60,25 @@ class AuthChoices:
             return self._from_runbook(Path(self._runbook))
         return self._from_project()
 
+    def run_targets(self, logins: CompanyLogins) -> List[LoginTarget]:
+        """What the run of this company reads (J11): its runbook tasks with `--runbook`, else
+        `briar extract` in this project."""
+        from briar.commands.extract import ExtractConfig, ExtractPlan
+
+        if self._runbook:
+            return self._runbook_targets(logins)
+        config = ExtractConfig.from_project()
+        config.check()
+        return ExtractPlan(config, config.command_line(self._company), logins).run_targets()
+
+    def _runbook_targets(self, logins: CompanyLogins) -> List[LoginTarget]:
+        from briar.extract import EXTRACTORS
+        from briar.iac.runbook.executor import RunbookLoader, RunbookLoginCheck, RunbookSchedules
+
+        runbook_file = RunbookLoader.load(Path(self._runbook))
+        schedules = RunbookSchedules.for_company(runbook_file.companies[self._company])
+        return RunbookLoginCheck(runbook_file, EXTRACTORS).targets(logins, schedules)
+
     def _from_project(self) -> CompanyLogins:
         from briar.config import find_config_file, load_project_config
 
@@ -70,7 +92,7 @@ class AuthChoices:
         companies = RunbookLoader.load(path).companies
         if self._company not in companies:
             raise CliError(f"company {self._company!r} is not in {path} (companies: {', '.join(companies)})")
-        scope = LoginScope(self._company, str(path), f"companies.{self._company}.auth")
+        scope = LoginScope(self._company, str(path), f"companies.{self._company}.auth", runbook=str(path))
         return CompanyLogins(scope, companies[self._company].auth, os.environ)
 
 
@@ -80,8 +102,8 @@ class CommandAuth(Command):
     STORE = "envfile"
 
     OP_HELP = {
-        "login": "Log into a source: asks what its `[auth.<source>]` method needs and saves it to secrets.env.",
-        "status": "With a source: the names its login needs and which are set. Without: every credential name held (names only, no values).",
+        "login": "Log into a source: asks what its `[auth.<source>]` method needs, checks it, and saves it to secrets.env.",
+        "status": "Checks the login of a source live, or every configured source of the company. With no company: every credential name held.",
     }
 
     _ACTIONS: ClassVar[Dict[str, str]] = {
@@ -104,8 +126,15 @@ class CommandAuth(Command):
     # ────────────────────────────── login ──────────────────────────────
 
     def _login(self, args: argparse.Namespace) -> int:
+        from briar.extract.login_probes import SourceProbes
+
         log.info("auth-login: target=%s company=%s store=%s", args.target, args.company or "(none)", self.STORE)
-        entries = AuthChoices(args.company, args.runbook).logins().source(args.target).login(TerminalPromptIO())
+        logins = AuthChoices(args.company, args.runbook).logins()
+        entries = logins.source(args.target).login(TerminalPromptIO())
+        # J9: "who am I" with the values just entered, before anything is saved.
+        checked = logins.with_entries(entries)
+        for line in LoginCheck(checked).require([LoginTarget(SourceProbes(checked).target(args.target).probe)]):
+            self._say(f"auth: {line.line()}")
         if not entries:
             self._say(f"auth: {args.target} login done; its CLI keeps the login, briar saved nothing (L3)")
             return int(ExitCode.OK)
@@ -114,25 +143,29 @@ class CommandAuth(Command):
     # ────────────────────────────── status ─────────────────────────────
 
     def _status(self, args: argparse.Namespace) -> int:
-        if not args.target:
-            return self._held(args.company)
-        login = AuthChoices(args.company, args.runbook).logins().source(args.target)
-        lines = login.status_lines(EnvFileStore())
-        self._say(f"auth-status: target={args.target} company={args.company or '(none)'} store={self.STORE}")
-        for line in lines:
-            self._say(f"  {'ok  ' if line.ok else 'MISS'}  {line.label}")
-        hint = login.legacy_hint()
-        if hint:
-            self._say(f"  hint: {hint}")
-        return 0 if all(line.ok for line in lines) else 1
+        from briar.extract.login_probes import SourceProbes
 
-    def _held(self, company: str) -> int:
-        """`auth status` with no target: every credential name held, as 1.x `auth list` did."""
-        names = EnvFileStore().list()
-        token = company.upper().replace("-", "_")
-        held = [name for name in names if not company or f"_{token}_" in f"_{name}_"]
+        if not args.target and not args.company:
+            return self._held()
+        choices = AuthChoices(args.company, args.runbook)
+        logins = choices.logins()
+        sources = [args.target] if args.target else logins.configured()
+        self._say(f"auth-status: company={args.company} sources={', '.join(sources) or '(none configured)'}")
+        lines = LoginCheck(logins).check(SourceProbes(logins).for_sources(sources, choices.run_targets(logins)))
+        return self._report(lines)
+
+    def _report(self, lines: Sequence[CheckResult]) -> int:
+        """J14: a network error is shown and exits 0, as in `doctor`; any other failure exits 1."""
+        for line in lines:
+            self._say(f"  {line.state.value:<11}  {line.line()}")
+        failed = any(line.state is CheckState.FAILED for line in lines)
+        return int(ExitCode.GENERAL_ERROR) if failed else int(ExitCode.OK)
+
+    def _held(self) -> int:
+        """`auth status` with no target and no company: every credential name held."""
+        held = EnvFileStore().list()
         if not held:
-            self._say(f"(no credentials in store={self.STORE}{' for company=' + company if company else ''})")
+            self._say(f"(no credentials in store={self.STORE})")
             return 0
         self._say(f"store={self.STORE}  {len(held)} entry(ies):")
         for name in held:
@@ -192,6 +225,8 @@ class AuthLoginOptions(CommandOptions):
 class AuthStatusOptions(CommandOptions):
     ROUTE = Route(CommandAuth.name, "auth_action", "status")
 
-    target: str = typer.Argument("", metavar="[TARGET]", callback=RegistryChoice(LoginTargets).check, help=TARGET_HELP + " Leave it out to list every credential name held.")
-    company: str = typer.Option("", "--company", help="The company; without a target, keeps only that company's names.")
+    target: str = typer.Argument(
+        "", metavar="[TARGET]", callback=RegistryChoice(LoginTargets).check, help=TARGET_HELP + " Leave it out to check every configured login."
+    )
+    company: str = typer.Option("", "--company", help="The company to check; with no company and no target, lists every credential name held.")
     runbook: str = typer.Option("", "--runbook", metavar="FILE", help=RUNBOOK_HELP)

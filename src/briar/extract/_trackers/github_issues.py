@@ -43,13 +43,21 @@ def _kind_priority_from_labels(labels: List[str]) -> tuple:
 
 class GithubIssuesTracker(TrackerProvider):
     kind = "github-issues"
+    login_source = "github"
     project_is_repo_slug = True
 
     def __init__(self, *, logins: Optional[CompanyLogins] = None) -> None:
         self._logins = logins
 
     def is_available(self) -> bool:
-        return self._login().ready()
+        """The login is the job of the check before the run (spec 005, J15)."""
+        return True
+
+    def who_am_i(self) -> str:
+        return self._api().account()
+
+    def read(self, resource: str) -> None:
+        self._api().read_repo(resource)
 
     def _login(self) -> GithubLogin:
         """The GitHub login of the company (spec 005); with no logins, the defaults of no company."""

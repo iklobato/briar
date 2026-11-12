@@ -1,4 +1,4 @@
-"""One login per source per company (decisions G5, G7, G8, G25, H1, H2, H7).
+"""One login per source per company (decisions G5, G7, G8, G25, H1, H2, H7, J9, J10, J17).
 
 The environment is a plain dict: the logins read it the way they read
 `os.environ` after the startup bootstrap loaded `secrets.env`."""
@@ -73,26 +73,32 @@ class TestNames:
         assert str(caught.value) == "no company: pass --company or set `company` in .briar.toml"
 
 
-class TestReady:
-    def test_nothing_set_is_not_ready(self) -> None:
-        assert LoginsFor({"jira": {"site": "acme.atlassian.net"}}, {}).logins().jira().ready() is False
+class TestProblem:
+    def test_nothing_saved_names_the_secrets_and_the_login(self) -> None:
+        problem = LoginsFor({"jira": {"site": "acme.atlassian.net"}}, {}).logins().jira().problem()
 
-    def test_secrets_and_site_are_ready(self) -> None:
+        assert problem == "no login saved (BRIAR_ACME_CO_JIRA_EMAIL, BRIAR_ACME_CO_JIRA_TOKEN); run `briar auth login jira --company acme-co`"
+
+    def test_secrets_and_site_have_no_problem(self) -> None:
         environ = {"BRIAR_ACME_CO_JIRA_EMAIL": "bot@example.test", "BRIAR_ACME_CO_JIRA_TOKEN": FAKE_TOKEN}
 
         login = LoginsFor({"jira": {"site": "https://acme.atlassian.net/"}}, environ).logins().jira()
 
-        assert login.ready() is True
+        assert login.problem() == ""
         assert login.site_url() == "https://acme.atlassian.net"
 
-    def test_secrets_without_the_site_stop(self) -> None:
+    def test_secrets_without_the_site_say_what_to_add(self) -> None:
         """H1: briar never writes the config; it says what to add where."""
         environ = {"BRIAR_ACME_CO_JIRA_EMAIL": "bot@example.test", "BRIAR_ACME_CO_JIRA_TOKEN": FAKE_TOKEN}
 
-        with pytest.raises(CliError) as caught:
-            LoginsFor({}, environ).logins().jira().ready()
+        assert LoginsFor({}, environ).logins().jira().problem() == "set `site` under `auth.jira` in .briar.toml (briar jira login for acme-co)"
 
-        assert str(caught.value) == "set `site` under `auth.jira` in .briar.toml (briar jira login for acme-co)"
+    def test_a_runbook_login_names_the_runbook_in_the_fix(self) -> None:
+        """J17: the fix of a runbook company takes `--runbook`."""
+        block = AuthTable({}, ".briar.toml").block()
+        logins = CompanyLogins(LoginScope("acme-co", "runbooks/a.yaml", "companies.acme-co.auth", runbook="runbooks/a.yaml"), block, {})
+
+        assert logins.fireflies().problem().endswith("run `briar auth login fireflies --company acme-co --runbook runbooks/a.yaml`")
 
 
 class TestLegacyNames:
@@ -118,19 +124,41 @@ class TestLegacyNames:
         ],
         ids=["jira token", "jira url", "linear", "fireflies", "bitbucket", "github"],
     )
-    def test_a_1x_name_with_no_2x_login_stops_with_the_new_place(self, case: LegacyCase) -> None:
-        with pytest.raises(CliError) as caught:
-            LoginsFor({}, case.environ).logins().source(case.source).ready()
+    def test_a_1x_name_with_no_2x_login_names_the_new_place(self, case: LegacyCase) -> None:
+        problem = LoginsFor({}, case.environ).logins().source(case.source).problem()
 
-        assert str(caught.value) == f"{case.message}. Or run `briar auth login {case.source} --company acme-co`"
+        assert problem == f"{case.message}. Or run `briar auth login {case.source} --company acme-co`"
 
     def test_a_1x_name_next_to_the_2x_login_is_ignored(self) -> None:
         environ = {"GITHUB_TOKEN": "fake-1x", "BRIAR_ACME_CO_GITHUB_TOKEN": FAKE_TOKEN}
 
         login = LoginsFor({}, environ).logins().github()
 
-        assert login.ready() is True
+        assert login.problem() == ""
         assert login.token() == FAKE_TOKEN
+
+
+class TestConfigured:
+    """J10: a source is configured by its `[auth.<source>]` block or a saved secret."""
+
+    def test_a_block_or_a_secret_configures_a_source(self) -> None:
+        logins = LoginsFor({"azure": {"tenant": "t1"}}, {"BRIAR_ACME_CO_LINEAR_API_KEY": FAKE_TOKEN}).logins()
+
+        assert logins.configured() == ["linear", "azure"]
+
+    def test_a_secret_of_another_method_counts(self) -> None:
+        logins = LoginsFor({}, {"BRIAR_ACME_CO_JIRA_COOKIE": "session=fake"}).logins()
+
+        assert logins.configured() == ["jira"]
+
+    def test_nothing_set_configures_nothing(self) -> None:
+        assert LoginsFor({}, {}).logins().configured() == []
+
+    def test_values_not_saved_yet_reach_the_login(self) -> None:
+        """J9: `briar auth login` checks the entered values before saving them."""
+        logins = LoginsFor({}, {}).logins().with_entries({"BRIAR_ACME_CO_FIREFLIES_API_KEY": FAKE_TOKEN})
+
+        assert (logins.fireflies().problem(), logins.fireflies().api_key()) == ("", FAKE_TOKEN)
 
 
 class TestLogin:
@@ -185,23 +213,18 @@ class TestCliLogins:
         """I6: without `profile`, `config_dir` or `tenant` a run uses the default of the cloud."""
         logins = LoginsFor({}, {}).logins()
 
-        assert (logins.aws().ready(), logins.gcp().ready(), logins.azure().ready()) == (True, True, True)
+        assert (logins.aws().problem(), logins.gcp().problem(), logins.azure().problem()) == ("", "", "")
         assert (logins.aws().profile(), logins.gcp().adc_file(), logins.azure().tenant()) == ("", None, "")
 
     def test_the_1x_aws_keys_without_a_profile_stop_the_run(self) -> None:
         login = LoginsFor({}, {"AWS_ACME_CO_REGION": "eu-west-1"}).logins().aws()
 
-        with pytest.raises(CliError) as caught:
-            login.ready()
-
-        assert (
-            str(caught.value) == "`AWS_ACME_CO_REGION` is a 1.x name: use `region` under `[extract.aws-infra]`. Or run `briar auth login aws --company acme-co`"
-        )
+        assert login.problem() == "`AWS_ACME_CO_REGION` is a 1.x name: use `region` under `[extract.aws-infra]`. Or run `briar auth login aws --company acme-co`"
 
     def test_the_1x_aws_keys_next_to_a_profile_are_ignored(self) -> None:
         login = LoginsFor({"aws": {"profile": "acme"}}, {"AWS_ACME_CO_ACCESS_KEY_ID": FAKE_TOKEN}).logins().aws()
 
-        assert login.ready() is True
+        assert login.problem() == ""
 
     def test_the_gcp_adc_file_is_in_the_company_folder(self, tmp_path: Path) -> None:
         login = LoginsFor({"gcp": {"config_dir": str(tmp_path / "gcloud-acme")}}, {}).logins().gcp()

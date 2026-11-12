@@ -5,7 +5,7 @@ These commands help you set briar up and check the setup:
 | Command | What it does |
 |---|---|
 | `briar init` | Writes a starter `.briar.toml` project config file. |
-| `briar doctor` | Shows each setting's value and where it came from, then checks your machine: Python, config, git, keys. |
+| `briar doctor` | Shows each setting's value and where it came from, then checks your machine (Python, config, git) and each login of your company, live. |
 | `briar --install-completion` | Adds tab completion to your shell. |
 
 This page also covers the global flags `--format`, `--verbose` and
@@ -151,7 +151,8 @@ printed this table with `briar config show`; 2.0 removed that command
 (decision C16).
 
 The second table has one row per check, with the status `ok`, `warn` or
-`fail`. It makes no network calls. It exits with code 1 only when a check
+`fail`. The login rows call each source (the same check a run makes); the
+other rows make no network call. It exits with code 1 only when a check
 fails, so you can use it in CI.
 
 | Check | `ok` when | Otherwise |
@@ -160,7 +161,8 @@ fails, so you can use it in CI.
 | `briar` | Always. Shows the briar version. | |
 | `project config` | A `.briar.toml` (or `[tool.briar]`) is found. | `warn`: run `briar init`. |
 | `git remote` | An `origin` remote gives an owner and repo. | `warn`: run `briar init --owner OWNER --repo REPO`, or set them under `[repo]` in `.briar.toml`. |
-| `github login` | The GitHub login of the company is saved (`BRIAR_<COMPANY>_GITHUB_TOKEN`). | `warn`: run `briar auth login github --company <company>`; with a 1.x `GITHUB_TOKEN` set, it says where the token goes now. |
+| `<source> login` | One row per configured source of the company (an `[auth.<source>]` block, a saved value, or a 1.x name): the source says who the login is, and briar reads the repos and projects `briar extract` would read. Shows the account. | `fail`: no login saved, the login was refused, or a resource it cannot read, with the fix; a 1.x name says where the value goes now. `warn`: briar could not reach the source. |
+| `logins` | Shown instead of the rows above when there is nothing to check. | `warn`: no company set, or no login configured for it. `fail`: the `[extract]` table has an error. |
 
 ### Use it when
 
@@ -200,7 +202,8 @@ You get `company  acme  env (BRIAR_COMPANY)` in the settings table.
 
 ### Good to know
 
-- `doctor` only checks that keys are set, not that they work.
+- The login rows test each login against its source, so `doctor` needs the
+  network for them; offline they show `warn` and the exit code stays 0.
 - The settings table cannot see flags, because you type those per
   command. A flag always wins over what it shows.
 - For the keys one source needs, use `briar auth status <target>

@@ -342,10 +342,6 @@ class SeamTests(unittest.TestCase):
     def test_clone_url(self) -> None:
         self.assertEqual(GithubProvider().clone_url("acme", "app"), "https://github.com/acme/app.git")
 
-    def test_is_available_tracks_token(self) -> None:
-        self.assertTrue(GithubProvider(logins=FakeLogins(environ={"BRIAR_ACME_GITHUB_TOKEN": "PLACEHOLDER-not-a-secret"}).logins()).is_available())
-        self.assertFalse(GithubProvider(logins=FakeLogins().logins()).is_available())
-
     def test_sends_the_company_token(self) -> None:
         provider = GithubProvider(logins=FakeLogins(environ={"BRIAR_ACME_GITHUB_TOKEN": "PLACEHOLDER-not-a-secret"}).logins())
         self.assertEqual(provider._api().client()._Github__requester.auth.token, "PLACEHOLDER-not-a-secret")

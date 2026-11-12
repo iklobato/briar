@@ -1,22 +1,24 @@
 """`briar auth`: the effect of every option of `login` and `status` (C15, spec 005
-G6, G9, H1).
+G6, G9, H1, J9, J13).
 
-  login    target (a source name) · --company · --runbook
-  status   [target] · --company · --runbook   (no target: every credential name held)
+  login    target (a source name) · --company · --runbook   (checks before it saves)
+  status   [target] · --company · --runbook   (no target: every configured login; no company: the names held)
 
-The store and the terminal prompt are fakes at the command seams; values are never echoed."""
+The store, the terminal prompt and the sources (`fake_sources`) are fakes at the
+command seams; values are never echoed."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import pytest
 from pytest_mock import MockerFixture
 
 from briar.auth import MockPromptIO
+from tests.unit.fake_logins import FakeProbe
 
 FAKE_SECRET = "ACCESS-TOKEN-PLACEHOLDER-not-a-secret"
 USAGE_ERROR = 2
@@ -53,15 +55,18 @@ class Seam:
         return store
 
 
+@pytest.mark.usefixtures("fake_sources")
 class TestCompanyFlag:
-    def test_status_without_target_keeps_the_company_names(self, cli: Callable[..., SimpleNamespace], mocker: MockerFixture) -> None:
-        Seam({"BRIAR_ACME_JIRA_TOKEN": "x", "BRIAR_GLOBEX_JIRA_TOKEN": "y"}).install(mocker)
+    def test_status_without_target_checks_only_that_company(
+        self, cli: Callable[..., SimpleNamespace], mocker: MockerFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        Seam().install(mocker)
+        monkeypatch.setenv("BRIAR_ACME_FIREFLIES_API_KEY", FAKE_SECRET)
+        monkeypatch.setenv("BRIAR_GLOBEX_LINEAR_API_KEY", FAKE_SECRET)
 
         run = cli("auth", "status", "--company", "acme")
 
-        assert run.code == 0
-        assert "BRIAR_ACME_JIRA_TOKEN" in run.out
-        assert "BRIAR_GLOBEX_JIRA_TOKEN" not in run.out
+        assert (run.code, run.out.splitlines()[1:]) == (0, ["  ok           fireflies (acme): bot@example.test"])
 
     def test_status_without_target_or_company_lists_all(self, cli: Callable[..., SimpleNamespace], mocker: MockerFixture) -> None:
         Seam({"BRIAR_ACME_JIRA_TOKEN": "x", "BRIAR_GLOBEX_JIRA_TOKEN": "y"}).install(mocker)
@@ -70,25 +75,72 @@ class TestCompanyFlag:
 
         assert (run.code, "BRIAR_ACME_JIRA_TOKEN" in run.out, "BRIAR_GLOBEX_JIRA_TOKEN" in run.out) == (0, True, True)
 
-    def test_status_names_the_secrets_of_the_company(self, cli: Callable[..., SimpleNamespace], mocker: MockerFixture) -> None:
-        Seam({"BRIAR_ACME_FIREFLIES_API_KEY": FAKE_SECRET}).install(mocker)
+    def test_status_checks_the_login_of_the_company(self, cli: Callable[..., SimpleNamespace], mocker: MockerFixture, monkeypatch: pytest.MonkeyPatch) -> None:
+        Seam().install(mocker)
+        monkeypatch.setenv("BRIAR_ACME_FIREFLIES_API_KEY", FAKE_SECRET)
 
         run = cli("auth", "status", "fireflies", "--company", "acme")
 
-        assert run.code == 0
-        assert "ok    BRIAR_ACME_FIREFLIES_API_KEY" in run.out
-        assert FAKE_SECRET not in run.out
+        assert (run.code, "  ok           fireflies (acme): bot@example.test" in run.out, FAKE_SECRET in run.out) == (0, True, False)
 
-    def test_login_writes_under_the_company(self, cli: Callable[..., SimpleNamespace], mocker: MockerFixture) -> None:
+    def test_login_checks_then_writes_under_the_company(self, cli: Callable[..., SimpleNamespace], mocker: MockerFixture) -> None:
         store = Seam(answers=[FAKE_SECRET]).install(mocker)
 
         run = cli("auth", "login", "fireflies", "--company", "globex")
 
         assert run.code == 0
         assert store.writes == [("BRIAR_GLOBEX_FIREFLIES_API_KEY", FAKE_SECRET)]
+        assert "auth: fireflies (globex): bot@example.test" in run.out
         assert FAKE_SECRET not in run.out
 
 
+@dataclass(frozen=True)
+class LoginSeam:
+    """The store the login writes to, and the sources it checks."""
+
+    store: FakeStore
+    sources: Any
+
+
+@dataclass(frozen=True)
+class FailedLogin:
+    probe: FakeProbe
+    shown: str
+
+
+class TestLoginCheck:
+    """J9: `briar auth login` runs "who am I" with the values entered, and saves only when it passes."""
+
+    @pytest.fixture
+    def seam(self, mocker: MockerFixture, fake_sources: Any) -> LoginSeam:
+        return LoginSeam(Seam(answers=[FAKE_SECRET]).install(mocker), fake_sources)
+
+    @pytest.mark.parametrize(
+        "failed",
+        [
+            FailedLogin(FakeProbe("fireflies", refused="HTTP 401: Unauthorized"), "fireflies (globex): the login was refused (HTTP 401: Unauthorized)"),
+            FailedLogin(FakeProbe("fireflies", unreachable="no connection"), "fireflies (globex): could not reach it (no connection)"),
+        ],
+        ids=["refused", "network"],
+    )
+    def test_a_login_that_fails_its_check_saves_nothing(self, cli: Callable[..., SimpleNamespace], seam: LoginSeam, failed: FailedLogin) -> None:
+        seam.sources.probe(failed.probe)
+
+        run = cli("auth", "login", "fireflies", "--company", "globex")
+
+        assert (run.code, seam.store.writes, failed.probe.calls) == (1, [], ["who_am_i"])
+        assert f"  - {failed.shown}" in run.out
+
+    def test_the_login_check_reads_no_resource(self, cli: Callable[..., SimpleNamespace], seam: LoginSeam) -> None:
+        """J9: the login does not know which repos a run will read."""
+        probe = seam.sources.probe(FakeProbe("fireflies"))
+
+        cli("auth", "login", "fireflies", "--company", "globex")
+
+        assert probe.calls == ["who_am_i"]
+
+
+@pytest.mark.usefixtures("fake_sources")
 class TestTarget:
     def test_target_omitted_is_usage_error(self, cli: Callable[..., SimpleNamespace], mocker: MockerFixture) -> None:
         Seam().install(mocker)
@@ -117,9 +169,10 @@ class TestTarget:
         run = cli("auth", "status", target, "--company", "acme")
 
         assert run.code == 1
-        assert f"MISS  BRIAR_ACME_{target.upper()}_" in run.out
+        assert f"  failed       {target} (acme): no login saved (BRIAR_ACME_{target.upper()}_" in run.out
 
 
+@pytest.mark.usefixtures("fake_sources")
 class TestConfig:
     def test_login_without_the_site_stops_and_asks_nothing(self, cli: Callable[..., SimpleNamespace], mocker: MockerFixture) -> None:
         """H1: briar never writes the config; it says what to add where."""
@@ -154,10 +207,10 @@ class TestConfig:
 
     def test_status_gives_the_1x_hint(self, cli: Callable[..., SimpleNamespace], mocker: MockerFixture) -> None:
         """G8: the status of a login names the 1.x env var that stands in for it."""
-        Seam({"JIRA_ACME_TOKEN": FAKE_SECRET}).install(mocker)
+        Seam().install(mocker)
         mocker.patch.dict("os.environ", {"JIRA_ACME_TOKEN": FAKE_SECRET})
 
         run = cli("auth", "status", "jira", "--company", "acme")
 
         assert run.code == 1
-        assert "hint: `JIRA_ACME_TOKEN` is a 1.x name: use `BRIAR_ACME_JIRA_TOKEN`" in run.out
+        assert "  failed       jira (acme): `JIRA_ACME_TOKEN` is a 1.x name: use `BRIAR_ACME_JIRA_TOKEN`" in run.out

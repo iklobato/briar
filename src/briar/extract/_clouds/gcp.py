@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import importlib
 import logging
+from functools import partial
 from typing import Any, ClassVar, List, Optional, Tuple
 
 from briar.auth.logins import CompanyLogins, GcpLogin
 from briar.decorators import swallow_errors
 from briar.errors import CliError
+from briar.extract._login_failures import GoogleFailures
 from briar.extract._cloud import (
     AccountIdentity,
     CloudProvider,
@@ -37,6 +39,7 @@ def _try_import(module: str) -> Optional[Any]:
 
 class GcpCloudProvider(CloudProvider):
     kind = "gcp"
+    login_source = "gcp"
 
     SCOPES: ClassVar[Tuple[str, ...]] = ("https://www.googleapis.com/auth/cloud-platform",)
 
@@ -52,10 +55,32 @@ class GcpCloudProvider(CloudProvider):
         return self._login().project()
 
     def is_available(self) -> bool:
-        # Conservative: needs both a project id AND at least the auth library.
-        if not self._project_id or not self._login().ready():
+        """A project and google-auth; the login is the job of the check (spec 005, J15)."""
+        if not self._project_id:
             return False
         return _try_import("google.auth") is not None
+
+    def scope(self) -> Tuple[str, ...]:
+        return (self._project_id,) if self._project_id else ()
+
+    def who_am_i(self) -> str:
+        return GoogleFailures().account(self._refreshed_account)
+
+    def read(self, resource: str) -> None:
+        GoogleFailures().read(partial(self._project, resource))
+
+    def _refreshed_account(self) -> str:
+        credentials = self._credentials()
+        transport = importlib.import_module("google.auth.transport.requests")
+        credentials.refresh(transport.Request())
+        return str(getattr(credentials, "service_account_email", "") or getattr(credentials, "account", "") or "application default credentials")
+
+    def _project(self, project: str) -> None:
+        discovery = _try_import("googleapiclient.discovery")
+        if discovery is None:
+            raise CliError("google-api-python-client not installed: run `pip install 'briar-cli[gcp]'`")
+        manager = discovery.build("cloudresourcemanager", "v1", credentials=self._credentials(), cache_discovery=False)
+        manager.projects().get(projectId=project).execute()
 
     def _credentials(self) -> Any:
         """The ADC of the company config folder, or the google-auth default chain."""

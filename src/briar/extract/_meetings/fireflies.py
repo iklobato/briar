@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional
 from briar._http_retry import urlopen_with_retry
 from briar.auth.logins import CompanyLogins, FirefliesLogin
 from briar.decorators import swallow_errors
+from briar.extract._login_failures import UrllibFailures
 from briar.extract._meeting import Meeting, MeetingDetail, MeetingProvider
 
 log = logging.getLogger(__name__)
@@ -37,6 +38,7 @@ _MAX_LIMIT = 50
 
 class FirefliesMeetingProvider(MeetingProvider):
     kind = "fireflies"
+    login_source = "fireflies"
 
     def __init__(self, *, logins: Optional[CompanyLogins] = None) -> None:
         self._logins = logins
@@ -45,7 +47,15 @@ class FirefliesMeetingProvider(MeetingProvider):
         return (self._logins or CompanyLogins.defaults("")).fireflies()
 
     def is_available(self) -> bool:
-        return self._login().ready()
+        """The login is the job of the check before the run (spec 005, J15)."""
+        return True
+
+    def who_am_i(self) -> str:
+        return UrllibFailures().account(self._user)
+
+    def _user(self) -> str:
+        user = self._gql("query { user { email name } }", {})["data"]["user"]
+        return str(user.get("email") or user.get("name") or "")
 
     @swallow_errors(default=[], message="fireflies list_meetings")
     def list_meetings(self, *, since_iso: str, until_iso: str, max_count: int, attendees: Optional[List[str]] = None) -> List[Meeting]:

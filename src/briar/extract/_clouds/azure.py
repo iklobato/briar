@@ -11,10 +11,13 @@ from __future__ import annotations
 
 import importlib
 import logging
-from typing import Any, List, Optional
+from functools import partial
+from typing import Any, List, Optional, Tuple
 
 from briar.auth.logins import AzureLogin, CompanyLogins
 from briar.decorators import swallow_errors
+from briar.errors import CliError
+from briar.extract._login_failures import AzureFailures
 from briar.extract._cloud import (
     AccountIdentity,
     CloudProvider,
@@ -37,6 +40,9 @@ def _try_import(module: str) -> Optional[Any]:
 
 class AzureCloudProvider(CloudProvider):
     kind = "azure"
+    login_source = "azure"
+    # The scope `AzureCliCredential` asks a token for in the login check.
+    MANAGEMENT_SCOPE = "https://management.azure.com/.default"
 
     def __init__(self, *, logins: Optional[CompanyLogins] = None, region: str = "") -> None:
         self._logins = logins
@@ -51,16 +57,37 @@ class AzureCloudProvider(CloudProvider):
         return self._login().subscription()
 
     def is_available(self) -> bool:
-        if not self._subscription_id or not self._login().ready():
+        """A subscription and azure-identity; the login is the job of the check (spec 005, J15)."""
+        if not self._subscription_id:
             return False
         return _try_import("azure.identity") is not None
+
+    def scope(self) -> Tuple[str, ...]:
+        return (self._subscription_id,) if self._subscription_id else ()
+
+    def who_am_i(self) -> str:
+        return AzureFailures().account(self._tenant_token)
+
+    def read(self, resource: str) -> None:
+        AzureFailures().read(partial(self._subscription, resource))
+
+    def _tenant_token(self) -> str:
+        self._build_credential().get_token(self.MANAGEMENT_SCOPE)
+        tenant = self._login().tenant()
+        return f"tenant {tenant}" if tenant else "the default tenant"
+
+    def _subscription(self, subscription: str) -> None:
+        sub_module = _try_import("azure.mgmt.subscription")
+        if sub_module is None:
+            raise CliError("azure-mgmt-subscription not installed: run `pip install 'briar-cli[azure]'`")
+        sub_module.SubscriptionClient(self._build_credential()).subscriptions.get(subscription)
 
     def _build_credential(self):
         if self._credential is not None:
             return self._credential
         az_identity = _try_import("azure.identity")
         if az_identity is None:
-            raise RuntimeError("azure-identity not installed — run `pip install briar-cli[azure]`")
+            raise CliError("azure-identity not installed: run `pip install 'briar-cli[azure]'`")
         tenant = self._login().tenant()
         self._credential = az_identity.AzureCliCredential(tenant_id=tenant) if tenant else az_identity.DefaultAzureCredential()
         return self._credential

@@ -179,10 +179,21 @@ You get a JSON list of rows.
 |---|---|
 | `wrote <N> bytes via store=<store>` | The blob was written. |
 | `skipped (unchanged, <N> bytes, hash=<8 chars>)` | The new text is the same as the stored one. Nothing was written. |
-| `empty (no sections)` | No extractor returned data. Often all of them lacked keys. Nothing was written. |
+| `empty (no sections)` | No extractor returned data, or none had its repo or project list. Nothing was written. |
 | `failed (...)` | The store could not be opened or written. See the log. |
 | `skipped (no schedule)` | The company has no tasks. |
 | `inventory wrote (<N> bytes)` | The inventory copy was written. |
+
+Before any task runs, `extract` checks the logins of every company and
+task it will run (after `--task`): each source says who the login is, and
+briar reads each repo and project the tasks read. If one fails, no task
+runs, there is no table, and the command exits with code 1 and lists every
+failure:
+
+```text
+error: the login check failed; fix these, then run again:
+  - fireflies (globex): no login saved (BRIAR_GLOBEX_FIREFLIES_API_KEY); run `briar auth login fireflies --company globex --runbook FILE`
+```
 
 ## `briar runbook serve`
 
@@ -225,16 +236,23 @@ You get the log in `/var/log/briar/scheduler.log`.
 
 ### Good to know
 
-- `serve` does not run anything at start. Each task first runs at its
-  next scheduled time. Run `briar runbook extract` once if you need
-  data now.
+- `serve` does not run any task at start. It checks the logins of every
+  company and task first, and does not start (exit code 1) if one fails.
+  Each task first runs at its next scheduled time. Run
+  `briar runbook extract` once if you need data now.
 - Tasks run one at a time. A slow task delays the next one.
 - At each run, briar reads that task's file again. So changes to `args`
   apply at the next run. New tasks, removed tasks and new `every:`
   values need a restart.
 - A bad file or a bad `every:` value stops `serve` at start. `extract`
   does not check `every:`, so test a new value with `serve`.
-- If a task fails while running, `serve` logs `FAILED task=...` and keeps going.
+- Before each task, `serve` checks its logins again. If that check fails
+  (a token expired, a network error), `serve` stops with exit code 1 for
+  every company and prints the failure: fix it, then start it again. A
+  process manager that restarts on failure starts it into the same check
+  until the source answers.
+- If a task fails while running for another reason, `serve` logs
+  `FAILED task=...` and keeps going.
 - `serve` never goes to the background on its own. Run it under a
   process manager such as systemd.
 

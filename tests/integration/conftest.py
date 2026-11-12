@@ -10,11 +10,16 @@ AWS goes through `moto` instead (see those tests).
 from __future__ import annotations
 
 import json
+import re
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Dict, List, Tuple
 
 import pytest
+
+
+# The status of a pattern route (a found resource).
+FOUND = 200
 
 
 class _MockApi:
@@ -28,13 +33,22 @@ class _MockApi:
         # served verbatim as text/plain (for sinks whose API returns a bare
         # non-JSON body, e.g. a Slack incoming webhook's literal "ok").
         self.routes: Dict[Tuple[str, str], List[Tuple[int, Any, bool]]] = {}
+        # (method, full-path regex) -> body: answers a whole path, before the prefix
+        # routes (the login check reads `/repos/<owner>/<repo>` itself, spec 005 PR 3).
+        self.patterns: List[Tuple[str, Any, Any]] = []
         self.received: List[Dict[str, Any]] = []
         self.base_url = ""
+
+    def add_pattern(self, method: str, path_regex: str, body: Any) -> None:
+        self.patterns.append((method.upper(), re.compile(path_regex), body))
 
     def add(self, method: str, path_prefix: str, body: Any, status: int = 200, raw: bool = False) -> None:
         self.routes.setdefault((method.upper(), path_prefix), []).append((status, body, raw))
 
     def _match(self, method: str, path: str) -> Tuple[int, Any, bool] | None:
+        for verb, pattern, body in self.patterns:
+            if verb == method and pattern.fullmatch(path):
+                return (FOUND, body, False)
         candidates = [(p, q) for (m, p), q in self.routes.items() if m == method and path.startswith(p) and q]
         if not candidates:
             return None
@@ -119,6 +133,9 @@ def github_at(mock_api, monkeypatch):
         return Github(base_url=mock_api.base_url, auth=Auth.Token(self._require_token()), per_page=100, retry=0, timeout=10)
 
     monkeypatch.setattr(_gh.GithubApi, "client", client)
+    # The login check (spec 005 PR 3): "who am I", then each repo the run reads.
+    mock_api.add("GET", "/user", {"login": "octo"})
+    mock_api.add_pattern("GET", r"/repos/[^/]+/[^/]+", {"full_name": "checked"})
     return mock_api
 
 
@@ -143,4 +160,16 @@ def jira_at(mock_api, monkeypatch):
     monkeypatch.setenv("BRIAR_ACME_JIRA_EMAIL", "bot@example.test")
     monkeypatch.setenv("BRIAR_ACME_JIRA_TOKEN", "PLACEHOLDER-not-a-secret")
     mock_api.jira_site_toml = f'[auth.jira]\nsite = "{mock_api.base_url}"\n'
+    # The login check (spec 005 PR 3): "who am I", then each project the run reads.
+    mock_api.add_pattern("GET", r"/rest/api/[23]/myself", {"emailAddress": "bot@example.test"})
+    mock_api.add_pattern("GET", r"/rest/api/[23]/project/[A-Z][A-Z0-9_]*", {"key": "checked"})
+    return mock_api
+
+
+@pytest.fixture
+def graphql_at(mock_api: _MockApi, monkeypatch: pytest.MonkeyPatch) -> _MockApi:
+    """Point the Linear and Fireflies GraphQL calls at the mock server (`POST /graphql`).
+    Caller seeds the answers with `mock_api.add("POST", "/graphql", ...)`."""
+    monkeypatch.setattr("briar.extract._trackers.linear._ENDPOINT", f"{mock_api.base_url}/graphql")
+    monkeypatch.setattr("briar.extract._meetings.fireflies._ENDPOINT", f"{mock_api.base_url}/graphql")
     return mock_api

@@ -258,42 +258,26 @@ def test_extract_aws_infra_empty_real(cli, tmp_root, monkeypatch) -> None:
     assert "### CloudWatch Logs\n\n_no groups_" in blob
 
 
-# ── UNREACHABLE: credential/identity failure degrades, never crashes ──────
+# A missing profile stops the run in the login check (spec 005 G12, J1) #
 
 
-def test_extract_aws_infra_unreachable_real(cli, tmp_root, monkeypatch) -> None:
-    """Credential-failure degradation contract. `[auth.aws] profile` names a
-    profile ("acme") that does not exist, so boto3 raises ProfileNotFound from
-    inside the real caller_identity() probe. The extractor must catch it and emit the
-    friendly UNREACHABLE section, not propagate a crash.
-
-    ProfileNotFound is raised during session construction (before any signing
-    or socket), so this path touches no network even outside moto. We pin the
-    boto3 config/credential files to nonexistent paths so a developer's local
-    ~/.aws/config can never accidentally define an 'acme' profile and mask the
-    failure."""
-    # env_sandbox already strips AWS_*; the profile comes from `[auth.aws]` (I4).
+def test_extract_aws_infra_missing_profile_stops_before_the_run(cli: Callable[..., SimpleNamespace], tmp_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`[auth.aws] profile` names a profile ("acme") that does not exist, so the REAL
+    boto3 session raises ProfileNotFound in the "who am I" of the login check: the run
+    stops with the fix and writes nothing. ProfileNotFound is raised while the session
+    is built, before any socket. The AWS files point at nonexistent paths so a local
+    ~/.aws/config can never define an 'acme' profile and mask the failure. Until
+    spec 005 PR 3 this wrote an UNREACHABLE section instead."""
     (tmp_root / ".briar.toml").write_text('[auth.aws]\nprofile = "acme"\n')
     monkeypatch.setenv("AWS_CONFIG_FILE", "/nonexistent/config")
     monkeypatch.setenv("AWS_SHARED_CREDENTIALS_FILE", "/nonexistent/credentials")
     monkeypatch.setenv("AWS_EC2_METADATA_DISABLED", "true")
 
-    root = tmp_root / "knowledge"
+    run = cli("extract", "--company", "acme", "--include", "aws-infra")
 
-    result = cli(
-        "extract",
-        "--company",
-        "acme",
-        "--include",
-        "aws-infra",
+    assert run.code == 1
+    assert run.err.strip() == (
+        "error: the login check failed; fix these, then run again:\n"
+        "  - aws (acme): the login was refused (The config profile (acme) could not be found); run `briar auth login aws --company acme`"
     )
-
-    assert result.code == 0, result.err
-    blob = _read_blob(root)
-    # The friendly degradation section, keyed off the real exception text.
-    assert "## AWS infrastructure (UNREACHABLE)" in blob
-    assert "Could not resolve caller identity —" in blob
-    assert "acme" in blob  # the missing-profile name surfaces in the reason
-    # And it did NOT render any resource subsections or a healthy title.
-    assert "account 123456789012" not in blob
-    assert "### ECS" not in blob
+    assert [path for path in (tmp_root / "knowledge").rglob("*") if path.is_file()] == []

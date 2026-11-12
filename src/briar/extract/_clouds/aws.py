@@ -14,6 +14,7 @@ from typing import Any, List, Optional
 
 from briar.decorators import swallow_errors
 from briar.auth.logins import AwsLogin, CompanyLogins
+from briar.extract._login_failures import BotoFailures
 from briar.extract._cloud import AccountIdentity, CloudProvider, ComputeResource, DatabaseResource, LogGroup, QueueResource
 
 log = logging.getLogger(__name__)
@@ -48,6 +49,7 @@ def _apply_default_config(session: Any) -> Any:
 
 class AwsCloudProvider(CloudProvider):
     kind = "aws"
+    login_source = "aws"
 
     def __init__(self, *, logins: Optional[CompanyLogins] = None, region: str = "") -> None:
         self._logins = logins
@@ -72,11 +74,18 @@ class AwsCloudProvider(CloudProvider):
         return self._session
 
     def is_available(self) -> bool:
+        """boto3 is there; the login is the job of the check before the run (spec 005, J15)."""
         try:
             import boto3  # noqa: F401
         except ImportError:
             return False
-        return self._login().ready()
+        return True
+
+    def who_am_i(self) -> str:
+        return BotoFailures().account(self._arn)
+
+    def _arn(self) -> str:
+        return str(self._make_session().client("sts").get_caller_identity().get("Arn") or "")
 
     def caller_identity(self) -> AccountIdentity:
         session = self._make_session()
