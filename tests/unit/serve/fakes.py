@@ -6,10 +6,10 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Mapping, Sequence, Tuple
+from typing import Any, ClassVar, Dict, List, Mapping, Sequence, Set, Tuple
 
 from briar.auth.check import LoginRejected
-from briar.extract._provider import ReviewComment
+from briar.extract._provider import PullState, ReviewComment
 from briar.extract._tracker import Ticket
 from briar.iac.runbook.models import ServeSettings
 from briar.serve.state import WorkState
@@ -78,11 +78,14 @@ class FakeIssues:
 
 @dataclass(frozen=True)
 class FakeGithub:
-    """`GithubProvider`: the token owner, the PR comments, and the repos it cannot push to."""
+    """`GithubProvider`: the token owner, the PRs with their comments and resolved threads,
+    and the repos it cannot push to. A PR it does not know is open, with no conflict."""
 
     login: str = "octo"
     comments: Mapping[Tuple[str, int], List[ReviewComment]] = field(default_factory=dict)
     read_only: Tuple[str, ...] = ()
+    pulls: Mapping[Tuple[str, int], PullState] = field(default_factory=dict)
+    resolved: Mapping[Tuple[str, int], Set[str]] = field(default_factory=dict)
     login_source: ClassVar[str] = "github"
 
     def read(self, resource: str) -> None:
@@ -91,8 +94,14 @@ class FakeGithub:
     def who_am_i(self) -> str:
         return self.login
 
-    def list_pr_comments(self, repo: str, number: int) -> List[ReviewComment]:
+    def pull_state(self, repo: str, number: int) -> PullState:
+        return self.pulls.get((repo, number), PullState(True, False, False, "main"))
+
+    def review_comments(self, repo: str, number: int) -> List[ReviewComment]:
         return list(self.comments.get((repo, number), []))
+
+    def resolved_comment_ids(self, repo: str, number: int) -> Set[str]:
+        return set(self.resolved.get((repo, number), set()))
 
     def can_write(self, repo: str) -> None:
         if repo in self.read_only:
@@ -118,7 +127,7 @@ class FakeSources:
 class Companies:
     """A company `acme` with a `serve:` block and a knowledge store in `root`."""
 
-    REQUIRED: Mapping[str, Any] = {"model": "claude-test", "max_usd": 5.0, "max_loops": 3, "ci_wait_minutes": 30}
+    REQUIRED: Mapping[str, Any] = {"model": "claude-test", "max_usd": 5.0, "max_loops": 3, "ci_wait_minutes": 30, "max_review_rounds": 2}
 
     def __init__(self, root: Path) -> None:
         self._root = root

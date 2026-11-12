@@ -9,6 +9,7 @@ from unittest import mock
 import pytest
 
 from briar.auth.check import LoginRejected
+from briar.extract._provider import PullState, ThreadReply
 from briar.extract._providers import make_provider
 from briar.extract._trackers import make_tracker
 from tests.unit.fake_logins import FakeLogins
@@ -18,6 +19,11 @@ MAX_TICKETS = 10
 ISSUE_NUMBER = 7
 PULL_NUMBER = 8
 UNPROCESSABLE = 422
+# GitHub ids and sizes of the review comment answers below.
+THREAD_START, REPLY, APPROVAL, REVIEW = 1, 2, 9, 10
+OPEN_THREAD_COMMENT = 3
+LINE = 3
+LONG_BODY = 2000
 
 
 class Logins:
@@ -104,3 +110,60 @@ class TestGithub:
         with mock.patch("briar.extract._gh.GithubApi.client", return_value=client):
             with pytest.raises(LoginRejected, match=r'^HTTP 422: 422 \{"message": "Validation Failed"\}$'):
                 make_provider("github", Logins().github()).open_pull("acme/app", PullRequestDraft("briar/ENG-1", "main", "t", "b"))
+
+
+class TestGithubReviews:
+    """The verbs of the review routine (spec 003 PR 3: V3 to V6, V9)."""
+
+    def test_pull_state_reads_open_merged_conflict_and_base(self) -> None:
+        answer = {"state": "open", "merged": False, "mergeable_state": "dirty", "base": {"ref": "main"}}
+
+        with mock.patch("briar.extract._gh.GithubApi.get_json", return_value=answer) as read:
+            state = make_provider("github", Logins().github()).pull_state("acme/app", PULL_NUMBER)
+
+        assert (state, read.call_args.args) == (PullState(True, False, True, "main"), ("/repos/acme/app/pulls/8",))
+
+    def test_review_comments_keep_who_wrote_them_and_drop_empty_reviews(self) -> None:
+        pages = {
+            "/repos/acme/app/pulls/8/comments": [
+                {"id": REPLY, "in_reply_to_id": THREAD_START, "user": {"login": "ann", "type": "User"}, "author_association": "MEMBER", "body": "x" * LONG_BODY, "path": "a.py", "line": LINE, "updated_at": "t2"}
+            ],
+            "/repos/acme/app/issues/8/comments": [{"id": REPLY, "user": {"login": "ci[bot]", "type": "Bot"}, "author_association": "NONE", "body": "coverage", "updated_at": "t3"}],
+            "/repos/acme/app/pulls/8/reviews": [{"id": APPROVAL, "user": {"login": "bob"}, "body": "", "state": "APPROVED"}, {"id": REVIEW, "user": {"login": "bob"}, "body": "please split", "submitted_at": "t4"}],
+        }  # fmt: skip
+
+        with mock.patch("briar.extract._gh.GithubApi.get_paginated", side_effect=lambda path: pages[path]):
+            found = make_provider("github", Logins().github()).review_comments("acme/app", PULL_NUMBER)
+
+        assert [(comment.key(), comment.author, comment.association, comment.bot, comment.updated_at, comment.thread) for comment in found] == [
+            ("inline:2", "ann", "MEMBER", False, "t2", "1"),
+            ("conversation:2", "ci[bot]", "NONE", True, "t3", "2"),
+            ("review:10", "bob", "", False, "t4", "10"),
+        ]
+        assert (len(found[0].body), found[0].file_path, found[0].line) == (LONG_BODY, "a.py", LINE)
+
+    def test_resolved_comment_ids_come_from_the_resolved_threads(self) -> None:
+        threads = [
+            {"isResolved": True, "comments": {"nodes": [{"databaseId": THREAD_START}, {"databaseId": REPLY}]}},
+            {"isResolved": False, "comments": {"nodes": [{"databaseId": OPEN_THREAD_COMMENT}]}},
+        ]
+        client = mock.MagicMock()
+        client._Github__requester.graphql_query.return_value = ({}, {"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": threads}}}}})
+
+        with mock.patch("briar.extract._gh.GithubApi.client", return_value=client):
+            found = make_provider("github", Logins().github()).resolved_comment_ids("acme/app", PULL_NUMBER)
+
+        assert found == {"1", "2"}
+        assert client._Github__requester.graphql_query.call_args.args[1] == {"owner": "acme", "name": "app", "number": PULL_NUMBER}
+
+    def test_a_refused_thread_reply_is_a_login_rejected(self) -> None:
+        from github import GithubException
+
+        client = mock.MagicMock()
+        client.get_repo.return_value.get_pull.return_value.create_review_comment_reply.side_effect = GithubException(UNPROCESSABLE, {"message": "No"}, None)
+
+        with mock.patch("briar.extract._gh.GithubApi.client", return_value=client):
+            with pytest.raises(LoginRejected, match=r"^HTTP 422: "):
+                make_provider("github", Logins().github()).reply_in_thread("acme/app", ThreadReply(PULL_NUMBER, "1", "fixed"))
+
+        assert client.get_repo.return_value.get_pull.return_value.create_review_comment_reply.call_args.args == (THREAD_START, "fixed")

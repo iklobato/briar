@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import argparse
 import os
+import platform
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -28,7 +30,7 @@ class CommandServe(Command):
         from briar.iac.runbook import RunbookScheduler
         from briar.logging import daemon_logging
         from briar.serve.loop import ServeLoops
-        from briar.serve.work import ServeCheck, ServeCompanies
+        from briar.serve.work import AgentSandbox, ServeCheck, ServeCompanies
 
         daemon_logging()
         directory = Path(args.directory)
@@ -40,7 +42,7 @@ class CommandServe(Command):
         scheduler = RunbookScheduler(directory)
         scheduler.register_all()
         scheduler.check_logins()
-        ServeCheck(companies, os.environ).require()
+        ServeCheck(companies, os.environ, AgentSandbox(platform.system(), shutil.which)).require()
         ServeLoops(companies, scheduler).loop().serve_forever()
         return 0
 

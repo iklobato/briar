@@ -3,15 +3,26 @@ edits files by script, and GitHub and Jira that record what briar writes."""
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Mapping, Sequence, Tuple
 
+import pytest
+
 from briar.auth.check import LoginRejected
-from briar.extract._provider import CiFailure, CiState, PullRequestDraft
+from briar.extract._provider import CiFailure, CiState, PullRequestDraft, ThreadReply
 from briar.extract._tracker import Ticket
 from briar.serve.agent import AgentAnswer, AgentRequest
-from briar.serve.git import Shell
+from briar.serve.flow import TaskFlow
+from briar.serve.git import RepoCheckout, Shell
+from briar.serve.routine import ServeRoutine
+from briar.serve.state import WorkSource
+from briar.serve.task import TaskPrep
+from briar.serve.work import ServeCompany, WorkItem, WorkKind
+from tests.unit.serve.fakes import Companies
+
+ISSUE = 7
 
 
 class LocalOrigin:
@@ -33,6 +44,19 @@ class LocalOrigin:
 
     def branches(self) -> str:
         return Shell().line("git branch --list", self.root / "remotes" / "acme" / "app.git").output
+
+    def push_commit(self, branch: str, files: Mapping[str, str]) -> None:
+        """A commit of someone else on `branch` of the origin (a reviewer, or the base moving on)."""
+        shell, clone = Shell(), self.root / f"other-{branch.replace('/', '-')}"
+        assert shell.line(f"git clone -q -b {branch} {self.root / 'remotes' / 'acme' / 'app.git'} {clone}", self.root).ok()
+        for name, text in files.items():
+            (clone / name).write_text(text)
+        assert shell.line(f"git add -A && git -c user.name=t -c user.email=t@example.test commit -q -m other && git push -q origin {branch}", clone).ok()
+
+    def log(self, branch: str) -> List[str]:
+        """`<parents> <subject>` of each commit of `branch`, newest first."""
+        done = Shell().line(f"git log --format='%p|%s' {branch}", self.root / "remotes" / "acme" / "app.git")
+        return done.output.splitlines()
 
 
 @dataclass(frozen=True)
@@ -80,6 +104,7 @@ class FakeGithubSide:
     pulls: List[Tuple[str, PullRequestDraft]] = field(default_factory=list)
     comments: List[Tuple[str, int, str]] = field(default_factory=list)
     drafts: List[int] = field(default_factory=list)
+    replies: List[ThreadReply] = field(default_factory=list)
     # A PR refusal of GitHub, raised by every `open_pull` while set.
     refusals: List[str] = field(default_factory=list)
     login_source: ClassVar[str] = "github"
@@ -102,6 +127,9 @@ class FakeGithubSide:
 
     def make_draft(self, repo: str, number: int) -> None:
         self.drafts.append(number)
+
+    def reply_in_thread(self, repo: str, reply: ThreadReply) -> None:
+        self.replies.append(reply)
 
     def ci_state(self, repo: str, number: int) -> CiState:
         return self.ci.pop(0) if len(self.ci) > 1 else self.ci[0]
@@ -149,3 +177,46 @@ class Settings:
 
     def block(self, verify: Sequence[str]) -> Dict[str, Any]:
         return {"jira": {"ENG": "acme/app"}, "verify": list(verify), "status": {"started": "In Progress", "review": "In Review"}}
+
+
+class Files:
+    def feature(self) -> Mapping[str, str]:
+        return {"feature.txt": "done\n"}
+
+
+@dataclass(frozen=True)
+class Setup:
+    """A company `acme` that watches Jira project ENG for repo acme/app, a local origin, and the fakes."""
+
+    company: ServeCompany
+    sources: RoutineSources
+    origin: LocalOrigin
+    cache: Path
+
+    def work_on(self, agent: ScriptedAgent, item: WorkItem) -> None:
+        prep = TaskPrep(self.sources, Shell(), self.cache)
+        asyncio.run(ServeRoutine(self.company, lambda context: agent, prep).work_on(item))
+
+    def entry(self, key: str) -> Any:
+        return self.company.state.book().entry(key)
+
+
+class Setups:
+    def __init__(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._tmp_path = tmp_path
+        self._monkeypatch = monkeypatch
+
+    def make(self, extra: Dict[str, Any]) -> Setup:
+        origin = LocalOrigin(self._tmp_path)
+        self._monkeypatch.setattr(RepoCheckout, "HOST", f"file://{origin.create()}")
+        self._monkeypatch.setattr(TaskFlow, "CI_POLL_SECONDS", 0)
+        company = Companies(self._tmp_path / "knowledge").company({**Settings().block(["test -f feature.txt"]), **extra})
+        return Setup(company, RoutineSources(), origin, self._tmp_path / "cache")
+
+
+class Items:
+    def jira(self) -> WorkItem:
+        return WorkItem(WorkKind.TICKET, "ENG-1", WorkSource.JIRA, "acme/app", "Add the feature")
+
+    def issue(self) -> WorkItem:
+        return WorkItem(WorkKind.TICKET, f"acme/app#{ISSUE}", WorkSource.GITHUB, "acme/app", "Add the feature")

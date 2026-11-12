@@ -98,6 +98,15 @@ class CiRun:
     run_attempt: int = 1
 
 
+class CommentKind(Enum):
+    """Where a PR comment lives (`briar serve`, spec 003 V9): an inline review thread, the
+    Conversation tab, or the body of a review."""
+
+    INLINE = "inline"
+    CONVERSATION = "conversation"
+    REVIEW = "review"
+
+
 @dataclass(frozen=True)
 class ReviewComment:
     """One inline review-thread comment on a PR. Has a file + line
@@ -110,6 +119,35 @@ class ReviewComment:
     line: int = 0  # 0 for top-level
     is_resolved: bool = False
     created_at: str = ""
+    # Read by `briar serve` (V1, V4, V9); the extractors leave them empty.
+    kind: CommentKind = CommentKind.CONVERSATION
+    association: str = ""  # GitHub `author_association`: OWNER, MEMBER, COLLABORATOR, ...
+    bot: bool = False
+    updated_at: str = ""
+    thread: str = ""  # an inline comment: the id of the first comment of its thread
+
+    def key(self) -> str:
+        """The id of the comment, unique across its kinds (GitHub numbers each kind apart)."""
+        return f"{self.kind.value}:{self.id}"
+
+
+@dataclass(frozen=True)
+class PullState:
+    """What `briar serve` reads of one of its PRs each cycle (V3, V6)."""
+
+    open: bool
+    merged: bool
+    conflict: bool
+    base: str
+
+
+@dataclass(frozen=True)
+class ThreadReply:
+    """A reply of `briar serve` in the thread of an inline review comment (V9)."""
+
+    number: int
+    thread: str
+    text: str
 
 
 class CiState(Enum):

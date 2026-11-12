@@ -1,6 +1,6 @@
 """Git for `briar serve` (spec 003 PR 2): a clone per repo in a cache folder, a worktree
-per task (S15), local commits, and the push, which is briar code and never the agent
-(D10, S25).
+per task (S15), local commits, the merge of the base into a PR in conflict (PR 3, V6), and
+the push, which is briar code and never the agent (D10, S25).
 
 Commands run with `os.system` and their output goes to a file (maintainer rule: no
 `subprocess`). The token never goes on a command line or in the environment: a
@@ -10,11 +10,12 @@ command."""
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar, Sequence
+from typing import ClassVar, List, Sequence
 
 from briar.errors import CliError
 
@@ -66,6 +67,8 @@ class RepoCheckout:
     SECRET_MODE = 0o600
     # The tail of a failed git output kept in the error.
     OUTPUT_TAIL = 500
+    # A line git leaves in a file with a conflict.
+    CONFLICT_MARK: ClassVar["re.Pattern[str]"] = re.compile(r"^(<{7}|>{7})( |$)", re.MULTILINE)
     HELPER: ClassVar[str] = "!f() {{ echo username=x-access-token; printf 'password='; cat {path}; echo; }}; f"
 
     def __init__(self, shell: Shell, cache: Path, repo: str) -> None:
@@ -92,6 +95,35 @@ class RepoCheckout:
         self._git(["worktree", "add", "-B", branch, str(path), f"origin/{base}"], self.clone_dir(), "")
         return path
 
+    def sync(self, path: Path, branch: str) -> None:
+        """Bring the worktree to `origin/<branch>` (a reviewer may have pushed a suggestion);
+        only a fast forward, so work of briar is never lost."""
+        self._git(["merge", "--ff-only", f"origin/{branch}"], path, "")
+
+    def merge(self, path: Path, base: str, identity: GitIdentity) -> List[str]:
+        """Merge `origin/<base>` into the worktree (V6): no file when it merged clean, else
+        the files in conflict, left with their markers for the agent."""
+        done = self._shell.program(["git", *identity.args(), "merge", "--no-edit", f"origin/{base}"], path)
+        if done.ok():
+            return []
+        conflicted = self._git(["diff", "--name-only", "--diff-filter=U"], path, "").output.splitlines()
+        if not conflicted:
+            raise GitFailed(f"`git merge --no-edit origin/{base}` failed in {path}: {done.output.strip()[-self.OUTPUT_TAIL :]}")
+        return conflicted
+
+    def marked(self, path: Path, files: Sequence[str]) -> List[str]:
+        """The files that still hold a conflict marker."""
+        return [name for name in files if (path / name).is_file() and self.CONFLICT_MARK.search((path / name).read_text(errors="replace"))]
+
+    def abort_merge(self, path: Path) -> None:
+        """Drop a merge that could not be finished, so no conflict marker is ever committed."""
+        self._git(["merge", "--abort"], path, "")
+
+    def finish_merge(self, path: Path, identity: GitIdentity) -> None:
+        """Commit the merge, even when the result equals the branch (it still records the merge)."""
+        self._git(["add", "-A"], path, "")
+        self._git([*identity.args(), "commit", "--no-edit"], path, "")
+
     def commit_all(self, path: Path, message: str, identity: GitIdentity) -> bool:
         """Commit every change of the worktree; False when there was nothing to commit."""
         self._git(["add", "-A"], path, "")
@@ -101,7 +133,12 @@ class RepoCheckout:
         return True
 
     def diff(self, path: Path, base: str) -> str:
-        return self._git(["diff", f"origin/{base}...HEAD"], path, "").output
+        """The change of the branch since it left `origin/<base>`."""
+        return self.changes(path, f"origin/{base}...HEAD")
+
+    def changes(self, path: Path, revisions: str) -> str:
+        """`git diff <revisions>`: `origin/main...HEAD` for a ticket, `<sha>..HEAD` for a round."""
+        return self._git(["diff", revisions], path, "").output
 
     def head(self, path: Path) -> str:
         return self._git(["rev-parse", "HEAD"], path, "").output.strip()

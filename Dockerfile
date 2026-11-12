@@ -12,6 +12,9 @@ FROM python:3.11-slim
 COPY dist/ /tmp/dist/
 RUN whl="$(ls /tmp/dist/*.whl)" && pip install --no-cache-dir "${whl}" && rm -rf /tmp/dist
 
+# bubblewrap and socat: `briar serve` runs the bash of its agent in the sandbox of the
+# Claude Agent SDK, which needs them on Linux (spec 003, V14).
+#
 # git: briar reads owner/repo from the mounted repo's `origin`. gh: the
 # pipelines of briar 2.0 (spec 003) clone, push and open PRs through it.
 # GitHub logins do not use gh (spec 005, G10): briar reads
@@ -28,7 +31,7 @@ RUN whl="$(ls /tmp/dist/*.whl)" && pip install --no-cache-dir "${whl}" && rm -rf
 # the helper above and points at a path the image lacks, so the push fails
 # with "gh: not found". The links make that helper line work here too.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git gh \
+    && apt-get install -y --no-install-recommends git gh bubblewrap socat \
     && rm -rf /var/lib/apt/lists/* \
     && git config --system credential.https://github.com.helper '!gh auth git-credential' \
     && git config --system --add safe.directory '*' \

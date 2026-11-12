@@ -104,13 +104,15 @@ class StatusNames(_Strict):
 class ServeSettings(_Strict):
     """`companies.<company>.serve` of a runbook: what `briar serve` watches and the limits
     of one task (decisions S5, S11 to S16, S24 to S27 in
-    `docs/decisions/2026-11-11-briar-2-serve-pipeline.md`)."""
+    `docs/decisions/2026-11-11-briar-2-serve-pipeline.md`, V1, V11, V13 in
+    `docs/decisions/2026-11-11-briar-2-review-routine.md`)."""
 
     # Required (S5, S24): nobody spends on a model or a limit they did not choose.
     model: str = Field(min_length=1)
     max_usd: float = Field(gt=0)
     max_loops: int = Field(ge=1)
     ci_wait_minutes: int = Field(ge=1)
+    max_review_rounds: int = Field(ge=1)
     max_parallel: int = Field(default=3, ge=1)
     poll_minutes: int = Field(default=5, ge=1)
     # GitHub repos to work in: an open issue there assigned to the token owner is a ticket.
@@ -120,12 +122,18 @@ class ServeSettings(_Strict):
     verify: List[str] = Field(default_factory=list)
     bash: List[str] = Field(default_factory=list)
     priority_labels: List[str] = Field(default_factory=list)
+    # Bot logins whose PR comments briar answers (V1); people need write access.
+    review_bots: List[str] = Field(default_factory=list)
+    # The domains the sandboxed bash of the agent may reach (V13); none by default.
+    allowed_domains: List[str] = Field(default_factory=list)
     status: StatusNames = Field(default_factory=StatusNames)
     branch: str = "briar/{key}"
     title: str = "{key}: {title}"
 
     REPO_NAME: ClassVar["re.Pattern[str]"] = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
     PROJECT_KEY: ClassVar["re.Pattern[str]"] = re.compile(r"^[A-Z][A-Z0-9_]*$")
+    DOMAIN: ClassVar["re.Pattern[str]"] = re.compile(r"^(\*\.)?[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$")
+    BOT_LOGIN: ClassVar["re.Pattern[str]"] = re.compile(r"^[A-Za-z0-9-]+\[bot\]$")
 
     @model_validator(mode="after")
     def _check_targets(self) -> "ServeSettings":
@@ -134,6 +142,13 @@ class ServeSettings(_Strict):
         bad = [name for name in self.all_repos() if not self.REPO_NAME.match(name)] + [key for key in self.jira if not self.PROJECT_KEY.match(key)]
         if bad:
             raise PydanticCustomError("bad_target", "not an owner/repo name or a Jira project key: {names}", {"names": ", ".join(bad)})
+        return self
+
+    @model_validator(mode="after")
+    def _check_names(self) -> "ServeSettings":
+        bad = [name for name in self.allowed_domains if not self.DOMAIN.match(name)] + [name for name in self.review_bots if not self.BOT_LOGIN.match(name)]
+        if bad:
+            raise PydanticCustomError("bad_name", "not a domain (`pypi.org`) or a bot login (`renovate[bot]`): {names}", {"names": ", ".join(bad)})
         return self
 
     def all_repos(self) -> List[str]:

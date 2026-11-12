@@ -1,10 +1,11 @@
-"""The agent of `briar serve` (spec 003 PR 2: S1, S23, S25): the Agent SDK options it
-builds, the answer it reads, and the guard of each tool call. The SDK `query` is replaced;
-no model is called."""
+"""The agent of `briar serve` (spec 003 PR 2: S1, S23, S25; PR 3: V12, V13): the Agent
+SDK options it builds (the sandbox too), the answer it reads, and the guard of each tool
+call. The SDK `query` is replaced; no model is called."""
 
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List
 
@@ -49,9 +50,21 @@ class Results:
         )  # fmt: skip
 
 
+@dataclass(frozen=True)
+class ReadCase:
+    """One read tool call, and the path the guard names when it refuses it."""
+
+    tool: str
+    tool_input: Dict[str, str]
+    outside: str = ""
+
+    def filled(self, tmp_path: Path) -> Dict[str, str]:
+        return {key: value.replace("{knowledge}", str(tmp_path / "knowledge")) for key, value in self.tool_input.items()}
+
+
 @pytest.fixture
 def guard(tmp_path: Path) -> BashGuard:
-    return BashGuard(tmp_path / "worktree", [])
+    return BashGuard(tmp_path / "worktree", [], [tmp_path / "knowledge"])
 
 
 class TestClaudeAgent:
@@ -60,7 +73,7 @@ class TestClaudeAgent:
         monkeypatch.setattr("claude_agent_sdk.query", sdk.query)
         request = AgentRequest("plan it", "you are briar", tmp_path / "worktree", MAX_USD, {"type": "object"}, Access.READ)
 
-        answer = asyncio.run(ClaudeAgent("claude-test", guard).ask(request))
+        answer = asyncio.run(ClaudeAgent("claude-test", guard, ["pypi.org"]).ask(request))
 
         options = sdk.options[0]
         expected = ("claude-test", str(tmp_path / "worktree"), "you are briar", MAX_USD, "default", [])
@@ -68,12 +81,23 @@ class TestClaudeAgent:
         assert (options.output_format, isinstance(options.can_use_tool, ToolGate)) == ({"type": "json_schema", "schema": {"type": "object"}}, True)
         assert (answer.text, answer.structured, answer.cost_usd, answer.failed) == ("the plan", {"summary": "s", "steps": []}, COST, False)
 
+    def test_bash_runs_sandboxed_with_only_the_allowed_domains(self, guard: BashGuard, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """V12, V13: no way out of the sandbox, and bash still goes through the allowlist."""
+        sdk = SdkQuery(Results().message("success", {}))
+        monkeypatch.setattr("claude_agent_sdk.query", sdk.query)
+
+        asyncio.run(ClaudeAgent("claude-test", guard, ["pypi.org"]).ask(AgentRequest("build", "s", tmp_path, MAX_USD)))
+
+        assert sdk.options[0].sandbox == {
+            "enabled": True, "autoAllowBashIfSandboxed": False, "allowUnsandboxedCommands": False, "network": {"allowedDomains": ["pypi.org"]},
+        }  # fmt: skip
+
     def test_a_spent_budget_is_a_failed_answer_with_its_reason(self, guard: BashGuard, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         message = Results().message("error_max_budget_usd", {})
         error = ResultError("Claude Code returned an error result: budget", data={"subtype": "error_max_budget_usd"})
         monkeypatch.setattr("claude_agent_sdk.query", FailingQuery(message, error).query)
 
-        answer = asyncio.run(ClaudeAgent("claude-test", guard).ask(AgentRequest("build", "s", tmp_path, MAX_USD)))
+        answer = asyncio.run(ClaudeAgent("claude-test", guard, []).ask(AgentRequest("build", "s", tmp_path, MAX_USD)))
 
         assert (answer.failed, answer.reason, answer.cost_usd) == (True, "error_max_budget_usd", COST)
 
@@ -83,7 +107,7 @@ class TestClaudeAgent:
         error = ResultError(text, data={"subtype": "success", "total_cost_usd": 0})
         monkeypatch.setattr("claude_agent_sdk.query", FailingQuery(Results().message("success", {}), error).query)
 
-        answer = asyncio.run(ClaudeAgent("claude-test", guard).ask(AgentRequest("plan", "s", tmp_path, MAX_USD)))
+        answer = asyncio.run(ClaudeAgent("claude-test", guard, []).ask(AgentRequest("plan", "s", tmp_path, MAX_USD)))
 
         assert (answer.failed, answer.reason) == (True, text)
 
@@ -106,7 +130,7 @@ class TestBashGuard:
         assert guard.refusal("Bash", {"command": command}) == refusal
 
     def test_the_company_allowlist_replaces_the_default(self, tmp_path: Path) -> None:
-        guard = BashGuard(tmp_path, ["docker"])
+        guard = BashGuard(tmp_path, ["docker"], [])
 
         assert (guard.refusal("Bash", {"command": "docker ps"}), guard.refusal("Bash", {"command": "pytest"})) == (
             "",
@@ -119,8 +143,39 @@ class TestBashGuard:
 
         assert (inside, outside) == ("", f"edits stay inside the worktree {tmp_path / 'worktree'}: {tmp_path / 'secrets.env'} is outside")
 
-    def test_reads_pass_and_other_tools_do_not(self, guard: BashGuard) -> None:
-        assert (guard.refusal("Read", {"file_path": "/etc/hosts"}), guard.refusal("WebFetch", {})) == ("", "WebFetch is not allowed in briar serve")
+    @pytest.mark.parametrize(
+        "case",
+        [
+            ReadCase("Read", {"file_path": "src/a.py"}),
+            ReadCase("Read", {"file_path": "{knowledge}/acme.md"}),
+            ReadCase("Glob", {"pattern": "**/*.py"}),
+            ReadCase("Grep", {"pattern": "def ", "path": "{knowledge}"}),
+            ReadCase("TodoWrite", {"todos": "[]"}),
+        ],
+        ids=["worktree file", "knowledge file", "glob in the worktree", "grep in the knowledge", "todo list"],
+    )
+    def test_reads_inside_the_worktree_and_the_knowledge_pass(self, guard: BashGuard, tmp_path: Path, case: "ReadCase") -> None:
+        assert guard.refusal(case.tool, case.filled(tmp_path)) == ""
+
+    @pytest.mark.parametrize(
+        "case",
+        [
+            ReadCase("Read", {"file_path": "/etc/hosts"}, "/etc/hosts"),
+            ReadCase("Read", {"file_path": "../secrets.env"}, "{tmp}/secrets.env"),
+            ReadCase("Glob", {"pattern": "../../**/*.env"}, "{tmp}/.."),
+            ReadCase("Glob", {"pattern": "/etc/*"}, "/etc"),
+            ReadCase("Grep", {"pattern": "token", "path": "~"}, "~"),
+        ],
+        ids=["absolute path", "climbs out", "glob climbs out", "absolute glob", "home folder"],
+    )
+    def test_reads_outside_are_refused(self, guard: BashGuard, tmp_path: Path, case: "ReadCase") -> None:
+        """V12: a review comment is text from other people; the read tools stay in."""
+        outside = Path(case.outside.replace("{tmp}", str(tmp_path))).expanduser().resolve()
+
+        assert guard.refusal(case.tool, case.tool_input) == f"reads stay inside the worktree and the knowledge folder: {outside} is outside"
+
+    def test_other_tools_are_refused(self, guard: BashGuard) -> None:
+        assert guard.refusal("WebFetch", {}) == "WebFetch is not allowed in briar serve"
 
 
 class TestToolGate:

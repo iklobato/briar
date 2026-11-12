@@ -34,10 +34,10 @@ only in the private site repo.
 | Latest version | 1.1.101 (PyPI and GitHub Release `v1.1.101` = latest) |
 | Python | 3.10, 3.11, 3.12 (CI unit jobs); the integration job runs on whatever `uv` picks (3.14 in CI) |
 | Release trigger | every push to `main`, except `chore(release):` commits; it bumps the patch only |
-| 2.0 | in progress on branch `v2` (still equal to `main`); 23 stacked PRs open, #79 to #101. Core since 2026-11-11: `briar extract` and `briar serve` (decisions S1 to S35). Status and handoff: `docs/briar-2-status.md` |
+| 2.0 | in progress on branch `v2` (still equal to `main`); 24 stacked PRs open, #79 to #102. Core since 2026-11-11: `briar extract` and `briar serve` (decisions S1 to S35). Status and handoff: `docs/briar-2-status.md` |
 | MCP registry | `io.github.iklobato/briar`, latest 1.1.94; stays there, 2.0 has no MCP server |
 | Open issues | #76, #77 (section 8) |
-| Open PRs | #79 to #101, all into `v2`, not reviewed |
+| Open PRs | #79 to #102, all into `v2`, not reviewed |
 | Stars / forks | 3 / 0 |
 
 ## 3. Repo layout
@@ -53,7 +53,7 @@ only in the private site repo.
 | `src/briar/extract/composer.py` | `KnowledgeComposer`: writes `## <heading> - <detail>` sections, `split_sections` parses them, `merge_markdown` merges a run into a stored blob (called from `CommandExtract._write_blob`, the one write path of `briar extract`) |
 | `src/briar/prompts/` | The agent prompt text for the spec 003 pipeline: `roles/`, `tasks/` (moved from the 1.x personas) and the 8 shared `rules/`. Nothing reads them at run time yet. The 1.x `agent/`, `plan/` and `mcp/` packages are gone; `docs/briar-2-status.md` says where to find them in git |
 | `src/briar/iac/runbook/` | Runbook loader, executor, `scheduler.py` (`runbook serve`) |
-| `src/briar/serve/` | `briar serve` (spec 003, decisions S1 to S35): `state.py` (`work:<company>` in the knowledge store), `work.py` (the finder: reviews first, then the tickets assigned to the token account by priority; the model, read and write checks), `loop.py` (one asyncio loop, `max_parallel` slots per company, one task per ticket), `ticket.py` (the ticket routine: plan, build, verify and self-review loops, PR, CI wait, limits), `agent.py` (the Claude Agent SDK and the tool guard), `git.py` (clone, worktree, push with a token file), `task.py` (the task context, budget, prompts in `src/briar/prompts/serve/`). The command is `commands/serve.py`; the `serve:` block is `ServeSettings` in `iac/runbook/models.py` |
+| `src/briar/serve/` | `briar serve` (spec 003, decisions S1 to S35): `state.py` (`work:<company>` in the knowledge store), `work.py` (the finder: reviews first, then the tickets assigned to the token account by priority; the model, read and write checks), `loop.py` (one asyncio loop, `max_parallel` slots per company, one task per ticket), `ticket.py` (the ticket routine: plan, build, PR), `review.py` (the review round: base merge, answers, replies, `max_review_rounds`), `flow.py` (verify, CI wait, self-review, the stop and the record both routines share), `routine.py` (`ServeRoutine` picks the routine), `agent.py` (the Claude Agent SDK, its bash sandbox and the tool guard), `git.py` (clone, worktree, push with a token file), `task.py` (the task context, budget, prompts in `src/briar/prompts/serve/`). The command is `commands/serve.py`; the `serve:` block is `ServeSettings` in `iac/runbook/models.py` |
 | `src/briar/auth/` | The logins (spec 005): `config.py` (the `[auth]` block, same pydantic models as the runbook `auth:` block), `logins.py` (`CompanyLogins`, one `SourceLogin` per source: secret names `BRIAR_<COMPANY>_<SOURCE>_<FIELD>`, the `login` prompts, the 1.x names guard; `CliLogin` for AWS, GCP and Azure runs the CLI login and saves nothing), `check.py` (`LoginCheck`: "who am I" plus a read of each resource, before every run; spec 005 PR 3). Adapters get `args.logins` from `briar extract` or the runbook executor, and each has `who_am_i` and `read` (`extract/_login_failures.py` turns vendor errors into check errors; `extract/login_probes.py` is the default adapter per source). `_prompt.py` is the terminal (`run_login` uses `os.system`) |
 | `src/briar/credentials/` | `EnvFileStore`, the only credential store and no interface since spec 005 (2.0 removed AWS Secrets Manager, SSM and Vault), the startup bootstrap, and `_removed_stores.py`, which stops a run whose `BRIAR_DEFAULT_STORE` names a removed one |
 | `agents/*.md` | The user manual, one file per command (linked from the README) |
@@ -70,7 +70,7 @@ only in the private site repo.
   `briar/main`.
 - **2.0 work goes to `v2`, not `main`** (decision D27). The open 2.0 PRs are
   stacked: branch a new 2.0 PR from the top of the stack (now
-  `serve/02-ticket-routine`, PR #101) and target `v2`. Read
+  `serve/03-review-routine`, PR #102) and target `v2`. Read
   `docs/briar-2-status.md` first.
 - **A merge to `main` is a public release.** `.github/workflows/release.yml`
   runs the unit tests (`uv run pytest -n auto -m "not integration"`),
@@ -248,8 +248,8 @@ Full detail per version is in `CHANGELOG.md`. In short:
 
 ## 7. Next steps (in order)
 
-0. **2.0**: review and merge PRs #79 to #101 into `v2` in order; spec 003
-   parts 3 and 4 (`briar serve`: the review routine, cleanup and docs; `specs/003-serve-pipeline/`); decide how
+0. **2.0**: review and merge PRs #79 to #102 into `v2` in order; spec 003
+   part 4 (`briar serve`: cleanup and docs; `specs/003-serve-pipeline/`); decide how
    2.0 is released before `v2` merges to `main` (the workflow would publish
    1.1.102); the real runs left for Jira (and, while they stay, Bitbucket,
    Linear and Fireflies); then spec 004. Spec 005 PR 4 was dropped by the

@@ -116,10 +116,11 @@ class TestBudget:
 
 
 class TestPrompts:
-    @pytest.mark.parametrize("name", ["system", "plan", "build", "fix", "review"])
+    @pytest.mark.parametrize("name", ["system", "plan", "build", "fix", "review", "comments"])
     def test_every_prompt_file_ships_and_fills_in(self, name: str) -> None:
         values = {
-            key: f"<{key}>" for key in ("company", "repo", "knowledge", "state", "key", "title", "description", "plan", "verify", "what", "details", "diff")
+            key: f"<{key}>"
+            for key in ("company", "repo", "knowledge", "state", "key", "title", "description", "plan", "verify", "what", "details", "diff", "comments")
         }
 
         text = Prompts().text(name, values)
