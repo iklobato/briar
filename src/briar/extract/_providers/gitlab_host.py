@@ -92,7 +92,8 @@ class GitlabHost:
     """The `CodeHost` of `briar serve` on GitLab; a repo is the full project path (G2)."""
 
     login_source = "gitlab"
-    WRITE_SCOPES: ClassVar[FrozenSet[str]] = frozenset({"api", "write_repository"})
+    # `api` writes through the API and pushes over Git HTTP; `write_repository` alone cannot open an MR.
+    WRITE_SCOPE = "api"
 
     def __init__(self, login: GitlabLogin, api: Optional[GitlabRest] = None) -> None:
         self._login = login
@@ -216,8 +217,8 @@ class GitlabHost:
         if max(levels) < Authors.DEVELOPER:
             raise LoginRejected("the login is not a Developer of the project: give it the Developer role or above")
         scopes = set(self._rest.get("/personal_access_tokens/self").get("scopes") or [])
-        if not self.WRITE_SCOPES <= scopes:
-            raise LoginRejected("the token cannot write: give it the api and write_repository scopes")
+        if self.WRITE_SCOPE not in scopes:
+            raise LoginRejected("the token cannot write: give it the api scope")
 
 
 __all__ = ["GitlabHost"]

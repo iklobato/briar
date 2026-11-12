@@ -185,6 +185,13 @@ class TestWriteAccess:
 
         Host.of(answers).host().can_write(REPO)
 
+    def test_the_api_scope_alone_can_write(self) -> None:
+        """Real check, 2026-11-12: a token with `api` and no `write_repository` was refused.
+        `api` covers the repository over Git HTTP too (https://docs.gitlab.com/user/profile/personal_access_tokens/#personal-access-token-scopes)."""
+        answers = {PROJECT: {"permissions": {"project_access": {"access_level": DEVELOPER}}}, "/personal_access_tokens/self": {"scopes": ["read_api", "api"]}}
+
+        Host.of(answers).host().can_write(REPO)
+
     def test_a_reporter_cannot_write(self) -> None:
         answers = {PROJECT: {"permissions": {"project_access": {"access_level": REPORTER}, "group_access": None}}, "/personal_access_tokens/self": {"scopes": ["api"]}}
 
@@ -199,7 +206,7 @@ class TestWriteAccess:
         with pytest.raises(LoginRejected) as caught:
             Host.of(answers).host().can_write(REPO)
 
-        assert str(caught.value) == "the token cannot write: give it the api and write_repository scopes"
+        assert str(caught.value) == "the token cannot write: give it the api scope"
 
 
 class TestIdentity:
