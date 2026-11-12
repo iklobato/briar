@@ -57,6 +57,16 @@ class TestNames:
         assert logins.github().names() == ["BRIAR_ACME_CO_GITHUB_TOKEN"]
         assert logins.linear().names() == ["BRIAR_ACME_CO_LINEAR_API_KEY"]
         assert logins.fireflies().names() == ["BRIAR_ACME_CO_FIREFLIES_API_KEY"]
+        assert logins.gitlab().names() == ["BRIAR_ACME_CO_GITLAB_TOKEN"]
+
+    def test_the_gitlab_token_and_url_come_from_the_login(self) -> None:
+        """G18: gitlab.com unless `[auth.gitlab] url` names a self-hosted GitLab."""
+        environ = {"BRIAR_ACME_CO_GITLAB_TOKEN": FAKE_TOKEN}
+
+        hosted = LoginsFor({}, environ).logins().gitlab()
+        own = LoginsFor({"gitlab": {"url": "gitlab.acme.test"}}, environ).logins().gitlab()
+
+        assert (hosted.token(), hosted.url(), own.url()) == (FAKE_TOKEN, "https://gitlab.com", "https://gitlab.acme.test")
 
     def test_the_method_picks_the_names(self) -> None:
         logins = LoginsFor({"jira": {"method": "cookie"}, "bitbucket": {"method": "access-token"}}, {}).logins()
