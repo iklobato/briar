@@ -105,3 +105,42 @@ class TestChat:
 
         with pytest.raises(ValidationError, match=r"`chat.slack.channels` takes channel ids \(C0123ABC\), not names: #general"):
             ServeSettings.model_validate(block)
+
+
+class TestGitlab:
+    """Spec 008 PR 3b: G1, G2, G11, G16."""
+
+    def test_github_by_default(self) -> None:
+        assert ServeSettings.model_validate({**Required().block(), "repos": ["acme/app"]}).code_host.value == "github"
+
+    def test_a_gitlab_repo_is_a_full_project_path(self) -> None:
+        block = {**Required().block(), "code_host": "gitlab", "jira": {"ENG": {"repos": ["acme/platform/tools/app"]}}}
+
+        assert ServeSettings.model_validate(block).all_repos() == ["acme/platform/tools/app"]
+
+    def test_a_github_repo_keeps_two_parts(self) -> None:
+        with pytest.raises(ValidationError, match=r"not an owner/repo name or a Jira project key: acme/platform/app"):
+            ServeSettings.model_validate({**Required().block(), "jira": {"ENG": {"repos": ["acme/platform/app"]}}})
+
+    def test_gitlab_with_issue_repos_stops_the_load(self) -> None:
+        """G16: GitLab Issues are out (N12); GitLab tickets come from Jira."""
+        with pytest.raises(ValidationError, match=r"with `code_host: gitlab` tickets come from `jira.<PROJ>.repos` only: remove `repos`"):
+            ServeSettings.model_validate({**Required().block(), "code_host": "gitlab", "repos": ["acme/app"]})
+
+    def test_a_gitlab_review_bot_is_any_username(self) -> None:
+        block = {**Required().block(), "code_host": "gitlab", "jira": {"ENG": {"repos": ["acme/app"]}}, "review_bots": ["project_12_bot_ab12"]}
+
+        assert ServeSettings.model_validate(block).review_bots == ["project_12_bot_ab12"]
+
+
+class TestOnly:
+    """S1 of the validation plan: when set, only these tickets are candidates."""
+
+    def test_every_ticket_by_default(self) -> None:
+        assert ServeSettings.model_validate({**Required().block(), "repos": ["acme/app"]}).only == []
+
+    def test_a_key_that_is_not_a_ticket_stops_the_load(self) -> None:
+        block = {**Required().block(), "jira": {"ENG": {"repos": ["acme/app"]}}, "only": ["ENG-4", "eng-5", "acme/app#7", "acme/app"]}
+
+        with pytest.raises(ValidationError, match=r"`only` takes ticket keys \(ENG-12, owner/repo#7\): eng-5, acme/app"):
+            ServeSettings.model_validate(block)

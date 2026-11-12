@@ -11,6 +11,7 @@ require a schema edit."""
 from __future__ import annotations
 
 import re
+from enum import Enum
 from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -132,6 +133,13 @@ class ChatSettings(_Strict):
     slack: Optional[SlackChat] = None
 
 
+class CodeHostKind(str, Enum):
+    """Where the repos of a company live (spec 008 G1): one host per company."""
+
+    GITHUB = "github"
+    GITLAB = "gitlab"
+
+
 class ServeSettings(_Strict):
     """`companies.<company>.serve` of a runbook: what `briar serve` watches and the limits
     of one task (decisions S5, S11 to S16, S24 to S27 in
@@ -161,8 +169,15 @@ class ServeSettings(_Strict):
     chat: ChatSettings = Field(default_factory=ChatSettings)
     branch: str = "briar/{key}"
     title: str = "{key}: {title}"
+    code_host: CodeHostKind = CodeHostKind.GITHUB
+    # When set, only these tickets are candidates (validation plan S1): a first run on a real tracker.
+    only: List[str] = Field(default_factory=list)
 
     REPO_NAME: ClassVar["re.Pattern[str]"] = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
+    # G2: a GitLab project path of any depth.
+    PROJECT_PATH: ClassVar["re.Pattern[str]"] = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)+$")
+    GITLAB_USER: ClassVar["re.Pattern[str]"] = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+    TICKET_KEY: ClassVar["re.Pattern[str]"] = re.compile(r"^([A-Z][A-Z0-9_]*-\d+|[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*#\d+)$")
     PROJECT_KEY: ClassVar["re.Pattern[str]"] = re.compile(r"^[A-Z][A-Z0-9_]*$")
     DOMAIN: ClassVar["re.Pattern[str]"] = re.compile(r"^(\*\.)?[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$")
     BOT_LOGIN: ClassVar["re.Pattern[str]"] = re.compile(r"^[A-Za-z0-9-]+\[bot\]$")
@@ -180,16 +195,27 @@ class ServeSettings(_Strict):
     def _check_targets(self) -> "ServeSettings":
         if not self.repos and not self.jira:
             raise PydanticCustomError("nothing_to_watch", "set `repos` or `jira` under `serve`: there is nothing to watch", {})
-        bad = [name for name in self.all_repos() if not self.REPO_NAME.match(name)] + [key for key in self.jira if not self.PROJECT_KEY.match(key)]
+        if self.code_host is CodeHostKind.GITLAB and self.repos:
+            raise PydanticCustomError("gitlab_issues", "with `code_host: gitlab` tickets come from `jira.<PROJ>.repos` only: remove `repos`", {})
+        repo_name = self.PROJECT_PATH if self.code_host is CodeHostKind.GITLAB else self.REPO_NAME
+        bad = [name for name in self.all_repos() if not repo_name.match(name)] + [key for key in self.jira if not self.PROJECT_KEY.match(key)]
         if bad:
             raise PydanticCustomError("bad_target", "not an owner/repo name or a Jira project key: {names}", {"names": ", ".join(bad)})
         return self
 
     @model_validator(mode="after")
     def _check_names(self) -> "ServeSettings":
-        bad = [name for name in self.allowed_domains if not self.DOMAIN.match(name)] + [name for name in self.review_bots if not self.BOT_LOGIN.match(name)]
+        bot = self.GITLAB_USER if self.code_host is CodeHostKind.GITLAB else self.BOT_LOGIN
+        bad = [name for name in self.allowed_domains if not self.DOMAIN.match(name)] + [name for name in self.review_bots if not bot.match(name)]
         if bad:
             raise PydanticCustomError("bad_name", "not a domain (`pypi.org`) or a bot login (`renovate[bot]`): {names}", {"names": ", ".join(bad)})
+        return self
+
+    @model_validator(mode="after")
+    def _check_only(self) -> "ServeSettings":
+        bad = [key for key in self.only if not self.TICKET_KEY.match(key)]
+        if bad:
+            raise PydanticCustomError("bad_only", "`only` takes ticket keys (ENG-12, owner/repo#7): {keys}", {"keys": ", ".join(bad)})
         return self
 
     def all_repos(self) -> List[str]:

@@ -30,6 +30,8 @@ class Workable:
         return [item for item in items if self._workable(item)]
 
     def _workable(self, item: WorkItem) -> bool:
+        if self._settings.only and item.key not in self._settings.only:
+            return False
         ticket = item.ticket
         if ticket is None:
             return True

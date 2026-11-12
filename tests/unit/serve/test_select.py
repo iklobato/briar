@@ -85,6 +85,15 @@ class TestWorkable:
 
         assert [item.key for item in kept] == ["ENG-1"]
 
+    def test_only_keeps_the_listed_tickets(self, tmp_path: Path) -> None:
+        """Validation plan S1: a first run on a real tracker touches the listed tickets alone."""
+        settings = Companies(tmp_path).company({"jira": {"ENG": {"repos": ["acme/app"]}}, "only": ["ENG-2"]}).settings
+        tickets = Tickets()
+
+        kept = Workable(settings).keep([tickets.plain("ENG-1"), tickets.plain("ENG-2")])
+
+        assert [item.key for item in kept] == ["ENG-2"]
+
 
 class TestScore:
     def test_due_soon_unblocking_and_in_progress_rank_before_a_plain_ticket(self) -> None:
