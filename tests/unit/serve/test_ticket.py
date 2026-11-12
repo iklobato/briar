@@ -120,6 +120,8 @@ class TestLoops:
         setup.work_on(agent, Items().jira())
 
         assert "1 failed: test_feature" in agent.requests[FOURTH_STEP].prompt
+        # A CI check may name the PR (the click copy asked for {pr}`4`): the agent must know it.
+        assert f"CI fails on the pull request #{PR} (https://github.com/acme/app/pull/{PR})" in agent.requests[FOURTH_STEP].prompt
         assert setup.entry("ENG-1").status is WorkStatus.DONE
         assert setup.sources.github_side.readies == [PR]
 

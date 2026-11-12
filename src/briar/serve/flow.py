@@ -129,7 +129,8 @@ class TaskFlow:
         self._budget.next_loop("CI")
         failures = await asyncio.to_thread(self._context.sources.github().list_ci_failures, self._context.item.repo, number)
         details = "\n\n".join(f"{failure.job} / {failure.step} ({failure.url}):\n{failure.log_tail}" for failure in failures)
-        await self._steps.fix("CI fails on the pull request", details or "(no failure log was found)")
+        repo = self._context.item.repo
+        await self._steps.fix(f"CI fails on the pull request #{number} (https://github.com/{repo}/pull/{number})", details or "(no failure log was found)")
         await self.verified("fix CI")
         await self.push()
 
