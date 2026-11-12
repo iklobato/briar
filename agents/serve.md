@@ -26,10 +26,11 @@ and `docs/decisions/2026-11-11-briar-2-review-routine.md`.
      `status` names are set).
 3. Every `poll_minutes` (default 5), per company: the PRs briar opened first (a
    merged or closed one is recorded and left; one with new comments or a conflict gets
-   a review round), then the open tickets assigned to the account of the token,
-   highest priority first, then the oldest. A ticket briar already took is not taken again,
-   unless it stopped before the PR (then the next cycle tries again, without posting the
-   plan a second time). Before it builds a ticket, briar looks for a PR of the task branch:
+   a review round), then the open tickets assigned to the account of the token: briar
+   chooses which of them to start, and in which repo (see "How serve chooses its
+   tickets" below). A ticket briar already took is not taken again, unless it stopped
+   before the PR (then the next cycle goes on with it, in the repo it started in and
+   without the choice, and without posting the plan a second time). Before it builds a ticket, briar looks for a PR of the task branch:
    one that exists (the state file was lost, or a person closed the PR) is recorded and
    nothing is built; an open draft is left `blocked` for a person. A PR still a draft in
    `pr-open` (`serve` stopped during the CI wait) gets the CI wait again, then is marked
@@ -136,8 +137,11 @@ companies:
       ci_wait_minutes: 60             # required: the longest wait for CI
       max_review_rounds: 5            # required: the most review rounds of one PR
       repos: [acme/web]               # GitHub repos: an issue assigned to the token owner is a ticket
-      jira: {ENG: acme/app}           # Jira project -> the repo its tickets are built in
-      priority_labels: [p0, p1, p2]   # the order of GitHub issues (first is most urgent)
+      jira:                           # Jira project -> the repos its tickets may be built in
+        ENG:
+          repos: [acme/app, acme/api]
+          not_workable: [Blocked, In Review]   # optional: statuses briar never takes (this is the default)
+      priority_labels: [p0, p1]       # optional: labels that move a ticket up (+10)
       max_parallel: 3                 # optional
       poll_minutes: 5                 # optional
       verify: ["make lint", "make test"]
@@ -154,6 +158,42 @@ issue, `{title}` the ticket title, and `{number}` the GitHub issue number.
 
 A missing required key, an unknown key, a bad `owner/repo` or Jira key, or a block
 with neither `repos` nor `jira` stops the load with exit code 1.
+A Jira project with no repo, or the 1.x form `jira: {ENG: acme/app}`, stops it too:
+the message says to write `jira.ENG: {repos: [acme/app]}`.
+
+## How serve chooses its tickets
+
+Each poll, for each company, briar starts at most as many tickets as it has free
+slots (`max_parallel` less the tasks running). It chooses them in three steps
+(decisions: `docs/decisions/2026-11-12-briar-2-work-selection.md` and
+`docs/decisions/2026-11-12-briar-2-work-selection-pr1.md`):
+
+1. It drops the tickets nobody can work now: one in a `not_workable` status of its
+   Jira project, and one with an open blocker (a Jira `Blocks` link, or a GitHub
+   issue dependency, whose other ticket is not done).
+2. It scores the rest with fixed points, and sorts them by score, the oldest first on
+   a tie:
+
+   | Signal | Points |
+   |---|---|
+   | due date passed | +50 |
+   | due in 7 days or less | +40 |
+   | due in 30 days or less | +20 |
+   | due later | +5 |
+   | each open ticket it blocks | +10, at most +30 |
+   | priority Highest / High / Low / Lowest | +20 / +10 / -5 / -10 |
+   | a label of `priority_labels` | +10 |
+   | already in progress in the tracker | +30 |
+
+3. One model call (the `model` of the company, read only) gets the 5 best, each with
+   its allowed repos, and picks the ones to start, the repo of each, and why. A pick
+   outside those 5, outside the allowed repos of its ticket, or with the repo `none`
+   is dropped. The call costs money: it is paid from the `max_usd` of the tickets it
+   starts, and it is made again only when the 5 best or the free slots change, so a
+   poll with nothing new costs nothing.
+
+The reason of each pick is in the log (`serve: acme: picked ENG-7 for acme/api: ...`)
+and in the state entry of the ticket (`reason`). Nothing is posted about the choice.
 
 ## Examples
 
@@ -165,6 +205,7 @@ You get the check lines, then one line per company and cycle, and one line each 
 a ticket changes state:
 
 ```text
+serve: acme: picked ENG-42 for acme/app: unblocks two tickets of the release
 serve: acme: 1 found, 1 started
 serve: ENG-42 is planned
 serve: ENG-42 is pr-open https://github.com/acme/app/pull/17
@@ -194,8 +235,8 @@ The state of each company is a JSON file in its knowledge store,
   `serve` with exit code 1.
 - One `serve` per knowledge folder: two processes on the same folder would write the
   same state file.
-- Jira priority uses its standard names (Highest to Lowest); GitHub issues use the
-  first of their labels found in `priority_labels`. A ticket with neither comes last.
+- The PRs briar opened are handled before any ticket, as found. The ticket choice
+  above uses the Jira priority names (Highest to Lowest) and the `priority_labels`.
 - The clones and worktrees live in `$XDG_CACHE_HOME/briar` (default
   `~/.cache/briar`). The token goes to git through a credential helper that reads a
   file only you can read; it is not in the remote URL, the git config or the logs.

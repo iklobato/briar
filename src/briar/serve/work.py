@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from functools import partial
 from pathlib import Path
@@ -66,13 +66,23 @@ class WorkItem:
     pr: int = 0
     comments: Tuple[ReviewComment, ...] = ()
     conflict: bool = False
+    # Spec 008: the repos a ticket may be built in, the ticket with its signals, why the
+    # selector picked it and what that choice cost (paid from the task budget, N9).
+    repos: Tuple[str, ...] = ()
+    ticket: Optional[Ticket] = None
+    reason: str = ""
+    selection_cost: float = 0.0
 
     def order(self) -> Tuple[int, int, str]:
         """The PRs first (S14), then the rank of the priority, then the oldest."""
         return (1 if self.kind is WorkKind.TICKET else 0, self.rank, self.created_at)
 
     def entry(self) -> WorkEntry:
-        return WorkEntry(key=self.key, source=self.source, repo=self.repo, title=self.title, status=WorkStatus.FOUND)
+        return WorkEntry(key=self.key, source=self.source, repo=self.repo, title=self.title, status=WorkStatus.FOUND, reason=self.reason)
+
+    def resumed(self, entry: WorkEntry) -> "WorkItem":
+        """The ticket again, in the repo briar started it in and with why it was picked."""
+        return replace(self, repo=entry.repo, reason=entry.reason)
 
     def number(self) -> str:
         """The number of a GitHub issue (`acme/app#7` gives `7`); "" for Jira."""
@@ -162,12 +172,15 @@ class WorkFinder:
             return []
         tracker = self._sources.jira()
         return [
-            self._jira_item(ticket, repo) for project, repo in self._company.settings.jira.items() for ticket in tracker.assigned(project, self.MAX_TICKETS)
+            self._jira_item(ticket, tuple(project.repos))
+            for key, project in self._company.settings.jira.items()
+            for ticket in tracker.assigned(key, self.MAX_TICKETS)
         ]
 
-    def _jira_item(self, ticket: Ticket, repo: str) -> WorkItem:
+    def _jira_item(self, ticket: Ticket, repos: Tuple[str, ...]) -> WorkItem:
+        """The repo is the only allowed one, or chosen by the selector among `repos` (N5)."""
         rank = PriorityRank().jira(ticket.priority)
-        return WorkItem(WorkKind.TICKET, ticket.key, WorkSource.JIRA, repo, ticket.title, rank, ticket.created_at)
+        return WorkItem(WorkKind.TICKET, ticket.key, WorkSource.JIRA, repos[0] if len(repos) == 1 else "", ticket.title, rank, ticket.created_at, repos=repos, ticket=ticket)
 
     def _issues(self, login: str) -> List[WorkItem]:
         if not self._company.settings.repos:
@@ -177,7 +190,7 @@ class WorkFinder:
 
     def _issue_item(self, ticket: Ticket, repo: str) -> WorkItem:
         rank = PriorityRank().github(ticket.labels, self._company.settings.priority_labels)
-        return WorkItem(WorkKind.TICKET, f"{repo}{ticket.key}", WorkSource.GITHUB, repo, ticket.title, rank, ticket.created_at)
+        return WorkItem(WorkKind.TICKET, f"{repo}{ticket.key}", WorkSource.GITHUB, repo, ticket.title, rank, ticket.created_at, repos=(repo,), ticket=ticket)
 
     def _pulls(self, book: WorkBook) -> List[WorkItem]:
         found = [self._pull(entry) for entry in book.watched()]
@@ -342,7 +355,7 @@ class ServeCheck:
         sources = WorkSources(company.logins)
         targets = [LoginTarget(sources.github(), tuple(company.settings.all_repos()))]
         if company.settings.jira:
-            targets.append(LoginTarget(sources.jira(), tuple(company.settings.jira)))
+            targets.append(LoginTarget(sources.jira(), tuple(company.settings.jira.keys())))
         read = LoginCheck(company.logins).check(targets)
         return read if not all(line.passed() for line in read) else [*read, *WriteCheck(company, sources).results()]
 

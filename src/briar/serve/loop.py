@@ -10,14 +10,16 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from dataclasses import dataclass
 from typing import ClassVar, List, Protocol, Set, Tuple, Type
 
 from briar.errors import CliError
 from briar.iac.runbook.scheduler import RunbookScheduler
 from briar.serve.agent import AgentRunner, BashGuard, ClaudeAgent
 from briar.serve.git import Shell
+from briar.serve.select import Choice, Selector
 from briar.serve.task import ServeCache, TaskContext, TaskPrep
-from briar.serve.work import BaseDrift, ServeCompany, WorkFinder, WorkItem, WorkSources
+from briar.serve.work import BaseDrift, ServeCompany, WorkFinder, WorkItem, WorkKind, WorkSources
 
 
 class Routine(Protocol):
@@ -46,6 +48,13 @@ class TaskSlots:
         task.add_done_callback(self._finished)
         return True
 
+    def busy(self) -> int:
+        return len(self._running)
+
+    def waiting(self, items: List[WorkItem]) -> List[WorkItem]:
+        """The items with no task running."""
+        return [item for item in items if item.key not in self._running]
+
     async def drain(self) -> None:
         """Wait for every task that is running (tests, and a clean stop)."""
         await asyncio.gather(*list(self._tasks), return_exceptions=True)
@@ -63,18 +72,28 @@ class TaskSlots:
             self.LOG.error("serve: task %s failed: %s", task.get_name(), task.exception())
 
 
+@dataclass(frozen=True)
+class WatchWork:
+    """What a company watch runs: the routine of each task, and the choice of the tickets."""
+
+    routine: Routine
+    choice: Choice
+
+
 class CompanyWatch:
-    """The polling of one company."""
+    """The polling of one company: the PRs of briar are dispatched as found; the tickets
+    go through the choice (spec 008), except a ticket briar already started, which goes on
+    in the repo it started in."""
 
     LOG: ClassVar[logging.Logger] = logging.getLogger(__name__)
     SECONDS_PER_MINUTE = 60
     # What one failed poll raises: an adapter error (`CliError`) or the network.
     POLL_FAILURES: ClassVar[Tuple[Type[Exception], ...]] = (CliError, OSError, RuntimeError, ValueError, LookupError)
 
-    def __init__(self, company: ServeCompany, slots: TaskSlots, routine: Routine) -> None:
+    def __init__(self, company: ServeCompany, slots: TaskSlots, work: WatchWork) -> None:
         self._company = company
         self._slots = slots
-        self._routine = routine
+        self._work = work
 
     async def cycle(self) -> int:
         """One poll: find the work (in a thread: the clients are blocking) and dispatch it.
@@ -87,9 +106,21 @@ class CompanyWatch:
         except self.POLL_FAILURES as failure:
             self.LOG.error("serve: %s: the poll failed, trying again next poll: %s", self._company.name, failure)
             return 0
-        started = sum(self._slots.dispatch(item, self._routine) for item in items)
+        pulls = [item for item in items if item.kind is not WorkKind.TICKET]
+        started = sum(self._slots.dispatch(item, self._work.routine) for item in pulls) + await self._tickets(items)
         self.LOG.info("serve: %s: %d found, %d started", self._company.name, len(items), started)
         return started
+
+    async def _tickets(self, items: List[WorkItem]) -> int:
+        book = self._company.state.book()
+        tickets = self._slots.waiting([item for item in items if item.kind is WorkKind.TICKET])
+        resumed = [item.resumed(entry) for item in tickets if (entry := book.entry(item.key)) is not None]
+        fresh = [item for item in tickets if book.entry(item.key) is None]
+        free = max(self._company.settings.max_parallel - self._slots.busy() - len(resumed), 0)
+        picked = await self._work.choice.choose(fresh, free)
+        for item in picked:
+            self.LOG.info("serve: %s: picked %s for %s: %s", self._company.name, item.key, item.repo, item.reason)
+        return sum(self._slots.dispatch(item, self._work.routine) for item in [*resumed, *picked])
 
     async def watch(self) -> None:
         while True:
@@ -140,8 +171,13 @@ class ServeLoops:
         self._scheduler = scheduler
 
     def loop(self) -> ServeLoop:
-        watches = [CompanyWatch(company, self._slots(company), self._routine(company)) for company in self._companies]
+        watches = [CompanyWatch(company, self._slots(company), WatchWork(self._routine(company), self._choice(company))) for company in self._companies]
         return ServeLoop(watches, self._scheduler)
+
+    def _choice(self, company: ServeCompany) -> Choice:
+        """The selector call only reads (`Access.READ`), inside the knowledge folder."""
+        guard = BashGuard(company.root, company.settings.bash, [company.root])
+        return Choice(Selector(ClaudeAgent(company.settings.model, guard, []), company), company)
 
     def _routine(self, company: ServeCompany) -> Routine:
         from briar.serve.routine import ServeRoutine
@@ -153,4 +189,4 @@ class ServeLoops:
         return TaskSlots(asyncio.Semaphore(company.settings.max_parallel), set(), set())
 
 
-__all__ = ["AgentMaker", "CompanyWatch", "Routine", "ServeLoop", "ServeLoops", "TaskSlots"]
+__all__ = ["AgentMaker", "CompanyWatch", "Routine", "ServeLoop", "ServeLoops", "TaskSlots", "WatchWork"]

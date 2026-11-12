@@ -48,7 +48,17 @@ class TestRequired:
 
     def test_a_bad_repo_or_project_name_stops_the_load(self) -> None:
         with pytest.raises(ValidationError, match=r"not an owner/repo name or a Jira project key: app, eng"):
-            ServeSettings.model_validate({**Required().block(), "repos": ["app"], "jira": {"eng": "acme/app"}})
+            ServeSettings.model_validate({**Required().block(), "repos": ["app"], "jira": {"eng": {"repos": ["acme/app"]}}})
+
+    def test_the_old_one_repo_form_of_a_jira_project_stops_the_load(self) -> None:
+        """Spec 008 Q4: one tracker project spans many repos; nothing implicit."""
+        with pytest.raises(ValidationError, match=r"`jira.ENG`: write \{repos: \[acme/app\]\}"):
+            ServeSettings.model_validate({**Required().block(), "jira": {"ENG": "acme/app"}})
+
+    def test_a_jira_project_with_no_allowed_repo_stops_the_load(self) -> None:
+        """Spec 008 N7: without a list of allowed repos `serve` does not start."""
+        with pytest.raises(ValidationError, match=r"jira\.ENG\.repos\n  List should have at least 1 item"):
+            ServeSettings.model_validate({**Required().block(), "jira": {"ENG": {"repos": []}}})
 
     def test_a_bad_domain_or_bot_login_stops_the_load(self) -> None:
         block = {**Required().block(), "repos": ["acme/app"], "allowed_domains": ["https://pypi.org", "pypi.org"], "review_bots": ["renovate"]}
@@ -70,9 +80,15 @@ class TestDefaults:
         assert (settings.review_bots, settings.allowed_domains) == ([], [])
 
     def test_every_repo_once_with_the_repos_of_jira(self) -> None:
-        settings = ServeSettings.model_validate({**Required().block(), "repos": ["acme/app", "acme/web"], "jira": {"ENG": "acme/app", "OPS": "acme/ops"}})
+        jira = {"ENG": {"repos": ["acme/app", "acme/api"]}, "OPS": {"repos": ["acme/ops"]}}
+        settings = ServeSettings.model_validate({**Required().block(), "repos": ["acme/app", "acme/web"], "jira": jira})
 
-        assert settings.all_repos() == ["acme/app", "acme/web", "acme/ops"]
+        assert settings.all_repos() == ["acme/app", "acme/web", "acme/api", "acme/ops"]
+
+    def test_a_jira_project_skips_blocked_and_in_review_by_default(self) -> None:
+        settings = ServeSettings.model_validate({**Required().block(), "jira": {"ENG": {"repos": ["acme/app"]}}})
+
+        assert settings.jira["ENG"].not_workable == ["Blocked", "In Review"]
 
     def test_a_company_with_no_serve_block_is_left_alone(self) -> None:
         assert RunbookFile.model_validate({"companies": {"acme": {}}}).companies["acme"].serve is None

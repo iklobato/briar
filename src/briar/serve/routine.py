@@ -50,7 +50,7 @@ class ServeRoutine:
             return
         on_pull = item.kind is not WorkKind.TICKET
         context = await asyncio.to_thread(self._prep.review_context if on_pull else self._prep.context, self._company, item)
-        budget = Budget(self._company.settings.max_usd, self._company.settings.max_loops)
+        budget = Budget(self._company.settings.max_usd, self._company.settings.max_loops, [item.selection_cost])
         steps = AgentSteps(self._agents(context), context, budget)
         parts = TaskParts(context, steps, TaskFlow(context, steps, budget))
         try:

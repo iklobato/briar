@@ -69,6 +69,18 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Changed
 
+- `briar serve` chooses which assigned tickets to start (spec 008 PR 1). It drops
+  the tickets in a `not_workable` status (default `Blocked`, `In Review`) or with
+  an open blocker (Jira `Blocks` links, GitHub issue dependencies), scores the rest
+  with fixed points (due date, tickets it unblocks, priority, `priority_labels`,
+  in progress), and one read-only model call picks among the 5 best, for the free
+  slots, with the repo and a reason. The call is paid from the `max_usd` of the
+  tickets it starts and is not made again while nothing changes. The reason is in
+  the log and in the state entry. See `agents/serve.md`.
+- The `jira:` block of `serve:` maps a Jira project to its allowed repos and its
+  not-workable statuses: `jira: {ENG: {repos: [acme/app, acme/api]}}`. The 1.x form
+  `jira: {ENG: acme/app}` stops the load with a message that shows the new form.
+
 - Telemetry is opt-in: the default tier is `off`, and nothing is sent until
   `telemetry = "errors-only"` (or `"full"`) in `.briar.toml`, or
   `BRIAR_TELEMETRY`, says otherwise; `DO_NOT_TRACK=1` beats both. No state

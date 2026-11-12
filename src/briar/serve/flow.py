@@ -14,7 +14,7 @@ from typing import Any, ClassVar, Mapping
 from briar.errors import CliError
 from briar.extract._provider import CiState, PullRequestDraft
 from briar.serve.git import Shell
-from briar.serve.state import WorkEntry, WorkSource, WorkStatus
+from briar.serve.state import WorkSource, WorkStatus
 from briar.serve.task import AgentSteps, Budget, LimitHit, Plan, TaskContext
 from briar.serve.work import Marker, WorkItem, WorkSources
 
@@ -116,7 +116,7 @@ class TaskFlow:
         already holds of it (the plan, the answered comments, the rounds)."""
         item = self._context.item
         known = self._context.company.state.book().entry(item.key)
-        base = known or WorkEntry(key=item.key, source=item.source, repo=item.repo, title=item.title, status=status)
+        base = known or item.entry()
         entry = base.model_copy(update={**changes, "status": status, "branch": self._context.branch})
         await self._context.company.state.record(entry)
         link = f" https://github.com/{item.repo}/pull/{entry.pr}" if entry.pr else ""

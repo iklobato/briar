@@ -47,6 +47,8 @@ class WorkEntry(BaseModel):
     answered: Dict[str, str] = Field(default_factory=dict)
     # The review rounds run on the PR (V11).
     rounds: int = 0
+    # Why the selector took the ticket (spec 008, N12).
+    reason: str = ""
 
     # A ticket in one of these is not taken again; one found or planned when `serve`
     # stopped is taken again and picks up its worktree.
