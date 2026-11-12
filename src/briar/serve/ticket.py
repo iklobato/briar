@@ -57,6 +57,8 @@ class TicketRun:
             return False
         status = WorkStatus.PR_OPEN if found.open else (WorkStatus.MERGED if found.merged else WorkStatus.CLOSED)
         status = WorkStatus.BLOCKED if found.open and found.draft else status
+        if found.open:
+            await asyncio.to_thread(self._context.checkout.adopt, self._context.worktree, self._context.branch)
         await self._flow.record(status, {"pr": found.number})
         return True
 

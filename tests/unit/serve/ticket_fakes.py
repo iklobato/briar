@@ -45,6 +45,10 @@ class LocalOrigin:
     def branches(self) -> str:
         return Shell().line("git branch --list", self.root / "remotes" / "acme" / "app.git").output
 
+    def branch(self, name: str) -> None:
+        """A branch of the origin made from main (a PR branch briar pushed in an earlier run)."""
+        assert Shell().line(f"git branch {name} main", self.root / "remotes" / "acme" / "app.git").ok()
+
     def push_commit(self, branch: str, files: Mapping[str, str]) -> None:
         """A commit of someone else on `branch` of the origin (a reviewer, or the base moving on)."""
         shell, clone = Shell(), self.root / f"other-{branch.replace('/', '-')}"

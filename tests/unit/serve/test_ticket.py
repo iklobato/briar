@@ -238,6 +238,7 @@ class TestNoDoubleWork:
     )
     def test_a_pr_of_the_branch_is_recorded_and_nothing_is_built(self, setups: Setups, found: BranchPull, status: WorkStatus) -> None:
         setup = setups.make({})
+        setup.origin.branch("briar/ENG-1")
         setup.sources.github_side.branch_pulls["briar/ENG-1"] = found
         agent = ScriptedAgent([])
 
@@ -245,6 +246,20 @@ class TestNoDoubleWork:
 
         entry = setup.entry("ENG-1")
         assert (entry.status, entry.pr, agent.requests, setup.sources.github_side.pulls) == (status, PR, [], [])
+
+    def test_an_adopted_pr_leaves_the_worktree_on_its_branch(self, setups: Setups) -> None:
+        """Real run, 2026-11-12, lost state: the worktree stayed on the base, so the next
+        review round failed with `git merge --ff-only origin/briar/issue-1` (diverging branches)."""
+        setup = setups.make({})
+        setup.origin.branch("briar/ENG-1")
+        setup.origin.push_commit("briar/ENG-1", {"feature.txt": "done\n"})
+        setup.origin.push_commit("main", {"other.txt": "moved on\n"})
+        setup.sources.github_side.branch_pulls["briar/ENG-1"] = BranchPull(PR, open=True, merged=False, draft=False)
+
+        setup.work_on(ScriptedAgent([]), Items().jira())
+
+        worktree = setup.cache / "worktrees" / "acme" / "briar__ENG-1"
+        assert ((worktree / "feature.txt").exists(), (worktree / "other.txt").exists()) == (True, False)
 
     def test_a_draft_left_during_the_ci_wait_is_finished(self, setups: Setups) -> None:
         setup = setups.make({})

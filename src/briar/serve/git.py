@@ -132,6 +132,11 @@ class RepoCheckout:
         with self.CLONE_LOCKS_GUARD:
             return self.CLONE_LOCKS.setdefault(str(self.clone_dir()), threading.Lock())
 
+    def adopt(self, path: Path, branch: str) -> None:
+        """Put a worktree made from the base on `origin/<branch>`: briar found its own PR there
+        (a lost state) before it changed anything, and the next review round fast forwards it."""
+        self._git(["checkout", "-B", branch, f"origin/{branch}"], path, "")
+
     def sync(self, path: Path, branch: str) -> None:
         """Bring the worktree to `origin/<branch>` (a reviewer may have pushed a suggestion);
         only a fast forward, so work of briar is never lost."""
