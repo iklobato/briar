@@ -30,17 +30,18 @@ user's machine and does two things:
 No server, no account. There was a SaaS version; it is archived and lives
 only in the private site repo.
 
-## 2. Quick facts (checked 2026-11-11)
+## 2. Quick facts (checked 2026-11-11; the 2.0 rows on 2026-11-12)
 
 | Thing | Value |
 |---|---|
 | Latest version | 1.1.101 (PyPI and GitHub Release `v1.1.101` = latest) |
 | Python | 3.10, 3.11, 3.12 (CI unit jobs); the integration job runs on whatever `uv` picks (3.14 in CI) |
 | Release trigger | every push to `main`, except `chore(release):` commits; it bumps the patch only |
-| 2.0 | in progress on branch `v2` (still equal to `main`); 25 stacked PRs open, #79 to #103. Core since 2026-11-11: `briar extract` and `briar serve` (decisions S1 to S35, V1 to V16, X1 to X6); 4 commands on `v2`: `extract`, `serve`, `init`, `doctor`. Status and handoff: `docs/briar-2-status.md` (section 3 explains `serve`) |
+| 2.0 | in progress on branch `v2` (still equal to `main`); 26 stacked PRs open, #79 to #104. Core since 2026-11-11: `briar extract` and `briar serve` (decisions S1 to S35, V1 to V16, X1 to X6, W1 to W9); 4 commands on `v2`: `extract`, `serve`, `init`, `doctor`. Status and handoff: `docs/briar-2-status.md` (section 3 explains `serve`); the real runs of `serve` and `extract` and their fixes (#104): `docs/briar-2-validation.md` |
 | MCP registry | `io.github.iklobato/briar`, latest 1.1.94; stays there, 2.0 has no MCP server |
 | Open issues | #76, #77 (section 8) |
-| Open PRs | #79 to #103, all into `v2`, not reviewed |
+| Open PRs | #79 to #104, all into `v2`, not reviewed |
+| Test repos for `serve` | `iklobato/briar-plan-test` (small) and `iklobato/briar-oss-click` (private copy of `pallets/click` with real CI), both private; unassign the issues of earlier runs before a new run |
 | Stars / forks | 3 / 0 |
 
 ## 3. Repo layout
@@ -209,16 +210,33 @@ only in the private site repo.
 - **`briar serve`** (spec 003; full flow in `docs/briar-2-status.md`
   section 3):
   - The state is `work:<company>` (`<knowledge root>/work/<company>.md`, a
-    JSON `WorkBook`). A ticket left `found` or `planned` is taken again (a
-    crash before the PR); `pr-open`, `done`, `blocked`, `merged` and
-    `closed` are not. Only PRs in `pr-open` or `done` are read each poll; to
-    retry a blocked ticket, remove its entry.
-  - Any `CliError` in a task (a limit, a git, GitHub or Jira failure) ends in
-    `TaskFlow.blocked`: draft PR with the report, the report on the ticket,
-    status `blocked`. A vendor error that is not a `CliError` would leave the
-    ticket `planned` and make every poll pay again: wrap new GitHub calls in
-    `GithubFailures`. A failure before the task starts (clone, ticket text)
-    is only logged and retried next poll (V15).
+    JSON `WorkBook`, written to a temp file and renamed). A ticket left
+    `found` or `planned` is taken again (a crash before the PR); `pr-open`,
+    `done`, `blocked`, `merged` and `closed` are not. Only PRs in `pr-open` or
+    `done` are read each poll; to retry a blocked ticket, remove its entry. The
+    state is not the only guard: before it builds, briar records a PR of the
+    task branch that already exists on GitHub (`branch_pull`), so a new state
+    folder does not open a second PR (it did before PR #104).
+  - The PR opens as a draft and is marked ready only after the CI wait (check
+    runs, statuses and the Actions workflow runs of the head: a queued Actions
+    run has no check run yet). A draft left in `pr-open` by a stop is finished
+    by the next poll (`WorkKind.READY`).
+  - Verify runs on a clean detached worktree of HEAD (`RepoCheckout.verify_copy`):
+    a file git ignores never makes it pass, and verify commands must install
+    their own dependencies.
+  - The knowledge path in the agent prompt is absolute; a relative one pointed
+    nowhere from the worktree (the agent never read it before PR #104).
+  - Any `CliError`, `OSError`, `RuntimeError`, `ValueError` or `LookupError` in a
+    task ends in `TaskFlow.blocked`: draft PR with the report, the report on the
+    ticket, status `blocked`. Wrap new GitHub calls in `GithubFailures`. A failure
+    before the task starts (clone, ticket text) is only logged and retried next
+    poll (V15). A failed poll is logged and retried; a failed login check of a
+    scheduled extract still stops `serve` (J8).
+  - `mergeable_state` from GitHub can stay stale after the base moves; `BaseDrift`
+    tries the merge in the clone (`git merge-tree`) when the PR `base.sha` is older
+    than the base branch head. The tasks of one repo share its clone under one lock.
+  - Every scheduled task writes the company blob (`knowledge.name`) and keeps the
+    sections it did not run (K9); a task name no longer changes the blob name.
   - Review comments count only from writers (`author_association` OWNER,
     MEMBER, COLLABORATOR) and `review_bots`; every GitHub comment briar
     posts ends with `<!-- briar -->`, the only thing that marks it as its
@@ -299,17 +317,23 @@ Full detail per version is in `CHANGELOG.md`. In short:
   `briar runbook` removed, `doctor --runbooks`, `serve` for extract-only
   folders, `init` writes an example runbook (X1 to X6). Details and numbers:
   `docs/briar-2-status.md`.
+- **2.0, the first real runs (2026-11-11 and 2026-11-12, PR #104)**: `serve` ran
+  real tickets, review rounds, CI fixes, conflicts and parallel tasks on two
+  private test repos, and `extract` ran on GitHub, AWS and Azure against the
+  official CLIs; 17 bugs found, 15 fixed in #104 (W1 to W9), plus the mutation
+  tool. The extract sources other than GitHub are still broken in known ways;
+  their fix plan is E1 to E27 (spec 007). Everything with evidence:
+  `docs/briar-2-validation.md`.
 
 ## 7. Next steps (in order)
 
-0. **2.0**: review and merge PRs #79 to #103 into `v2` in order (spec 003
-   is complete with #103); decide how
+0. **2.0**: review and merge PRs #79 to #104 into `v2` in order; decide how
    2.0 is released before `v2` merges to `main` (the workflow would publish
-   1.1.102); the first real run of `briar serve` on the test repo (spends
-   model money, ask first; a local `2.0.0.dev0` build exists for it since
-   2026-11-11 and the maintainer tests it next); the real runs left for Jira (and, while they
-   stay, Bitbucket, Linear and Fireflies); then spec 004. Spec 005 PR 4 was dropped by the
-   re-scope (S2).
+   1.1.102); spec 007, the extract sources (E1 to E27 in
+   `docs/decisions/2026-11-11-briar-2-extract-sources.md`, a grill before each
+   PR); B13 (`doctor --runbooks` and the model id); Jira through `serve`; then
+   spec 004. The first real runs of `serve` are done (`docs/briar-2-validation.md`).
+   Spec 005 PR 4 was dropped by the re-scope (S2).
    Order and detail: `docs/briar-2-status.md` section 5.
 1. Fix #77 (small): treat GitHub's `404 no analysis found` as "no data"
    without a traceback; keep other errors logged. Then check the same
@@ -334,9 +358,10 @@ The asks of the maintainer in the 2.0 session and where each stands:
 site docs, GIFs and diagrams still show removed commands, so the README
 shows none until they are redone; release mechanics for 2.0 not decided;
 the spec 005 review questions on #97 and #98 and the logins not run for
-real yet; the spec 003 review questions on #100 to #103, none answered; no
-real ticket or review round of `briar serve` run yet, so its cost per ticket
-and bash inside the sandbox are not measured).
+real yet; the spec 003 review questions on #100 to #103, none answered). What
+the real runs left open (B13, B14, B11 not proven live, the extract sources,
+the label filter for assigned issues, Jira, Linux and Docker):
+`docs/briar-2-validation.md` sections 4 and 6.
 
 **Filed issues (2026-10-29, both reproduced on 1.1.99, acceptance
 criteria in each):**
@@ -383,7 +408,16 @@ client run that writes data.
   cloud CLIs briar runs, 1.x users whose env names now stop a run, and for
   `briar serve`: model spend, acting as the PAT owner, GitHub calls per
   poll, the sandbox on Linux and Docker, `claude-agent-sdk` upgrades, one
-  `serve` per knowledge folder).
+  `serve` per knowledge folder). From the real runs (`docs/briar-2-validation.md`
+  section 7): the fetch per watched PR that `BaseDrift` makes once the base moves,
+  stale `mergeable_state`, queued Actions runs on private repos, a local Python
+  that fails pytest in a clean folder, issues assigned to the token owner that
+  are not for briar, and the model spend per ticket.
+- **The mutation job** (`tools/mutation_test.py`) runs only on
+  `workflow_dispatch` and on push to `main`, so a file it targets can be removed
+  without any PR going red; it was fixed in `2b11d3a` after `env_vars.py` left.
+  Run `uv run python tools/mutation_test.py` when you remove or move a module it
+  names.
 - **Release runs.** A random test failure has blocked a release before
   (telemetry banner, fixed in 1.1.80; one other failure on 2026-06-25,
   cause not checked). After every merge, check that the run is green and
