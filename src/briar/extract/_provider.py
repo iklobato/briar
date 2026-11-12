@@ -140,6 +140,9 @@ class PullState:
     conflict: bool
     base: str
     draft: bool = False
+    # The base commit GitHub computed `conflict` against; older than the base branch head
+    # when the base moved on and nothing touched the PR since (GitHub does not recompute).
+    base_sha: str = ""
 
 
 @dataclass(frozen=True)

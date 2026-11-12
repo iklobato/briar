@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
@@ -72,6 +73,16 @@ class Comments:
         return ReviewComment(id=ident, author=f"user-{ident}", body=body, kind=CommentKind.INLINE, association=association, updated_at="t1")
 
 
+@dataclass(frozen=True)
+class FakeDrift:
+    """`BaseDrift`: what the merge of the moved base in the clone would say."""
+
+    conflict: bool
+
+    def conflicts(self, entry: WorkEntry, pull: PullState) -> bool:
+        return self.conflict
+
+
 class Watched:
     """A company `acme` whose ticket ENG-9 has the briar PR 12 in `status`."""
 
@@ -131,6 +142,15 @@ class TestReviewFinder:
         github = FakeGithub(pulls={("acme/app", PR_NUMBER): PullState(True, False, False, "main", draft=True)})
 
         assert WorkFinder(company, FakeSources(github, jira_adapter=FakeJira({"ENG": []}))).find() == []
+
+    def test_a_conflict_github_did_not_see_starts_a_round(self, companies: Companies) -> None:
+        """GitHub said `CLEAN` with a base 40 minutes old; the merge in the clone conflicts."""
+        company = Watched(companies).company({}, {})
+        github = FakeGithub(pulls={("acme/app", PR_NUMBER): PullState(True, False, False, "main", base_sha="old")})
+
+        items = WorkFinder(company, FakeSources(github, jira_adapter=FakeJira({"ENG": []})), FakeDrift(True)).find()
+
+        assert [(item.kind, item.conflict) for item in items] == [(WorkKind.REVIEW, True)]
 
     def test_a_conflict_alone_starts_a_round(self, companies: Companies) -> None:
         company = Watched(companies).company({}, {})

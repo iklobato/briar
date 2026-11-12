@@ -137,8 +137,15 @@ class GithubProvider(RepositoryProvider):
         computes it late, so a new PR can read `unknown` once)."""
         _validate_repo(repo)
         found = GithubFailures().answer(partial(self._api().get_json, f"/repos/{repo}/pulls/{number}"))
-        base = (found.get("base") or {}).get("ref") or ""
-        return PullState(found.get("state") == "open", bool(found.get("merged")), found.get("mergeable_state") == "dirty", base, bool(found.get("draft")))
+        base = found.get("base") or {}
+        conflict = found.get("mergeable_state") == "dirty"
+        return PullState(found.get("state") == "open", bool(found.get("merged")), conflict, base.get("ref") or "", bool(found.get("draft")), base.get("sha") or "")
+
+    def branch_head(self, repo: str, branch: str) -> str:
+        """The commit at the head of `branch` of `repo`."""
+        _validate_repo(repo)
+        found = GithubFailures().answer(partial(self._api().get_json, f"/repos/{repo}/branches/{branch}"))
+        return str((found.get("commit") or {}).get("sha") or "")
 
     def branch_pull(self, repo: str, branch: str) -> Optional[BranchPull]:
         """The newest PR, open or not, whose head is `branch` of `repo` (briar checks it before

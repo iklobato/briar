@@ -17,7 +17,7 @@ from briar.iac.runbook.scheduler import RunbookScheduler
 from briar.serve.agent import AgentRunner, BashGuard, ClaudeAgent
 from briar.serve.git import Shell
 from briar.serve.task import ServeCache, TaskContext, TaskPrep
-from briar.serve.work import ServeCompany, WorkFinder, WorkItem, WorkSources
+from briar.serve.work import BaseDrift, ServeCompany, WorkFinder, WorkItem, WorkSources
 
 
 class Routine(Protocol):
@@ -80,8 +80,10 @@ class CompanyWatch:
         """One poll: find the work (in a thread: the clients are blocking) and dispatch it.
         A failed poll (GitHub or Jira down) is logged and tried again next poll: it must not
         stop the other companies and the tasks that are running."""
+        sources = WorkSources(self._company.logins)
+        drift = BaseDrift(self._company, sources, ServeCache(os.environ).root())
         try:
-            items: List[WorkItem] = await asyncio.to_thread(WorkFinder(self._company, WorkSources(self._company.logins)).find)
+            items: List[WorkItem] = await asyncio.to_thread(WorkFinder(self._company, sources, drift).find)
         except self.POLL_FAILURES as failure:
             self.LOG.error("serve: %s: the poll failed, trying again next poll: %s", self._company.name, failure)
             return 0

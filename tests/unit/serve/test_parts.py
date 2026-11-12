@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
-from typing import ClassVar, List, Optional
+from typing import ClassVar, Dict, List, Optional
 
 import pytest
 
@@ -65,6 +65,17 @@ class TestGit:
 
         assert [(worktree / "README.md").read_text() for worktree in worktrees] == ["app\n"] * TASKS
 
+    def test_a_base_that_changed_the_same_line_does_not_merge_clean(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """GitHub kept a PR `CLEAN` 40 minutes after its base moved (click copy, PR #5)."""
+        checkout = PushedBranch(tmp_path, monkeypatch).after_base_commit({"README.md": "main moved\n"})
+
+        assert checkout.merges_clean("main", "briar/ENG-1", TOKEN) is False
+
+    def test_a_base_that_changed_another_file_merges_clean(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        checkout = PushedBranch(tmp_path, monkeypatch).after_base_commit({"other.txt": "x\n"})
+
+        assert checkout.merges_clean("main", "briar/ENG-1", TOKEN) is True
+
     def test_a_failed_git_command_names_it_and_hides_the_token(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(RepoCheckout, "HOST", f"file://{tmp_path / 'remotes'}")
         checkout = RepoCheckout(Shell(), tmp_path / "cache", "acme/missing")
@@ -112,6 +123,26 @@ class TestCiStates:
 
         assert GithubProvider().ci_state("acme/app", PR_NUMBER) is CiState.PENDING
         assert repo.asked_head_shas == [FakeRepo.HEAD]
+
+
+class PushedBranch:
+    """A clone with `briar/ENG-1` pushed (it changes README.md), then a commit on `main`."""
+
+    def __init__(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._tmp_path = tmp_path
+        self._monkeypatch = monkeypatch
+
+    def after_base_commit(self, files: Dict[str, str]) -> RepoCheckout:
+        origin = LocalOrigin(self._tmp_path)
+        self._monkeypatch.setattr(RepoCheckout, "HOST", f"file://{origin.create()}")
+        checkout = RepoCheckout(Shell(), self._tmp_path / "cache", "acme/app")
+        checkout.update(TOKEN)
+        worktree = checkout.worktree("briar/ENG-1", "main", self._tmp_path / "cache" / "wt")
+        (worktree / "README.md").write_text("branch change\n")
+        checkout.commit_all(worktree, "ENG-1: change", GitIdentity("octo"))
+        checkout.push(worktree, "briar/ENG-1", TOKEN)
+        origin.push_commit("main", files)
+        return checkout
 
 
 @dataclass(frozen=True)

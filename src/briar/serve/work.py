@@ -20,9 +20,10 @@ from typing import Any, Callable, ClassVar, List, Mapping, Optional, Sequence, S
 from briar.auth.check import CheckResult, CheckState, LoginCheck, LoginCheckFailed, LoginTarget, SourceUnreachable
 from briar.auth.logins import CompanyLogins, LoginScope
 from briar.errors import CliError
-from briar.extract._provider import CommentKind, ReviewComment
+from briar.extract._provider import CommentKind, PullState, ReviewComment
 from briar.extract._tracker import Ticket
 from briar.iac.runbook.models import ServeSettings
+from briar.serve.git import RepoCheckout, Shell
 from briar.serve.state import WorkBook, WorkEntry, WorkSource, WorkState, WorkStatus
 from briar.storage import make_store
 
@@ -144,9 +145,11 @@ class WorkFinder:
     # The most tickets one Jira project gives per cycle.
     MAX_TICKETS = 50
 
-    def __init__(self, company: ServeCompany, sources: WorkSources) -> None:
+    def __init__(self, company: ServeCompany, sources: WorkSources, drift: Optional[Any] = None) -> None:
         self._company = company
         self._sources = sources
+        # `BaseDrift`: finds a conflict GitHub has not computed yet; None reads GitHub only.
+        self._drift = drift
 
     def find(self) -> List[WorkItem]:
         book = self._company.state.book()
@@ -187,10 +190,28 @@ class WorkFinder:
             return WorkItem(WorkKind.MERGED if pull.merged else WorkKind.CLOSED, entry.key, entry.source, entry.repo, entry.title, pr=entry.pr)
         resolved = github.resolved_comment_ids(entry.repo, entry.pr)
         new = ReviewFilter(self._company.settings, entry, resolved).new(github.review_comments(entry.repo, entry.pr))
-        if new or pull.conflict:
-            return WorkItem(WorkKind.REVIEW, entry.key, entry.source, entry.repo, entry.title, pr=entry.pr, comments=tuple(new), conflict=pull.conflict)
+        conflict = pull.conflict or (self._drift is not None and self._drift.conflicts(entry, pull))
+        if new or conflict:
+            return WorkItem(WorkKind.REVIEW, entry.key, entry.source, entry.repo, entry.title, pr=entry.pr, comments=tuple(new), conflict=conflict)
         unfinished = pull.draft and entry.status is WorkStatus.PR_OPEN
         return WorkItem(WorkKind.READY, entry.key, entry.source, entry.repo, entry.title, pr=entry.pr) if unfinished else None
+
+
+class BaseDrift:
+    """GitHub recomputes `mergeable_state` when a PR head changes, not when its base moves on:
+    the click copy kept PR #5 `CLEAN` for 40 minutes after `main` moved. When the base GitHub
+    used is older than the head of the base branch, the merge is tried in the clone instead."""
+
+    def __init__(self, company: ServeCompany, sources: WorkSources, cache: Path) -> None:
+        self._company = company
+        self._sources = sources
+        self._cache = cache
+
+    def conflicts(self, entry: WorkEntry, pull: PullState) -> bool:
+        if not pull.base_sha or self._sources.github().branch_head(entry.repo, pull.base) == pull.base_sha:
+            return False
+        checkout = RepoCheckout(Shell(), self._cache, entry.repo)
+        return not checkout.merges_clean(pull.base, entry.branch, self._company.logins.github().token())
 
 
 class ReviewFilter:
@@ -352,6 +373,7 @@ class ServeCompanies:
 
 __all__ = [
     "AgentSandbox",
+    "BaseDrift",
     "Marker",
     "ModelLogin",
     "PriorityRank",

@@ -104,6 +104,14 @@ class RepoCheckout:
             self._git(["worktree", "add", "-B", branch, str(path), f"origin/{base}"], self.clone_dir(), "")
         return path
 
+    def merges_clean(self, base: str, branch: str, token: str) -> bool:
+        """Fetch, then try the merge of `origin/<base>` and `origin/<branch>` without touching
+        any worktree (`git merge-tree`): False when they conflict."""
+        self.update(token)
+        with self._shared_clone():
+            done = self._shell.program(["git", "merge-tree", "--write-tree", f"origin/{base}", f"origin/{branch}"], self.clone_dir())
+        return done.ok()
+
     def _shared_clone(self) -> threading.Lock:
         """The lock of the clone folder: the tasks of one repo (`max_parallel`) share the clone,
         and two `git clone`, `fetch` or `worktree add` at once fail or corrupt it."""
