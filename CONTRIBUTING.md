@@ -49,6 +49,13 @@ test that fails before the fix and passes after.
 - **The repo's `logging.py` shadows stdlib `logging` under some import orders.**
   If a randomised test run throws `ImportError: cannot import name 'LogRecord'`,
   it's a collection-order artifact, not your change; re-run with `-p no:randomly`.
+- **The integration CI job runs on Python 3.14** (it pins no version; the unit
+  jobs run 3.10 to 3.12). Python 3.14 warns when a urllib `HTTPError` is only
+  closed by garbage collection, and pytest turns that into a failure in
+  whichever test runs then. Close an `HTTPError` you catch (`exc.close()` or
+  `with exc:`). To reproduce a CI seed: `UV_PROJECT_ENVIRONMENT=<dir> uv run
+  --python 3.14 --extra test pytest -m integration -p randomly
+  --randomly-seed=<seed>`.
 - **Logs go to stderr and are quiet by default (WARNING).** Use `--verbose` /
   `BRIAR_VERBOSE=1` for DEBUG, or `BRIAR_LOG_LEVEL=INFO`. stdout is reserved for
   machine-readable output (`--format json`).
@@ -57,6 +64,15 @@ test that fails before the fix and passes after.
 
 - Two CLI dispatch styles coexist on purpose (Op-class `SubcommandCommand` vs the
   `_ACTIONS` string map). Both are test-pinned; don't unify them.
+- **CLI options on the `v2` branch (2.0)** are Typer options declared as fields
+  of a frozen `CommandOptions` dataclass in the command's module (for example
+  `InitOptions` in `commands/init.py`), listed in `cli_app.ROUTES`. Name the
+  field after the namespace attribute `run()` reads. A fixed list of choices
+  is a `str` Enum in `commands/_enums.py` with a test that keeps it equal to
+  its registry. Only `extract` still uses `add_arguments` (argparse) until
+  spec 004. `tests/unit/cli/` holds the 1.x contract (`flags_1x.json`):
+  change it only when a decision removes or renames a flag. The traps found
+  while building this are in `docs/briar-2-status.md` section 4.
 - Command output: data on stdout (via `briar.formatting.render`, honouring
   `--format`), human progress/status on stderr.
 - New non-`.py` assets (templates, etc.) ship in the wheel because hatchling
