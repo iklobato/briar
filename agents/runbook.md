@@ -6,13 +6,17 @@ data collector, such as `pr-archaeology` (past PRs) or `active-tickets`
 (open tickets). Each one adds a section to the company's knowledge blob.
 See [extract.md](extract.md) for the list of extractors.
 
-`briar runbook` runs those files. It has three subcommands:
+`briar runbook` runs those files. It has two subcommands:
 
 | Subcommand | What it does |
 |---|---|
 | `extract <file>` | Runs every task in one runbook file now, then exits. |
-| `sweep <folder>` | Runs `extract` for every `*.yaml` file in a folder, then exits. |
 | `serve <folder>` | Stays running and starts each task on its own schedule (its `every:` value). It replaces cron. |
+
+1.x also had `sweep <folder>` (run `extract` for every file in a folder)
+and `serve --tick`. 2.0 removed them (decision C14): run `extract` once
+per file (`for f in runbooks/*.yaml; do briar runbook extract "$f"; done`),
+or `serve` the folder; `serve` checks the schedule every second.
 
 ## The runbook file
 
@@ -180,54 +184,6 @@ You get a JSON list of rows.
 | `skipped (no schedule)` | The company has no tasks. |
 | `inventory wrote (<N> bytes)` | The inventory copy was written. |
 
-## `briar runbook sweep`
-
-### What it does
-
-Runs `extract` for each `*.yaml` file in a folder, in name order. Before
-each file it prints `--- <file> ---`, then that file's table.
-
-### Use it when
-
-- You keep one runbook per company and want to refresh all of them.
-- You want a full refresh before a release or a demo.
-
-### Examples
-
-```bash
-# Refresh every company in the runbooks/ folder.
-briar runbook sweep runbooks/
-```
-
-You get one `--- <file> ---` header and one table per file.
-
-```bash
-# Refresh every company on a server, from the system runbooks folder.
-briar runbook sweep /etc/briar/runbooks/
-```
-
-You get the same report for the files in `/etc/briar/runbooks/`.
-
-```bash
-# The same as JSON, one list per file.
-briar runbook sweep runbooks/ --format json
-```
-
-You get a `--- <file> ---` line, then a JSON list, for each file.
-
-### All parameters
-
-| Parameter | What it means | Default | Example |
-|---|---|---|---|
-| `directory` (positional) | The folder with the runbook files. Only `*.yaml` files directly inside it are read. Required. | none | `runbooks/` |
-
-### Good to know
-
-- If one file fails to load, `sweep` logs the error, goes on with the
-  next file, and exits with code 1 at the end.
-- An empty folder prints `sweep: no *.yaml under <folder>` and exits 0.
-- `sweep` has no `--task` flag. It runs every task.
-
 ## `briar runbook serve`
 
 ### What it does
@@ -253,13 +209,6 @@ then `scheduler starting: 3 job(s), tick=1.0s`. Later, at each run time,
 you get `fire task=prs company=acme` and a `result ...` line.
 
 ```bash
-# Check for due jobs every 5 seconds instead of every second.
-briar runbook serve runbooks/ --tick 5
-```
-
-You get the same schedule, with a check every 5 seconds.
-
-```bash
 # Keep the log in a file.
 briar runbook serve runbooks/ >> /var/log/briar/scheduler.log 2>&1
 ```
@@ -271,7 +220,8 @@ You get the log in `/var/log/briar/scheduler.log`.
 | Parameter | What it means | Default | Example |
 |---|---|---|---|
 | `directory` (positional) | The folder with the runbook files. `serve` takes a folder, not one file. Required. | none | `runbooks/` |
-| `--tick` | Seconds between checks for due jobs. Decimals work. | `1` | `--tick 5` |
+
+`serve` checks for due jobs every second; the 1.x `--tick` flag is gone.
 
 ### Good to know
 
@@ -283,7 +233,7 @@ You get the log in `/var/log/briar/scheduler.log`.
   apply at the next run. New tasks, removed tasks and new `every:`
   values need a restart.
 - A bad file or a bad `every:` value stops `serve` at start. `extract`
-  and `sweep` do not check `every:`, so test a new value with `serve`.
+  does not check `every:`, so test a new value with `serve`.
 - If a task fails while running, `serve` logs `FAILED task=...` and keeps going.
 - `serve` never goes to the background on its own. Run it under a
   process manager such as systemd.
@@ -324,7 +274,7 @@ the ticket pipeline (spec 003).
   or in a `messages:` entry stops the file from loading. A wrong key in
   a company block, in `knowledge:` or inside `args` is ignored without a
   warning, so check the spelling.
-- `extract`, `sweep` and `serve` log progress at INFO level to stderr.
+- `extract` and `serve` log progress at INFO level to stderr.
   The table goes to stdout.
 
 ## Run it with Docker

@@ -15,30 +15,12 @@ AWS, persist into env-file)."""
 
 from __future__ import annotations
 
-import enum
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import ClassVar, Dict, List, Optional
 
 from briar.auth._prompt import PromptIO
-
-
-class DestinationPolicy(enum.Enum):
-    """Where the acquired credentials are persisted.
-
-    ``EXTERNAL`` (default) — vendor credentials like a GitHub PAT or
-    AWS STS bundle. These can go in any ``CredentialStore`` — operator
-    picks via ``--store``.
-
-    ``BOOTSTRAP_LOCAL`` — the credentials DESCRIBE HOW TO REACH a
-    ``CredentialStore`` (e.g. a future Vault address + token). They
-    cannot be stored INSIDE that store —
-    chicken-and-egg. Always persisted to the local ``envfile`` store;
-    ``--store`` is ignored with a warning if the operator passes it."""
-
-    EXTERNAL = "external"
-    BOOTSTRAP_LOCAL = "bootstrap"
 
 
 class CredentialExpired(Exception):
@@ -81,11 +63,6 @@ class CredentialAcquirer(ABC):
     kind: ClassVar[str] = ""
     # Human-friendly display name; falls back to `kind` if empty.
     display_name: ClassVar[str] = ""
-    # Where the result lands. Most acquirers obtain vendor credentials
-    # that can be persisted to any store (EXTERNAL). Store-bootstrap
-    # acquirers (e.g. a future Vault) obtain the credentials needed to
-    # talk to THAT store, so they must persist locally.
-    destination_policy: ClassVar[DestinationPolicy] = DestinationPolicy.EXTERNAL
 
     @abstractmethod
     def acquire(self, *, company: str, prompt: PromptIO) -> Credentials:
@@ -118,4 +95,4 @@ class CredentialAcquirer(ABC):
         acquired-vs-required to surface drift."""
 
 
-__all__ = ["CredentialAcquirer", "CredentialExpired", "Credentials", "DestinationPolicy"]
+__all__ = ["CredentialAcquirer", "CredentialExpired", "Credentials"]

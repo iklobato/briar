@@ -4,15 +4,16 @@
 for a token (or walks you through a browser login), then saves the
 result where other briar commands can find it.
 
-It has five subcommands:
+It has two subcommands:
 
 | Subcommand | What it does |
 |---|---|
 | `login <target>` | Get keys for one service and save them. |
-| `logout <target>` | Delete the keys that `login` saves for that target. |
-| `refresh <target>` | Renew keys without asking again. No target supports it yet. |
-| `list` | Show the names of the keys that are set. Never the values. |
-| `status <target>` | Show which keys one target needs, and which are set. |
+| `status [target]` | With a target: which keys it needs, and which are set. Without one: the names of every key that is set. Never the values. |
+
+1.x also had `logout`, `refresh` and `list`. 2.0 removed them (decision
+C15): to remove a login, delete its lines from `secrets.env`; to renew
+one, run `login` again; `status` with no target lists the names.
 
 ## How briar stores keys
 
@@ -23,8 +24,8 @@ gives `ACME`, and `--company acme-co` gives `ACME_CO`.
 
 A **credential store** is the place where the keys are saved. 2.0 has
 one, `envfile`: a plain text file named `secrets.env`, one `NAME=value`
-per line, file mode `0600` (only you can read it). `--cred-store` still
-exists and takes only `envfile`.
+per line, file mode `0600` (only you can read it). It is the only store,
+so the 1.x `--cred-store` flag is gone.
 
 1.x also had `aws-secretsmanager`, `ssm` and `vault`. 2.0 removed them.
 If `$BRIAR_DEFAULT_STORE` still names one, every command stops (exit
@@ -109,7 +110,6 @@ You get short-lived AWS keys for `acme`. briar also prints when they expire.
 |---|---|---|---|
 | `target` (positional) | The service and login style. One of the targets in the table above. Required. | none | `jira-token` |
 | `--company` | Your company name. briar puts it in the key names. Required for every target except the two GitHub ones. | `$BRIAR_COMPANY`, else `company` in `.briar.toml`, else empty. | `--company acme` |
-| `--cred-store` | Where to save the keys. Only `envfile` since 2.0. The 1.x name `--store` was removed in 2.0. | `envfile` | `--cred-store envfile` |
 
 ### Good to know
 
@@ -129,136 +129,14 @@ You get short-lived AWS keys for `acme`. briar also prints when they expire.
 - If some keys fail to save, `login` lists them as `FAIL` with the
   reason and exits with code 1.
 
-## `briar auth logout`
-
-### What it does
-
-Deletes every key that `login` saves for one target. With `envfile` it
-removes the lines from `secrets.env`.
-
-### Use it when
-
-- You want briar to stop using an account.
-- You want a clean start before a new `login`.
-
-### Examples
-
-```bash
-# Remove the acme Jira keys. briar lists them and asks first.
-briar auth logout jira-token --company acme
-```
-
-You get a list of the four `JIRA_ACME_*` names and a `proceed?` question.
-
-```bash
-# Same, with no question. Use this in scripts.
-briar auth logout jira-token --company acme --yes
-```
-
-You get `auth-logout: removed 4/4 entries from store=envfile` when all four keys were there.
-
-### All parameters
-
-| Parameter | What it means | Default | Example |
-|---|---|---|---|
-| `target` (positional) | The target whose keys to delete. Required. | none | `linear-api-key` |
-| `--company` | The company whose keys to delete. | `$BRIAR_COMPANY`, else `.briar.toml`, else empty. | `--company acme` |
-| `--cred-store` | The store to delete from (only `envfile`). The 1.x name `--store` was removed in 2.0. | `envfile` | `--cred-store envfile` |
-| `--yes` | Skip the `proceed?` question. | off | `--yes` |
-
-### Good to know
-
-- `logout github-pat` (or `github-device`) deletes `GITHUB_TOKEN`. That
-  token is shared by every company on the machine.
-- Without a terminal, the question counts as "no". briar prints
-  `aborted` and exits with code 1. Pass `--yes`.
-- With no `--company` on a per-company target, there is nothing to
-  delete. briar says so and exits with code 0.
-
-## `briar auth refresh`
-
-### What it does
-
-It is meant to renew keys without a new login. In 1.1.75 no target can
-do this. Every target prints `credential expired: ...` with the `login`
-command to run, and exits with code 2.
-
-### Use it when
-
-- Not yet. Run `briar auth login` again instead.
-
-### Examples
-
-```bash
-# Exits 2 in 1.1.75 and tells you to run login again.
-briar auth refresh aws-sso --company acme
-```
-
-You get the message `credential expired: aws-sso: refresh not implemented yet`, plus the `login` command to run.
-
-### All parameters
-
-| Parameter | What it means | Default | Example |
-|---|---|---|---|
-| `target` (positional) | The target to renew. Required. | none | `aws-sso` |
-| `--company` | The company whose keys to renew. | `$BRIAR_COMPANY`, else `.briar.toml`, else empty. | `--company acme` |
-| `--cred-store` | The store to read and write (only `envfile`). The 1.x name `--store` was removed in 2.0. | `envfile` | `--cred-store envfile` |
-
-## `briar auth list`
-
-### What it does
-
-Prints the names of the keys briar can see in a store. It never prints
-values. With `envfile` it lists the known key names that are set in
-the environment, from your shell or from `secrets.env`.
-
-### Use it when
-
-- You want to check what is set up on a machine.
-- You want to see which companies have keys.
-
-### Examples
-
-```bash
-# Names of every key briar knows about.
-briar auth list
-```
-
-You get `store=envfile  N entry(ies):` and one name per line.
-
-```bash
-# Only the keys for acme.
-briar auth list --company acme
-```
-
-You get only names that contain `_ACME_`, such as `JIRA_ACME_TOKEN`.
-
-```bash
-# Every company, even inside a repo whose .briar.toml sets company = "acme".
-briar auth list --company ""
-```
-
-You get the full list with no company filter.
-
-### All parameters
-
-| Parameter | What it means | Default | Example |
-|---|---|---|---|
-| `--company` | Only show names that contain this company (as `_ACME_`). | `$BRIAR_COMPANY`, else `.briar.toml`, else empty (no filter). | `--company acme` |
-| `--cred-store` | The store to list (only `envfile`). The 1.x name `--store` was removed in 2.0. | `envfile` | `--cred-store envfile` |
-
-### Good to know
-
-- Inside a repo with `company = "acme"` in `.briar.toml`, `list` filters
-  to acme by default. Pass `--company ""` to see everything.
-- `GITHUB_TOKEN` has no company in its name. A company filter hides it.
-
 ## `briar auth status`
 
 ### What it does
 
-Shows the keys one target needs for one company, and marks each one
-`ok` (set) or `MISS` (missing).
+With a target: shows the keys that target needs for one company, and
+marks each one `ok` (set) or `MISS` (missing). With no target: prints the
+names of every key that is set (in your shell or in `secrets.env`), never
+the values, as 1.x `briar auth list` did.
 
 ### Use it when
 
@@ -281,13 +159,21 @@ briar auth status github-pat
 
 You get one line for `GITHUB_TOKEN`.
 
+```bash
+# Names of every key briar can see, then only the acme ones.
+briar auth status
+briar auth status --company acme
+```
+
+You get `store=envfile  N entry(ies):` and one name per line, or
+`(no credentials in store=envfile)`.
+
 ### All parameters
 
 | Parameter | What it means | Default | Example |
 |---|---|---|---|
-| `target` (positional) | The target to check. Required. | none | `fireflies` |
-| `--company` | The company to check. | `$BRIAR_COMPANY`, else `.briar.toml`, else empty. | `--company acme` |
-| `--cred-store` | The store to read from (only `envfile`). The 1.x name `--store` was removed in 2.0. | `envfile` | `--cred-store envfile` |
+| `target` (positional) | The target to check. Leave it out to list every key name. | none | `fireflies` |
+| `--company` | The company to check. Without a target, keeps only the names that carry that company. | `$BRIAR_COMPANY`, else `.briar.toml`, else empty. | `--company acme` |
 
 ### Good to know
 
@@ -295,6 +181,10 @@ You get one line for `GITHUB_TOKEN`.
   against the service. An expired token still shows `ok`.
 - With no `--company` on a per-company target, briar prints
   `writes nothing` and exits with code 0.
+- Without a target, inside a repo with `company = "acme"` in
+  `.briar.toml`, the list is filtered to acme. Pass `--company ""` to see
+  everything. `GITHUB_TOKEN` has no company in its name, so a company
+  filter hides it.
 
 ## Run it with Docker
 

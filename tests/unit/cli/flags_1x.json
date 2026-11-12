@@ -31,47 +31,6 @@
   {
    "argv": [
     "auth",
-    "logout",
-    "github-device",
-    "--company=-x-company"
-   ],
-   "dest": "company",
-   "expected": "-x-company",
-   "path": [
-    "auth",
-    "logout"
-   ]
-  },
-  {
-   "argv": [
-    "auth",
-    "refresh",
-    "github-device",
-    "--company=-x-company"
-   ],
-   "dest": "company",
-   "expected": "-x-company",
-   "path": [
-    "auth",
-    "refresh"
-   ]
-  },
-  {
-   "argv": [
-    "auth",
-    "list",
-    "--company=-x-company"
-   ],
-   "dest": "company",
-   "expected": "-x-company",
-   "path": [
-    "auth",
-    "list"
-   ]
-  },
-  {
-   "argv": [
-    "auth",
     "status",
     "github-device",
     "--company=-x-company"
@@ -129,26 +88,11 @@
   {
    "argv": [
     "runbook",
-    "sweep",
-    "x-directory-1"
-   ],
-   "expected": {
-    "directory": "x-directory-1"
-   },
-   "path": [
-    "runbook",
-    "sweep"
-   ]
-  },
-  {
-   "argv": [
-    "runbook",
     "serve",
     "x-directory-1"
    ],
    "expected": {
-    "directory": "x-directory-1",
-    "tick": 1.0
+    "directory": "x-directory-1"
    },
    "path": [
     "runbook",
@@ -163,7 +107,6 @@
    ],
    "expected": {
     "company": "",
-    "cred_store": "envfile",
     "target": "github-device"
    },
    "path": [
@@ -174,59 +117,11 @@
   {
    "argv": [
     "auth",
-    "logout",
-    "github-device"
-   ],
-   "expected": {
-    "company": "",
-    "cred_store": "envfile",
-    "target": "github-device",
-    "yes": false
-   },
-   "path": [
-    "auth",
-    "logout"
-   ]
-  },
-  {
-   "argv": [
-    "auth",
-    "refresh",
-    "github-device"
-   ],
-   "expected": {
-    "company": "",
-    "cred_store": "envfile",
-    "target": "github-device"
-   },
-   "path": [
-    "auth",
-    "refresh"
-   ]
-  },
-  {
-   "argv": [
-    "auth",
-    "list"
-   ],
-   "expected": {
-    "company": "",
-    "cred_store": "envfile"
-   },
-   "path": [
-    "auth",
-    "list"
-   ]
-  },
-  {
-   "argv": [
-    "auth",
     "status",
     "github-device"
    ],
    "expected": {
     "company": "",
-    "cred_store": "envfile",
     "target": "github-device"
    },
    "path": [
@@ -247,17 +142,6 @@
    },
    "path": [
     "init"
-   ]
-  },
-  {
-   "argv": [
-    "config",
-    "show"
-   ],
-   "expected": {},
-   "path": [
-    "config",
-    "show"
    ]
   },
   {
@@ -326,21 +210,6 @@
   },
   {
    "argv": [
-    "runbook",
-    "serve",
-    "x-directory-1",
-    "--tick",
-    "0.5"
-   ],
-   "dest": "tick",
-   "expected": 0.5,
-   "path": [
-    "runbook",
-    "serve"
-   ]
-  },
-  {
-   "argv": [
     "auth",
     "login",
     "github-device",
@@ -357,123 +226,6 @@
   {
    "argv": [
     "auth",
-    "login",
-    "github-device",
-    "--cred-store",
-    "envfile"
-   ],
-   "dest": "cred_store",
-   "expected": "envfile",
-   "path": [
-    "auth",
-    "login"
-   ]
-  },
-  {
-   "argv": [
-    "auth",
-    "logout",
-    "github-device",
-    "--company",
-    "x-company-1"
-   ],
-   "dest": "company",
-   "expected": "x-company-1",
-   "path": [
-    "auth",
-    "logout"
-   ]
-  },
-  {
-   "argv": [
-    "auth",
-    "logout",
-    "github-device",
-    "--cred-store",
-    "envfile"
-   ],
-   "dest": "cred_store",
-   "expected": "envfile",
-   "path": [
-    "auth",
-    "logout"
-   ]
-  },
-  {
-   "argv": [
-    "auth",
-    "logout",
-    "github-device",
-    "--yes"
-   ],
-   "dest": "yes",
-   "expected": true,
-   "path": [
-    "auth",
-    "logout"
-   ]
-  },
-  {
-   "argv": [
-    "auth",
-    "refresh",
-    "github-device",
-    "--company",
-    "x-company-1"
-   ],
-   "dest": "company",
-   "expected": "x-company-1",
-   "path": [
-    "auth",
-    "refresh"
-   ]
-  },
-  {
-   "argv": [
-    "auth",
-    "refresh",
-    "github-device",
-    "--cred-store",
-    "envfile"
-   ],
-   "dest": "cred_store",
-   "expected": "envfile",
-   "path": [
-    "auth",
-    "refresh"
-   ]
-  },
-  {
-   "argv": [
-    "auth",
-    "list",
-    "--cred-store",
-    "envfile"
-   ],
-   "dest": "cred_store",
-   "expected": "envfile",
-   "path": [
-    "auth",
-    "list"
-   ]
-  },
-  {
-   "argv": [
-    "auth",
-    "list",
-    "--company",
-    "x-company-1"
-   ],
-   "dest": "company",
-   "expected": "x-company-1",
-   "path": [
-    "auth",
-    "list"
-   ]
-  },
-  {
-   "argv": [
-    "auth",
     "status",
     "github-device",
     "--company",
@@ -481,21 +233,6 @@
    ],
    "dest": "company",
    "expected": "x-company-1",
-   "path": [
-    "auth",
-    "status"
-   ]
-  },
-  {
-   "argv": [
-    "auth",
-    "status",
-    "github-device",
-    "--cred-store",
-    "envfile"
-   ],
-   "dest": "cred_store",
-   "expected": "envfile",
    "path": [
     "auth",
     "status"

@@ -38,7 +38,7 @@ def test_cli_fixture_prints_no_banner_and_sends_nothing_on_a_fresh_home(cli, mon
     for var in ("BRIAR_TELEMETRY", "DO_NOT_TRACK"):
         monkeypatch.delenv(var, raising=False)
 
-    result = cli("config", "show")
+    result = cli("doctor")
 
     assert result.code == 0, result.err
     assert "anonymous error reports" not in result.err
@@ -53,7 +53,7 @@ def test_startup_hands_the_project_config_to_telemetry(cli: Callable[..., Simple
     monkeypatch.setattr("briar.config.load_project_config", fakes.load_project_config)
     monkeypatch.setattr("briar.telemetry.install", fakes.install)
 
-    run = cli("config", "show")
+    run = cli("doctor")
 
     assert run.code == 0, run.err
     assert fakes.installed_with == [{"telemetry": PROJECT_TIER}]

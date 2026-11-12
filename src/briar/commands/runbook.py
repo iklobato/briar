@@ -2,8 +2,10 @@
 
 Subcommands:
   extract   one-shot run (optionally filtered to a `--task`)
-  sweep     one-shot over every YAML in a directory
-  serve     long-lived in-process scheduler — replaces cron
+  serve     long-lived in-process scheduler, replaces cron
+
+`sweep` and `serve --tick` left in 2.0 (decision C14): run `serve DIR`, or
+`extract` once per file; `serve` ticks every second.
 """
 
 from __future__ import annotations
@@ -30,13 +32,11 @@ class CommandRunbook(Command):
 
     _ACTIONS: ClassVar[Dict[str, str]] = {
         "extract": "_extract",
-        "sweep": "_sweep",
         "serve": "_serve",
     }
 
     OP_HELP = {
         "extract": "walk a YAML's `extract:` or `schedules:` and write knowledge files",
-        "sweep": "run extract for every *.yaml in a directory",
         "serve": "long-running scheduler: registers every (company, task) and runs the schedule loop forever",
     }
 
@@ -59,28 +59,6 @@ class CommandRunbook(Command):
         render(items, args.format, ["company", "task", "status", "output"])
         return 0
 
-    def _sweep(self, args: argparse.Namespace) -> int:
-        root = Path(args.directory)
-        if not root.is_dir():
-            raise CliError(f"sweep: {root} is not a directory")
-        files = sorted(p for p in root.glob("*.yaml") if p.is_file())
-        if not files:
-            print(f"sweep: no *.yaml under {root}")
-            return 0
-        exit_code = 0
-        for path in files:
-            log.info("sweep: processing %s", path.name)
-            print(f"--- {path.name} ---")
-            try:
-                runbook = load_runbook_file(path)
-                rows = extract_runbook(runbook)
-                items = [{"company": r.company, "task": r.task, "status": r.status, "output": r.output} for r in rows]
-                render(items, args.format, ["company", "task", "status", "output"])
-            except Exception:  # noqa: BLE001
-                log.exception("sweep: %s failed", path.name)
-                exit_code = 1
-        return exit_code
-
     def _serve(self, args: argparse.Namespace) -> int:
         directory = Path(args.directory)
         if not directory.is_dir():
@@ -88,13 +66,14 @@ class CommandRunbook(Command):
         scheduler = RunbookScheduler(directory)
         for entry in scheduler.register_all():
             log.info("registered company=%s task=%s every=%r", entry.company, entry.task, entry.every)
-        scheduler.run_forever(args.tick)
+        scheduler.run_forever(TICK_SECONDS)
         return 0
 
 
 # ─── Options on Typer ──────────────────────────────────────────────
 
-DEFAULT_TICK_SECONDS = 1.0
+# C14: the 1.x `--tick` left; `serve` checks the schedule every second.
+TICK_SECONDS = 1.0
 
 
 @dataclass(frozen=True)
@@ -106,15 +85,7 @@ class RunbookExtractOptions(CommandOptions):
 
 
 @dataclass(frozen=True)
-class RunbookSweepOptions(CommandOptions):
-    ROUTE = Route(CommandRunbook.name, "op", "sweep")
-
-    directory: str = typer.Argument(...)
-
-
-@dataclass(frozen=True)
 class RunbookServeOptions(CommandOptions):
     ROUTE = Route(CommandRunbook.name, "op", "serve")
 
     directory: str = typer.Argument(...)
-    tick: float = typer.Option(DEFAULT_TICK_SECONDS, "--tick", help="seconds between schedule.run_pending() ticks (default: 1)")

@@ -63,8 +63,8 @@ class CredentialStore(ABC):
     @abstractmethod
     def delete(self, name: str) -> bool:
         """Remove a credential. Returns True if a value existed and was
-        removed, False if the name was unknown. Used by
-        ``briar auth logout``."""
+        removed, False if the name was unknown. No command calls it since
+        2.0 removed ``briar auth logout``; spec 005 rewrites the logins."""
 
     @abstractmethod
     def list(self) -> List[str]:

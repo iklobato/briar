@@ -16,7 +16,7 @@ REMOVED_STORES = ("ssm", "aws-secretsmanager", "vault")
 
 @pytest.mark.parametrize("store", REMOVED_STORES)
 def test_a_command_stops_with_an_error_naming_the_store_and_the_fix(cli: Callable[..., SimpleNamespace], store: str) -> None:
-    run = cli("config", "show", env={"BRIAR_DEFAULT_STORE": store})
+    run = cli("doctor", env={"BRIAR_DEFAULT_STORE": store})
 
     assert run.code == 1
     assert run.err == (
@@ -24,7 +24,7 @@ def test_a_command_stops_with_an_error_naming_the_store_and_the_fix(cli: Callabl
     )
 
 
-@pytest.mark.parametrize("argv", [("--version",), ("--help",), ("config", "--help")])
+@pytest.mark.parametrize("argv", [("--version",), ("--help",), ("doctor", "--help")])
 def test_help_and_version_still_work(cli: Callable[..., SimpleNamespace], argv: tuple) -> None:
     run = cli(*argv, env={"BRIAR_DEFAULT_STORE": "vault"})
 
@@ -33,6 +33,6 @@ def test_help_and_version_still_work(cli: Callable[..., SimpleNamespace], argv: 
 
 
 def test_envfile_store_is_not_blocked(cli: Callable[..., SimpleNamespace]) -> None:
-    run = cli("config", "show", env={"BRIAR_DEFAULT_STORE": "envfile"})
+    run = cli("doctor", env={"BRIAR_DEFAULT_STORE": "envfile"})
 
     assert "removed in briar 2.0" not in run.err

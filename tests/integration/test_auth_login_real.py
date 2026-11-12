@@ -35,7 +35,7 @@ def test_auth_login_github_device_persists_token_to_envfile(cli, mock_api, monke
     monkeypatch.setenv("BRIAR_SECRETS_FILE", str(secrets_file))
     _wire_device_flow(mock_api, monkeypatch)
 
-    result = cli("auth", "login", "github-device", "--company", "acme", "--cred-store", "envfile")
+    result = cli("auth", "login", "github-device", "--company", "acme")
 
     assert result.code == 0, result.err
     # The token was persisted to the REAL envfile on disk by the real store...
@@ -54,7 +54,7 @@ def test_auth_login_missing_client_id_fails_without_persisting(cli, caplog_briar
     monkeypatch.setenv("BRIAR_SECRETS_FILE", str(secrets_file))
     monkeypatch.delenv("BRIAR_GITHUB_CLIENT_ID", raising=False)
 
-    result = cli("auth", "login", "github-device", "--company", "acme", "--cred-store", "envfile")
+    result = cli("auth", "login", "github-device", "--company", "acme")
 
     # Non-zero exit, the reason is surfaced in the logs, and NOTHING is persisted
     # (a half-written token on a failed login would be a real defect).

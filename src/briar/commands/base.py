@@ -59,8 +59,9 @@ class RegistryChoice:
         self._registry = registry
 
     def check(self, value: str) -> str:
+        """An empty value is an optional argument left out (`auth status`)."""
         known = list(self._registry.kinds())
-        if value not in known:
+        if value and value not in known:
             raise typer.BadParameter(f"{value!r} is not one of {', '.join(repr(kind) for kind in known)}.")
         return value
 
@@ -114,23 +115,6 @@ class Command(ABC):
     def help_for(self, op: str) -> str:
         """The help line of one operation (`OP_HELP`); without one, the command's own."""
         return self.OP_HELP.get(op, self.help)
-
-    @staticmethod
-    def confirm(prompt: str) -> bool:
-        """Yes/no prompt; treats EOF (piped input) as a no.
-
-        Subclasses use this to gate destructive operations behind a
-        --yes / interactive-prompt fork (`args.yes or self.confirm(...)`)."""
-        try:
-            return input(prompt).strip().lower() in {"y", "yes"}
-        except EOFError:
-            return False
-
-
-# Module-level back-compat shim — `confirm()` was the historic name
-# imported by sibling concretes. Kept so call-sites remain a one-symbol
-# import without per-class qualification.
-confirm = Command.confirm
 
 
 class Subcommand(ABC):

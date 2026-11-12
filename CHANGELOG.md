@@ -31,11 +31,29 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`.
   (it moves with the extractor cleanup). Same flags, defaults and exit
   codes, but help and usage errors read differently.
   `briar --install-completion` and `briar --show-completion` are new.
+- `briar doctor` prints the settings table first (what `briar config show`
+  printed, plus a `telemetry` row with the tier and where it came from),
+  then the checks. `briar doctor --format json` prints one object,
+  `{"settings": [...], "checks": [...]}`, instead of the list of checks: a
+  script that read the 1.x list reads `.checks` now.
+- `briar auth status` with no target lists the name of every credential
+  that is set (never a value), as `briar auth list` did.
+- `briar runbook serve` checks for due jobs every second, always.
+- The `briar init` template has a commented `[extract]` example.
+- The README is rewritten around the 5 commands. It shows no GIF or
+  diagram until they are made again for 2.0 (the 1.x ones show removed
+  commands). The PyPI description and keywords match 2.0.
+
+### Fixed
+
+- `briar doctor` dropped `[repo]` from the `git remote` hint, because the
+  table renderer read a word in brackets as style markup. Table cells now
+  print as written.
 
 ### Removed
 
-- The 1.x names `--store` on `briar secrets doctor` and `briar auth` (use
-  `--cred-store`), `--knowledge` on `briar agent` (use `--root`) and
+- The 1.x names `--store` on `briar secrets doctor` and `briar auth`
+  (`--cred-store` left too, see below), `--knowledge` on `briar agent` (use `--root`) and
   `--storage` on `briar extract` (use `--store`). They are now unknown
   options (exit 2).
 - `briar completion bash|zsh` and its script templates. Use
@@ -125,6 +143,18 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`.
 - `briar extract --out-json`, `--merge-claude-md`, `--claude-md-path` and
   `--blob-name`: `extract` writes only the blob `knowledge:<company>`.
   The legacy-flag notice goes with the old flags.
+- `briar auth logout`, `briar auth refresh` and `briar auth list`, and the
+  `--cred-store` flag (the env file is the only credential store). Use
+  `briar auth status` with no target to list what is set, run
+  `briar auth login` again to replace a credential, and delete its lines
+  from the secrets file (`~/.config/briar/secrets.env` by default) to
+  remove it.
+- `briar runbook sweep`: use `briar runbook serve DIR` to run every
+  runbook in a folder on its schedule, or `briar runbook extract` once per
+  file. The `--tick` flag of `briar runbook serve` goes too.
+- `briar config` (`briar config show`): `briar doctor` prints the same
+  settings table. Each removed operation now gets the usual usage error
+  (exit 2).
 
 ### Tests
 

@@ -19,7 +19,9 @@ from briar import __version__
 
 from .conftest import Tripwire
 
-SHOW = ("config", "show")
+SHOW = ("doctor",)
+# A command and its operation, so a flag can also sit between the two words.
+TWO_WORDS = ("auth", "status")
 FORMATS = ("json", "table")
 VERSION_LINE = f"briar-cli {__version__}\n"
 STARTUP_STEPS = ("credential bootstrap", "project config", "telemetry")
@@ -32,7 +34,7 @@ class Placements:
         return [["--format", fmt, *SHOW], [*SHOW, "--format", fmt], [f"--format={fmt}", *SHOW], [*SHOW, f"--format={fmt}"]]
 
     def bool_argvs(self, flag: str) -> List[List[str]]:
-        return [[flag, *SHOW], [*SHOW, flag], [SHOW[0], flag, SHOW[1]]]
+        return [[flag, *TWO_WORDS], [*TWO_WORDS, flag], [TWO_WORDS[0], flag, TWO_WORDS[1]]]
 
 
 @pytest.fixture

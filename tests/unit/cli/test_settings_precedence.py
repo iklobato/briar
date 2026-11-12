@@ -183,7 +183,7 @@ def project(sandbox: Sandbox, cli: Callable[..., SimpleNamespace], recorded_run:
 
 @pytest.fixture
 def real_project(sandbox: Sandbox, cli: Callable[..., SimpleNamespace]) -> Project:
-    """Commands really run (for `config show`); nothing is recorded."""
+    """Commands really run (for `doctor`); nothing is recorded."""
     return Project(sandbox, cli, {})
 
 
@@ -242,11 +242,13 @@ class TestRequiredCompany:
         assert project.recorded("company") == "acme"
 
 
-class TestConfigShow:
+class TestDoctorSettings:
+    """The settings table `briar config show` printed in 1.x is the first table of `doctor` (C16)."""
+
     def _row(self, real_project: Project, dest: str) -> Dict[str, str]:
-        run = real_project.invoke_briar(("config", "show", "--format", "json"))
+        run = real_project.invoke_briar(("doctor", "--format", "json"))
         assert run.code == 0, run.err
-        return next(row for row in json.loads(run.out) if row["setting"] == dest)
+        return next(row for row in json.loads(run.out)["settings"] if row["setting"] == dest)
 
     @pytest.mark.parametrize("case", SettingTable().file_cases(), ids=SettingTable().case_id)
     def test_names_the_layer_that_won(self, real_project: Project, case: PrecedenceCase) -> None:
@@ -272,7 +274,7 @@ class TestRemovedSettings:
     def test_store_key_stops_the_run_naming_it(self, real_project: Project, relative: str, text: str) -> None:
         real_project.write(relative, text)
 
-        run = real_project.invoke_briar(("config", "show"))
+        run = real_project.invoke_briar(("doctor",))
 
         assert run.code == CLI_ERROR
         assert "error: `store` in " in run.err and f"{relative} was removed in briar 2.0" in run.err

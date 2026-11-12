@@ -34,10 +34,10 @@ only in the private site repo.
 | Latest version | 1.1.101 (PyPI and GitHub Release `v1.1.101` = latest) |
 | Python | 3.10, 3.11, 3.12 (CI unit jobs); the integration job runs on whatever `uv` picks (3.14 in CI) |
 | Release trigger | every push to `main`, except `chore(release):` commits; it bumps the patch only |
-| 2.0 | in progress on branch `v2` (still equal to `main`); 16 stacked PRs open, #79 to #94. Status and handoff: `docs/briar-2-status.md` |
+| 2.0 | in progress on branch `v2` (still equal to `main`); 17 stacked PRs open, #79 to #95. Status and handoff: `docs/briar-2-status.md` |
 | MCP registry | `io.github.iklobato/briar`, latest 1.1.94; stays there, 2.0 has no MCP server |
 | Open issues | #76, #77 (section 8) |
-| Open PRs | #79 to #94, all into `v2`, not reviewed |
+| Open PRs | #79 to #95, all into `v2`, not reviewed |
 | Stars / forks | 3 / 0 |
 
 ## 3. Repo layout
@@ -45,9 +45,9 @@ only in the private site repo.
 | Path | What is there |
 |---|---|
 | `src/briar/cli.py` | Entry point `main()`: global flags (`--format`, `-v`, `--version` anywhere), startup work (skipped for help, completion and `--version`), then runs the parsed command with exit codes 0/1/2/130. On `main` (1.x) it still builds the whole argparse parser |
-| `src/briar/cli_app.py` | The Typer app (2.0, spec 002). Each command declares its options as a `CommandOptions` dataclass in its own module; only `extract` still goes through `PassThrough` to its argparse parser (until spec 004), and `config.py` keeps the argparse shim it needs. Since spec 006 part 4 that parser has only `--company`, `--include`, `--repo`; every other extractor value comes from `[extract]` / `[extract.<name>]` (`ExtractConfig` in `commands/extract.py`, decisions in `docs/decisions/2026-11-10-briar-2-extract-config.md`) |
-| `src/briar/settings.py` | Where a setting comes from: env > `.briar.toml` / `[tool.briar]` > git origin > default; feeds `config show` and the Typer default map |
-| `src/briar/commands/` | One module per top-level command (`extract`, `runbook`, `auth`, `init`, `config`, `doctor`) |
+| `src/briar/cli_app.py` | The Typer app (2.0, spec 002). Each command declares its options as a `CommandOptions` dataclass in its own module; only `extract` still goes through `PassThrough` to its argparse parser (until spec 004), and `src/briar/config.py` keeps the argparse shim it needs. Since spec 006 part 4 that parser has only `--company`, `--include`, `--repo`; every other extractor value comes from `[extract]` / `[extract.<name>]` (`ExtractConfig` in `commands/extract.py`, decisions in `docs/decisions/2026-11-10-briar-2-extract-config.md`) |
+| `src/briar/settings.py` | Where a setting comes from: env > `.briar.toml` / `[tool.briar]` > git origin > default; feeds the settings table of `briar doctor` and the Typer default map |
+| `src/briar/commands/` | One module per top-level command (`extract`, `runbook`, `auth`, `init`, `doctor`) |
 | `tests/unit/cli/` | The CLI contract from 1.x (`flags_1x.json`, precedence, global flags, exit codes); must pass unchanged through the Typer move |
 | `src/briar/extract/` | The extractors: the 23 in `EXTRACTORS` (`extract/__init__.py`). The 4 task-scoped ones of 1.x left in spec 006. Providers in `_providers/`, `_trackers/`, `_clouds/`, `_meetings/` |
 | `src/briar/extract/composer.py` | `KnowledgeComposer`: writes `## <heading> - <detail>` sections, `split_sections` parses them, `merge_markdown` merges a run into a stored blob (called from `CommandExtract._write_blob`, the one write path of `briar extract`) |
@@ -57,7 +57,7 @@ only in the private site repo.
 | `agents/*.md` | The user manual, one file per command (linked from the README) |
 | `docs/decisions/` | The agreed 2.0 scope: `2026-11-10-briar-2-pipeline.md` (D1-D36, plus D29a, D29b, D32a), `2026-11-10-briar-2-source-logins.md` (L1-L21), `2026-11-10-briar-2-core-cleanup.md` (C1-C22: 2.0 keeps 5 commands), `2026-11-10-briar-2-ticket-pipeline.md` (P1-P22, A1-A15: ticket pipeline, agent roles, pipeline YAML) and `2026-11-10-briar-2-knowledge.md` (K1-K20: knowledge layout for agents). The reference for every 2.0 PR |
 | `docs/briar-2-status.md` | 2.0 handoff: the PR stack, what is done, how the 2.0 CLI works, findings, next steps, what to watch |
-| `docs/diagrams/`, `docs/demo/` | README images (section 9) |
+| `docs/diagrams/`, `docs/demo/` | 1.x README images, still loaded by the site; the 2.0 README shows none until they are redone (section 9) |
 | `examples/` | Runbook YAML examples |
 
 ## 4. How to work in this repo
@@ -68,7 +68,7 @@ only in the private site repo.
   `briar/main`.
 - **2.0 work goes to `v2`, not `main`** (decision D27). The open 2.0 PRs are
   stacked: branch a new 2.0 PR from the top of the stack (now
-  `core/04-extract-config`, PR #94) and target `v2`. Read
+  `core/05-final-trims`, PR #95) and target `v2`. Read
   `docs/briar-2-status.md` first.
 - **A merge to `main` is a public release.** `.github/workflows/release.yml`
   runs the unit tests (`uv run pytest -n auto -m "not integration"`),
@@ -133,7 +133,7 @@ only in the private site repo.
 - **`briar init`** reads `git remote get-url origin` for owner and repo.
   Settings resolve as flag > env var > `.briar.toml` (or `[tool.briar]` in
   `pyproject.toml`) > git origin (owner and repo) > default; only one config
-  file is read, never a merge (`briar config show` prints the source of
+  file is read, never a merge (`briar doctor` prints the source of
   each). Pinned by `tests/unit/cli/test_settings_precedence.py` on `v2`.
 - **Telemetry tier** on `v2`: `DO_NOT_TRACK=1` > `BRIAR_TELEMETRY` >
   `telemetry` in the project config > `off`. `main()` reads the project
@@ -184,12 +184,15 @@ Full detail per version is in `CHANGELOG.md`. In short:
   table|json`, `-v` only, telemetry tier from env or `.briar.toml`; PR #93:
   the Postgres store, `--store` and the `store` setting removed; PR #94:
   `extract` keeps 3 flags, the rest moved to `[extract]` in `.briar.toml`,
-  the output modes removed.
+  the output modes removed; PR #95: `auth` keeps `login` and `status`,
+  `runbook` keeps `extract` and `serve`, `briar config` folded into
+  `briar doctor` (settings table, telemetry row, JSON object), README
+  rewritten around the 5 commands with no images.
   Details and numbers: `docs/briar-2-status.md`.
 
 ## 7. Next steps (in order)
 
-0. **2.0**: review and merge PRs #79 to #94 into `v2` in order; decide how
+0. **2.0**: review and merge PRs #79 to #95 into `v2` in order; decide how
    2.0 is released before `v2` merges to `main` (the workflow would publish
    1.1.102); then specs 003, 004, 005. Order and detail:
    `docs/briar-2-status.md` section 5.
@@ -209,9 +212,9 @@ Full detail per version is in `CHANGELOG.md`. In short:
 
 ## 8. What is still open
 
-**2.0**: see `docs/briar-2-status.md` section 6 (extract still on argparse,
-startup about 60 ms slower than 1.x, site docs and two README diagrams still
-show removed commands, release mechanics for 2.0 not decided).
+**2.0**: see `docs/briar-2-status.md` section 6 (extract still on argparse;
+site docs, GIFs and diagrams still show removed commands, so the README
+shows none until they are redone; release mechanics for 2.0 not decided).
 
 **Filed issues (2026-10-29, both reproduced on 1.1.99, acceptance
 criteria in each):**
@@ -243,8 +246,8 @@ criteria in each):**
   section on a machine with an AWS default chain whose
   `caller_identity` failed. Whether that section should be written is not
   decided; the cause on that machine was not checked (2026-10-29).
-- `auth refresh` supports no target: a real GitHub refresh needs a GitHub
-  App and its client secret. Help text and docs say it is not supported.
+- `auth refresh` (1.x only; gone on `v2`) supports no target: a real
+  GitHub refresh needs a GitHub App and its client secret.
 
 **Never run for real (unit tests only), all 1.x:** Postgres for the extract
 merge, a successful Bitbucket PR, Jira and Linear over MCP, and a full MCP
@@ -263,7 +266,10 @@ client run that writes data.
   CLI behavior and some versions ("since 1.1.75"). When CLI behavior
   changes, update `agents/*.md` here and the site docs in the site repo.
   The site was last checked against 1.1.98.
-- **README images.** `docs/diagrams/*.svg` are copies of the diagrams on
+- **README images.** The 2.0 README shows none (decision F6 of
+  `docs/decisions/2026-11-10-briar-2-final-trims.md`): the 1.x ones show
+  removed commands. Record and draw them again before putting them back.
+  `docs/diagrams/*.svg` are copies of the diagrams on
   usebriar.com (exported from the live page with styles inlined). If the
   site diagrams change, export them again. `docs/demo/*.gif` are real
   runs of briar 1.1.99 in a clone of this repo (asciinema 2.4.0 + agg

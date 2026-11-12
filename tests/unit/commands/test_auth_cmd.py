@@ -1,10 +1,10 @@
-"""`briar auth` — login / refresh / persistence routing.
+"""`briar auth login`: persistence.
 
-Complements tests/unit/commands/test_auth.py (which covers list/status/
-logout/dispatch). Here we exercise the login + refresh tails through
+Complements tests/unit/commands/test_auth.py (which covers status and
+dispatch). Here we exercise the login tail through
 ``_persist_and_report``: that credential VALUES are written to the store
-but never printed, write-failures surface as exit 1, store routing
-honours the bootstrap policy, and expired credentials map to exit 2.
+but never printed, write-failures surface as exit 1, and expired
+credentials map to exit 2.
 
 The credential store is a mocked collaborator (source read-denied by
 policy); the acquirer is a local fake. No network.
@@ -17,7 +17,6 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from briar.auth import CredentialExpired, Credentials
-from briar.auth._acquirer import DestinationPolicy
 
 _SECRET_PLACEHOLDER = "ACCESS-TOKEN-PLACEHOLDER-not-a-secret"
 
@@ -25,7 +24,6 @@ _SECRET_PLACEHOLDER = "ACCESS-TOKEN-PLACEHOLDER-not-a-secret"
 class _FakeAcquirer:
     kind = "github-pat"
     display_name = "GitHub PAT"
-    destination_policy = DestinationPolicy.EXTERNAL
 
     def __init__(self, *, entries=None, expires=None, acquire_exc=None, refresh_exc=None) -> None:
         self._entries = entries if entries is not None else {"GITHUB_ACME_TOKEN": _SECRET_PLACEHOLDER}
@@ -93,7 +91,7 @@ def install(mocker):
 class TestLogin:
     def test_login_persists_value_to_store_exit_0(self, cli, install) -> None:
         store, _ = install()
-        result = cli("auth", "login", "github-pat", "--company", "acme", "--cred-store", "envfile")
+        result = cli("auth", "login", "github-pat", "--company", "acme")
         assert result.code == 0
         # The VALUE reached the store...
         assert store.writes == [("GITHUB_ACME_TOKEN", _SECRET_PLACEHOLDER)]
@@ -105,7 +103,7 @@ class TestLogin:
     def test_login_write_failure_exit_1_and_reports_reason(self, cli, install) -> None:
         store, _ = install()
         store.fail_writes = {"GITHUB_ACME_TOKEN"}
-        result = cli("auth", "login", "github-pat", "--company", "acme", "--cred-store", "envfile")
+        result = cli("auth", "login", "github-pat", "--company", "acme")
         assert result.code == 1
         assert "persisted 0/1 entries" in result.out
         assert "FAIL  GITHUB_ACME_TOKEN" in result.out
@@ -115,7 +113,7 @@ class TestLogin:
     def test_login_prints_expiry_when_present(self, cli, install) -> None:
         expires = datetime.now(tz=timezone.utc) + timedelta(days=30)
         store, _ = install(acquirer=_FakeAcquirer(expires=expires))
-        result = cli("auth", "login", "github-pat", "--company", "acme", "--cred-store", "envfile")
+        result = cli("auth", "login", "github-pat", "--company", "acme")
         assert result.code == 0
         assert f"expires: {expires.isoformat()}" in result.out
         # "+N.N days from now" — positive sign for a future expiry.
@@ -124,37 +122,7 @@ class TestLogin:
 
     def test_login_acquire_raises_credential_expired_exit_2(self, cli, install) -> None:
         store, _ = install(acquirer=_FakeAcquirer(acquire_exc=CredentialExpired("token lapsed")))
-        result = cli("auth", "login", "github-pat", "--company", "acme", "--cred-store", "envfile")
+        result = cli("auth", "login", "github-pat", "--company", "acme")
         assert result.code == 2
         assert "credential expired: token lapsed" in result.out
         assert store.writes == []
-
-
-# ─────────────────────────── refresh ───────────────────────────────
-
-
-class TestRefresh:
-    def test_refresh_persists_new_bundle_exit_0(self, cli, install) -> None:
-        new_value = "REFRESHED-TOKEN-PLACEHOLDER-not-a-secret"
-        store, _ = install(acquirer=_FakeAcquirer(entries={"GITHUB_ACME_TOKEN": new_value}))
-        result = cli("auth", "refresh", "github-pat", "--company", "acme", "--cred-store", "envfile")
-        assert result.code == 0
-        assert store.writes == [("GITHUB_ACME_TOKEN", new_value)]
-        assert "persisted 1/1 entries" in result.out
-        assert new_value not in result.out
-
-    def test_refresh_reads_existing_then_writes(self, cli, install, mocker) -> None:
-        # Pre-seed the store so refresh's "existing" reconstruction reads it.
-        store, acquirer = install()
-        store.values["GITHUB_ACME_TOKEN"] = "OLD-TOKEN-PLACEHOLDER-not-a-secret"
-        spy = mocker.spy(acquirer, "refresh")
-        result = cli("auth", "refresh", "github-pat", "--company", "acme", "--cred-store", "envfile")
-        assert result.code == 0
-        existing = spy.call_args.kwargs["existing"]
-        assert existing.entries == {"GITHUB_ACME_TOKEN": "OLD-TOKEN-PLACEHOLDER-not-a-secret"}
-
-    def test_refresh_unsupported_raises_credential_expired_exit_2(self, cli, install) -> None:
-        store, _ = install(acquirer=_FakeAcquirer(refresh_exc=CredentialExpired("paste-based; cannot refresh")))
-        result = cli("auth", "refresh", "github-pat", "--cred-store", "envfile")
-        assert result.code == 2
-        assert "credential expired: paste-based; cannot refresh" in result.out

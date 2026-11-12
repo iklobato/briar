@@ -29,8 +29,3 @@ class OutputFormat(str, Enum):
     JSON = "json"
 
 
-class CredentialStoreChoice(str, Enum):
-    """`--cred-store` choices; a test keeps them equal to `CredentialStoreRegistry.kinds()`."""
-
-    ENVFILE = "envfile"
-
