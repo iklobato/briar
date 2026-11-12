@@ -110,7 +110,7 @@ class Selector:
         if answer.failed:
             self.LOG.error("serve: the selector failed: %s", answer.reason)
             return []
-        return Picks(shortlist, answer).items(free)
+        return Picks(shortlist, answer, self._company.name).items(free)
 
 
 class Shortlist:
@@ -130,15 +130,22 @@ class Shortlist:
 
 class Picks:
     """The structured answer of the selector, kept only where it names a ticket of the
-    shortlist and one of its allowed repos; the cost is split over the picks."""
+    shortlist and one of its allowed repos; a pick that does not is logged and skipped.
+    The cost is split over the picks kept."""
 
-    def __init__(self, shortlist: Sequence[WorkItem], answer: AgentAnswer) -> None:
+    LOG: ClassVar[logging.Logger] = logging.getLogger(__name__)
+
+    def __init__(self, shortlist: Sequence[WorkItem], answer: AgentAnswer, company: str) -> None:
         self._shortlist = shortlist
         self._answer = answer
+        self._company = company
 
     def items(self, free: int) -> List[WorkItem]:
         by_key: Dict[str, WorkItem] = {item.key: item for item in self._shortlist}
-        valid = [(by_key[pick["key"]], pick) for pick in self._answer.structured.get("picks") or [] if self._valid(by_key, pick)][:free]
+        picks = list(self._answer.structured.get("picks") or [])
+        for pick in [pick for pick in picks if not self._valid(by_key, pick)]:
+            self.LOG.warning("serve: %s: the selector picked %s in %s, not a ticket of the shortlist with that repo: skipped", self._company, pick.get("key"), pick.get("repo"))
+        valid = [(by_key[pick["key"]], pick) for pick in picks if self._valid(by_key, pick)][:free]
         share = self._answer.cost_usd / len(valid) if valid else 0.0
         return [replace(item, repo=pick["repo"], reason=pick["reason"], selection_cost=share) for item, pick in valid]
 

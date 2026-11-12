@@ -10,6 +10,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Dict, List
 
+import pytest
+
 from briar.extract._tracker import Ticket
 from briar.iac.runbook.models import ServeSettings
 from briar.serve.agent import AgentAnswer, AgentRequest
@@ -135,6 +137,15 @@ class TestSelector:
         picked = asyncio.run(Setup(tmp_path).selector(PickingAgent(picks)).pick([tickets.plain("ENG-1"), tickets.plain("ENG-2")], SLOTS))
 
         assert picked == []
+
+    def test_a_skipped_pick_is_logged_with_why(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """The first real run: the model answered `1` for `acme/app#1` and both picks were dropped with no line."""
+        picks = [{"key": "1", "repo": "acme/app", "reason": "x"}, {"key": "ENG-1", "repo": "evil/repo", "reason": "y"}]
+
+        asyncio.run(Setup(tmp_path).selector(PickingAgent(picks)).pick([Tickets().plain("ENG-1")], SLOTS))
+
+        assert "serve: acme: the selector picked 1 in acme/app, not a ticket of the shortlist with that repo: skipped" in caplog.text
+        assert "serve: acme: the selector picked ENG-1 in evil/repo, not a ticket of the shortlist with that repo: skipped" in caplog.text
 
     def test_no_free_slot_or_no_candidate_calls_no_model(self, tmp_path: Path) -> None:
         agent = PickingAgent([])
