@@ -611,6 +611,23 @@ as 1.x shipped it, in tag `v1.1.101`. Read one with
   #103); each commit passes alone; mypy 25 (same); `python tools/mutation_test.py` 22 of 22
   killed; CI green on #104.
 
+### Spec 008: work selection, part 1 of 4 (branch `select/01-selector`, PR not open yet)
+
+- Decisions: `docs/decisions/2026-11-12-briar-2-work-selection.md` (N1 to N17) and
+  `docs/decisions/2026-11-12-briar-2-work-selection-pr1.md` (Q1 to Q4).
+- `serve` no longer starts every assigned ticket: `briar.serve.select` drops the
+  not-workable ones, scores the rest with the fixed points of Q1, and one read-only model
+  call picks among the 5 best for the free slots, with the repo and a reason. A ticket
+  briar already started goes on in its repo without the choice. The reason is in the log
+  and the state entry; the call cost starts the task budget.
+- `serve.jira` is now `{PROJ: {repos: [...], not_workable: [...]}}`; the 1.x form stops the
+  load with the new form in the message (Q4). The Jira tracker reads `issuelinks`,
+  `duedate` and `parent`; GitHub issues read `issue_dependencies_summary` (Q3).
+- `extract --include active-tickets` says "first 25 of 881 open ticket(s)" when it cuts the
+  list (N17).
+- Numbers, 2026-11-12, Python 3.13.2: 1594 tests pass (unit and integration); mypy 25
+  (same); ruff 5 (the same old ones). Not run yet: a real `serve` poll with the selector.
+
 ### Spec 005: real runs on the accounts of the maintainer (G20)
 
 Read only, on the machine of the maintainer, 2026-11-11, with
