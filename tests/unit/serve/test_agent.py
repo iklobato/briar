@@ -12,7 +12,7 @@ from typing import Any, AsyncIterator, Dict, List
 import pytest
 from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny, ResultError, ResultMessage
 
-from briar.serve.agent import Access, AgentRequest, BashGuard, ClaudeAgent, ToolGate
+from briar.serve.agent import Access, AgentRequest, BashGuard, ClaudeAgent, SandboxRoom, ToolGate
 
 MAX_USD = 2.5
 COST = 0.42
@@ -90,7 +90,7 @@ class TestClaudeAgent:
         input tokens per call, though `ToolGate` refuses all but a few of them."""
         sdk = SdkQuery(Results().message("success", {}))
         monkeypatch.setattr("claude_agent_sdk.query", sdk.query)
-        agent = ClaudeAgent("claude-test", BashGuard(tmp_path, [], []), [])
+        agent = ClaudeAgent("claude-test", BashGuard(tmp_path, [], []), SandboxRoom((), tmp_path / "tools"))
 
         asyncio.run(agent.ask(AgentRequest("plan it", "s", tmp_path, MAX_USD, {}, case.access)))
 
@@ -101,7 +101,7 @@ class TestClaudeAgent:
         monkeypatch.setattr("claude_agent_sdk.query", sdk.query)
         request = AgentRequest("plan it", "you are briar", tmp_path / "worktree", MAX_USD, {"type": "object"}, Access.READ)
 
-        answer = asyncio.run(ClaudeAgent("claude-test", guard, ["pypi.org"]).ask(request))
+        answer = asyncio.run(ClaudeAgent("claude-test", guard, SandboxRoom(("pypi.org",), tmp_path / "tools")).ask(request))
 
         options = sdk.options[0]
         expected = ("claude-test", str(tmp_path / "worktree"), "you are briar", MAX_USD, "default", [])
@@ -114,18 +114,29 @@ class TestClaudeAgent:
         sdk = SdkQuery(Results().message("success", {}))
         monkeypatch.setattr("claude_agent_sdk.query", sdk.query)
 
-        asyncio.run(ClaudeAgent("claude-test", guard, ["pypi.org"]).ask(AgentRequest("build", "s", tmp_path, MAX_USD)))
+        asyncio.run(ClaudeAgent("claude-test", guard, SandboxRoom(("pypi.org",), tmp_path / "tools")).ask(AgentRequest("build", "s", tmp_path, MAX_USD)))
 
-        assert sdk.options[0].sandbox == {
-            "enabled": True, "autoAllowBashIfSandboxed": False, "allowUnsandboxedCommands": False, "network": {"allowedDomains": ["pypi.org"]},
-        }  # fmt: skip
+        network = {"allowedDomains": ["pypi.org"], "allowMachLookup": ["com.apple.SystemConfiguration.configd"]}
+        assert sdk.options[0].sandbox == {"enabled": True, "autoAllowBashIfSandboxed": False, "allowUnsandboxedCommands": False, "network": network}
+
+    def test_the_tools_of_bash_get_a_cache_folder_they_may_write(self, guard: BashGuard, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Validation run, 2026-11-13: `uv run` in the sandbox failed with `failed to open file
+        ~/.cache/uv/...: Operation not permitted`, then panicked in `system-configuration`
+        (`Attempted to create a NULL object`) until the `configd` lookup was allowed."""
+        sdk = SdkQuery(Results().message("success", {}))
+        monkeypatch.setattr("claude_agent_sdk.query", sdk.query)
+
+        asyncio.run(ClaudeAgent("claude-test", guard, SandboxRoom((), tmp_path / "tools")).ask(AgentRequest("build", "s", tmp_path, MAX_USD)))
+
+        options = sdk.options[0]
+        assert (options.env, options.add_dirs, (tmp_path / "tools").is_dir()) == ({"XDG_CACHE_HOME": str(tmp_path / "tools")}, [str(tmp_path / "tools")], True)
 
     def test_a_spent_budget_is_a_failed_answer_with_its_reason(self, guard: BashGuard, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         message = Results().message("error_max_budget_usd", {})
         error = ResultError("Claude Code returned an error result: budget", data={"subtype": "error_max_budget_usd"})
         monkeypatch.setattr("claude_agent_sdk.query", FailingQuery(message, error).query)
 
-        answer = asyncio.run(ClaudeAgent("claude-test", guard, []).ask(AgentRequest("build", "s", tmp_path, MAX_USD)))
+        answer = asyncio.run(ClaudeAgent("claude-test", guard, SandboxRoom((), tmp_path / "tools")).ask(AgentRequest("build", "s", tmp_path, MAX_USD)))
 
         assert (answer.failed, answer.reason, answer.cost_usd) == (True, "error_max_budget_usd", COST)
 
@@ -135,7 +146,7 @@ class TestClaudeAgent:
         error = ResultError(text, data={"subtype": "success", "total_cost_usd": 0})
         monkeypatch.setattr("claude_agent_sdk.query", FailingQuery(Results().message("success", {}), error).query)
 
-        answer = asyncio.run(ClaudeAgent("claude-test", guard, []).ask(AgentRequest("plan", "s", tmp_path, MAX_USD)))
+        answer = asyncio.run(ClaudeAgent("claude-test", guard, SandboxRoom((), tmp_path / "tools")).ask(AgentRequest("plan", "s", tmp_path, MAX_USD)))
 
         assert (answer.failed, answer.reason) == (True, text)
 

@@ -189,8 +189,22 @@ class ToolGate:
         return PermissionResultDeny(message=refusal) if refusal else PermissionResultAllow()
 
 
+@dataclass(frozen=True)
+class SandboxRoom:
+    """What the bash sandbox of the agent may reach: the allowed domains, and one cache folder
+    the tools may write (`XDG_CACHE_HOME`). A validation run, 2026-11-13: `uv` could not write
+    `~/.cache/uv` in the sandbox, so the agent could not run the tests of a uv project."""
+
+    domains: Tuple[str, ...]
+    tool_cache: Path
+
+
 class ClaudeAgent:
     """`AgentRunner` on the Claude Agent SDK, with the model of the company (S5)."""
+
+    # uv (and any Rust tool on `reqwest`) reads the macOS network settings at start and
+    # panics ("Attempted to create a NULL object") when the sandbox blocks this lookup.
+    MACH_LOOKUPS: ClassVar[Tuple[str, ...]] = ("com.apple.SystemConfiguration.configd",)
 
     # With no list the CLI sends all its tools and the skill and agent lists: about 39k input
     # tokens per call, even when `ToolGate` refuses every one of them (validation run, 2026-11-12).
@@ -199,15 +213,16 @@ class ClaudeAgent:
         Access.EDIT: (*BashGuard.READ_TOOLS, *BashGuard.FREE_TOOLS, "Bash", *BashGuard.EDIT_TOOLS),
     }
 
-    def __init__(self, model: str, guard: BashGuard, domains: Sequence[str]) -> None:
+    def __init__(self, model: str, guard: BashGuard, room: SandboxRoom) -> None:
         self._model = model
         self._guard = guard
-        self._domains = domains
+        self._room = room
 
     async def ask(self, request: AgentRequest) -> AgentAnswer:
         from claude_agent_sdk import ClaudeSDKError
 
         found: List[Any] = []
+        self._room.tool_cache.mkdir(parents=True, exist_ok=True)
         try:
             await self._collect(request, found)
         except ClaudeSDKError as error:
@@ -245,15 +260,20 @@ class ClaudeAgent:
             # Else the MCP servers of the account of the CLI (claude.ai connectors) come too.
             "strict_mcp_config": True,
             "sandbox": self._sandbox(),
+            **self._tool_cache(),
         }
         if request.schema:
             options["output_format"] = {"type": "json_schema", "schema": dict(request.schema)}
         return ClaudeAgentOptions(**options)
 
+    def _tool_cache(self) -> Dict[str, Any]:
+        """The cache folder of the tools of bash, writable in the sandbox (`add_dirs`)."""
+        return {"env": {"XDG_CACHE_HOME": str(self._room.tool_cache)}, "add_dirs": [str(self._room.tool_cache)]}
+
     def _sandbox(self) -> Dict[str, Any]:
         """V12, V13: bash runs sandboxed with no way out of it, and each command still goes
         through `can_use_tool` (the allowlist) instead of the auto-allow of a sandbox."""
-        network = {"allowedDomains": list(self._domains)}
+        network = {"allowedDomains": list(self._room.domains), "allowMachLookup": list(self.MACH_LOOKUPS)}
         return {"enabled": True, "autoAllowBashIfSandboxed": False, "allowUnsandboxedCommands": False, "network": network}
 
     def _answer(self, message: Optional[Any]) -> AgentAnswer:
@@ -264,4 +284,4 @@ class ClaudeAgent:
         return AgentAnswer(message.result or "", structured, float(message.total_cost_usd or 0.0), message.is_error, reason)
 
 
-__all__ = ["Access", "AgentAnswer", "AgentRequest", "AgentRunner", "BashGuard", "ClaudeAgent", "ToolGate"]
+__all__ = ["Access", "AgentAnswer", "AgentRequest", "AgentRunner", "BashGuard", "ClaudeAgent", "SandboxRoom", "ToolGate"]
