@@ -19,7 +19,7 @@ and `docs/decisions/2026-11-11-briar-2-review-routine.md`.
    - the model login: `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`, in the
      environment or `secrets.env`;
    - the agent sandbox: `sandbox-exec` on macOS, `bwrap` and `socat` on Linux;
-   - the GitHub and Jira logins of each company, live (the account, each repo, each
+   - the GitHub (or GitLab) and Jira logins of each company, live (the account, each repo, each
      Jira project);
    - write access, with no write: the PAT can push to each repo
      (`permissions.push`), the Jira login can add comments (and move tickets when
@@ -116,6 +116,10 @@ A git, GitHub or Jira failure in the middle of a task stops it the same way.
   Issues of the repos, and read on Actions (for the CI logs). briar acts as the owner
   of that token: every issue assigned to that person becomes briar work, and the
   commits are made as that person.
+- On GitLab (`code_host: gitlab`): a personal access token with the `api` scope
+  (`BRIAR_<COMPANY>_GITLAB_TOKEN`; `read_api` is enough for `extract`, not for
+  `serve`), and at least Developer access to each project. The commits are made with
+  the `commit_email` of that account. See "GitLab" below.
 - The model login.
 - `git` on the `PATH`.
 - The agent sandbox: built in on macOS; on Linux install `bubblewrap` and `socat` (the
@@ -136,12 +140,14 @@ companies:
       max_loops: 5                    # required: the most fix loops of one task
       ci_wait_minutes: 60             # required: the longest wait for CI
       max_review_rounds: 5            # required: the most review rounds of one PR
+      code_host: github               # optional: github (default) or gitlab
       repos: [acme/web]               # GitHub repos: an issue assigned to the token owner is a ticket
       jira:                           # Jira project -> the repos its tickets may be built in
         ENG:
           repos: [acme/app, acme/api]
           not_workable: [Blocked, In Review]   # optional: statuses briar never takes (this is the default)
       priority_labels: [p0, p1]       # optional: labels that move a ticket up (+10)
+      only: [ENG-7, acme/web#12]      # optional: when set, only these tickets are candidates
       max_parallel: 3                 # optional
       poll_minutes: 5                 # optional
       verify: ["make lint", "make test"]
@@ -168,9 +174,16 @@ slots (`max_parallel` less the tasks running). It chooses them in three steps
 (decisions: `docs/decisions/2026-11-12-briar-2-work-selection.md` and
 `docs/decisions/2026-11-12-briar-2-work-selection-pr1.md`):
 
-1. It drops the tickets nobody can work now: one in a `not_workable` status of its
-   Jira project, and one with an open blocker (a Jira `Blocks` link, or a GitHub
-   issue dependency, whose other ticket is not done).
+1. It drops the tickets nobody can work now: one not in `only` (when `only` is set),
+   one in a `not_workable` status of its Jira project, one with an open blocker (a
+   Jira `Blocks` link, or a GitHub issue dependency, whose other ticket is not done),
+   and one that already has an open PR or MR by anyone but briar: in an allowed repo
+   of the ticket, a PR or MR whose branch, title or description holds the key (for a
+   GitHub issue, also `#N` in a PR of its own repo), or a Jira remote link of the
+   ticket to it. The log says which (`serve: ENG-7 skipped: <url> is open for it`)
+   and nothing is written. A PR or MR that only cites the ticket (an epic named in
+   the description of a child MR) skips it too. A ticket briar already started is
+   not checked.
 2. It scores the rest with fixed points, and sorts them by score, the oldest first on
    a tie:
 
@@ -256,6 +269,21 @@ The second block is a review round, then the merge of the PR.
 The state of each company is a JSON file in its knowledge store,
 `<root>/work/<company>.md` (`root` of the `knowledge:` block, default `./knowledge`).
 
+## GitLab
+
+With `code_host: gitlab` everything above runs on GitLab: merge requests in place of
+pull requests (opened as drafts, marked ready when the pipeline passes), MR notes,
+and the pipeline of the pushed commit for the CI wait.
+
+- Tickets come from Jira only: a repo is the full project path of `jira.<PROJ>.repos`
+  (`group/subgroup/project`, any depth), and `repos:` is refused.
+- The review comments that count are those of a member with at least Developer
+  access to the project, and of the usernames in `review_bots`. A reply goes in the
+  thread of each comment.
+- The agent may not run `glab`, as it may not run `gh`.
+- The CI wait looks for the pipeline of the commit briar pushed; a repo with a
+  `.gitlab-ci.yml` and no pipeline yet counts as pending, not as passed.
+
 ## All parameters
 
 | Parameter | What it means | Default | Example |
@@ -284,3 +312,13 @@ The state of each company is a JSON file in its knowledge store,
   as a user with no other secrets.
 - A blocked ticket is not read again. To give it a new try, remove its entry from the
   state file.
+- When the `verify` commands fail on `origin/<base>` too, before any change, the task
+  stops with that report: the failure is of the machine or the runbook, and a fix in
+  the PR would be a workaround of this machine.
+- Each self-review gets what the earlier rounds asked for, so it does not ask for the
+  opposite; at `max_loops` the report lists what it still asks for.
+- The tools that bash runs get a cache folder they may write
+  (`$XDG_CACHE_HOME/briar/tools`, as `XDG_CACHE_HOME` of the agent), so `uv run` and
+  similar work in the sandbox.
+- The log has one line per verify run (`serve: ENG-7 verify on HEAD: ...`), the cost
+  of a done task, and each agent command it refused, with the reason.
