@@ -36,7 +36,8 @@ and `docs/decisions/2026-11-11-briar-2-review-routine.md`.
    `pr-open` (`serve` stopped during the CI wait) gets the CI wait again, then is marked
    ready. A failed poll (GitHub or Jira down) is logged and tried again next poll.
 4. Runs up to `max_parallel` tasks of a company at once (default 3), never two on the
-   same ticket. A task that fails, for any reason, is `blocked` with its report; the
+   same ticket. Only one `briar serve` may run per company and knowledge folder: a
+   second one stops with an error while the first runs. A task that fails, for any reason, is `blocked` with its report; the
    others go on.
 5. Works each ticket in its own git worktree, on the branch `branch` (default
    `briar/{key}`), with the Claude Agent SDK and the `model` of the company:
@@ -47,7 +48,9 @@ and `docs/decisions/2026-11-11-briar-2-review-routine.md`.
       clean copy of the commit (a detached worktree of HEAD, so a file git ignores
       does not count: it would not be pushed), and the agent fixes them until they
       pass. Verify commands must install what they need (`npm ci && npm test`): the
-      clean copy has no `node_modules` or virtualenv of the task folder;
+      clean copy has no `node_modules` or virtualenv of the task folder. When the
+      branch holds no change (the plan needs none, as for an operations ticket), the
+      task stops `blocked` with that report on the ticket, and no branch or PR is made;
    3. a second, read-only agent call reviews the diff against the plan; the agent
       fixes what it finds, and the verify commands run again;
    4. briar pushes the branch, opens the PR as a draft, comments the PR link on the
