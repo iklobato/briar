@@ -166,6 +166,16 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
   tokens, though the guard refuses all but a few of them. A call now gets only the
   tools of its step (read, or read and edit) and no outside MCP server; a
   one-turn call went from US$ 0.149 to US$ 0.008.
+- The bash guard of the `briar serve` agent checked only the first line of a
+  command (a new line did not start a new one). It now checks every line,
+  reads a heredoc body as data, takes an allowed program by a relative path
+  in the worktree (`.venv/bin/python`), a subshell and `NAME=value` before a
+  program, and the builtins `[`, `test`, `true`, `false` and `exit`. A
+  forbidden token must start a word (`gh ` no longer matches "high ").
+- `uv run` failed in the agent sandbox: it could not write `~/.cache/uv`, then
+  panicked on the macOS network settings. Each agent call now gets a tool
+  cache folder (`XDG_CACHE_HOME`) it may write, and the sandbox allows that
+  lookup.
 - `briar doctor` dropped `[repo]` from the `git remote` hint, because the
   table renderer read a word in brackets as style markup. Table cells now
   print as written.
