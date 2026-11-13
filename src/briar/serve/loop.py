@@ -14,7 +14,7 @@ from typing import ClassVar, List, Protocol, Set, Tuple, Type
 
 from briar.errors import CliError
 from briar.iac.runbook.scheduler import RunbookScheduler
-from briar.serve.agent import AgentRunner, BashGuard, ClaudeAgent
+from briar.serve.agent import AgentRunner, BashGuard, ClaudeAgent, SandboxRoom
 from briar.serve.git import Shell
 from briar.serve.task import ServeCache, TaskContext, TaskPrep
 from briar.serve.work import BaseDrift, ServeCompany, WorkFinder, WorkItem, WorkSources
@@ -129,7 +129,8 @@ class AgentMaker:
 
     def agent(self, context: TaskContext) -> AgentRunner:
         guard = BashGuard(context.worktree, self._company.settings.bash, [self._company.root])
-        return ClaudeAgent(self._company.settings.model, guard, self._company.settings.allowed_domains)
+        room = SandboxRoom(tuple(self._company.settings.allowed_domains), ServeCache(os.environ).root() / "tools")
+        return ClaudeAgent(self._company.settings.model, guard, room)
 
 
 class ServeLoops:

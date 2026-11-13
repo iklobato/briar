@@ -30,8 +30,9 @@ class ExtractAwsInfra(CloudBackedExtractor):
         super().add_arguments(parser)
         parser.add_argument(
             "--aws-extract-region",
-            default="us-east-1",
-            help="AWS region to inspect (default: us-east-1)",
+            # Empty: each cloud picks its own (AWS us-east-1, Azure eastus, GCP us-central1).
+            default="",
+            help="Region to inspect (default: us-east-1 on AWS, eastus on Azure, us-central1 on GCP)",
         )
         parser.add_argument(
             "--aws-extract-service",
