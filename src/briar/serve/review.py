@@ -33,7 +33,7 @@ class ReviewReplies:
 
     def post(self, merged: Sequence[str]) -> None:
         item = self._context.item
-        github = self._context.sources.github()
+        github = self._context.sources.code_host()
         for comment in [comment for comment in item.comments if comment.kind is CommentKind.INLINE]:
             github.reply_in_thread(item.repo, ThreadReply(item.pr, comment.thread, Marker().mark(self._text(comment))))
         parts = [*(self._quoted(comment) for comment in item.comments if comment.kind is not CommentKind.INLINE), *self._merge_note(merged)]

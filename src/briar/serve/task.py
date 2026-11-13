@@ -6,17 +6,16 @@ answer; S18 to S20)."""
 from __future__ import annotations
 
 import importlib.resources
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, ClassVar, List, Mapping, Tuple
+from typing import Any, ClassVar, List, Mapping, Sequence, Tuple
 
 from briar.errors import CliError
 from briar.extract._provider import ReviewComment
 from briar.serve.agent import Access, AgentAnswer, AgentRequest, AgentRunner
 from briar.serve.git import GitIdentity, RepoCheckout, Shell
 from briar.serve.state import WorkSource
-from briar.serve.work import ServeCompany, WorkItem, WorkSources
+from briar.serve.work import BranchName, ServeCompany, WorkItem, WorkSources
 
 
 class LimitHit(CliError):
@@ -91,8 +90,6 @@ class TaskPrep:
     """Makes the context of a task: the clone, the worktree, the branch and the title
     (S27), the ticket text, and who the commits are from (S2)."""
 
-    UNSAFE = re.compile(r"[^A-Za-z0-9._/-]+")
-
     def __init__(self, sources: WorkSources, shell: Shell, cache: Path) -> None:
         self._sources = sources
         self._shell = shell
@@ -100,9 +97,8 @@ class TaskPrep:
 
     def context(self, company: ServeCompany, item: WorkItem) -> TaskContext:
         """A ticket: a new branch from the base."""
-        fields = {"key": item.ref(), "title": item.title, "number": item.number()}
-        branch = self.UNSAFE.sub("-", company.settings.branch.format_map(fields)).strip("-")
-        base = self._sources.github().default_branch(item.repo)
+        branch = BranchName(company.settings).of(item)
+        base = self._sources.code_host().default_branch(item.repo)
         return self._made(company, item, TaskRefs(branch, base, base))
 
     def review_context(self, company: ServeCompany, item: WorkItem) -> TaskContext:
@@ -110,19 +106,19 @@ class TaskPrep:
         known = company.state.book().entry(item.key)
         if known is None or not known.branch:
             raise CliError(f"serve: no branch recorded for {item.key}; cannot work on PR #{item.pr}")
-        base = self._sources.github().default_branch(item.repo)
+        base = self._sources.code_host().default_branch(item.repo)
         context = self._made(company, item, TaskRefs(known.branch, base, known.branch))
         context.checkout.sync(context.worktree, known.branch)
         return context
 
     def _made(self, company: ServeCompany, item: WorkItem, refs: TaskRefs) -> TaskContext:
-        github = self._sources.github()
-        token = company.logins.github().token()
-        checkout = RepoCheckout(self._shell, self._cache, item.repo)
+        style = self._sources.style()
+        token = self._sources.code_host().resolve_token()
+        checkout = RepoCheckout(self._shell, self._cache, style.remote(item.repo))
         checkout.update(token)
         worktree = checkout.worktree(refs.branch, refs.start, self._cache / "worktrees" / company.name / refs.branch.replace("/", "__"))
         title = company.settings.title.format_map({"key": item.ref(), "title": item.title, "number": item.number()})
-        identity = GitIdentity(github.who_am_i())
+        identity = style.identity()
         return TaskContext(item, company, worktree, checkout, refs.base, refs.branch, title, self._describe(item), identity, token, self._sources)
 
     def _describe(self, item: WorkItem) -> str:
@@ -251,8 +247,7 @@ class AgentSteps:
         return Plan.from_answer(await self._ask(prompt, Plan.SCHEMA, Access.READ))
 
     async def build(self, plan: Plan) -> None:
-        verify = "\n".join(f"- `{command}`" for command in self._context.company.settings.verify) or "- (no verify commands set)"
-        await self._ask(Prompts().text("build", {**self._fields(), "plan": plan.markdown(), "verify": verify}), {}, Access.EDIT)
+        await self._ask(Prompts().text("build", {**self._fields(), "plan": plan.markdown(), "verify": self._verify()}), {}, Access.EDIT)
 
     async def fix(self, what: str, details: str) -> None:
         await self._ask(Prompts().text("fix", {**self._fields(), "what": what, "details": details}), {}, Access.EDIT)
@@ -260,11 +255,12 @@ class AgentSteps:
     async def answer(self, comments: Tuple[ReviewComment, ...]) -> Answers:
         """V7: one call over every new comment of the round; it may edit."""
         listed = "\n\n".join(self._listed(comment) for comment in comments)
-        prompt = Prompts().text("comments", {**self._fields(), "comments": listed})
+        prompt = Prompts().text("comments", {**self._fields(), "comments": listed, "verify": self._verify()})
         return Answers.from_answer(await self._ask(prompt, Answers.SCHEMA, Access.EDIT))
 
-    async def review(self, plan: Plan, diff: str) -> Review:
-        prompt = Prompts().text("review", {**self._fields(), "plan": plan.markdown(), "diff": diff[: self.DIFF_LIMIT]})
+    async def review(self, plan: Plan, diff: str, asked: Sequence[str]) -> Review:
+        earlier = "\n".join(f"- {finding}" for finding in asked) or "- (none: this is the first round)"
+        prompt = Prompts().text("review", {**self._fields(), "plan": plan.markdown(), "diff": diff[: self.DIFF_LIMIT], "earlier": earlier})
         return Review.from_answer(await self._ask(prompt, Review.SCHEMA, Access.READ))
 
     def _listed(self, comment: ReviewComment) -> str:
@@ -275,9 +271,16 @@ class AgentSteps:
     def _fields(self) -> Mapping[str, str]:
         return {"key": self._context.item.ref(), "title": self._context.item.title}
 
+    def _verify(self) -> str:
+        return "\n".join(f"- `{command}`" for command in self._context.company.settings.verify) or "- (no verify commands set)"
+
+    def _known(self, path: Path) -> str:
+        """A real run sent the agent to read files that did not exist yet."""
+        return str(path) if path.exists() else "(none yet)"
+
     async def _ask(self, prompt: str, schema: Mapping[str, Any], access: Access) -> AgentAnswer:
         company = self._context.company
-        values = {"company": company.name, "repo": self._context.item.repo, "knowledge": str(company.knowledge_file()), "state": str(company.state_file())}
+        values = {"company": company.name, "repo": self._context.item.repo, "knowledge": self._known(company.knowledge_file()), "state": self._known(company.state_file())}
         request = AgentRequest(prompt, Prompts().text("system", values), self._context.worktree, self._budget.left_usd(), schema, access)
         answer = await self._agent.ask(request)
         self._budget.spend(answer)

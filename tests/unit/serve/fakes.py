@@ -12,6 +12,7 @@ from briar.auth.check import LoginRejected
 from briar.extract._provider import PullState, ReviewComment
 from briar.extract._tracker import Ticket
 from briar.iac.runbook.models import ServeSettings
+from briar.serve.git import GitIdentity, Remote
 from briar.serve.state import WorkState
 from briar.serve.work import ServeCompany
 from briar.storage import make_store
@@ -103,9 +104,32 @@ class FakeGithub:
     def resolved_comment_ids(self, repo: str, number: int) -> Set[str]:
         return set(self.resolved.get((repo, number), set()))
 
+    def resolve_token(self) -> str:
+        return "PLACEHOLDER-not-a-secret"
+
     def can_write(self, repo: str) -> None:
         if repo in self.read_only:
             raise LoginRejected("the token cannot push: give it Contents and Pull requests read and write")
+
+
+@dataclass(frozen=True)
+class FakeStyle:
+    """`HostStyle` of GitHub whose remotes live under `base` (a local `file://` origin in tests)."""
+
+    base: str
+    host: Any
+
+    def pull_url(self, repo: str, number: int) -> str:
+        return f"https://github.com/{repo}/pull/{number}"
+
+    def remote(self, repo: str) -> Remote:
+        return Remote(repo, self.base)
+
+    def identity(self) -> GitIdentity:
+        return GitIdentity(self.host.who_am_i())
+
+    def noun(self) -> str:
+        return "pull request"
 
 
 @dataclass(frozen=True)
@@ -118,8 +142,11 @@ class FakeSources:
     def slack(self) -> FakeProbe:
         return self.slack_adapter
 
-    def github(self) -> FakeGithub:
+    def code_host(self) -> FakeGithub:
         return self.github_adapter
+
+    def style(self) -> "FakeStyle":
+        return FakeStyle("https://github.com", self.github_adapter)
 
     def issues(self) -> FakeIssues:
         return self.issues_adapter

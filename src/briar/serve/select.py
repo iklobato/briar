@@ -30,6 +30,8 @@ class Workable:
         return [item for item in items if self._workable(item)]
 
     def _workable(self, item: WorkItem) -> bool:
+        if self._settings.only and item.key not in self._settings.only:
+            return False
         ticket = item.ticket
         if ticket is None:
             return True
@@ -111,7 +113,7 @@ class Selector:
             return []
         shortlist = list(ranked[: self.SHORTLIST])
         system = Prompts().text("select", {"company": self._company.name, "slots": str(free)})
-        request = AgentRequest(Shortlist(shortlist, talk).text(), system, self._company.root, self._company.settings.max_usd, self.SCHEMA, Access.READ)
+        request = AgentRequest(Shortlist(shortlist, talk).text(), system, self._company.root, self._company.settings.max_usd, self.SCHEMA, Access.ANSWER)
         answer = await self._agent.ask(request)
         if answer.failed:
             self.LOG.error("serve: the selector failed: %s", answer.reason)
@@ -177,6 +179,8 @@ class Choice:
     today: Callable[[], date] = date.today
     # PR 2: the chat of the company; None when the runbook names no chat.
     chat: Optional[ChatReader] = None
+    # N6 (M1 to M4): drops the tickets that already have an open PR/MR; None in unit tests of the score.
+    open_work: Optional[Any] = None
     # ponytail: one fingerprint per company; a failed model call is retried only when the
     # shortlist, the chat asks or the free slots change.
     asked: List[Tuple[str, ...]] = field(default_factory=list)
@@ -185,6 +189,8 @@ class Choice:
         """Chat is read only on a poll with a free slot and a workable ticket (C6); the
         searches of the titles and the threads only when the model is asked."""
         workable = Workable(self.company.settings).keep(tickets)
+        if free > 0 and workable and self.open_work is not None:
+            workable = await asyncio.to_thread(self.open_work.free, workable)
         if free <= 0 or not workable:
             return []
         asks = await asyncio.to_thread(self.chat.asks) if self.chat is not None else ChatAsks()

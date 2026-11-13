@@ -124,6 +124,25 @@ class JiraOpenCount:
         return int((found or {}).get("count") or 0)
 
 
+class JiraRemoteLinks:
+    """The URLs of the remote links of a ticket (`briar serve`, open MR rule M1 of
+    `docs/decisions/2026-11-12-briar-2-open-mr-rule.md`); errors are not swallowed."""
+
+    TIMEOUT = 30
+
+    def __init__(self, login: JiraLogin) -> None:
+        self._login = login
+
+    def remote_links(self, key: str) -> List[str]:
+        found = RequestsFailures().answer(partial(self._client().get, f"rest/api/3/issue/{key}/remotelink"))
+        return [str(link["object"]["url"]) for link in found or [] if (link.get("object") or {}).get("url")]
+
+    def _client(self) -> Any:
+        from atlassian import Jira
+
+        return Jira(url=self._login.site_url(), cloud=True, timeout=self.TIMEOUT, **JiraAuths.for_login(self._login).configure(self._login))
+
+
 class JiraTracker(TrackerProvider):
     kind = "jira"
     login_source = "jira"

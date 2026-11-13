@@ -16,6 +16,11 @@ from briar.serve.state import WorkStatus
 from tests.unit.serve.ticket_fakes import ISSUE, FakeGithubSide, Files, Items, Plans, ScriptedAgent, Setups, Step
 
 PR = FakeGithubSide.NUMBER
+# Verify commands that pass on the base, as a test suite does (a base that fails stops the task).
+CLEAN = "! grep -qs bad state.txt"
+IGNORED_CHECK = "test ! -e .gitignore || test -f feature.txt"
+NO_OTHER = "test ! -e other.txt"
+TWO_STEPS = 2
 MAX_USD = 5.0
 STEP_COST = 0.1
 THIRD_STEP, FOURTH_STEP = 2, 3
@@ -30,9 +35,20 @@ class TestHappyPath:
 
         setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()]), Items().jira())
 
-        lines = [record.getMessage().strip() for record in caplog.records]
+        lines = [record.getMessage().strip() for record in caplog.records if " is " in record.getMessage()]
         link = f"https://github.com/acme/app/pull/{PR}"
-        assert lines == ["serve: ENG-1 is planned", f"serve: ENG-1 is pr-open {link}", f"serve: ENG-1 is done {link}"]
+        assert [line.split(" US$")[0] for line in lines] == ["serve: ENG-1 is planned", f"serve: ENG-1 is pr-open {link}", f"serve: ENG-1 is done {link}"]
+
+    def test_the_verify_results_and_the_cost_of_a_done_task_are_logged(self, setups: Setups, caplog: pytest.LogCaptureFixture) -> None:
+        """Real run, 2026-11-12: nothing in the log said whether verify ran, nor what a done task cost."""
+        caplog.set_level(logging.INFO, logger="briar.serve.flow")
+        setup = setups.make({})
+
+        setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()]), Items().jira())
+
+        lines = [record.getMessage().strip() for record in caplog.records]
+        assert "serve: ENG-1 verify on HEAD: `test -f feature.txt` ok" in lines
+        assert lines[-1].startswith(f"serve: ENG-1 is done https://github.com/acme/app/pull/{PR} US$ ") and lines[-1].endswith("fix loops")
 
     def test_a_jira_ticket_goes_from_plan_to_green_ci(self, setups: Setups) -> None:
         setup = setups.make({})
@@ -54,6 +70,9 @@ class TestHappyPath:
 
     def test_the_agent_gets_the_worktree_the_budget_and_read_only_steps(self, setups: Setups, tmp_path: Path) -> None:
         setup = setups.make({})
+        knowledge = setup.company.knowledge_file()
+        knowledge.parent.mkdir(parents=True, exist_ok=True)
+        knowledge.write_text("# acme\n")
         agent = ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()])
 
         setup.work_on(agent, Items().jira())
@@ -80,25 +99,37 @@ class TestHappyPath:
 
 class TestLoops:
     def test_a_failed_verify_is_fixed_by_the_agent(self, setups: Setups) -> None:
-        setup = setups.make({})
-        agent = ScriptedAgent([Plans().plan(), Step(), Step(writes=Files().feature()), Plans().approved()])
+        # A verify that passes on the base, as a test suite does, and fails on a bad change.
+        setup = setups.make({"verify": [CLEAN]})
+        agent = ScriptedAgent([Plans().plan(), Step(writes={"state.txt": "bad\n"}), Step(writes={"state.txt": "good\n"}), Plans().approved()])
 
         setup.work_on(agent, Items().jira())
 
-        assert "`test -f feature.txt` failed (exit 1)" in agent.requests[THIRD_STEP].prompt
+        assert f"`{CLEAN}` failed (exit 1)" in agent.requests[THIRD_STEP].prompt
         assert setup.entry("ENG-1").status is WorkStatus.DONE
+
+    def test_a_verify_that_fails_on_the_base_too_stops_without_a_fix(self, setups: Setups) -> None:
+        """Real run, 2026-11-12: a pytest plugin of the machine failed verify; the agent then
+        changed the config and a test of the repo to pass it. Now briar stops with the report."""
+        setup = setups.make({"verify": ["false"]})
+        agent = ScriptedAgent([Plans().plan(), Step(writes=Files().feature())])
+
+        setup.work_on(agent, Items().jira())
+
+        assert (len(agent.requests), setup.entry("ENG-1").status) == (TWO_STEPS, WorkStatus.BLOCKED)
+        assert setup.sources.github_side.pulls[0][1].body.startswith("briar stopped: the verify commands fail on origin/main too, before any change")
 
     def test_verify_checks_the_commit_not_the_files_git_ignores(self, setups: Setups) -> None:
         """A file the agent leaves that git ignores passes verify in its folder but is not
         pushed (first real run: a `pytest.ini` the global gitignore dropped)."""
-        setup = setups.make({})
+        setup = setups.make({"verify": [IGNORED_CHECK]})
         ignored_build = Step(writes={"feature.txt": "done\n", ".gitignore": "feature.txt\n"})
         agent = ScriptedAgent([Plans().plan(), ignored_build, Step(writes={".gitignore": ""}), Plans().approved()])
 
         setup.work_on(agent, Items().jira())
 
         fix = agent.requests[THIRD_STEP].prompt
-        assert "`test -f feature.txt` failed (exit 1)" in fix
+        assert f"`{IGNORED_CHECK}` failed (exit 1)" in fix
         assert "git ignores these files of your folder, so they are not in the commit: feature.txt" in fix
         assert setup.entry("ENG-1").status is WorkStatus.DONE
 
@@ -111,6 +142,18 @@ class TestLoops:
 
         assert "- feature.txt: say why" in agent.requests[FOURTH_STEP].prompt
         assert setup.entry("ENG-1").status is WorkStatus.DONE
+
+    def test_a_later_self_review_sees_what_the_earlier_ones_asked(self, setups: Setups) -> None:
+        """Real run, 2026-11-12: three self-reviews asked to add a change log line, then to drop
+        it, then to add it again, and the task stopped at max_loops."""
+        setup = setups.make({})
+        fix = Step(writes={"feature.txt": "done, see ENG-1\n"})
+        agent = ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().rejected("feature.txt: say why"), fix, Plans().approved()])
+
+        setup.work_on(agent, Items().jira())
+
+        second_review = agent.requests[FOURTH_STEP + 1].prompt
+        assert "Earlier rounds of this review asked for:\n- feature.txt: say why" in second_review
 
     def test_a_failed_ci_is_fixed_and_pushed(self, setups: Setups) -> None:
         setup = setups.make({})
@@ -129,8 +172,17 @@ class TestLoops:
 class TestLimits:
     """S23: on a limit, push, a draft PR with the report, the report on the ticket."""
 
-    def test_verify_that_never_passes_hits_max_loops(self, setups: Setups) -> None:
+    def test_a_self_review_that_never_approves_says_what_it_still_asks(self, setups: Setups) -> None:
+        """Real run, 2026-11-12: the report said only "max_loops reached while fixing: the self-review"."""
         setup = setups.make({"max_loops": 1})
+        steps = [Plans().plan(), Step(writes=Files().feature()), Plans().rejected("a.py: add a test"), Step(), Plans().rejected("a.py: add a test")]
+
+        setup.work_on(ScriptedAgent(steps), Items().jira())
+
+        assert setup.sources.github_side.pulls[0][1].body.endswith("The self-review still asks for:\n- a.py: add a test")
+
+    def test_verify_that_never_passes_hits_max_loops(self, setups: Setups) -> None:
+        setup = setups.make({"max_loops": 1, "verify": [NO_OTHER]})
 
         setup.work_on(ScriptedAgent([Plans().plan(), Step(writes={"other.txt": "x"}), Step(writes={"other.txt": "y"})]), Items().jira())
 
@@ -224,6 +276,7 @@ class TestNoDoubleWork:
     )
     def test_a_pr_of_the_branch_is_recorded_and_nothing_is_built(self, setups: Setups, found: BranchPull, status: WorkStatus) -> None:
         setup = setups.make({})
+        setup.origin.branch("briar/ENG-1")
         setup.sources.github_side.branch_pulls["briar/ENG-1"] = found
         agent = ScriptedAgent([])
 
@@ -231,6 +284,20 @@ class TestNoDoubleWork:
 
         entry = setup.entry("ENG-1")
         assert (entry.status, entry.pr, agent.requests, setup.sources.github_side.pulls) == (status, PR, [], [])
+
+    def test_an_adopted_pr_leaves_the_worktree_on_its_branch(self, setups: Setups) -> None:
+        """Real run, 2026-11-12, lost state: the worktree stayed on the base, so the next
+        review round failed with `git merge --ff-only origin/briar/issue-1` (diverging branches)."""
+        setup = setups.make({})
+        setup.origin.branch("briar/ENG-1")
+        setup.origin.push_commit("briar/ENG-1", {"feature.txt": "done\n"})
+        setup.origin.push_commit("main", {"other.txt": "moved on\n"})
+        setup.sources.github_side.branch_pulls["briar/ENG-1"] = BranchPull(PR, open=True, merged=False, draft=False)
+
+        setup.work_on(ScriptedAgent([]), Items().jira())
+
+        worktree = setup.cache / "worktrees" / "acme" / "briar__ENG-1"
+        assert ((worktree / "feature.txt").exists(), (worktree / "other.txt").exists()) == (True, False)
 
     def test_a_draft_left_during_the_ci_wait_is_finished(self, setups: Setups) -> None:
         setup = setups.make({})

@@ -12,6 +12,7 @@ from briar.auth.check import LoginRejected
 from briar.extract._provider import PullState, ThreadReply
 from briar.extract._providers import make_provider
 from briar.extract._trackers import make_tracker
+from briar.extract._trackers.jira import JiraRemoteLinks
 from tests.unit.fake_logins import FakeLogins
 
 FAKE = "PLACEHOLDER-not-a-secret"
@@ -86,6 +87,17 @@ class TestJira:
     def test_can_write_passes_with_every_permission(self) -> None:
         with mock.patch("atlassian.Jira", return_value=JiraClient().client({"ADD_COMMENTS": True})):
             assert make_tracker("jira", Logins().jira()).can_write("ENG", ["ADD_COMMENTS"]) is None
+
+    def test_remote_links_give_the_linked_urls(self) -> None:
+        """M1: a ticket linked to an open MR is skipped (https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-remote-links/)."""
+        client = JiraClient().client({})
+        client.get.return_value = [{"id": "a", "object": {"url": "https://gitlab.acme.test/acme/app/-/merge_requests/34", "title": "!34"}}, {"id": "b", "object": {}}]
+
+        with mock.patch("atlassian.Jira", return_value=client):
+            links = JiraRemoteLinks(Logins().jira().jira()).remote_links("ENG-1")
+
+        assert links == ["https://gitlab.acme.test/acme/app/-/merge_requests/34"]
+        assert client.get.call_args == mock.call("rest/api/3/issue/ENG-1/remotelink")
 
 
 class TestGithub:

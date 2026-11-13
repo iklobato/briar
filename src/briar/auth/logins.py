@@ -329,7 +329,7 @@ class GitlabLogin(SourceLogin):
     SOURCE = "gitlab"
     FIELDS = {"token": (SecretField("TOKEN"),)}
     HELP = {
-        "token": "Create a personal access token at <url>/-/user_settings/personal_access_tokens: `read_api` for `briar extract`, `api` and `write_repository` for `briar serve`"
+        "token": "Create a personal access token at <url>/-/user_settings/personal_access_tokens: `read_api` for `briar extract`, `api` for `briar serve`"
     }
 
     def __init__(self, scope: LoginScope, settings: GitlabAuth, environ: Mapping[str, str]) -> None:

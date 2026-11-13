@@ -79,10 +79,11 @@ class TestClaudeAgent:
     @pytest.mark.parametrize(
         "case",
         [
+            ToolsCase(Access.ANSWER, []),
             ToolsCase(Access.READ, ["Read", "Glob", "Grep", "LS", "TodoWrite", "Bash"]),
             ToolsCase(Access.EDIT, ["Read", "Glob", "Grep", "LS", "TodoWrite", "Bash", "Edit", "MultiEdit", "Write", "NotebookEdit"]),
         ],
-        ids=["read", "edit"],
+        ids=["answer", "read", "edit"],
     )
     def test_the_cli_offers_only_the_tools_the_call_may_use(self, case: ToolsCase, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Validation run, 2026-11-12: with no tool list the CLI sent its 27 tools, the skill and
@@ -254,6 +255,13 @@ class TestToolGate:
             "this step only reads: write the answer, do not edit files",
             "",
         )
+
+    def test_a_refusal_is_logged(self, guard: BashGuard, caplog: pytest.LogCaptureFixture) -> None:
+        """Real run, 2026-11-12: a refused test command was found only in the Agent SDK transcript."""
+        with caplog.at_level("INFO", logger="briar.serve.agent"):
+            asyncio.run(ToolGate(guard, Access.EDIT)("Bash", {"command": "docker ps"}, None))
+
+        assert caplog.messages == ["serve: agent Bash refused (not in the bash allowlist of this company: 'docker'): docker ps"]
 
     def test_the_sdk_gets_allow_or_deny(self, guard: BashGuard) -> None:
         gate = ToolGate(guard, Access.EDIT)

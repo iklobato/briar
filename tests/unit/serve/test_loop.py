@@ -133,7 +133,7 @@ class TestCycle:
     def test_a_failed_poll_is_logged_and_the_next_poll_works(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
         """One Jira or GitHub error must not stop `serve` for every company and task."""
         jira = FlakyJira()
-        monkeypatch.setattr("briar.serve.loop.WorkSources", lambda logins: FakeSources(jira_adapter=jira))
+        monkeypatch.setattr("briar.serve.loop.WorkSources", lambda logins, kind: FakeSources(jira_adapter=jira))
         company = Companies(tmp_path / "knowledge").company({"jira": {"ENG": {"repos": ["acme/app"]}}})
         slots = TaskSlots(asyncio.Semaphore(TWO_SLOTS), set(), set())
         watch = CompanyWatch(company, slots, Watching(company).work())
@@ -146,7 +146,7 @@ class TestCycle:
 
     def test_a_ticket_with_a_pr_is_not_started_again_and_keeps_why_it_was_picked(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         jira = FakeJira({"ENG": [Tickets().jira("ENG-1", "High", "2026-01-03")]})
-        monkeypatch.setattr("briar.serve.loop.WorkSources", lambda logins: FakeSources(jira_adapter=jira))
+        monkeypatch.setattr("briar.serve.loop.WorkSources", lambda logins, kind: FakeSources(jira_adapter=jira))
         company = Companies(tmp_path / "knowledge").company({"jira": {"ENG": {"repos": ["acme/app"]}}})
         slots = TaskSlots(asyncio.Semaphore(TWO_SLOTS), set(), set())
         watch = CompanyWatch(company, slots, Watching(company).work())
@@ -162,7 +162,7 @@ class TestCycle:
 
     def test_a_ticket_briar_started_goes_on_in_its_repo_without_the_selector(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         jira = FakeJira({"ENG": [Tickets().jira("ENG-1", "High", "2026-01-03")]})
-        monkeypatch.setattr("briar.serve.loop.WorkSources", lambda logins: FakeSources(jira_adapter=jira))
+        monkeypatch.setattr("briar.serve.loop.WorkSources", lambda logins, kind: FakeSources(jira_adapter=jira))
         company = Companies(tmp_path / "knowledge").company({"jira": {"ENG": {"repos": ["acme/app", "acme/api"]}}})
         started = WorkEntry(key="ENG-1", source=WorkSource.JIRA, repo="acme/api", title="title of ENG-1", status=WorkStatus.FOUND)
         asyncio.run(company.state.record(started))

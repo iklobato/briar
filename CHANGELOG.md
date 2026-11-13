@@ -14,6 +14,14 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Added
 
+- `briar serve` on GitLab (spec 008 PR 3b): `serve.code_host: gitlab` opens draft
+  merge requests, waits for the pipeline of the pushed commit, marks the MR ready,
+  and answers MR notes in their threads; tickets come from Jira, a repo is the full
+  project path, and the token needs the `api` scope. The agent may not run `glab`.
+- `serve.only: [KEY, ...]`: when set, only those tickets are candidates.
+- `briar serve` skips a ticket that already has an open PR or MR by anyone but
+  briar (its key in the branch, title or description, or a Jira remote link to it),
+  and logs which one (spec 008 N6).
 - `meeting-digest` keeps only the meetings of the company, for a Fireflies key
   that records several companies (a personal account): a new `title_any` list,
   `attendee_allow` takes a whole `@domain` too, and a speaker who is a person of
@@ -187,6 +195,19 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Fixed
 
+- `briar serve` read the CI state of a GitLab MR before the pipeline of the pushed
+  commit existed, and marked the MR ready early. It now waits for the pipeline of
+  that commit, and a `.gitlab-ci.yml` with no pipeline yet is pending.
+- A review round on a PR whose state file was lost failed on every poll (the
+  worktree stayed on the base) and answered old comments again. The worktree now
+  starts on the PR branch, and a comment briar already answered on the PR (quoted, or
+  replied in its thread) counts as answered.
+- When the `verify` commands fail on the base too, the task stops with that report
+  instead of having the agent change the repo to suit the machine.
+- The self-review asked for a change, then for its opposite, until `max_loops`. Each
+  round now gets the earlier asks, and the limit report lists the open ones.
+- The selector call gets no tool at all, and a review round gets the verify commands
+  in its prompt.
 - `briar extract` dropped the section of a step whose source failed (a Slack token
   that was not valid stopped `meeting-digest`) as if it had found nothing. The section
   of the last run now stays, and the run says the step stopped and why.

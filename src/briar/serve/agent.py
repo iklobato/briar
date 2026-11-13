@@ -10,6 +10,7 @@ briar code (D10). Each call gets the money left in the task (`max_usd`, S23) as
 
 from __future__ import annotations
 
+import logging
 import re
 import shlex
 from dataclasses import dataclass, field
@@ -19,8 +20,10 @@ from typing import Any, ClassVar, Dict, List, Mapping, Optional, Protocol, Seque
 
 
 class Access(Enum):
-    """What an agent call may do: read only (the plan, the self-review), or edit too."""
+    """What an agent call may do: answer from the prompt alone (the selector), read only (the
+    plan, the self-review), or edit too."""
 
+    ANSWER = "answer"
     READ = "read"
     EDIT = "edit"
 
@@ -63,7 +66,7 @@ class BashGuard:
     )  # fmt: skip
     FORBIDDEN: ClassVar[Tuple[str, ...]] = (
         "rm -rf", "sudo", "su ", "ssh ", "scp ", "curl", "wget", "shutdown", "reboot", "chmod 777", "mkfs", "dd if=",
-        "--force", "-f origin", "--amend", "rebase", "squash", "filter-branch", "reset --hard", "git push", "gh ",
+        "--force", "-f origin", "--amend", "rebase", "squash", "filter-branch", "reset --hard", "git push", "gh ", "glab ",
     )  # fmt: skip
     READ_TOOLS: ClassVar[Tuple[str, ...]] = ("Read", "Glob", "Grep", "LS")
     FREE_TOOLS: ClassVar[Tuple[str, ...]] = ("TodoWrite",)
@@ -173,12 +176,16 @@ class ToolGate:
     """The `can_use_tool` callback of one agent call: the guard, and no edit at all when
     the call is read only (the plan, the self-review)."""
 
+    LOG: ClassVar[logging.Logger] = logging.getLogger(__name__)
+    # The start of a refused command kept in the log.
+    SHOWN = 200
+
     def __init__(self, guard: BashGuard, access: Access) -> None:
         self._guard = guard
         self._access = access
 
     def refusal(self, tool: str, tool_input: Mapping[str, Any]) -> str:
-        if self._access is Access.READ and tool in BashGuard.EDIT_TOOLS:
+        if self._access is not Access.EDIT and tool in BashGuard.EDIT_TOOLS:
             return "this step only reads: write the answer, do not edit files"
         return self._guard.refusal(tool, tool_input)
 
@@ -186,6 +193,9 @@ class ToolGate:
         from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
 
         refusal = self.refusal(tool, tool_input)
+        if refusal:
+            # A real run found a refused test command only in the Agent SDK transcript.
+            self.LOG.info("serve: agent %s refused (%s): %s", tool, refusal, str(tool_input.get("command") or tool_input.get("file_path") or "")[: self.SHOWN])
         return PermissionResultDeny(message=refusal) if refusal else PermissionResultAllow()
 
 
@@ -209,6 +219,7 @@ class ClaudeAgent:
     # With no list the CLI sends all its tools and the skill and agent lists: about 39k input
     # tokens per call, even when `ToolGate` refuses every one of them (validation run, 2026-11-12).
     TOOLS: ClassVar[Mapping[Access, Tuple[str, ...]]] = {
+        Access.ANSWER: (),
         Access.READ: (*BashGuard.READ_TOOLS, *BashGuard.FREE_TOOLS, "Bash"),
         Access.EDIT: (*BashGuard.READ_TOOLS, *BashGuard.FREE_TOOLS, "Bash", *BashGuard.EDIT_TOOLS),
     }
