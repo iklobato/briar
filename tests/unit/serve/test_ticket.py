@@ -97,6 +97,23 @@ class TestHappyPath:
         assert setup.sources.tracker_side.moves == []
 
 
+class TestNothingToChange:
+    """Real run, 2026-11-13: an operations ticket (copy a dataset) needed no code change; the
+    agent said so and changed nothing, and briar still pushed the base and opened an empty MR."""
+
+    def test_a_build_with_no_change_opens_no_pr_and_reports_on_the_ticket(self, setups: Setups) -> None:
+        setup = setups.make({"verify": [CLEAN]})
+        agent = ScriptedAgent([Plans().plan(), Step()])
+
+        setup.work_on(agent, Items().jira())
+
+        tracker, github = setup.sources.tracker_side, setup.sources.github_side
+        assert (github.pulls, len(agent.requests), setup.entry("ENG-1").status) == ([], TWO_STEPS, WorkStatus.BLOCKED)
+        assert "briar/ENG-1" not in setup.origin.branches()
+        assert tracker.comments[-1][1].startswith("briar stopped: the plan needs no change of the code in acme/app")
+        assert tracker.moves == [("ENG-1", "In Progress")]
+
+
 class TestLoops:
     def test_a_failed_verify_is_fixed_by_the_agent(self, setups: Setups) -> None:
         # A verify that passes on the base, as a test suite does, and fails on a bad change.

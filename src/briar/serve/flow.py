@@ -134,6 +134,10 @@ class TaskFlow:
         extra = {WorkStatus.BLOCKED: entry.report, WorkStatus.DONE: self.spent()}.get(status, "")
         self.LOG.info("serve: %s is %s%s %s", item.ref(), status.value, link, extra)
 
+    def changed(self) -> bool:
+        """The branch holds a change of its own: no PR is ever opened for the base alone."""
+        return bool(self._context.checkout.diff(self._context.worktree, self._context.base).strip())
+
     def commit(self, what: str) -> bool:
         return self._context.checkout.commit_all(self._context.worktree, f"{self._context.item.ref()}: {what}", self._context.identity)
 
@@ -149,7 +153,8 @@ class TaskFlow:
     def _draft(self, text: str) -> int:
         """The PR of the task as a draft with the report: the open one, or a new one."""
         known = self._context.company.state.book().entry(self._context.item.key)
-        if not self.commit("work so far") and not known:
+        self.commit("work so far")
+        if not (known and known.pr) and not self.changed():
             return 0
         self._context.checkout.push(self._context.worktree, self._context.branch, self._context.token)
         github = self._context.sources.code_host()

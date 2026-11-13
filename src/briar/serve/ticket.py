@@ -15,7 +15,7 @@ import asyncio
 from briar.extract._provider import PullRequestDraft
 from briar.serve.flow import TaskFlow, TicketSide
 from briar.serve.state import WorkSource, WorkStatus
-from briar.serve.task import AgentSteps, Plan, TaskContext
+from briar.serve.task import AgentSteps, LimitHit, Plan, TaskContext
 
 
 class TicketRun:
@@ -34,6 +34,9 @@ class TicketRun:
         await self._flow.record(WorkStatus.PLANNED, {"plan": plan.markdown()})
         await self._steps.build(plan)
         await self._flow.verified("build the plan")
+        if not await asyncio.to_thread(self._flow.changed):
+            # A real run (2026-11-13): an operations ticket got an empty MR.
+            raise LimitHit(f"the plan needs no change of the code in {self._context.item.repo}: the agent changed nothing (the plan above says why)")
         await self._flow.reviewed(plan, f"origin/{self._context.base}...HEAD")
         await self._flow.push()
         number = await asyncio.to_thread(self._open, plan)
