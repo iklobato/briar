@@ -5,6 +5,7 @@ the fakes of `fakes.py`."""
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List
@@ -17,7 +18,7 @@ from briar.serve.loop import CompanyWatch, TaskSlots, WatchWork
 from briar.serve.select import Choice, Selector
 from briar.serve.state import WorkState
 from briar.serve.state import WorkEntry, WorkSource, WorkStatus
-from briar.serve.work import ServeCompany, WorkItem, WorkKind
+from briar.serve.work import ServeCompany, WorkDay, WorkItem, WorkKind
 from tests.unit.serve.fakes import Companies, FakeJira, FakeSources, Tickets
 from tests.unit.serve.test_select import PickingAgent
 
@@ -157,7 +158,7 @@ class TestCycle:
             return [first, await watch.cycle()]
 
         assert asyncio.run(scenario()) == [1, 0]
-        expected = WorkEntry(key="ENG-1", source=WorkSource.JIRA, repo="acme/app", title="title of ENG-1", status=WorkStatus.PR_OPEN, reason="the only ticket")
+        expected = WorkEntry(key="ENG-1", source=WorkSource.JIRA, repo="acme/app", title="title of ENG-1", status=WorkStatus.PR_OPEN, reason="the only ticket", started=WorkDay().today())
         assert company.state.book().entries == {"ENG-1": expected}
 
     def test_a_ticket_briar_started_goes_on_in_its_repo_without_the_selector(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -178,6 +179,38 @@ class TestCycle:
         assert (asyncio.run(scenario()), agent.requests) == (1, [])
         entry = company.state.book().entries["ENG-1"]
         assert (entry.status, entry.repo) == (WorkStatus.PR_OPEN, "acme/api")
+
+
+class TestDailyLimit:
+    """Decision D3 of the autonomous serve: at most `max_new_per_day` new tickets a day per
+    company (UTC days); tasks already started go on."""
+
+    def _watch(self, company: ServeCompany, agent: PickingAgent) -> CompanyWatch:
+        slots = TaskSlots(asyncio.Semaphore(TWO_SLOTS), set(), set())
+        return CompanyWatch(company, slots, WatchWork(RecordingRoutine(company.state), Choice(Selector(agent, company), company)))
+
+    def _company(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, started_on: str) -> ServeCompany:
+        jira = FakeJira({"ENG": [Tickets().jira("ENG-1", "High", "2026-01-03")]})
+        monkeypatch.setattr("briar.serve.loop.WorkSources", lambda logins, kind: FakeSources(jira_adapter=jira))
+        company = Companies(tmp_path / "knowledge").company({"jira": {"ENG": {"repos": ["acme/app"]}}, "max_new_per_day": 1})
+        earlier = WorkEntry(key="ENG-9", source=WorkSource.JIRA, repo="acme/app", title="earlier", status=WorkStatus.DONE, started=started_on)
+        asyncio.run(company.state.record(earlier))
+        return company
+
+    def test_no_new_ticket_starts_once_the_day_limit_is_reached(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+        caplog.set_level(logging.INFO, logger="briar.serve.loop")
+        company = self._company(tmp_path, monkeypatch, WorkDay().today())
+        agent = PickingAgent([{"key": "ENG-1", "repo": "acme/app", "reason": "the only ticket"}])
+
+        assert (asyncio.run(self._watch(company, agent).cycle()), agent.requests) == (0, [])
+        assert "serve: acme: 1 new ticket(s) started today (max_new_per_day 1): no new ticket until tomorrow (UTC)" in caplog.text
+
+    def test_tickets_started_on_another_day_do_not_count(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        company = self._company(tmp_path, monkeypatch, "2026-01-01")
+        agent = PickingAgent([{"key": "ENG-1", "repo": "acme/app", "reason": "the only ticket"}])
+
+        assert asyncio.run(self._watch(company, agent).cycle()) == 1
+        assert company.state.book().entries["ENG-1"].started == WorkDay().today()
 
 
 class TestState:

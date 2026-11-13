@@ -31,6 +31,8 @@ class TicketRun:
         if await self._adopted():
             return
         plan = self._posted_plan() or await self._steps.plan()
+        if await self._kept_quiet(plan):
+            return
         await asyncio.to_thread(self._announce, plan)
         await self._flow.record(WorkStatus.PLANNED, {"plan": plan.markdown()})
         await self._steps.build(plan)
@@ -64,6 +66,15 @@ class TicketRun:
         if found.open:
             await asyncio.to_thread(self._context.checkout.adopt, self._context.worktree, self._context.branch)
         await self._flow.record(status, {"pr": found.number})
+        return True
+
+    async def _kept_quiet(self, plan: Plan) -> bool:
+        """Decision D1: a plan with no code change (an operations ticket) gets no comment, no
+        move and no branch; the task is blocked in the state only."""
+        if plan.needs_code:
+            return False
+        report = f"the plan needs no code change in {self._context.item.repo}; nothing was posted on the ticket"
+        await self._flow.record(WorkStatus.BLOCKED, {"plan": plan.markdown(), "report": report})
         return True
 
     def _posted_plan(self) -> Optional[Plan]:

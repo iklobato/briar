@@ -154,6 +154,8 @@ class ServeSettings(_Strict):
     max_review_rounds: int = Field(ge=1)
     max_parallel: int = Field(default=3, ge=1)
     poll_minutes: int = Field(default=5, ge=1)
+    # New tickets a company may start in one UTC day; 0 is no limit (decision D3).
+    max_new_per_day: int = Field(default=0, ge=0)
     # GitHub repos to work in: an open issue there assigned to the token owner is a ticket.
     repos: List[str] = Field(default_factory=list)
     # Jira project key -> the repos its tickets may be built in (spec 008 N5, N7).

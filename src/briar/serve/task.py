@@ -136,6 +136,8 @@ class Plan:
     steps: Tuple[str, ...] = ()
     tests: Tuple[str, ...] = ()
     risks: Tuple[str, ...] = ()
+    # False for a ticket with nothing to change in the repo (an operations ticket, decision D1).
+    needs_code: bool = True
 
     SCHEMA: ClassVar[Mapping[str, Any]] = {
         "type": "object",
@@ -144,8 +146,9 @@ class Plan:
             "steps": {"type": "array", "items": {"type": "string"}},
             "tests": {"type": "array", "items": {"type": "string"}},
             "risks": {"type": "array", "items": {"type": "string"}},
+            "needs_code": {"type": "boolean"},
         },
-        "required": ["summary", "steps"],
+        "required": ["summary", "steps", "needs_code"],
     }
 
     @classmethod
@@ -153,7 +156,8 @@ class Plan:
         found = answer.structured
         if not found:
             return cls(answer.text.strip() or "(the agent gave no plan)")
-        return cls(str(found.get("summary", "")), *(tuple(str(entry) for entry in found.get(name, [])) for name in ("steps", "tests", "risks")))
+        lists = (tuple(str(entry) for entry in found.get(name, [])) for name in ("steps", "tests", "risks"))
+        return cls(str(found.get("summary", "")), *lists, needs_code=bool(found.get("needs_code", True)))
 
     def markdown(self) -> str:
         parts = [self.summary, self._list("Steps", self.steps), self._list("Tests", self.tests), self._list("Risks", self.risks)]

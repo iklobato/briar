@@ -49,6 +49,8 @@ class WorkEntry(BaseModel):
     rounds: int = 0
     # Why the selector took the ticket (spec 008, N12).
     reason: str = ""
+    # The UTC day briar took the ticket, `YYYY-MM-DD` (decision D3: `max_new_per_day`).
+    started: str = ""
 
     # A ticket in one of these is not taken again; one found or planned when `serve`
     # stopped is taken again and picks up its worktree.
@@ -76,6 +78,10 @@ class WorkBook(BaseModel):
 
     def with_entry(self, entry: WorkEntry) -> "WorkBook":
         return WorkBook(entries={**self.entries, entry.key: entry})
+
+    def started_on(self, day: str) -> int:
+        """How many tickets briar took on `day` (decision D3)."""
+        return sum(1 for entry in self.entries.values() if entry.started == day)
 
     def watched(self) -> List[WorkEntry]:
         """The PRs briar still reads: open, and not blocked (V3)."""

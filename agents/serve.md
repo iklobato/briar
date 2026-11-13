@@ -42,8 +42,10 @@ and `docs/decisions/2026-11-11-briar-2-review-routine.md`.
 5. Works each ticket in its own git worktree, on the branch `branch` (default
    `briar/{key}`), with the Claude Agent SDK and the `model` of the company:
    1. the agent reads the ticket, the knowledge of the company and the repo, and
-      writes a plan; briar comments the plan on the ticket and moves it to
-      `status.started`;
+      writes a plan, which says whether the ticket needs a code change at all. A plan
+      with no code change (an operations ticket) writes nothing anywhere: no comment,
+      no move, no branch; the task is `blocked` in the state only. Otherwise briar
+      comments the plan on the ticket and moves it to `status.started`;
    2. the agent builds the plan; briar commits and runs the `verify` commands on a
       clean copy of the commit (a detached worktree of HEAD, so a file git ignores
       does not count: it would not be pushed), and the agent fixes them until they
@@ -155,6 +157,7 @@ companies:
       priority_labels: [p0, p1]       # optional: labels that move a ticket up (+10)
       only: [ENG-7, acme/web#12]      # optional: when set, only these tickets are candidates
       max_parallel: 3                 # optional
+      max_new_per_day: 5              # optional: new tickets started per UTC day (0, the default, is no limit)
       poll_minutes: 5                 # optional
       verify: ["make lint", "make test"]
       bash: [git, make, pytest]       # optional: the programs the agent may run (replaces the default list)
