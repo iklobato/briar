@@ -129,6 +129,34 @@ class ServeCompany:
         return self.root / "work" / f"{self.name}.md"
 
 
+class ServeLock:
+    """One `briar serve` per company and knowledge folder. The state lock is in-process
+    only; a real run (2026-11-13) with two `serve` on one folder took the same issue twice
+    and opened a duplicate PR. The lock lasts as long as the process (the OS drops it)."""
+
+    def __init__(self, company: ServeCompany) -> None:
+        self._company = company
+        self._held: List[Any] = []
+
+    def take(self) -> None:
+        import fcntl
+
+        path = self._company.state_file().with_suffix(".lock")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handle = path.open("a")
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as busy:
+            handle.close()
+            raise CliError(f"serve: another `briar serve` runs on the company {self._company.name} ({path}); stop it first") from busy
+        self._held.append(handle)
+
+    def release(self) -> None:
+        for handle in self._held:
+            handle.close()
+        self._held.clear()
+
+
 class BranchName:
     """The branch briar makes for a ticket (S27): `serve.branch` with the key, the title and
     the number, made safe for git."""
@@ -443,6 +471,7 @@ class ServeCompanies:
 
 
 __all__ = [
+    "ServeLock",
     "AgentSandbox",
     "BaseDrift",
     "BranchName",

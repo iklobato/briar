@@ -116,6 +116,8 @@ class GitlabHost:
     login_source = "gitlab"
     # `api` writes through the API and pushes over Git HTTP; `write_repository` alone cannot open an MR.
     WRITE_SCOPE = "api"
+    # The ref of a merged results pipeline (or a merge train) of an MR.
+    MERGE_REFS = "refs/merge-requests/"
 
     def __init__(self, login: GitlabLogin, api: Optional[GitlabRest] = None) -> None:
         self._login = login
@@ -181,8 +183,20 @@ class GitlabHost:
         head = self.branch_head(repo, branch) if branch else str(found.get("sha") or "")
         pipeline = found.get("head_pipeline")
         if pipeline:
-            return PipelineState(pipeline).state() if pipeline.get("sha") == head else CiState.PENDING
+            return PipelineState(pipeline).state() if self._of_head(repo, pipeline, head) else CiState.PENDING
         return CiState.PENDING if CiConfig(self._rest, self._project(repo)).exists(head) else CiState.NONE
+
+    def _of_head(self, repo: str, pipeline: Mapping[str, Any], head: str) -> bool:
+        """The pipeline ran on `head`, or on the merge commit of `head` and the target: a
+        merged results pipeline (`refs/merge-requests/<iid>/merge`; a real run, 2026-11-13,
+        read one that failed as pending until `ci_wait_minutes`)."""
+        sha = str(pipeline.get("sha") or "")
+        if sha == head:
+            return True
+        if not str(pipeline.get("ref") or "").startswith(self.MERGE_REFS):
+            return False
+        commit = GitlabFailures().answer(partial(self._rest.get, f"{self._project(repo)}/repository/commits/{sha}"))
+        return head in (commit.get("parent_ids") or [])
 
     def list_ci_failures(self, repo: str, number: int) -> List[CiFailure]:
         return self._reader.list_ci_failures(repo, number)

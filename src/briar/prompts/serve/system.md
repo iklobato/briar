@@ -15,6 +15,8 @@ Rules:
 - Make the smallest correct change for the ticket. Match the conventions of the repo:
   its test runner, linter and formatter. Do not refactor code the ticket does not need.
 - Do not edit CI files (`.github/workflows/`, `.gitlab-ci.yml` and what it includes) unless the ticket asks for it.
+- Never silence a secret scanner (`.gitleaksignore`, `# gitleaks:allow`, a secrets baseline): a secret
+  finding needs a person. Leave lines that hold a secret exactly as they are, and say so in your answer.
 - Add or update the tests the change needs.
 - A command you need that is refused is outside what this company allows: work without it
   and say so in your answer.

@@ -155,6 +155,21 @@ class TestMergeRequestState:
 
         assert Host.of(answers).host().ci_state(REPO, IID) is CiState.PENDING
 
+    def test_a_merged_results_pipeline_of_the_head_gives_the_ci_state(self) -> None:
+        """Real run, 2026-11-13: a project with merged results pipelines runs CI on a merge
+        commit of the head and the target (`refs/merge-requests/<iid>/merge`); its sha is never
+        the head, so serve read a failed pipeline as pending until `ci_wait_minutes`."""
+        merged = {"status": "failed", "sha": "merge", "ref": f"refs/merge-requests/{IID}/merge"}
+        answers = {MR: {"sha": "new", "head_pipeline": merged}, f"{PROJECT}/repository/commits/merge": {"parent_ids": ["main", "new"]}}
+
+        assert Host.of(answers).host().ci_state(REPO, IID) is CiState.FAILED
+
+    def test_a_merged_results_pipeline_of_an_older_head_is_pending(self) -> None:
+        merged = {"status": "success", "sha": "merge", "ref": f"refs/merge-requests/{IID}/merge"}
+        answers = {MR: {"sha": "new", "head_pipeline": merged}, f"{PROJECT}/repository/commits/merge": {"parent_ids": ["main", "old"]}}
+
+        assert Host.of(answers).host().ci_state(REPO, IID) is CiState.PENDING
+
     def test_no_pipeline_yet_in_a_repo_with_ci_is_pending(self) -> None:
         answers = {MR: {"sha": "new", "head_pipeline": None}, PROJECT: {"ci_config_path": ""}, f"{PROJECT}/repository/files/.gitlab-ci.yml": {"file_name": ".gitlab-ci.yml"}}
 

@@ -97,6 +97,49 @@ class TestHappyPath:
         assert setup.sources.tracker_side.moves == []
 
 
+class TestNothingToChange:
+    """Real run, 2026-11-13: an operations ticket (copy a dataset) needed no code change; the
+    agent said so and changed nothing, and briar still pushed the base and opened an empty MR."""
+
+    def test_a_build_with_no_change_opens_no_pr_and_reports_on_the_ticket(self, setups: Setups) -> None:
+        setup = setups.make({"verify": [CLEAN]})
+        agent = ScriptedAgent([Plans().plan(), Step()])
+
+        setup.work_on(agent, Items().jira())
+
+        tracker, github = setup.sources.tracker_side, setup.sources.github_side
+        assert (github.pulls, len(agent.requests), setup.entry("ENG-1").status) == ([], TWO_STEPS, WorkStatus.BLOCKED)
+        assert "briar/ENG-1" not in setup.origin.branches()
+        assert tracker.comments[-1][1].startswith("briar stopped: the plan needs no change of the code in acme/app")
+        assert tracker.moves == [("ENG-1", "In Progress")]
+
+
+class TestNoSilencedSecretScanner:
+    """Real run, 2026-11-13: a secret scan failed on an MR that re-flowed two lines holding
+    plain database passwords; to pass CI the agent wrote `.gitleaksignore` with their
+    fingerprints, and briar pushed it and marked the MR ready."""
+
+    def test_an_ignore_file_of_a_secret_scanner_is_never_pushed(self, setups: Setups) -> None:
+        setup = setups.make({"verify": [CLEAN]})
+        agent = ScriptedAgent([Plans().plan(), Step(writes={**Files().feature(), ".gitleaksignore": "abc:app.tfvars:generic-api-key:13\n"})])
+
+        setup.work_on(agent, Items().jira())
+
+        report = setup.sources.tracker_side.comments[-1][1]
+        assert (setup.entry("ENG-1").status, len(agent.requests)) == (WorkStatus.BLOCKED, TWO_STEPS)
+        assert report.startswith("briar stopped: the change silences a secret scanner (.gitleaksignore)")
+        assert ".gitleaksignore" not in setup.origin.files("briar/ENG-1")
+
+    def test_an_allow_comment_of_a_secret_scanner_is_never_pushed(self, setups: Setups) -> None:
+        setup = setups.make({"verify": [CLEAN]})
+        agent = ScriptedAgent([Plans().plan(), Step(writes={"app.tfvars": 'password = "x" # gitleaks:allow\n'})])
+
+        setup.work_on(agent, Items().jira())
+
+        assert setup.sources.tracker_side.comments[-1][1].startswith("briar stopped: the change silences a secret scanner (app.tfvars)")
+        assert "app.tfvars" not in setup.origin.files("briar/ENG-1")
+
+
 class TestLoops:
     def test_a_failed_verify_is_fixed_by_the_agent(self, setups: Setups) -> None:
         # A verify that passes on the base, as a test suite does, and fails on a bad change.
@@ -228,6 +271,20 @@ class TestLimits:
         assert (entry.status, entry.taken(), entry.pr) == (WorkStatus.BLOCKED, True, 0)
         assert entry.report == f"{report} The draft PR failed: HTTP 422: A pull request already exists."
         assert setup.sources.tracker_side.comments[-1][1] == entry.report
+
+
+    def test_a_refused_push_reports_without_the_local_folder(self, setups: Setups, tmp_path: Path) -> None:
+        """Real run, 2026-11-13: a person had pushed to the task branch; the report on the
+        public issue held the local worktree path of the machine."""
+        setup = setups.make({})
+        setup.origin.branch("briar/ENG-1")
+        setup.origin.push_commit("briar/ENG-1", {"other.txt": "someone else\n"})
+
+        setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()]), Items().jira())
+
+        report = setup.sources.tracker_side.comments[-1][1]
+        assert ("non-fast-forward" in report, str(tmp_path / "cache") in report) == (True, False)
+        assert setup.entry("ENG-1").status is WorkStatus.BLOCKED
 
 
 class TestNoDoubleWork:

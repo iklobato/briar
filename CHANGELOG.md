@@ -195,6 +195,24 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Fixed
 
+- `briar serve` never commits a change that silences a secret scanner (an ignore or
+  baseline file of gitleaks, GitGuardian, detect-secrets or trufflehog, or an added
+  allow comment): it drops that part and stops the task for a person. In a real run the
+  agent wrote `.gitleaksignore` with the fingerprints of two real passwords to pass CI.
+- `briar serve` opened an empty PR or MR when the agent found nothing to change (an
+  operations ticket). The task now stops with a report on the ticket and pushes nothing.
+- A limit hit while `briar serve` waited for CI crashed the task (GitHub refuses to make
+  a draft PR a draft again), so the task was taken again, and paid for, every poll.
+- Two `briar serve` on the same company and knowledge folder took the same ticket and
+  opened a second PR. The second one now stops with an error.
+- A GitLab project with merged results pipelines runs CI on a merge commit, never on
+  the MR head, so `briar serve` read its pipeline as pending until `ci_wait_minutes`:
+  a failed job never reached the agent, and a passed MR was never marked ready.
+- A git failure report on a ticket or PR named the local folder of the machine.
+- `meeting-digest` showed `0 min` for every Fireflies meeting: Fireflies sends the
+  duration in minutes, not seconds.
+- A plain Jira account with no `jira_projects` stopped `meeting-digest` with a bare
+  403; the message now names the setting to add.
 - `briar serve` read the CI state of a GitLab MR before the pipeline of the pushed
   commit existed, and marked the MR ready early. It now waits for the pipeline of
   that commit, and a `.gitlab-ci.yml` with no pipeline yet is pending.

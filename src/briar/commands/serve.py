@@ -25,6 +25,7 @@ from briar.commands.base import Command, CommandOptions, Route
 from briar.errors import CliError
 
 if TYPE_CHECKING:
+    from briar.serve.loop import ServeLoops
     from briar.serve.work import ServeCompany
 
 
@@ -49,8 +50,21 @@ class CommandServe(Command):
             raise CliError(f"serve: nothing to serve in {directory}: no company has a `serve:` block or a schedule")
         scheduler.check_logins()
         self._check(companies, directory)
-        ServeLoops(companies, scheduler).loop().serve_forever()
+        self._serve_locked(companies, ServeLoops(companies, scheduler))
         return 0
+
+    def _serve_locked(self, companies: Sequence["ServeCompany"], loops: "ServeLoops") -> None:
+        """One `serve` per company and knowledge folder (`ServeLock`)."""
+        from briar.serve.work import ServeLock
+
+        locks = [ServeLock(company) for company in companies]
+        try:
+            for lock in locks:
+                lock.take()
+            loops.loop().serve_forever()
+        finally:
+            for lock in locks:
+                lock.release()
 
     def _check(self, companies: Sequence["ServeCompany"], directory: Path) -> None:
         """The checks of the pipeline; a folder with no `serve:` block needs none (X1)."""

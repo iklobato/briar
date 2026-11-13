@@ -150,7 +150,7 @@ class RepoCheckout:
             return []
         conflicted = self._git(["diff", "--name-only", "--diff-filter=U"], path, "").output.splitlines()
         if not conflicted:
-            raise GitFailed(f"`git merge --no-edit origin/{base}` failed in {path}: {done.output.strip()[-self.OUTPUT_TAIL :]}")
+            raise GitFailed(f"`git merge --no-edit origin/{base}` failed: {done.output.strip()[-self.OUTPUT_TAIL :]}")
         return conflicted
 
     def marked(self, path: Path, files: Sequence[str]) -> List[str]:
@@ -165,6 +165,20 @@ class RepoCheckout:
         """Commit the merge, even when the result equals the branch (it still records the merge)."""
         self._git(["add", "-A"], path, "")
         self._git([*identity.args(), "commit", "--no-edit"], path, "")
+
+    def staged_diff(self, path: Path) -> str:
+        """Every change of the worktree, staged: what the next commit holds."""
+        self._git(["add", "-A"], path, "")
+        return self._git(["diff", "--cached"], path, "").output
+
+    def drop(self, path: Path, files: Sequence[str]) -> None:
+        """Take `files` back to HEAD: a changed file is restored, a new one is deleted."""
+        for name in files:
+            self._git(["reset", "-q", "--", name], path, "")
+            if self._shell.program(["git", "cat-file", "-e", f"HEAD:{name}"], path).ok():
+                self._git(["checkout", "HEAD", "--", name], path, "")
+                continue
+            (path / name).unlink(missing_ok=True)
 
     def commit_all(self, path: Path, message: str, identity: GitIdentity) -> bool:
         """Commit every change of the worktree; False when there was nothing to commit."""
@@ -222,7 +236,8 @@ class RepoCheckout:
         """Run `prefix + args`; a failure names `args` only, never the credential helper."""
         answer = self._shell.program([*prefix, *args], cwd)
         if not answer.ok():
-            raise GitFailed(f"`git {shlex.join(args)}` failed in {cwd}: {answer.output.strip()[-self.OUTPUT_TAIL :]}")
+            # No local folder in the text: it reaches a public ticket or PR (a real run, 2026-11-13).
+            raise GitFailed(f"`git {shlex.join(args)}` failed: {answer.output.strip()[-self.OUTPUT_TAIL :]}")
         return answer
 
 

@@ -127,7 +127,10 @@ class GithubProvider(RepositoryProvider):
         self._api().client().get_repo(repo).get_issue(number).create_comment(text)
 
     def _convert_to_draft(self, repo: str, number: int) -> None:
-        self._api().client().get_repo(repo).get_pull(number).convert_to_draft()
+        pull = self._api().client().get_repo(repo).get_pull(number)
+        # On a draft, GitHub answers `pullRequest: null` and PyGithub raises TypeError (a real run, 2026-11-13).
+        if not pull.draft:
+            pull.convert_to_draft()
 
     def _mark_ready(self, repo: str, number: int) -> None:
         self._api().client().get_repo(repo).get_pull(number).mark_ready_for_review()

@@ -16,6 +16,9 @@ from unittest import mock
 
 from tests.unit.fake_logins import FakeLogins
 
+# Fireflies sends `duration` in minutes (a 35 min daily read `duration 35`, 2026-11-13).
+MEETING_MINUTES = 30.0
+
 # ─── MeetingProvider registry + factory ─────────────────────────────────────
 
 
@@ -61,7 +64,7 @@ class FirefliesAdapterTests(unittest.TestCase):
                         "id": "FF-1",
                         "title": "Engineering Standup 2026-05-22",
                         "date": 1716422400000,  # epoch-ms
-                        "duration": 1800.0,
+                        "duration": MEETING_MINUTES,
                         "organizer_email": "alice@acme.com",
                         "host_email": "alice@acme.com",
                         "participants": ["alice@acme.com", "bob@acme.com"],

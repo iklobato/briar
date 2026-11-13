@@ -57,6 +57,10 @@ class LocalOrigin:
             (clone / name).write_text(text)
         assert shell.line(f"git add -A && git -c user.name=t -c user.email=t@example.test commit -q -m other && git push -q origin {branch}", clone).ok()
 
+    def files(self, branch: str) -> str:
+        """The files of `branch` of the origin ("" when the branch is not there)."""
+        return Shell().line(f"git ls-tree -r --name-only {branch}", self.root / "remotes" / "acme" / "app.git").output
+
     def log(self, branch: str) -> List[str]:
         """`<parents> <subject>` of each commit of `branch`, newest first."""
         done = Shell().line(f"git log --format='%p|%s' {branch}", self.root / "remotes" / "acme" / "app.git")

@@ -160,6 +160,44 @@ class TestGithub:
                 make_provider("github", Logins().github()).open_pull("acme/app", PullRequestDraft("briar/ENG-1", "main", "t", "b"))
 
 
+class DraftPull:
+    """A PyGithub pull that is already a draft: GitHub answers `convertPullRequestToDraft`
+    with `pullRequest: null` and PyGithub 2.x raises `TypeError` reading it (real run,
+    2026-11-13, PR #21 of the test repo)."""
+
+    draft = True
+
+    def convert_to_draft(self) -> None:
+        raise TypeError("'NoneType' object is not subscriptable")
+
+
+class ReadyPull:
+    """A PyGithub pull ready for review: the mutation makes it a draft."""
+
+    draft = False
+
+    def convert_to_draft(self) -> None:
+        self.draft = True
+
+
+class TestGithubDraft:
+    """A limit hit while briar waits for CI (its PR still a draft) crashed the task, which was
+    then taken again, and paid for, every poll."""
+
+    def test_make_draft_leaves_a_draft_pull_as_it_is(self) -> None:
+        assert self._drafted(DraftPull()).draft is True
+
+    def test_make_draft_turns_a_ready_pull_into_a_draft(self) -> None:
+        assert self._drafted(ReadyPull()).draft is True
+
+    def _drafted(self, pull: Any) -> Any:
+        client = mock.MagicMock()
+        client.get_repo.return_value.get_pull.return_value = pull
+        with mock.patch("briar.extract._gh.GithubApi.client", return_value=client):
+            make_provider("github", Logins().github()).make_draft("acme/app", PULL_NUMBER)
+        return pull
+
+
 class TestGithubReviews:
     """The verbs of the review routine (spec 003 PR 3: V3 to V6, V9)."""
 
