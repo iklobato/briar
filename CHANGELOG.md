@@ -187,6 +187,9 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Fixed
 
+- `briar extract` dropped the section of a step whose source failed (a Slack token
+  that was not valid stopped `meeting-digest`) as if it had found nothing. The section
+  of the last run now stays, and the run says the step stopped and why.
 - `extract --include active-tickets` said "25 open ticket(s)" when it cut
   the list at 25; it now says "first 25 of 881" (Jira counts the open tickets) or
   "first 25" when the tracker cannot count them.
