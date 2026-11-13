@@ -22,6 +22,7 @@ class SourceProbes:
         "aws": "_cloud",
         "gcp": "_cloud",
         "azure": "_cloud",
+        "slack": "_chat",
     }
 
     def __init__(self, logins: CompanyLogins) -> None:
@@ -58,6 +59,12 @@ class SourceProbes:
 
         cloud = make_cloud(source, self._logins)
         return LoginTarget(cloud, cloud.scope())
+
+    def _chat(self, source: str) -> LoginTarget:
+        from briar.serve.slack import SlackApi, SlackSource
+
+        login = self._logins.slack()
+        return LoginTarget(SlackSource(login, SlackApi(login, None)))
 
 
 __all__ = ["SourceProbes"]

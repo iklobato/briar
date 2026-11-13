@@ -74,7 +74,7 @@ class SlackApi:
 class SlackSource:
     """`ChatSource` and `LoginProbe` on Slack."""
 
-    login_source = "slack"
+    login_source: ClassVar[str] = "slack"
     PAGE = 100
     BOT_PREFIX = "xoxb-"
 
