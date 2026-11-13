@@ -201,6 +201,9 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
   a draft PR a draft again), so the task was taken again, and paid for, every poll.
 - Two `briar serve` on the same company and knowledge folder took the same ticket and
   opened a second PR. The second one now stops with an error.
+- A GitLab project with merged results pipelines runs CI on a merge commit, never on
+  the MR head, so `briar serve` read its pipeline as pending until `ci_wait_minutes`:
+  a failed job never reached the agent, and a passed MR was never marked ready.
 - A git failure report on a ticket or PR named the local folder of the machine.
 - `meeting-digest` showed `0 min` for every Fireflies meeting: Fireflies sends the
   duration in minutes, not seconds.
