@@ -252,13 +252,6 @@ def _normalise_date(raw: Any) -> str:
     return datetime.fromtimestamp(secs, tz=timezone.utc).isoformat()
 
 
-def _as_int(raw: Any) -> int:
-    try:
-        return int(float(raw)) if raw is not None else 0
-    except (TypeError, ValueError):
-        return 0
-
-
 class FirefliesDuration:
     """The `duration` of a transcript, which Fireflies sends in minutes."""
 
