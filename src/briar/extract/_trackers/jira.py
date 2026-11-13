@@ -12,7 +12,7 @@ import logging
 import re
 from dataclasses import replace
 from functools import partial
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from briar.auth.check import LoginRejected
 from briar.auth.logins import CompanyLogins, JiraLogin
@@ -45,10 +45,43 @@ _ADF_BLOCK_NODES = frozenset(
 )
 
 
+class JiraLinks:
+    """The `Blocks` links of one issue: an `inwardIssue` blocks it, an `outwardIssue` is
+    blocked by it. Only open issues count (status category not `done`)."""
+
+    BLOCKS = "Blocks"
+    DONE = "done"
+
+    def __init__(self, fields: Mapping[str, Any]) -> None:
+        self._fields = fields
+
+    def open_count(self, side: str) -> int:
+        links = self._fields.get("issuelinks") or []
+        return sum(1 for link in links if (link.get("type") or {}).get("name") == self.BLOCKS and self._open(link.get(side)))
+
+    def _open(self, issue: Any) -> bool:
+        category = (((issue or {}).get("fields") or {}).get("status") or {}).get("statusCategory") or {}
+        return bool(issue) and category.get("key") != self.DONE
+
+
+class JiraOpenCount:
+    """The open tickets of a project, from the approximate count of Jira Cloud."""
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+
+    def of(self, project: str) -> int:
+        if not _PROJECT_RE.match(project):
+            raise LoginRejected(f"{project!r} is not a Jira project key")
+        jql = f'project = "{project}" AND statusCategory != "Done"'
+        found = self._client.post("rest/api/3/search/approximate-count", {"jql": jql})
+        return int((found or {}).get("count") or 0)
+
+
 class JiraTracker(TrackerProvider):
     kind = "jira"
     login_source = "jira"
-    TICKET_FIELDS = ("summary", "status", "issuetype", "priority", "reporter", "assignee", "labels", "created", "updated")
+    TICKET_FIELDS = ("summary", "status", "issuetype", "priority", "reporter", "assignee", "labels", "created", "updated", "issuelinks", "duedate", "parent")
     # The most results one Jira search page gives.
     PAGE_LIMIT = 100
 
@@ -142,6 +175,10 @@ class JiraTracker(TrackerProvider):
             out.append(self._to_ticket(issue))
         return out
 
+    @swallow_errors(default=0, message="jira open_count")
+    def open_count(self, project: str) -> int:
+        return JiraOpenCount(self._jira()).of(project)
+
     @swallow_errors(default=[], message="jira list_comments")
     def list_comments(self, project: str, ticket_key: str) -> List[Comment]:
         result = self._jira().issue(ticket_key, fields="comment")
@@ -234,4 +271,9 @@ class JiraTracker(TrackerProvider):
             updated_at=str(fields.get("updated") or ""),
             labels=labels,
             url=str(issue.get("self") or ""),
+            open_blockers=JiraLinks(fields).open_count("inwardIssue"),
+            unblocks=JiraLinks(fields).open_count("outwardIssue"),
+            due_date=str(fields.get("duedate") or ""),
+            epic=str((fields.get("parent") or {}).get("key") or ""),
+            in_progress=((fields.get("status") or {}).get("statusCategory") or {}).get("key") == "indeterminate",
         )

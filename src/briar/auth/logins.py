@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, ClassVar, Dict, List, Mapping, Optional, Tuple, Type
 
-from briar.auth.config import AuthBlock, AwsAuth, AzureAuth, BitbucketAuth, GcpAuth, GithubAuth, GitlabAuth, JiraAuth, SourceAuth
+from briar.auth.config import AuthBlock, AwsAuth, AzureAuth, BitbucketAuth, GcpAuth, GithubAuth, GitlabAuth, JiraAuth, SlackAuth, SourceAuth
 from briar.credentials._paths import secrets_path
 from briar.errors import CliError
 
@@ -272,6 +272,37 @@ class FirefliesLogin(SourceLogin):
         return self.secret("API_KEY")
 
 
+class SlackLogin(SourceLogin):
+    """Slack for `briar serve` (spec 008 C2): a user token, or a session token and its cookie.
+    Search does not take a bot token."""
+
+    SOURCE = "slack"
+    FIELDS = {
+        "token": (SecretField("TOKEN"),),
+        "session": (SecretField("TOKEN"), SecretField("COOKIE")),
+    }
+    HELP = {
+        "token": "Create a Slack app with the user scope search:read, install it, and copy the User OAuth Token (xoxp-)",
+        "session": "Open Slack in the browser: the xoxc- token is in the boot data of the page, the cookie is the value of the `d` cookie",
+    }
+    REQUIRED = ("workspace",)
+
+    def __init__(self, scope: LoginScope, settings: SlackAuth, environ: Mapping[str, str]) -> None:
+        super().__init__(scope, settings, environ)
+        self._slack = settings
+
+    def token(self) -> str:
+        return self.secret("TOKEN")
+
+    def cookie(self) -> str:
+        """The value of the `d` cookie ("" with a user token)."""
+        return self.secret("COOKIE").removeprefix("d=") if self.method() == "session" else ""
+
+    def workspace(self) -> str:
+        self.check_settings()
+        return self._slack.workspace
+
+
 class GithubLogin(SourceLogin):
     SOURCE = "github"
     FIELDS = {"token": (SecretField("TOKEN"),)}
@@ -426,6 +457,7 @@ class CompanyLogins:
         "gitlab": GitlabLogin,
         "linear": LinearLogin,
         "fireflies": FirefliesLogin,
+        "slack": SlackLogin,
         "aws": AwsLogin,
         "gcp": GcpLogin,
         "azure": AzureLogin,
@@ -482,6 +514,9 @@ class CompanyLogins:
     def fireflies(self) -> FirefliesLogin:
         return FirefliesLogin(self._scope, self._block.fireflies, self._environ)
 
+    def slack(self) -> SlackLogin:
+        return SlackLogin(self._scope, self._block.slack, self._environ)
+
     def aws(self) -> AwsLogin:
         return AwsLogin(self._scope, self._block.aws, self._environ)
 
@@ -503,6 +538,7 @@ __all__ = [
     "GithubLogin",
     "GitlabLogin",
     "JiraLogin",
+    "SlackLogin",
     "LegacyName",
     "LinearLogin",
     "LoginScope",

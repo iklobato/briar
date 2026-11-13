@@ -555,10 +555,12 @@ class TestAwsInfraFlags:
         assert result.code == 0
         assert seam.make_cloud.call_args.kwargs["region"] == "ap-south-1"
 
-    def test_aws_extract_region_default_us_east_1(self, cli, tmp_root, seam) -> None:
-        result = _run(cli, tmp_root, "aws-infra")
-        assert result.code == 0
-        assert seam.make_cloud.call_args.kwargs["region"] == "us-east-1"
+    def test_no_region_lets_each_cloud_pick_its_own(self, cli: Callable[..., SimpleNamespace], tmp_root: Path, seam: SimpleNamespace) -> None:
+        """Real run, 2026-11-12: an Azure extract titled itself `region us-east-1`, the AWS default.
+        No region now reaches the cloud empty; AWS still uses us-east-1, Azure eastus, GCP us-central1."""
+        run = _run(cli, tmp_root, "aws-infra")
+        assert run.code == 0
+        assert seam.make_cloud.call_args.kwargs["region"] == ""
 
     def test_the_auth_profile_reaches_make_cloud(self, cli: Callable[..., SimpleNamespace], tmp_root: Path, seam: SimpleNamespace) -> None:
         """I4: the AWS profile is `[auth.aws] profile`, read through the company logins."""

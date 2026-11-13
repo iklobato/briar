@@ -101,6 +101,37 @@ class StatusNames(_Strict):
     review: str = ""
 
 
+class JiraProject(_Strict):
+    """One Jira project of `serve` (spec 008 N5 to N7): the repos its tickets may be built in,
+    and the statuses that mean nobody can work a ticket now."""
+
+    repos: List[str] = Field(min_length=1)
+    not_workable: List[str] = Field(default_factory=lambda: ["Blocked", "In Review"])
+
+
+class SlackChat(_Strict):
+    """The Slack of `serve` (spec 008 C9): the team channels whose conversations count as
+    related to a ticket (C13); the login is `[auth.slack]`."""
+
+    channels: List[str] = Field(default_factory=list)
+
+    CHANNEL_ID: ClassVar["re.Pattern[str]"] = re.compile(r"^[CG][A-Z0-9]{6,}$")
+
+    @field_validator("channels")
+    @classmethod
+    def _channel_ids(cls, channels: List[str]) -> List[str]:
+        bad = [channel for channel in channels if not cls.CHANNEL_ID.match(channel)]
+        if bad:
+            raise PydanticCustomError("channel_id", "`chat.slack.channels` takes channel ids (C0123ABC), not names: {bad}", {"bad": ", ".join(bad)})
+        return channels
+
+
+class ChatSettings(_Strict):
+    """The chat tools `serve` reads (spec 008 N8); none by default."""
+
+    slack: Optional[SlackChat] = None
+
+
 class ServeSettings(_Strict):
     """`companies.<company>.serve` of a runbook: what `briar serve` watches and the limits
     of one task (decisions S5, S11 to S16, S24 to S27 in
@@ -117,8 +148,8 @@ class ServeSettings(_Strict):
     poll_minutes: int = Field(default=5, ge=1)
     # GitHub repos to work in: an open issue there assigned to the token owner is a ticket.
     repos: List[str] = Field(default_factory=list)
-    # Jira project key -> the repo its tickets are built in (S13).
-    jira: Dict[str, str] = Field(default_factory=dict)
+    # Jira project key -> the repos its tickets may be built in (spec 008 N5, N7).
+    jira: Dict[str, JiraProject] = Field(default_factory=dict)
     verify: List[str] = Field(default_factory=list)
     bash: List[str] = Field(default_factory=list)
     priority_labels: List[str] = Field(default_factory=list)
@@ -127,6 +158,7 @@ class ServeSettings(_Strict):
     # The domains the sandboxed bash of the agent may reach (V13); none by default.
     allowed_domains: List[str] = Field(default_factory=list)
     status: StatusNames = Field(default_factory=StatusNames)
+    chat: ChatSettings = Field(default_factory=ChatSettings)
     branch: str = "briar/{key}"
     title: str = "{key}: {title}"
 
@@ -134,6 +166,15 @@ class ServeSettings(_Strict):
     PROJECT_KEY: ClassVar["re.Pattern[str]"] = re.compile(r"^[A-Z][A-Z0-9_]*$")
     DOMAIN: ClassVar["re.Pattern[str]"] = re.compile(r"^(\*\.)?[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$")
     BOT_LOGIN: ClassVar["re.Pattern[str]"] = re.compile(r"^[A-Za-z0-9-]+\[bot\]$")
+
+    @field_validator("jira", mode="before")
+    @classmethod
+    def _no_single_repo(cls, projects: Any) -> Any:
+        """Spec 008 Q4: the old `{PROJ: owner/repo}` form says how to write the new one."""
+        old = [f"`jira.{key}`: write {{repos: [{repo}]}}" for key, repo in (projects or {}).items() if isinstance(repo, str)] if isinstance(projects, dict) else []
+        if old:
+            raise PydanticCustomError("old_jira_form", "{fixes} (one tracker project can span many repos)", {"fixes": "; ".join(old)})
+        return projects
 
     @model_validator(mode="after")
     def _check_targets(self) -> "ServeSettings":
@@ -153,7 +194,7 @@ class ServeSettings(_Strict):
 
     def all_repos(self) -> List[str]:
         """Every repo briar works in: `repos`, then the repos of `jira`, each once."""
-        return list(dict.fromkeys([*self.repos, *self.jira.values()]))
+        return list(dict.fromkeys([*self.repos, *(repo for project in self.jira.values() for repo in project.repos)]))
 
 
 class CompanyEntry(BaseModel):

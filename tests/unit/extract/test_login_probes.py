@@ -285,6 +285,15 @@ class TestSourceProbes:
 
         assert [(target.probe.login_source, target.resources) for target in targets] == [("github", ("acme/app",)), ("fireflies", ())]
 
+    def test_every_login_source_has_an_adapter(self) -> None:
+        """A real run, 2026-11-13: `briar doctor` in a project with `[auth.slack]` raised
+        `KeyError: 'slack'`, since the Slack login had no default adapter."""
+        logins = FakeLogins({"slack": {"method": "session", "workspace": "acme"}}).logins()
+
+        assert {source: SourceProbes(logins).target(source).probe.login_source for source in CompanyLogins.SOURCES} == {
+            source: source for source in CompanyLogins.SOURCES
+        }
+
     def test_a_cloud_target_reads_its_scope(self) -> None:
         logins = FakeLogins({"gcp": {"project": "acme-prod"}, "azure": {"subscription": "s1"}}).logins()
 

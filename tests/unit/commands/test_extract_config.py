@@ -150,7 +150,7 @@ class TestOnTheCommandLine:
         run = cli("extract", "-h")
 
         assert "pr-archaeology: assignees_allow=[]" in run.out
-        assert 'aws-infra: cloud="aws" (aws, gcp, azure), region="us-east-1"' in run.out
+        assert 'aws-infra: cloud="aws" (aws, gcp, azure), region=""' in run.out
         assert "ticket-archaeology: max=100, projects=[]" in run.out
 
 

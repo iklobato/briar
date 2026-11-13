@@ -73,6 +73,8 @@ does not use.
 | `gitlab` | `token` (default) | A personal, group or project access token. `read_api` is enough for `briar extract`. | `BRIAR_ACME_GITLAB_TOKEN` | `url` (`https://gitlab.com` when unset; the origin of a self-hosted GitLab) |
 | `linear` | `api-key` | A Linear personal API key. | `BRIAR_ACME_LINEAR_API_KEY` | nothing |
 | `fireflies` | `api-key` | A Fireflies API key (Settings, then Developer Settings). | `BRIAR_ACME_FIREFLIES_API_KEY` | nothing |
+| `slack` | `token` (default) | A user token (`xoxp-`) of a Slack app with the user scope `search:read`. Used by `briar serve` only. | `BRIAR_ACME_SLACK_TOKEN` | `workspace` (the `acme` of acme.slack.com) |
+| `slack` | `session` | The `xoxc-` token of a logged-in browser tab and the value of its `d` cookie. It expires with the browser session. | `BRIAR_ACME_SLACK_TOKEN`, `BRIAR_ACME_SLACK_COOKIE` | `workspace` |
 | `aws` | (none) | Nothing: run `aws sso login --profile P` (or `aws configure --profile P` for a profile with no SSO). | nothing: the AWS files keep it | `profile` (the boto3 default chain when unset) |
 | `gcp` | (none) | Nothing: run `CLOUDSDK_CONFIG=<config_dir> gcloud auth application-default login`. | nothing: the gcloud folder keeps it | `config_dir` (`~/.config/gcloud` when unset) and `project` |
 | `azure` | (none) | Nothing: run `az login --tenant T`. | nothing: `az` keeps it | `tenant` (the default chain when unset) and `subscription` |
@@ -98,6 +100,10 @@ subscription = "11111111-2222-3333-4444-555555555555"
 
 The Bitbucket cookie method is tested only against a fake server so far: it is
 not proven that the Bitbucket API takes a browser cookie.
+
+Slack takes no bot token (`xoxb-`): `briar serve` reads Slack through search,
+which only a user or a session token can call. The check refuses a bot token
+and a token of another workspace than `workspace`.
 
 ## The secrets file
 

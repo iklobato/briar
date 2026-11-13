@@ -53,7 +53,7 @@ class TestAuthTable:
         "case",
         [
             BadBlock(
-                {"auth": {"jiraa": {}}}, "`auth.jiraa` in /repo/.briar.toml: unknown key; allowed: github, jira, bitbucket, gitlab, linear, fireflies, aws, gcp, azure"
+                {"auth": {"jiraa": {}}}, "`auth.jiraa` in /repo/.briar.toml: unknown key; allowed: github, jira, bitbucket, gitlab, linear, fireflies, slack, aws, gcp, azure"
             ),
             BadBlock({"auth": {"jira": {"metod": "token"}}}, "`auth.jira.metod` in /repo/.briar.toml: unknown key; allowed: method, site, user_agent"),
             BadBlock({"auth": {"jira": {"method": "password"}}}, "`auth.jira.method` in /repo/.briar.toml: Input should be 'token' or 'cookie'"),

@@ -76,6 +76,25 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Changed
 
+- `briar serve` chooses which assigned tickets to start (spec 008 PR 1). It drops
+  the tickets in a `not_workable` status (default `Blocked`, `In Review`) or with
+  an open blocker (Jira `Blocks` links, GitHub issue dependencies), scores the rest
+  with fixed points (due date, tickets it unblocks, priority, `priority_labels`,
+  in progress), and one read-only model call picks among the 5 best, for the free
+  slots, with the repo and a reason. The call is paid from the `max_usd` of the
+  tickets it starts and is not made again while nothing changes. The reason is in
+  the log and in the state entry. See `agents/serve.md`.
+- The `jira:` block of `serve:` maps a Jira project to its allowed repos and its
+  not-workable statuses: `jira: {ENG: {repos: [acme/app, acme/api]}}`. The 1.x form
+  `jira: {ENG: acme/app}` stops the load with a message that shows the new form.
+- `briar serve` reads Slack for the ticket choice (spec 008 PR 2), read only, with
+  a new `[auth.slack]` login (a user token, or a session token and its cookie; no
+  bot token) and `serve.chat.slack.channels`. Each person who cited a ticket in the
+  last 14 days adds 25 points (at most 50); for the 5 best tickets the model also
+  reads the threads that cite them and the ones a search of their title finds in a
+  DM, a mention or a team channel (a hit needs two words of the title). Lines by the
+  owner of the token are marked `(owner)`. A Slack error stops `serve` after retries.
+
 - Telemetry is opt-in: the default tier is `off`, and nothing is sent until
   `telemetry = "errors-only"` (or `"full"`) in `.briar.toml`, or
   `BRIAR_TELEMETRY`, says otherwise; `DO_NOT_TRACK=1` beats both. No state
@@ -160,6 +179,32 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Fixed
 
+- `extract --include active-tickets` said "25 open ticket(s)" when it cut
+  the list at 25; it now says "first 25 of 881" (Jira counts the open tickets) or
+  "first 25" when the tracker cannot count them.
+- `meeting-digest` found no meeting: the Fireflies API stopped taking the
+  `TranscriptsQueryScope` type and `[String]` participants, and the error read as
+  no data. The query now uses `scope: String` and `participants: [String!]`.
+- An Azure or GCP `aws-infra` section said `region us-east-1`, the AWS default.
+  With no region set, each cloud now uses its own (AWS us-east-1, Azure eastus,
+  GCP us-central1).
+- The bash guard of the `briar serve` agent read `2>&1` as `&&` and refused
+  test commands such as `pytest -q 2>&1 | tail`.
+- Each `briar serve` agent call sent every tool of the Claude Code CLI, its skill
+  and agent lists and the MCP servers of the claude.ai account: about 39k input
+  tokens, though the guard refuses all but a few of them. A call now gets only the
+  tools of its step (read, or read and edit) and no outside MCP server; a
+  one-turn call went from US$ 0.149 to US$ 0.008.
+- The bash guard of the `briar serve` agent checked only the first line of a
+  command (a new line did not start a new one). It now checks every line,
+  reads a heredoc body as data, takes an allowed program by a relative path
+  in the worktree (`.venv/bin/python`), a subshell and `NAME=value` before a
+  program, and the builtins `[`, `test`, `true`, `false` and `exit`. A
+  forbidden token must start a word (`gh ` no longer matches "high ").
+- `uv run` failed in the agent sandbox: it could not write `~/.cache/uv`, then
+  panicked on the macOS network settings. Each agent call now gets a tool
+  cache folder (`XDG_CACHE_HOME`) it may write, and the sandbox allows that
+  lookup.
 - `briar doctor` dropped `[repo]` from the `git remote` hint, because the
   table renderer read a word in brackets as style markup. Table cells now
   print as written.
