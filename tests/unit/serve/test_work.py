@@ -15,12 +15,14 @@ from briar.auth.check import CheckState, LoginCheckFailed
 from briar.errors import CliError
 from briar.extract._provider import CommentKind, PullState, ReviewComment
 from briar.serve.state import WorkEntry, WorkSource, WorkStatus
-from briar.serve.work import AgentSandbox, Marker, ModelLogin, PriorityRank, ServeCheck, ServeCompanies, ServeCompany, WorkFinder, WorkKind, WriteCheck
+from briar.serve.work import ActiveRepos, AgentSandbox, Marker, ModelLogin, PriorityRank, ServeCheck, ServeCompanies, ServeCompany, WorkFinder, WorkKind, WriteCheck
 from tests.unit.serve.fakes import Companies, FakeGithub, FakeIssues, FakeJira, FakeSources, Tickets
 
 PR_NUMBER = 12
 ISSUE_HIGH = 7
 ISSUE_PLAIN = 8
+# Two polls of one day: the active repos are read once.
+TWO_POLLS = 2
 
 
 @pytest.fixture
@@ -64,6 +66,35 @@ class TestOrder:
         asyncio.run(company.state.record(WorkEntry(key="ENG-1", source=WorkSource.JIRA, repo="acme/app", title="t", status=status)))
 
         assert [item.key for item in WorkFinder(company, FakeSources(jira_adapter=jira)).find()] == ["ENG-1"]
+
+
+class TestEveryActiveRepo:
+    """Decisions C2 and C2b of the autonomous serve: `repos: ["*"]` means every repo the
+    token can push to with activity in the last 90 days, found on the code host once a day."""
+
+    def test_a_star_offers_every_active_pushable_repo_and_the_listed_ones(self, companies: Companies) -> None:
+        jira = FakeJira({"ENG": [Tickets().jira("ENG-1", "High", "2026-01-03")]})
+        github = FakeGithub(active=("acme/app", "acme/infra"))
+        company = companies.company({"jira": {"ENG": {"repos": ["*", "acme/web"]}}})
+
+        [item] = WorkFinder(company, FakeSources(github, jira_adapter=jira)).find()
+
+        assert (item.repos, item.repo, github.active_calls) == (("acme/web", "acme/app", "acme/infra"), "", [ActiveRepos.DAYS])
+
+    def test_the_active_repos_are_read_once_a_day(self, companies: Companies) -> None:
+        jira = FakeJira({"ENG": [Tickets().jira("ENG-1", "High", "2026-01-03")]})
+        github = FakeGithub(active=("acme/app",))
+        company = companies.company({"jira": {"ENG": {"repos": ["*"]}}})
+
+        for _ in range(TWO_POLLS):
+            WorkFinder(company, FakeSources(github, jira_adapter=jira)).find()
+
+        assert github.active_calls == [ActiveRepos.DAYS]
+
+    def test_the_write_check_skips_the_star(self, companies: Companies) -> None:
+        company = companies.company({"jira": {"ENG": {"repos": ["*", "acme/web"]}}})
+
+        assert company.settings.all_repos() == ["acme/web"]
 
 
 class Comments:

@@ -87,10 +87,17 @@ class FakeGithub:
     read_only: Tuple[str, ...] = ()
     pulls: Mapping[Tuple[str, int], PullState] = field(default_factory=dict)
     resolved: Mapping[Tuple[str, int], Set[str]] = field(default_factory=dict)
+    # The repos `active_repos` gives (every pushable repo with recent activity), and its calls.
+    active: Tuple[str, ...] = ()
+    active_calls: List[int] = field(default_factory=list)
     login_source: ClassVar[str] = "github"
 
     def read(self, resource: str) -> None:
         return
+
+    def active_repos(self, days: int) -> List[str]:
+        self.active_calls.append(days)
+        return list(self.active)
 
     def who_am_i(self) -> str:
         return self.login

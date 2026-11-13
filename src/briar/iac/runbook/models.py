@@ -106,7 +106,9 @@ class JiraProject(_Strict):
     """One Jira project of `serve` (spec 008 N5 to N7): the repos its tickets may be built in,
     and the statuses that mean nobody can work a ticket now."""
 
+    # `*` adds every repo the token can push to with recent activity (decision C2).
     repos: List[str] = Field(min_length=1)
+    ANY: ClassVar[str] = "*"
     not_workable: List[str] = Field(default_factory=lambda: ["Blocked", "In Review"])
 
 
@@ -229,7 +231,9 @@ class ServeSettings(_Strict):
 
     def all_repos(self) -> List[str]:
         """Every repo briar works in: `repos`, then the repos of `jira`, each once."""
-        return list(dict.fromkeys([*self.repos, *(repo for project in self.jira.values() for repo in project.repos)]))
+        listed = [*self.repos, *(repo for project in self.jira.values() for repo in project.repos)]
+        # `*` (every active pushable repo, decision C2) is found on the code host, not checked here.
+        return list(dict.fromkeys(repo for repo in listed if repo != JiraProject.ANY))
 
 
 class CompanyEntry(BaseModel):

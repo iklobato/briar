@@ -156,8 +156,8 @@ class Plan:
         found = answer.structured
         if not found:
             return cls(answer.text.strip() or "(the agent gave no plan)")
-        lists = (tuple(str(entry) for entry in found.get(name, [])) for name in ("steps", "tests", "risks"))
-        return cls(str(found.get("summary", "")), *lists, needs_code=bool(found.get("needs_code", True)))
+        steps, tests, risks = (tuple(str(entry) for entry in found.get(name, [])) for name in ("steps", "tests", "risks"))
+        return cls(str(found.get("summary", "")), steps=steps, tests=tests, risks=risks, needs_code=bool(found.get("needs_code", True)))
 
     def markdown(self) -> str:
         parts = [self.summary, self._list("Steps", self.steps), self._list("Tests", self.tests), self._list("Risks", self.risks)]

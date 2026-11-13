@@ -7,6 +7,7 @@ level of each author, and the write check. Every call raises `LoginRejected` or
 from __future__ import annotations
 
 import re
+from datetime import datetime, timedelta, timezone
 from dataclasses import replace
 from functools import cached_property, partial
 from typing import Any, ClassVar, Dict, FrozenSet, List, Mapping, Optional, Set
@@ -206,6 +207,17 @@ class GitlabHost:
         state = str(found.get("state") or "")
         start = str((found.get("diff_refs") or {}).get("start_sha") or "")
         return PullState(state == "opened", state == "merged", bool(found.get("has_conflicts")), str(found.get("target_branch") or ""), bool(found.get("draft")), start)
+
+    def active_repos(self, days: int) -> List[str]:
+        """Every project the token can push to (Developer or more), not archived, with activity
+        in the last `days` days (decision C2 of the autonomous serve)."""
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT00:00:00Z")
+        query = {"membership": True, "min_access_level": Authors.DEVELOPER, "archived": False, "last_activity_after": since}
+        rows = GitlabFailures().answer(partial(self._rest.pages, "/projects", query))
+        # A project with merge requests (or the repository) turned off takes no MR: a real one
+        # answered 403 to the MR list and stopped every ticket choice (2026-11-13).
+        usable = [row for row in rows if row.get("merge_requests_access_level") != "disabled" and row.get("repository_access_level") != "disabled"]
+        return [str(row["path_with_namespace"]) for row in usable]
 
     def branch_head(self, repo: str, branch: str) -> str:
         found = GitlabFailures().answer(partial(self._rest.get, f"{self._project(repo)}/repository/branches/{quote(branch, safe='')}"))

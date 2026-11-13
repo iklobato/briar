@@ -152,7 +152,7 @@ companies:
       repos: [acme/web]               # GitHub repos: an issue assigned to the token owner is a ticket
       jira:                           # Jira project -> the repos its tickets may be built in
         ENG:
-          repos: [acme/app, acme/api]
+          repos: [acme/app, acme/api]   # `*` adds every repo the token can push to with activity in 90 days
           not_workable: [Blocked, In Review]   # optional: statuses briar never takes (this is the default)
       priority_labels: [p0, p1]       # optional: labels that move a ticket up (+10)
       only: [ENG-7, acme/web#12]      # optional: when set, only these tickets are candidates

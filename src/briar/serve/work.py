@@ -13,18 +13,18 @@ import asyncio
 import logging
 import re
 from datetime import datetime, timezone
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from functools import partial
 from pathlib import Path
-from typing import Any, Callable, ClassVar, List, Mapping, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, ClassVar, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
 from briar.auth.check import CheckResult, CheckState, LoginCheck, LoginCheckFailed, LoginTarget, SourceUnreachable
 from briar.auth.logins import CompanyLogins, LoginScope
 from briar.errors import CliError
 from briar.extract._provider import CommentKind, PullState, ReviewComment
 from briar.extract._tracker import Ticket
-from briar.iac.runbook.models import CodeHostKind, ServeSettings
+from briar.iac.runbook.models import CodeHostKind, JiraProject, ServeSettings
 from briar.serve.git import RepoCheckout, Shell
 from briar.serve.host import GithubStyle, GitlabStyle, HostStyle
 from briar.serve.state import WorkBook, WorkEntry, WorkSource, WorkState, WorkStatus
@@ -129,6 +129,8 @@ class ServeCompany:
     state: WorkState
     # The knowledge store folder: the blob `knowledge:<name>` and the state `work:<name>`.
     root: Path = Path("knowledge")
+    # Day -> the active pushable repos found that day (decision C2: read once a day).
+    found_repos: Dict[str, Tuple[str, ...]] = field(default_factory=dict, compare=False)
 
     def knowledge_file(self) -> Path:
         return self.root / "knowledge" / f"{self.name}.md"
@@ -223,6 +225,27 @@ class WorkSources:
         return SlackSource(login, SlackApi(login, None))
 
 
+class ActiveRepos:
+    """The repos a Jira project offers the selector: the listed ones, plus, for `*`, every
+    repo the token can push to with activity in the last `DAYS` days (decisions C2, C2b). The
+    code host is read once a day per company: 138 projects on one real token, 65 active."""
+
+    DAYS = 90
+
+    def __init__(self, company: ServeCompany, sources: "WorkSources") -> None:
+        self._company = company
+        self._sources = sources
+
+    def of(self, project: JiraProject) -> Tuple[str, ...]:
+        listed = [repo for repo in project.repos if repo != JiraProject.ANY]
+        if JiraProject.ANY not in project.repos:
+            return tuple(listed)
+        day = WorkDay().today()
+        if day not in self._company.found_repos:
+            self._company.found_repos[day] = tuple(self._sources.code_host().active_repos(self.DAYS))
+        return tuple(dict.fromkeys([*listed, *self._company.found_repos[day]]))
+
+
 class WorkFinder:
     """The work of one company in one cycle, in the order `serve` takes it."""
 
@@ -246,7 +269,7 @@ class WorkFinder:
             return []
         tracker = self._sources.jira()
         return [
-            self._jira_item(ticket, tuple(project.repos))
+            self._jira_item(ticket, ActiveRepos(self._company, self._sources).of(project))
             for key, project in self._company.settings.jira.items()
             for ticket in tracker.assigned(key, self.MAX_TICKETS)
         ]
@@ -479,6 +502,7 @@ class ServeCompanies:
 
 
 __all__ = [
+    "ActiveRepos",
     "WorkDay",
     "ServeLock",
     "AgentSandbox",
