@@ -106,7 +106,9 @@ class JiraProject(_Strict):
     """One Jira project of `serve` (spec 008 N5 to N7): the repos its tickets may be built in,
     and the statuses that mean nobody can work a ticket now."""
 
+    # `*` adds every repo the token can push to with recent activity (decision C2).
     repos: List[str] = Field(min_length=1)
+    ANY: ClassVar[str] = "*"
     not_workable: List[str] = Field(default_factory=lambda: ["Blocked", "In Review"])
 
 
@@ -161,6 +163,9 @@ class ServeSettings(_Strict):
     # Jira project key -> the repos its tickets may be built in (spec 008 N5, N7).
     jira: Dict[str, JiraProject] = Field(default_factory=dict)
     verify: List[str] = Field(default_factory=list)
+    # Repo -> its own verify commands (decision C1: a company has Python and Terraform repos);
+    # a repo not listed uses `verify`, and with no commands at all the MR CI is the only check.
+    verify_by_repo: Dict[str, List[str]] = Field(default_factory=dict)
     bash: List[str] = Field(default_factory=list)
     priority_labels: List[str] = Field(default_factory=list)
     # Bot logins whose PR comments briar answers (V1); people need write access.
@@ -220,9 +225,15 @@ class ServeSettings(_Strict):
             raise PydanticCustomError("bad_only", "`only` takes ticket keys (ENG-12, owner/repo#7): {keys}", {"keys": ", ".join(bad)})
         return self
 
+    def verify_for(self, repo: str) -> List[str]:
+        """The verify commands of a task in `repo`."""
+        return self.verify_by_repo.get(repo, self.verify)
+
     def all_repos(self) -> List[str]:
         """Every repo briar works in: `repos`, then the repos of `jira`, each once."""
-        return list(dict.fromkeys([*self.repos, *(repo for project in self.jira.values() for repo in project.repos)]))
+        listed = [*self.repos, *(repo for project in self.jira.values() for repo in project.repos)]
+        # `*` (every active pushable repo, decision C2) is found on the code host, not checked here.
+        return list(dict.fromkeys(repo for repo in listed if repo != JiraProject.ANY))
 
 
 class CompanyEntry(BaseModel):

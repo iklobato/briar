@@ -156,8 +156,8 @@ class Plan:
         found = answer.structured
         if not found:
             return cls(answer.text.strip() or "(the agent gave no plan)")
-        lists = (tuple(str(entry) for entry in found.get(name, [])) for name in ("steps", "tests", "risks"))
-        return cls(str(found.get("summary", "")), *lists, needs_code=bool(found.get("needs_code", True)))
+        steps, tests, risks = (tuple(str(entry) for entry in found.get(name, [])) for name in ("steps", "tests", "risks"))
+        return cls(str(found.get("summary", "")), steps=steps, tests=tests, risks=risks, needs_code=bool(found.get("needs_code", True)))
 
     def markdown(self) -> str:
         parts = [self.summary, self._list("Steps", self.steps), self._list("Tests", self.tests), self._list("Risks", self.risks)]
@@ -276,7 +276,7 @@ class AgentSteps:
         return {"key": self._context.item.ref(), "title": self._context.item.title}
 
     def _verify(self) -> str:
-        return "\n".join(f"- `{command}`" for command in self._context.company.settings.verify) or "- (no verify commands set)"
+        return "\n".join(f"- `{command}`" for command in self._context.company.settings.verify_for(self._context.item.repo)) or "- (no verify commands set)"
 
     def _known(self, path: Path) -> str:
         """A real run sent the agent to read files that did not exist yet."""

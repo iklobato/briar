@@ -31,6 +31,7 @@ DEVELOPER, REPORTER = 30, 20
 BOB, CY, BOT = 11, 12, 13
 NOTE, REPLY, BOT_NOTE, SYSTEM = 101, 102, 103, 104
 LINE = 4
+ACTIVE_DAYS = 90
 FORBIDDEN, NOT_FOUND = 403, 404
 
 
@@ -116,6 +117,28 @@ class TestMergeRequestWrites:
             Host.of({f"POST {MR}/notes": refused}).host().comment(REPO, IID, "hello")
 
         assert str(caught.value) == "HTTP 403: 403 Forbidden"
+
+
+class TestActiveRepos:
+    def test_the_projects_the_token_can_push_to_with_recent_activity(self) -> None:
+        """Decision C2 of the autonomous serve: Developer or more, not archived, active lately."""
+        on = {"merge_requests_access_level": "enabled", "repository_access_level": "enabled"}
+        rows = [
+            {"path_with_namespace": "acme/platform/app", **on},
+            {"path_with_namespace": "acme/infra", **on},
+            # A real project had merge requests turned off: listing its MRs answered 403 and
+            # stopped every ticket choice (2026-11-13).
+            {"path_with_namespace": "acme/vendored", **on, "merge_requests_access_level": "disabled"},
+            {"path_with_namespace": "acme/wiki-only", **on, "repository_access_level": "disabled"},
+        ]
+        host = Host.of({"/projects": rows})
+
+        found = host.host().active_repos(ACTIVE_DAYS)
+
+        path, query = host.calls()[-1]
+        assert (found, path) == (["acme/platform/app", "acme/infra"], "/projects")
+        assert {key: query[key] for key in ("membership", "min_access_level", "archived")} == {"membership": True, "min_access_level": DEVELOPER, "archived": False}
+        assert query["last_activity_after"].endswith("T00:00:00Z")
 
 
 class TestMergeRequestState:

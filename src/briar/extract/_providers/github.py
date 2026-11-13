@@ -219,6 +219,16 @@ class GithubProvider(RepositoryProvider):
         statuses = [status.state for status in commit.get_combined_status().statuses]
         return CiStates().of([(run.status, run.conclusion) for run in checks], statuses)
 
+    def active_repos(self, days: int) -> List[str]:
+        """Every repo the token can push to with a push in the last `days` days (decision C2 of
+        the autonomous serve)."""
+        from datetime import datetime, timedelta, timezone
+
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        rows = GithubFailures().answer(partial(self._api().get_paginated, "/user/repos?affiliation=owner,collaborator,organization_member&sort=pushed"))
+        pushable = [row for row in rows if (row.get("permissions") or {}).get("push") and not row.get("archived")]
+        return [str(row["full_name"]) for row in pushable if str(row.get("pushed_at") or "") >= since]
+
     def can_write(self, repo: str) -> None:
         """Raise `LoginRejected` when the token cannot push to `repo` (`permissions.push` of
         `GET /repos/{repo}`, nothing is written; spec 003 S29)."""

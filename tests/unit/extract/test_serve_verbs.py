@@ -3,6 +3,7 @@ the account of the token, and the write check. The vendor clients are fakes at t
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Mapping
 from unittest import mock
 
@@ -27,6 +28,9 @@ LINE = 3
 LONG_BODY = 2000
 # Open issues a GitHub issue blocks, in its dependencies summary.
 BLOCKING = 2
+ACTIVE_DAYS = 90
+# A push inside the window and one well outside it, in days before now.
+RECENT_PUSH, OLD_PUSH = 1, 400
 
 
 class Logins:
@@ -158,6 +162,28 @@ class TestGithub:
         with mock.patch("briar.extract._gh.GithubApi.client", return_value=client):
             with pytest.raises(LoginRejected, match=r'^HTTP 422: 422 \{"message": "Validation Failed"\}$'):
                 make_provider("github", Logins().github()).open_pull("acme/app", PullRequestDraft("briar/ENG-1", "main", "t", "b"))
+
+
+class PushedAt:
+    def days_ago(self, days: int) -> str:
+        return (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class TestGithubActiveRepos:
+    def test_the_repos_the_token_can_push_to_with_a_recent_push(self) -> None:
+        """Decision C2 of the autonomous serve."""
+        recent, old = (PushedAt().days_ago(days) for days in (RECENT_PUSH, OLD_PUSH))
+        rows = [
+            {"full_name": "acme/app", "permissions": {"push": True}, "pushed_at": recent},
+            {"full_name": "acme/old", "permissions": {"push": True}, "pushed_at": old},
+            {"full_name": "acme/read", "permissions": {"push": False}, "pushed_at": recent},
+            {"full_name": "acme/archived", "permissions": {"push": True}, "pushed_at": recent, "archived": True},
+        ]
+
+        with mock.patch("briar.extract._gh.GithubApi.get_paginated", return_value=rows) as read:
+            found = make_provider("github", Logins().github()).active_repos(ACTIVE_DAYS)
+
+        assert (found, read.call_args.args[0].startswith("/user/repos?")) == (["acme/app"], True)
 
 
 class DraftPull:

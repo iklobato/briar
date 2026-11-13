@@ -152,7 +152,7 @@ companies:
       repos: [acme/web]               # GitHub repos: an issue assigned to the token owner is a ticket
       jira:                           # Jira project -> the repos its tickets may be built in
         ENG:
-          repos: [acme/app, acme/api]
+          repos: [acme/app, acme/api]   # `*` adds every repo the token can push to with activity in 90 days
           not_workable: [Blocked, In Review]   # optional: statuses briar never takes (this is the default)
       priority_labels: [p0, p1]       # optional: labels that move a ticket up (+10)
       only: [ENG-7, acme/web#12]      # optional: when set, only these tickets are candidates
@@ -160,6 +160,8 @@ companies:
       max_new_per_day: 5              # optional: new tickets started per UTC day (0, the default, is no limit)
       poll_minutes: 5                 # optional
       verify: ["make lint", "make test"]
+      verify_by_repo:                 # optional: a repo's own verify commands (others use `verify`)
+        acme/infra: ["terraform fmt -check -recursive"]
       bash: [git, make, pytest]       # optional: the programs the agent may run (replaces the default list)
       review_bots: ["coderabbitai[bot]"]   # optional: bots whose PR comments briar answers
       allowed_domains: [pypi.org]     # optional: what the bash of the agent may reach; none by default
