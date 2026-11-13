@@ -25,6 +25,9 @@ from tests.unit.extract.test_provider_gitlab import FakeGitlabApi
 
 HTTP_OK = 200
 FORBIDDEN = 403
+# The account of the login, in each source.
+OWNER = "U-owner"
+OWNER_ID = 42
 # Two GitLab group ids of the token.
 GROUP = 7
 SUBGROUP = 9
@@ -98,6 +101,9 @@ class FakeJiraUsers:
     pages: List[List[Dict[str, Any]]]
     starts: List[int] = field(default_factory=list)
 
+    def myself(self) -> Dict[str, Any]:
+        return {"accountId": OWNER, "displayName": "Henry Owner"}
+
     def users_get_all(self, start: int, limit: int) -> List[Dict[str, Any]]:
         self.starts.append(start)
         return self.pages[len(self.starts) - 1] if len(self.starts) <= len(self.pages) else []
@@ -109,13 +115,15 @@ class FakeJiraUsers:
 
 
 class SlackUsers:
-    """The fake Web API of `users.list`: two pages joined by a cursor."""
+    """The fake Web API: `auth.test` names the owner of the token, `users.list` gives its pages."""
 
     def __init__(self, pages: List[Dict[str, Any]]) -> None:
         self.forms: List[Dict[str, List[str]]] = []
         self._pages = pages
 
     def answer(self, request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("auth.test"):
+            return httpx.Response(HTTP_OK, json={"ok": True, "user_id": OWNER})
         self.forms.append(parse_qs(request.content.decode()))
         return httpx.Response(HTTP_OK, json={"ok": True, **self._pages[len(self.forms) - 1]})
 
@@ -137,6 +145,7 @@ class TestMemberSources:
     def test_gitlab_gives_the_active_members_of_every_group_of_the_token(self) -> None:
         api = FakeGitlabApi(
             {
+                "/user": {"id": OWNER_ID},
                 "/groups": [{"id": GROUP}, {"id": SUBGROUP}],
                 f"/groups/{GROUP}/members/all": [{"name": "Bo Wang", "state": "active"}, {"name": "Blocked", "state": "blocked"}],
                 f"/groups/{SUBGROUP}/members/all": [{"name": "Ana Lima", "state": "active"}],
@@ -144,10 +153,10 @@ class TestMemberSources:
         )
 
         assert GitlabMembers(api).names() == ["Bo Wang", "Ana Lima"]
-        assert api.calls[0] == ("/groups", {"min_access_level": GitlabMembers.GUEST})
+        assert ("/groups", {"min_access_level": GitlabMembers.GUEST}) in api.calls
 
     def test_a_gitlab_error_is_a_login_error_with_its_status(self) -> None:
-        api = FakeGitlabApi({"/groups": GitlabHttpError("403 Forbidden", response_code=FORBIDDEN)})
+        api = FakeGitlabApi({"/user": {"id": OWNER_ID}, "/groups": GitlabHttpError("403 Forbidden", response_code=FORBIDDEN)})
 
         with pytest.raises(LoginRejected, match=r"^HTTP 403"):
             GitlabMembers(api).names()
@@ -160,6 +169,29 @@ class TestMemberSources:
 
         assert SlackMembers(api).names() == ["Bo Wang", "Ana Lima"]
         assert [form.get("cursor") for form in fake.forms] == [None, ["c2"]]
+
+
+class TestTheOwnerIsLeftOut:
+    """F5, changed after a real run: the owner of a personal key spoke in the meetings of
+    another client, and as a member of the company kept 2 of 19 of them."""
+
+    def test_jira_leaves_out_the_account_of_the_login(self) -> None:
+        person = {"accountType": "atlassian", "active": True}
+        client = FakeJiraUsers([[{**person, "accountId": OWNER, "displayName": "Henry Owner"}, {**person, "accountId": "a2", "displayName": "Bo Wang"}]])
+
+        assert JiraMembers(client, ()).names() == ["Bo Wang"]
+
+    def test_gitlab_leaves_out_the_user_of_the_token(self) -> None:
+        owner, other = {"id": OWNER_ID, "name": "Henry Owner", "state": "active"}, {"id": OWNER_ID + 1, "name": "Bo Wang", "state": "active"}
+        api = FakeGitlabApi({"/user": {"id": OWNER_ID}, "/groups": [{"id": GROUP}], f"/groups/{GROUP}/members/all": [owner, other]})
+
+        assert GitlabMembers(api).names() == ["Bo Wang"]
+
+    def test_slack_leaves_out_the_user_of_the_token(self) -> None:
+        fake = SlackUsers([{"members": [{"id": OWNER, "real_name": "Henry Owner"}, {"id": "U2", "real_name": "Bo Wang"}]}])
+        api = SlackApi(SlackLogins().login(), httpx.MockTransport(fake.answer), lambda seconds: None)
+
+        assert SlackMembers(api).names() == ["Bo Wang"]
 
 
 class SlackLogins:

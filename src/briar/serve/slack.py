@@ -152,11 +152,13 @@ class SlackMembers:
         self._api = api
 
     def names(self) -> List[str]:
+        """F5: the user of the token is left out (it speaks in the meetings of every company)."""
+        owner = str(self._api.call("auth.test", {}).get("user_id") or "")
         names: List[str] = []
         cursor = ""
         while True:
             found = self._api.call("users.list", {"limit": self.PAGE, **({"cursor": cursor} if cursor else {})})
-            names += [self._name(member) for member in found.get("members") or [] if self._person(member)]
+            names += [self._name(member) for member in found.get("members") or [] if self._person(member) and member.get("id") != owner]
             cursor = str((found.get("response_metadata") or {}).get("next_cursor") or "")
             if not cursor:
                 return names

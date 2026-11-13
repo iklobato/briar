@@ -27,7 +27,7 @@ the only signals.
 | F2 | Title match | case-insensitive substring of a runbook list | simple to write; a close title of another company can match | F1 |
 | F3 | Where speaker names come from | the member APIs of the sources of the company: Jira project users, GitLab group members, Slack channel members of the runbook | does not depend on the order of the sources | F1 |
 | F4 | Speaker name match | full name, case and accents ignored (`Bo Wang` = `bo wang`) | few false matches; nicknames from the video host do not match | F3 |
-| F5 | The owner of the key | counts as a member like anyone else | maintainer choice; see risk R1 | F3 |
+| F5 | The owner of the key | left out of the members: each source drops the account of its own login (changed 2026-11-13; first answer: counts like anyone else) | a real run kept 2 of 19 meetings of another client where only the owner of the key spoke | F3 |
 | F6 | A member call fails (no permission, source down) | the Fireflies source stops for that run, with the reason | safer than mixing companies | F3 |
 | F7 | `attendee_allow` | one list that takes an exact email or `@domain`, matched by briar on attendees and the organizer (built: exact emails are no longer sent to Fireflies, whose filter would make it AND with the title, not OR) | one field, no break for current runbooks | F1 |
 | F8 | Filtering runs in briar, Fireflies gives 50 per page | read more pages until the company `max_count` is kept or the date window ends | the first page can be all other companies | F1 |
@@ -42,10 +42,9 @@ the only signals.
 
 ## Open risks
 
-- R1 (from F5): the owner of the key speaks in most of their meetings and is a member of each
-  company, so the speaker signal keeps almost every meeting the owner spoke in, of every
-  company. On a shared personal key, the speaker signal alone does not separate companies;
-  title words or domains have to do it. To revisit after a real run.
+- R1 (from F5, closed 2026-11-13): with the owner counted, a real run kept 2 of 19 meetings of
+  another client (only the owner spoke). F5 now leaves the owner out; a meeting of the owner
+  alone with someone outside the members then needs a title word.
 - R2 (from F4): speaker names from the video host often differ from the account name
   (nicknames, initials): such meetings are dropped unless the title matches.
 - R3 (from F8): one more page per 50 meetings of other companies in the window; the cost of

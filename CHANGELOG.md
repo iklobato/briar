@@ -18,7 +18,7 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
   that records several companies (a personal account): a new `title_any` list,
   `attendee_allow` takes a whole `@domain` too, and a speaker who is a person of
   the company (the people of its `jira_projects`, GitLab group members, Slack
-  workspace people) keeps a meeting. Any one signal is enough; with none, every meeting is kept.
+  workspace people, leaving out the account of each login) keeps a meeting. Any one signal is enough; with none, every meeting is kept.
   Briar reads more pages until it has `max` meetings. `doctor --runbooks` and
   `serve` warn when two companies use the same key and one has no filter.
   `attendee_allow` is now matched by briar, not sent to Fireflies.

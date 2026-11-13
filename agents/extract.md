@@ -310,10 +310,10 @@ of the company:
   of a company with a Jira, GitLab or Slack login; when one of them cannot be
   read, `meeting-digest` stops for that run and the log says why.
 
-With none of them every meeting is kept. Since the owner of a personal key
-speaks in most of their meetings, and is a member of each company, the speaker
-signal alone does not separate the companies of a personal key: give each one
-a `title_any`. `briar doctor --runbooks` warns when two runbook companies use
+With none of them every meeting is kept. The account of each login (the owner
+of the key, who speaks in the meetings of every company) is left out of the
+people, so a meeting where only the owner is of the company needs a title
+word. `briar doctor --runbooks` warns when two runbook companies use
 the same Fireflies key and one of them keeps every meeting. Fireflies gives 50
 meetings per call, so briar reads more pages until it has `max` meetings or the
 `since_days` window ends.

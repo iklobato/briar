@@ -92,9 +92,11 @@ class GitlabMembers:
         return GitlabFailures().answer(self._people)
 
     def _people(self) -> List[str]:
+        """F5: the user of the token is left out (it speaks in the meetings of every company)."""
+        owner = self._rest.get("/user").get("id")
         groups = self._rest.pages("/groups", {"min_access_level": self.GUEST})
         members = [member for group in groups for member in self._rest.pages(f"/groups/{group['id']}/members/all")]
-        return [str(member.get("name") or "") for member in members if member.get("state") == self.ACTIVE]
+        return [str(member.get("name") or "") for member in members if member.get("state") == self.ACTIVE and member.get("id") != owner]
 
 
 class Names:

@@ -97,8 +97,10 @@ class JiraMembers:
         return RequestsFailures().answer(self._people)
 
     def _people(self) -> List[str]:
+        """F5: the account of the login is left out (it speaks in the meetings of every company)."""
+        owner = self._client.myself().get("accountId")
         pages = [partial(self._client.get_all_assignable_users_for_project, project) for project in self._projects]
-        users = [user for page in pages or [self._client.users_get_all] for user in self._all(page)]
+        users = [user for page in pages or [self._client.users_get_all] for user in self._all(page) if user.get("accountId") != owner]
         return [str(user.get("displayName") or "") for user in users if user.get("accountType") == self.PERSON and user.get("active")]
 
     def _all(self, page: Callable[..., Any]) -> List[Dict[str, Any]]:
