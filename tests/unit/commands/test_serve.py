@@ -3,6 +3,7 @@ The runbooks are real files in `tmp_path`; the loop itself and the network are r
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable, List
@@ -10,6 +11,7 @@ from typing import Callable, List
 import pytest
 
 from briar.serve.loop import ServeLoop
+from briar.serve.work import ServeCompanies, ServeLock
 from tests.unit.fake_logins import Fixes
 
 CLI_ERROR = 1
@@ -94,6 +96,25 @@ class TestTheLoop:
         run = cli("serve", str(runbooks.write(SERVE_BLOCK)))
 
         assert (run.code, started) == (0, ["serve_forever"])
+
+    def test_a_second_serve_on_the_same_knowledge_stops(self, cli: Callable[..., SimpleNamespace], runbooks: Runbooks, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Real run, 2026-11-13: two `serve` on one folder took the same issue; the second
+        collided on `git worktree add` and opened a duplicate PR."""
+        started: List[str] = []
+        monkeypatch.chdir(runbooks.folder.parent)
+        folder = runbooks.write(SERVE_BLOCK)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "PLACEHOLDER-not-a-secret")
+        monkeypatch.setattr("briar.serve.work.ServeCheck.require", lambda check: None)
+        monkeypatch.setattr(ServeLoop, "serve_forever", lambda loop: started.append("serve_forever"))
+        [company] = ServeCompanies(folder, os.environ).load()
+        running = ServeLock(company)
+        running.take()
+
+        run = cli("serve", str(folder))
+        running.release()
+
+        assert (run.code, started) == (CLI_ERROR, [])
+        assert "another `briar serve` runs on the company acme" in run.err
 
     def test_a_folder_with_only_schedules_runs_the_extracts(
         self, cli: Callable[..., SimpleNamespace], runbooks: Runbooks, monkeypatch: pytest.MonkeyPatch
