@@ -95,6 +95,20 @@ class TestRound:
         assert "id `inline:1`, inline comment by ann on feature.txt:1:\n> say why in feature.txt" in prompt
         assert "id `conversation:2`, conversation comment by bob:\n> please add a test\n> second line" in prompt
 
+    def test_the_agent_gets_the_verify_commands_and_no_missing_knowledge_path(self, opened: Opened) -> None:
+        """Real review rounds, 2026-11-12: with no verify commands in the prompt the agent ran
+        `python -m pytest` outside the project env, and it was sent to read knowledge files
+        that did not exist ("I could not read the two knowledge files")."""
+        setup = opened.make({})
+        reviews = Reviews()
+        agent = ScriptedAgent([Step(structured=reviews.answers([]))])
+
+        setup.work_on(agent, reviews.item([reviews.talk()]))
+
+        request = agent.requests[0]
+        assert "- `test -f feature.txt`" in request.prompt
+        assert "the knowledge of the company: (none yet)" in request.system_prompt
+
     def test_a_round_with_no_change_only_replies(self, opened: Opened) -> None:
         setup = opened.make({})
         before = setup.origin.log("briar/ENG-1")

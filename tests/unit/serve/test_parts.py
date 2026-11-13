@@ -15,7 +15,7 @@ import pytest
 from briar.extract._provider import CiState
 from briar.extract._providers.github import CiStates, GithubProvider
 from briar.serve.agent import AgentAnswer
-from briar.serve.git import GitFailed, GitIdentity, RepoCheckout, Shell
+from briar.serve.git import GitFailed, GitIdentity, Remote, RepoCheckout, Shell
 from briar.serve.task import Budget, LimitHit, Plan, Prompts, Review
 from tests.unit.serve.ticket_fakes import LocalOrigin
 
@@ -31,8 +31,7 @@ TASKS = 4
 class TestGit:
     def test_clone_worktree_commit_and_push_with_a_token_that_never_shows(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         origin = LocalOrigin(tmp_path)
-        monkeypatch.setattr(RepoCheckout, "HOST", f"file://{origin.create()}")
-        checkout = RepoCheckout(Shell(), tmp_path / "cache", "acme/app")
+        checkout = RepoCheckout(Shell(), tmp_path / "cache", Remote("acme/app", f"file://{origin.create()}"))
 
         checkout.update(TOKEN)
         worktree = checkout.worktree("briar/ENG-1", "main", tmp_path / "cache" / "wt")
@@ -50,12 +49,11 @@ class TestGit:
     def test_two_tasks_of_one_repo_clone_and_add_worktrees_at_once(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Validation run on the click copy: with `max_parallel: 2` the second task failed with
         `destination path ... already exists and is not an empty directory`."""
-        origin = LocalOrigin(tmp_path)
-        monkeypatch.setattr(RepoCheckout, "HOST", f"file://{origin.create()}")
+        remote = Remote("acme/app", f"file://{LocalOrigin(tmp_path).create()}")
         start = threading.Barrier(TASKS)
 
         def task(name: str) -> Path:
-            checkout = RepoCheckout(Shell(), tmp_path / "cache", "acme/app")
+            checkout = RepoCheckout(Shell(), tmp_path / "cache", remote)
             start.wait()
             checkout.update(TOKEN)
             return checkout.worktree(f"briar/{name}", "main", tmp_path / "cache" / name)
@@ -77,8 +75,7 @@ class TestGit:
         assert checkout.merges_clean("main", "briar/ENG-1", TOKEN) is True
 
     def test_a_failed_git_command_names_it_and_hides_the_token(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(RepoCheckout, "HOST", f"file://{tmp_path / 'remotes'}")
-        checkout = RepoCheckout(Shell(), tmp_path / "cache", "acme/missing")
+        checkout = RepoCheckout(Shell(), tmp_path / "cache", Remote("acme/missing", f"file://{tmp_path / 'remotes'}"))
 
         with pytest.raises(GitFailed) as caught:
             checkout.update(TOKEN)
@@ -134,8 +131,7 @@ class PushedBranch:
 
     def after_base_commit(self, files: Dict[str, str]) -> RepoCheckout:
         origin = LocalOrigin(self._tmp_path)
-        self._monkeypatch.setattr(RepoCheckout, "HOST", f"file://{origin.create()}")
-        checkout = RepoCheckout(Shell(), self._tmp_path / "cache", "acme/app")
+        checkout = RepoCheckout(Shell(), self._tmp_path / "cache", Remote("acme/app", f"file://{origin.create()}"))
         checkout.update(TOKEN)
         worktree = checkout.worktree("briar/ENG-1", "main", self._tmp_path / "cache" / "wt")
         (worktree / "README.md").write_text("branch change\n")
@@ -220,7 +216,7 @@ class TestPrompts:
     def test_every_prompt_file_ships_and_fills_in(self, name: str) -> None:
         values = {
             key: f"<{key}>"
-            for key in ("company", "repo", "knowledge", "state", "key", "title", "description", "plan", "verify", "what", "details", "diff", "comments")
+            for key in ("company", "repo", "knowledge", "state", "key", "title", "description", "plan", "verify", "what", "details", "diff", "comments", "earlier")
         }
 
         text = Prompts().text(name, values)

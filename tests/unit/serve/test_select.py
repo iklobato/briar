@@ -8,13 +8,13 @@ import asyncio
 from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Sequence
 
 import pytest
 
 from briar.extract._tracker import Ticket
 from briar.iac.runbook.models import ServeSettings
-from briar.serve.agent import AgentAnswer, AgentRequest
+from briar.serve.agent import Access, AgentAnswer, AgentRequest
 from briar.serve.chat import ChatMessage, ChatReader
 from briar.serve.select import Choice, Score, Selector, Shortlist, Workable
 from briar.serve.state import WorkSource
@@ -85,6 +85,15 @@ class TestWorkable:
 
         assert [item.key for item in kept] == ["ENG-1"]
 
+    def test_only_keeps_the_listed_tickets(self, tmp_path: Path) -> None:
+        """Validation plan S1: a first run on a real tracker touches the listed tickets alone."""
+        settings = Companies(tmp_path).company({"jira": {"ENG": {"repos": ["acme/app"]}}, "only": ["ENG-2"]}).settings
+        tickets = Tickets()
+
+        kept = Workable(settings).keep([tickets.plain("ENG-1"), tickets.plain("ENG-2")])
+
+        assert [item.key for item in kept] == ["ENG-2"]
+
 
 class TestScore:
     def test_due_soon_unblocking_and_in_progress_rank_before_a_plain_ticket(self) -> None:
@@ -131,6 +140,8 @@ class TestSelector:
         picked = asyncio.run(Setup(tmp_path).selector(agent).pick([tickets.plain(f"ENG-{index}") for index in range(1, MANY + 1)], SLOTS, {}))
 
         assert len(agent.requests) == 1 and agent.requests[0].prompt.count("\n- ENG-") == TOP
+        # The pick needs no tool: a call that may read paid for every tool of the CLI.
+        assert agent.requests[0].access is Access.ANSWER
         assert [(item.key, item.repo, item.reason, item.selection_cost) for item in picked] == [("ENG-3", "acme/api", "unblocks the release", SELECTION_COST)]
 
     def test_a_pick_outside_the_allowed_repos_or_the_shortlist_is_skipped(self, tmp_path: Path) -> None:
@@ -166,7 +177,21 @@ class TestSelector:
         assert [item.key for item in picked] == keys[:SLOTS]
 
 
+class NoneFree:
+    """An open MR rule that finds an open MR for every ticket."""
+
+    def free(self, items: Sequence[WorkItem]) -> List[WorkItem]:
+        return []
+
+
 class TestChoice:
+    def test_tickets_with_an_open_mr_never_reach_the_model(self, tmp_path: Path) -> None:
+        """N6 (M4): the rule runs before the score; nothing left means no model call."""
+        setup, agent = Setup(tmp_path), PickingAgent([])
+        choice = Choice(setup.selector(agent), setup.company(), lambda: TODAY, open_work=NoneFree())
+
+        assert (asyncio.run(choice.choose([Tickets().plain("ENG-1")], SLOTS)), agent.requests) == ([], [])
+
     def test_a_poll_with_the_same_shortlist_and_slots_asks_the_model_once(self, tmp_path: Path) -> None:
         """A ticket the model skipped must not cost a model call on every poll."""
         setup, tickets = Setup(tmp_path), Tickets()

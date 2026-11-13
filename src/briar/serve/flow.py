@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, ClassVar, Mapping
+from typing import Any, ClassVar, List, Mapping
 
 from briar.errors import CliError
 from briar.extract._provider import CiState, PullRequestDraft
@@ -27,7 +27,7 @@ class TicketSide:
 
     def comment(self, item: WorkItem, text: str) -> None:
         if item.source is WorkSource.GITHUB:
-            self._sources.github().comment(item.repo, int(item.number()), Marker().mark(text))
+            self._sources.code_host().comment(item.repo, int(item.number()), Marker().mark(text))
             return
         self._sources.jira().comment(item.key, text)
 
@@ -57,6 +57,8 @@ class TaskFlow:
         """Commit, run the verify commands, and fix until they pass (S20)."""
         await asyncio.to_thread(self.commit, what)
         failures = await asyncio.to_thread(self._verify_failures)
+        if failures:
+            await self._base_passes()
         while failures:
             self._budget.next_loop("the verify commands")
             await self._steps.fix("the verify commands fail", failures)
@@ -69,7 +71,7 @@ class TaskFlow:
         deadline = time.monotonic() + minutes * self.SECONDS_PER_MINUTE
         started = time.monotonic()
         while True:
-            state = await asyncio.to_thread(self._context.sources.github().ci_state, self._context.item.repo, number)
+            state = await asyncio.to_thread(self._context.sources.code_host().ci_state, self._context.item.repo, number)
             if state is CiState.PASSED or (state is CiState.NONE and time.monotonic() - started > self.CI_GRACE_SECONDS):
                 return
             if state is CiState.FAILED:
@@ -81,12 +83,19 @@ class TaskFlow:
     async def reviewed(self, plan: Plan, revisions: str) -> None:
         """The self-review of the change in `revisions` against `plan`, fixed until it
         approves (S20)."""
-        review = await self._steps.review(plan, await asyncio.to_thread(self._context.checkout.changes, self._context.worktree, revisions))
+        asked: List[str] = []
+        review = await self._steps.review(plan, await asyncio.to_thread(self._context.checkout.changes, self._context.worktree, revisions), asked)
         while not review.approved:
-            self._budget.next_loop("the self-review")
-            await self._steps.fix("the self-review found problems", "\n".join(f"- {finding}" for finding in review.findings))
+            listed = "\n".join(f"- {finding}" for finding in review.findings)
+            try:
+                self._budget.next_loop("the self-review")
+            except LimitHit as stop:
+                raise LimitHit(f"{stop}\n\nThe self-review still asks for:\n{listed}") from stop
+            await self._steps.fix("the self-review found problems", listed)
             await self.verified("fix the self-review")
-            review = await self._steps.review(plan, await asyncio.to_thread(self._context.checkout.changes, self._context.worktree, revisions))
+            # A real run flip-flopped (add a line, drop it, add it): each round sees the asks before it.
+            asked.extend(review.findings)
+            review = await self._steps.review(plan, await asyncio.to_thread(self._context.checkout.changes, self._context.worktree, revisions), asked)
 
     def spent(self) -> str:
         return self._budget.summary()
@@ -98,7 +107,8 @@ class TaskFlow:
         """S23: push what there is, a draft PR with the report, the report on the ticket.
         The ticket is blocked even when posting fails (else the next cycle would redo it,
         and pay again): the failure joins the report in the state and the log."""
-        text = f"briar stopped: {report}. Spent {self._budget.summary()}."
+        head, _, detail = report.partition("\n\n")
+        text = f"briar stopped: {head}. Spent {self._budget.summary()}." + (f"\n\n{detail}" if detail else "")
         known = self._context.company.state.book().entry(self._context.item.key)
         number = known.pr if known is not None else 0
         try:
@@ -119,18 +129,20 @@ class TaskFlow:
         base = known or item.entry()
         entry = base.model_copy(update={**changes, "status": status, "branch": self._context.branch})
         await self._context.company.state.record(entry)
-        link = f" https://github.com/{item.repo}/pull/{entry.pr}" if entry.pr else ""
-        self.LOG.info("serve: %s is %s%s %s", item.ref(), status.value, link, entry.report if status is WorkStatus.BLOCKED else "")
+        link = f" {self._context.sources.style().pull_url(item.repo, entry.pr)}" if entry.pr else ""
+        # A done task says what it cost too: before, only a blocked one did (real run, 2026-11-12).
+        extra = {WorkStatus.BLOCKED: entry.report, WorkStatus.DONE: self.spent()}.get(status, "")
+        self.LOG.info("serve: %s is %s%s %s", item.ref(), status.value, link, extra)
 
     def commit(self, what: str) -> bool:
         return self._context.checkout.commit_all(self._context.worktree, f"{self._context.item.ref()}: {what}", self._context.identity)
 
     async def _fix_ci(self, number: int) -> None:
         self._budget.next_loop("CI")
-        failures = await asyncio.to_thread(self._context.sources.github().list_ci_failures, self._context.item.repo, number)
+        failures = await asyncio.to_thread(self._context.sources.code_host().list_ci_failures, self._context.item.repo, number)
         details = "\n\n".join(f"{failure.job} / {failure.step} ({failure.url}):\n{failure.log_tail}" for failure in failures)
-        repo = self._context.item.repo
-        await self._steps.fix(f"CI fails on the pull request #{number} (https://github.com/{repo}/pull/{number})", details or "(no failure log was found)")
+        style = self._context.sources.style()
+        await self._steps.fix(f"CI fails on the {style.noun()} #{number} ({style.pull_url(self._context.item.repo, number)})", details or "(no failure log was found)")
         await self.verified("fix CI")
         await self.push()
 
@@ -140,7 +152,7 @@ class TaskFlow:
         if not self.commit("work so far") and not known:
             return 0
         self._context.checkout.push(self._context.worktree, self._context.branch, self._context.token)
-        github = self._context.sources.github()
+        github = self._context.sources.code_host()
         if known is not None and known.pr:
             github.make_draft(self._context.item.repo, known.pr)
             github.comment(self._context.item.repo, known.pr, Marker().mark(text))
@@ -148,14 +160,28 @@ class TaskFlow:
         draft = PullRequestDraft(self._context.branch, self._context.base, self._context.title, text, draft=True)
         return int(github.open_pull(self._context.item.repo, draft))
 
+    async def _base_passes(self) -> None:
+        """A verify that fails on the base too is no failure of the change (a real run: a
+        pytest plugin of the machine); fixing it would put a workaround of this machine in the
+        PR, so the task stops with the report instead."""
+        base = f"origin/{self._context.base}"
+        failures = await asyncio.to_thread(self._failures_at, base)
+        if failures:
+            raise LimitHit(f"the verify commands fail on {base} too, before any change: fix the environment or the `verify` commands of the runbook.\n\n{failures}")
+
     def _verify_failures(self) -> str:
         """The verify commands, run on a clean copy of the commit: what will be pushed."""
+        failures = self._failures_at("HEAD")
+        return f"{failures}{self._ignored_note()}" if failures else ""
+
+    def _failures_at(self, revision: str) -> str:
         checkout, worktree, shell = self._context.checkout, self._context.worktree, Shell()
-        copy = checkout.verify_copy(worktree)
+        copy = checkout.verify_copy(worktree, revision)
         found = [(command, shell.line(command, copy)) for command in self._context.company.settings.verify]
         checkout.drop_copy(worktree, copy)
-        failures = "\n\n".join(f"`{command}` failed (exit {done.code}):\n{done.output[-self.OUTPUT_TAIL :]}" for command, done in found if not done.ok())
-        return f"{failures}{self._ignored_note()}" if failures else ""
+        results = ", ".join(f"`{command}` {'ok' if done.ok() else f'exit {done.code}'}" for command, done in found) or "no verify commands set"
+        self.LOG.info("serve: %s verify on %s: %s", self._context.item.ref(), revision, results)
+        return "\n\n".join(f"`{command}` failed (exit {done.code}):\n{done.output[-self.OUTPUT_TAIL :]}" for command, done in found if not done.ok())
 
     def _ignored_note(self) -> str:
         ignored = self._context.checkout.ignored(self._context.worktree)

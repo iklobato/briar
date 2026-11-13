@@ -17,7 +17,7 @@ from briar.serve.review import ReviewRun
 from briar.serve.state import WorkStatus
 from briar.serve.task import AgentSteps, Budget, TaskContext, TaskPrep
 from briar.serve.ticket import TicketRun
-from briar.serve.work import ServeCompany, WorkItem, WorkKind
+from briar.serve.work import ServeCompany, WorkItem, WorkKind, WorkSources
 
 
 @dataclass(frozen=True)
@@ -70,7 +70,8 @@ class ServeRoutine:
         if known is None:
             return
         await self._company.state.record(known.model_copy(update={"status": status}))
-        self.LOG.info("serve: %s is %s https://github.com/%s/pull/%d", item.ref(), status.value, item.repo, item.pr)
+        style = WorkSources(self._company.logins, self._company.settings.code_host).style()
+        self.LOG.info("serve: %s is %s %s", item.ref(), status.value, style.pull_url(item.repo, item.pr))
 
 
 __all__ = ["ServeRoutine"]
