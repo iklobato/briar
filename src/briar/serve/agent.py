@@ -154,6 +154,13 @@ class ToolGate:
 class ClaudeAgent:
     """`AgentRunner` on the Claude Agent SDK, with the model of the company (S5)."""
 
+    # With no list the CLI sends all its tools and the skill and agent lists: about 39k input
+    # tokens per call, even when `ToolGate` refuses every one of them (validation run, 2026-11-12).
+    TOOLS: ClassVar[Mapping[Access, Tuple[str, ...]]] = {
+        Access.READ: (*BashGuard.READ_TOOLS, *BashGuard.FREE_TOOLS, "Bash"),
+        Access.EDIT: (*BashGuard.READ_TOOLS, *BashGuard.FREE_TOOLS, "Bash", *BashGuard.EDIT_TOOLS),
+    }
+
     def __init__(self, model: str, guard: BashGuard, domains: Sequence[str]) -> None:
         self._model = model
         self._guard = guard
@@ -196,6 +203,9 @@ class ClaudeAgent:
             "permission_mode": "default",
             "can_use_tool": ToolGate(self._guard, request.access),
             "setting_sources": [],
+            "tools": list(self.TOOLS[request.access]),
+            # Else the MCP servers of the account of the CLI (claude.ai connectors) come too.
+            "strict_mcp_config": True,
             "sandbox": self._sandbox(),
         }
         if request.schema:

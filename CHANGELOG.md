@@ -161,6 +161,11 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
   GCP us-central1).
 - The bash guard of the `briar serve` agent read `2>&1` as `&&` and refused
   test commands such as `pytest -q 2>&1 | tail`.
+- Each `briar serve` agent call sent every tool of the Claude Code CLI, its skill
+  and agent lists and the MCP servers of the claude.ai account: about 39k input
+  tokens, though the guard refuses all but a few of them. A call now gets only the
+  tools of its step (read, or read and edit) and no outside MCP server; a
+  one-turn call went from US$ 0.149 to US$ 0.008.
 - `briar doctor` dropped `[repo]` from the `git remote` hint, because the
   table renderer read a word in brackets as style markup. Table cells now
   print as written.

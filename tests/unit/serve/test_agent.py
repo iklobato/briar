@@ -62,12 +62,40 @@ class ReadCase:
         return {key: value.replace("{knowledge}", str(tmp_path / "knowledge")) for key, value in self.tool_input.items()}
 
 
+@dataclass(frozen=True)
+class ToolsCase:
+    """The access of one agent call, and the tools the CLI may offer it."""
+
+    access: Access
+    tools: List[str]
+
+
 @pytest.fixture
 def guard(tmp_path: Path) -> BashGuard:
     return BashGuard(tmp_path / "worktree", [], [tmp_path / "knowledge"])
 
 
 class TestClaudeAgent:
+    @pytest.mark.parametrize(
+        "case",
+        [
+            ToolsCase(Access.READ, ["Read", "Glob", "Grep", "LS", "TodoWrite", "Bash"]),
+            ToolsCase(Access.EDIT, ["Read", "Glob", "Grep", "LS", "TodoWrite", "Bash", "Edit", "MultiEdit", "Write", "NotebookEdit"]),
+        ],
+        ids=["read", "edit"],
+    )
+    def test_the_cli_offers_only_the_tools_the_call_may_use(self, case: ToolsCase, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Validation run, 2026-11-12: with no tool list the CLI sent its 27 tools, the skill and
+        agent lists and the MCP servers of the claude.ai account (Drive, Fireflies...), about 39k
+        input tokens per call, though `ToolGate` refuses all but a few of them."""
+        sdk = SdkQuery(Results().message("success", {}))
+        monkeypatch.setattr("claude_agent_sdk.query", sdk.query)
+        agent = ClaudeAgent("claude-test", BashGuard(tmp_path, [], []), [])
+
+        asyncio.run(agent.ask(AgentRequest("plan it", "s", tmp_path, MAX_USD, {}, case.access)))
+
+        assert (sdk.options[0].tools, sdk.options[0].strict_mcp_config) == (case.tools, True)
+
     def test_builds_the_options_and_reads_the_answer(self, guard: BashGuard, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         sdk = SdkQuery(Results().message("success", {"summary": "s", "steps": []}))
         monkeypatch.setattr("claude_agent_sdk.query", sdk.query)
