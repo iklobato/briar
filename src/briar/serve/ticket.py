@@ -11,6 +11,7 @@ ticket gets the report too (`TaskFlow.blocked`)."""
 from __future__ import annotations
 
 import asyncio
+from typing import Optional
 
 from briar.extract._provider import PullRequestDraft
 from briar.serve.flow import TaskFlow, TicketSide
@@ -29,7 +30,7 @@ class TicketRun:
     async def work(self) -> None:
         if await self._adopted():
             return
-        plan = await self._steps.plan()
+        plan = self._posted_plan() or await self._steps.plan()
         await asyncio.to_thread(self._announce, plan)
         await self._flow.record(WorkStatus.PLANNED, {"plan": plan.markdown()})
         await self._steps.build(plan)
@@ -64,6 +65,12 @@ class TicketRun:
             await asyncio.to_thread(self._context.checkout.adopt, self._context.worktree, self._context.branch)
         await self._flow.record(status, {"pr": found.number})
         return True
+
+    def _posted_plan(self) -> Optional[Plan]:
+        """The plan of a ticket taken again after a stop: the one already on the ticket. A real
+        run (2026-11-13) asked for a new plan on restart, paid it twice and built that one."""
+        known = self._context.company.state.book().entry(self._context.item.key)
+        return Plan(known.plan) if known is not None and known.plan else None
 
     def _announce(self, plan: Plan) -> None:
         """The plan comment, once: a ticket taken again after a stop already has it."""

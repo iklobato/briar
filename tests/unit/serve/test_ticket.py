@@ -327,10 +327,24 @@ class TestNoDoubleWork:
         planned = [text for _, text in setup.sources.tracker_side.comments if text.startswith("briar plan for")]
         asyncio.run(setup.company.state.record(setup.entry("ENG-1").model_copy(update={"status": WorkStatus.PLANNED})))
 
-        setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()]), Items().jira())
+        setup.work_on(ScriptedAgent([Step(writes=Files().feature()), Plans().approved()]), Items().jira())
 
-        again = [text for _, text in setup.sources.tracker_side.comments if text.startswith("briar plan for")]
+        again =[text for _, text in setup.sources.tracker_side.comments if text.startswith("briar plan for")]
         assert (len(planned), len(again)) == (1, 1)
+
+    def test_a_ticket_planned_before_a_stop_builds_the_posted_plan_without_a_new_one(self, setups: Setups) -> None:
+        """Real run, 2026-11-13 (test plan A6): serve was killed after the plan; on restart it
+        asked the agent for a new plan (paid twice) and built that one, not the plan on the ticket."""
+        setup = setups.make({})
+        setup.work_on(ScriptedAgent([Plans().plan(), Step(cost=MAX_USD)]), Items().jira())
+        asyncio.run(setup.company.state.record(setup.entry("ENG-1").model_copy(update={"status": WorkStatus.PLANNED})))
+        second = ScriptedAgent([Step(writes=Files().feature()), Plans().approved()])
+
+        setup.work_on(second, Items().jira())
+
+        build = second.requests[0]
+        assert (build.access.value, setup.entry("ENG-1").status) == ("edit", WorkStatus.DONE)
+        assert "Add the feature file" in build.prompt
 
     @pytest.mark.parametrize(
         "found, status",
