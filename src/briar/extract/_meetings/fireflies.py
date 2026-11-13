@@ -144,7 +144,8 @@ class FirefliesMeetingProvider(MeetingProvider):
             meeting_id=str(node.get("id") or ""),
             title=str(node.get("title") or "")[:200],
             started_at=_normalise_date(node.get("date")),
-            duration_sec=_as_int(node.get("duration")),
+            # Fireflies sends minutes (a real 35 min daily read `duration 35`; briar showed 0 min).
+            duration_sec=FirefliesDuration(node.get("duration")).seconds(),
             organizer=str(node.get("organizer_email") or node.get("host_email") or ""),
             attendees=[a for a in attendees if a],
             url=str(node.get("transcript_url") or ""),
@@ -256,6 +257,21 @@ def _as_int(raw: Any) -> int:
         return int(float(raw)) if raw is not None else 0
     except (TypeError, ValueError):
         return 0
+
+
+class FirefliesDuration:
+    """The `duration` of a transcript, which Fireflies sends in minutes."""
+
+    SECONDS_PER_MINUTE = 60
+
+    def __init__(self, raw: Any) -> None:
+        self._raw = raw
+
+    def seconds(self) -> int:
+        try:
+            return round(float(self._raw) * self.SECONDS_PER_MINUTE) if self._raw is not None else 0
+        except (TypeError, ValueError):
+            return 0
 
 
 def _as_str_list(raw: Any) -> List[str]:
