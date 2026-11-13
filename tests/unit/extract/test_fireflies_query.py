@@ -9,10 +9,20 @@ skip: Int, participants: [String!], ...)`."""
 
 from __future__ import annotations
 
+import io
+import json
 import re
-from typing import ClassVar, Dict
+import urllib.request
+from typing import Any, ClassVar, Dict, List
 
-from briar.extract._meetings.fireflies import _LIST_QUERY
+import pytest
+
+from briar.extract._meeting import MeetingPage
+from briar.extract._meetings.fireflies import _LIST_QUERY, FirefliesMeetingProvider
+from tests.unit.fake_logins import FakeLogins
+
+# Fireflies gives at most 50 meetings per call.
+PAGE = 50
 
 
 class Declared:
@@ -41,3 +51,28 @@ class TestTranscriptsQuery:
 
     def test_every_variable_has_the_type_of_the_live_schema(self) -> None:
         assert Declared(_LIST_QUERY).types() == self.LIVE
+
+
+class FakeFireflies:
+    """Stands in for `urllib.request.urlopen`: keeps each GraphQL body, answers one page."""
+
+    def __init__(self, nodes: List[Dict[str, Any]]) -> None:
+        self.bodies: List[Dict[str, Any]] = []
+        self._nodes = nodes
+
+    def urlopen(self, request: urllib.request.Request, timeout: float) -> io.BytesIO:
+        self.bodies.append(json.loads(request.data))  # type: ignore[arg-type]
+        return io.BytesIO(json.dumps({"data": {"transcripts": self._nodes}}).encode())
+
+
+class TestTranscriptsPage:
+    def test_a_page_asks_from_skip_and_reads_the_speakers(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The company filter (F8) reads pages with `skip` and matches speakers to members."""
+        fake = FakeFireflies([{"id": "m1", "title": "Sync", "speakers": [{"name": "Bo Wang"}, {"name": None}]}])
+        monkeypatch.setattr("urllib.request.urlopen", fake.urlopen)
+        provider = FirefliesMeetingProvider(logins=FakeLogins(environ={"BRIAR_ACME_FIREFLIES_API_KEY": "ff_xxx"}).logins())
+
+        meetings = provider.list_meetings(MeetingPage("2026-11-01T00:00:00+00:00", "2026-11-12T00:00:00+00:00", PAGE, PAGE))
+
+        assert [meeting.speakers for meeting in meetings] == [["Bo Wang", ""]]
+        assert {key: fake.bodies[0]["variables"].get(key) for key in ("limit", "skip", "participants")} == {"limit": PAGE, "skip": PAGE, "participants": None}

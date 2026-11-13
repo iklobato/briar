@@ -23,7 +23,7 @@ from briar._http_retry import urlopen_with_retry
 from briar.auth.logins import CompanyLogins, FirefliesLogin
 from briar.decorators import swallow_errors
 from briar.extract._login_failures import UrllibFailures
-from briar.extract._meeting import Meeting, MeetingDetail, MeetingProvider
+from briar.extract._meeting import Meeting, MeetingDetail, MeetingPage, MeetingProvider
 
 log = logging.getLogger(__name__)
 
@@ -31,8 +31,7 @@ log = logging.getLogger(__name__)
 _ENDPOINT = "https://api.fireflies.ai/graphql"
 
 # Fireflies' `transcripts` `limit` argument caps at 50 per request.
-# Single-page is enough for the digest sizes briar uses (default 25,
-# operator can override up to 50). Pagination would be a follow-up.
+# The digest reads more pages with `skip` when the company filter drops meetings.
 _MAX_LIMIT = 50
 
 
@@ -58,17 +57,13 @@ class FirefliesMeetingProvider(MeetingProvider):
         return str(user.get("email") or user.get("name") or "")
 
     @swallow_errors(default=[], message="fireflies list_meetings")
-    def list_meetings(self, *, since_iso: str, until_iso: str, max_count: int, attendees: Optional[List[str]] = None) -> List[Meeting]:
+    def list_meetings(self, page: MeetingPage) -> List[Meeting]:
         variables: Dict[str, Any] = {
-            "fromDate": since_iso,
-            "toDate": until_iso,
-            "limit": min(max(max_count, 1), _MAX_LIMIT),
+            "fromDate": page.since_iso,
+            "toDate": page.until_iso,
+            "limit": min(max(page.size, 1), _MAX_LIMIT),
+            "skip": page.skip,
         }
-        if attendees:
-            # Fireflies accepts a `participants: [String!]` filter — at
-            # least one match wins, which matches our "attendee allow"
-            # semantics (any-of, not all-of).
-            variables["participants"] = list(attendees)
         result = self._gql(_LIST_QUERY, variables)
         nodes = (result.get("data") or {}).get("transcripts") or []
         return [self._to_meeting(node) for node in nodes if isinstance(node, dict)]
@@ -155,6 +150,7 @@ class FirefliesMeetingProvider(MeetingProvider):
             url=str(node.get("transcript_url") or ""),
             summary=str(summary.get("overview") or "")[:4000],
             action_items=_as_str_list(summary.get("action_items")),
+            speakers=[str(speaker.get("name") or "") for speaker in node.get("speakers") or [] if isinstance(speaker, dict)],
         )
 
 
@@ -188,6 +184,7 @@ query Transcripts(
     participants
     transcript_url
     meeting_attendees { displayName email name }
+    speakers { name }
     summary { overview action_items }
   }
 }

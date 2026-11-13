@@ -45,7 +45,7 @@ import pytest
 from briar.commands.extract import ExtractorKeys
 from briar.config import load_project_config
 from briar.extract import EXTRACTORS
-from briar.extract._meeting import Meeting
+from briar.extract._meeting import Meeting, MeetingPage
 from briar.extract.canonical import SHARED_CONCEPTS
 from briar.extract._provider import CiRun, Commit, Deployment, Environment, PullRequest, ReviewComment
 from briar.extract._tracker import Ticket
@@ -170,9 +170,9 @@ class FakeMeetingProvider:
     def is_available(self) -> bool:
         return True
 
-    def list_meetings(self, *, since_iso, until_iso, max_count, attendees):
-        self.list_meetings_calls.append({"since_iso": since_iso, "until_iso": until_iso, "max_count": max_count, "attendees": list(attendees)})
-        return list(self.meetings)
+    def list_meetings(self, page: MeetingPage) -> List[Meeting]:
+        self.list_meetings_calls.append({"since_iso": page.since_iso, "until_iso": page.until_iso, "max_count": page.size, "skip": page.skip})
+        return list(self.meetings[page.skip : page.skip + page.size])
 
 
 # ─── seam fixture ─────────────────────────────────────────────────────
@@ -767,20 +767,3 @@ class TestMeetingDigestFlags:
         assert result.code == 0
         assert "last 7 day(s)" in _blob_text(tmp_root)
 
-    def test_meeting_attendee_allow_repeatable_reaches_provider(self, cli, tmp_root, seam) -> None:
-        result = _run(
-            cli,
-            tmp_root,
-            "meeting-digest",
-            "--meeting-attendee-allow",
-            "a@x.com",
-            "--meeting-attendee-allow",
-            "b@x.com",
-        )
-        assert result.code == 0
-        assert seam.meeting.list_meetings_calls[0]["attendees"] == ["a@x.com", "b@x.com"]
-
-    def test_meeting_attendee_allow_default_empty(self, cli, tmp_root, seam) -> None:
-        result = _run(cli, tmp_root, "meeting-digest")
-        assert result.code == 0
-        assert seam.meeting.list_meetings_calls[0]["attendees"] == []

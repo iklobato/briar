@@ -13,12 +13,16 @@ logic onto a different vendor."""
 from __future__ import annotations
 
 import argparse
+import logging
 from datetime import datetime, timedelta, timezone
-from typing import List
+from typing import ClassVar, List
 
+from briar.auth.logins import CompanyLogins
 from briar.errors import CliError
-from briar.extract._meeting import Meeting, render_meeting_header
+from briar.extract._meeting import Meeting, MeetingPage, MeetingProvider, render_meeting_header
+from briar.extract._meetings.company_filter import CompanyMembers, MeetingFilter, MemberSources, MembersUnreadable
 from briar.extract.base import ExtractedSection, MeetingBackedExtractor, empty_section
+
 
 _DEFAULT_SINCE_DAYS = 7
 _DEFAULT_MAX = 25
@@ -30,6 +34,7 @@ class ExtractMeetingDigest(MeetingBackedExtractor):
     name = "meeting-digest"
     heading = "Meeting digest"
     description = "recent meetings: summaries + action items"
+    LOG: ClassVar[logging.Logger] = logging.getLogger(__name__)
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         super().add_arguments(parser)
@@ -45,11 +50,22 @@ class ExtractMeetingDigest(MeetingBackedExtractor):
             default=_DEFAULT_MAX,
             help=f"Cap on meetings included in the digest (default: {_DEFAULT_MAX})",
         )
+        self._add_company_filter(parser)
+
+    def _add_company_filter(self, parser: argparse.ArgumentParser) -> None:
+        """F1: one key can hold the meetings of several companies."""
         parser.add_argument(
             "--meeting-attendee-allow",
             action="append",
             default=[],
-            help="Only include meetings with at least one of these attendee emails. " "Repeatable. Empty = no filter (every accessible meeting).",
+            help="Keep meetings with one of these attendee or organizer emails; `@acme.com` keeps a whole domain. Repeatable.",
+        )
+        parser.add_argument(
+            "--meeting-title-any",
+            action="append",
+            default=[],
+            help="Keep meetings whose title contains one of these words (any case). Repeatable. "
+            "With no title word, no email and no Jira, GitLab or Slack login, every meeting is kept.",
         )
 
     def is_available(self, args: argparse.Namespace) -> bool:
@@ -66,18 +82,17 @@ class ExtractMeetingDigest(MeetingBackedExtractor):
         provider = self._meeting(args)
         since_days = max(int(getattr(args, "meeting_since_days", _DEFAULT_SINCE_DAYS)), 1)
         max_count = max(int(getattr(args, "meeting_max", _DEFAULT_MAX)), 1)
-        attendees = list(getattr(args, "meeting_attendee_allow", []) or [])
 
         now = datetime.now(tz=timezone.utc)
         since = (now - timedelta(days=since_days)).isoformat()
         until = now.isoformat()
 
-        meetings: List[Meeting] = provider.list_meetings(
-            since_iso=since,
-            until_iso=until,
-            max_count=max_count,
-            attendees=attendees,
-        )
+        try:
+            rules = self._rules(args)
+        except MembersUnreadable as stop:
+            self.LOG.error("meeting-digest stopped: %s", stop)
+            return empty_section()
+        meetings = MeetingPages(provider, rules).kept(MeetingPage(since, until, max_count))
         if not meetings:
             return empty_section()
 
@@ -98,6 +113,12 @@ class ExtractMeetingDigest(MeetingBackedExtractor):
                 "until_iso": until,
             },
         )
+
+    def _rules(self, args: argparse.Namespace) -> MeetingFilter:
+        """F1, F12: the title words, the allowed emails and the members of the company."""
+        members = CompanyMembers(MemberSources(CompanyLogins.from_args(args)).configured()).keys()
+        titles = tuple(getattr(args, "meeting_title_any", []) or [])
+        return MeetingFilter(titles, tuple(getattr(args, "meeting_attendee_allow", []) or []), members)
 
     @staticmethod
     def _render_meeting(m: Meeting) -> ExtractedSection:
@@ -126,3 +147,24 @@ class ExtractMeetingDigest(MeetingBackedExtractor):
                 "action_item_count": len(m.action_items),
             },
         )
+
+
+class MeetingPages:
+    """F8: the pages of the window until `page.size` meetings pass the filter or a page comes
+    back short (the window ended). A page is `page.size` long, so with no filter one call
+    is enough, as before."""
+
+    def __init__(self, provider: MeetingProvider, rules: MeetingFilter) -> None:
+        self._provider = provider
+        self._rules = rules
+
+    def kept(self, page: MeetingPage) -> List[Meeting]:
+        wanted = page.size
+        kept: List[Meeting] = []
+        while len(kept) < wanted:
+            found = self._provider.list_meetings(page)
+            kept += [meeting for meeting in found if self._rules.keeps(meeting)]
+            if len(found) < page.size:
+                break
+            page = page.after(len(found))
+        return kept[:wanted]

@@ -14,6 +14,14 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Added
 
+- `meeting-digest` keeps only the meetings of the company, for a Fireflies key
+  that records several companies (a personal account): a new `title_any` list,
+  `attendee_allow` takes a whole `@domain` too, and a speaker who is a person of
+  the company (Jira site users, GitLab group members, Slack workspace people)
+  keeps a meeting. Any one signal is enough; with none, every meeting is kept.
+  Briar reads more pages until it has `max` meetings. `doctor --runbooks` and
+  `serve` warn when two companies use the same key and one has no filter.
+  `attendee_allow` is now matched by briar, not sent to Fireflies.
 - GitLab as a code host for `briar extract` (spec 008 PR 3a): `provider =
   "gitlab"`, a new `[auth.gitlab]` login (`BRIAR_<COMPANY>_GITLAB_TOKEN`, and
   `url` for a self-hosted GitLab) and the `python-gitlab` dependency

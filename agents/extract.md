@@ -291,8 +291,30 @@ services = ["ecs", "rds"]
 ```toml
 [extract.meeting-digest]
 since_days = 14
-attendee_allow = ["lead@acme.com"]
+attendee_allow = ["lead@acme.com", "@acme.com"]
+title_any = ["standup", "platform sync"]
 ```
+
+One Fireflies key can be a personal account with the meetings of several
+companies. `meeting-digest` keeps a meeting when any one of these says it is
+of the company:
+
+- a word of `title_any` is in its title (any case);
+- an attendee or the organizer is in `attendee_allow`, as an exact email or a
+  whole `@domain`;
+- a speaker has the full name (case and accents left out) of a person of the
+  company: the users of its Jira site, the members of the GitLab groups of its
+  token, the people of its Slack workspace. These lists are read on every run
+  of a company with a Jira, GitLab or Slack login; when one of them cannot be
+  read, `meeting-digest` stops for that run and the log says why.
+
+With none of them every meeting is kept. Since the owner of a personal key
+speaks in most of their meetings, and is a member of each company, the speaker
+signal alone does not separate the companies of a personal key: give each one
+a `title_any`. `briar doctor --runbooks` warns when two runbook companies use
+the same Fireflies key and one of them keeps every meeting. Fireflies gives 50
+meetings per call, so briar reads more pages until it has `max` meetings or the
+`since_days` window ends.
 
 ## Command line
 
@@ -393,6 +415,7 @@ from the code; a test fails when this table and the code differ):
 | `meeting-digest` | `max` | `25` |  |
 | `meeting-digest` | `meeting` | `"fireflies"` | fireflies |
 | `meeting-digest` | `since_days` | `7` |  |
+| `meeting-digest` | `title_any` | `[]` |  |
 | `pr-archaeology` | `assignees_allow` | `[]` |  |
 | `pr-archaeology` | `assignees_block` | `[]` |  |
 | `pr-archaeology` | `authors_allow` | `[]` |  |

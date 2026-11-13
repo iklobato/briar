@@ -64,6 +64,44 @@ class JiraLinks:
         return bool(issue) and category.get("key") != self.DONE
 
 
+class JiraSiteClient:
+    """The atlassian client of a login, built as `JiraTracker` builds its own."""
+
+    TIMEOUT = 30
+
+    def __init__(self, login: JiraLogin) -> None:
+        self._login = login
+
+    def client(self) -> Any:
+        from atlassian import Jira
+
+        return Jira(url=self._login.site_url(), cloud=True, timeout=self.TIMEOUT, **JiraAuths.for_login(self._login).configure(self._login))
+
+
+class JiraMembers:
+    """The people of the Jira site, for the company filter of the meetings (F3b): active
+    accounts of people, not apps. `users/search` may give fewer than asked before the end,
+    so the pages go on until an empty one."""
+
+    source = "jira"
+    PAGE = 1000
+    PERSON = "atlassian"
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+
+    def names(self) -> List[str]:
+        return RequestsFailures().answer(self._people)
+
+    def _people(self) -> List[str]:
+        names: List[str] = []
+        start = 0
+        while page := self._client.users_get_all(start=start, limit=self.PAGE) or []:
+            names.extend(str(user.get("displayName") or "") for user in page if user.get("accountType") == self.PERSON and user.get("active"))
+            start += len(page)
+        return names
+
+
 class JiraOpenCount:
     """The open tickets of a project, from the approximate count of Jira Cloud."""
 

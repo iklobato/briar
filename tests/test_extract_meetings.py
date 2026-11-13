@@ -51,6 +51,7 @@ class FirefliesAdapterTests(unittest.TestCase):
         return resp
 
     def test_list_meetings_translates_response(self) -> None:
+        from briar.extract._meeting import MeetingPage
         from briar.extract._meetings import make_meeting
 
         payload = {
@@ -81,11 +82,7 @@ class FirefliesAdapterTests(unittest.TestCase):
             provider = make_meeting("fireflies", FakeLogins(environ={"BRIAR_ACME_FIREFLIES_API_KEY": "ff_xxx"}).logins())
             self.assertTrue(provider.is_available())
             with mock.patch("urllib.request.urlopen", return_value=self._mock_urlopen(payload)):
-                meetings = provider.list_meetings(
-                    since_iso="2026-05-15T00:00:00+00:00",
-                    until_iso="2026-05-22T00:00:00+00:00",
-                    max_count=10,
-                )
+                meetings = provider.list_meetings(MeetingPage("2026-05-15T00:00:00+00:00", "2026-05-22T00:00:00+00:00", 10))
         self.assertEqual(len(meetings), 1)
         meeting = meetings[0]
         self.assertEqual(meeting.meeting_id, "FF-1")

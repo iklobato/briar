@@ -116,7 +116,14 @@ class RunbookChecks:
         except CliError as error:
             return [Check(self.NAME, FAIL, str(error))]
         summary = Check(self.NAME, OK, f"{self._directory}: {len(companies)} companies with a `serve:` block")
-        return [summary, *(Check(f"{line.source} login", LoginChecks.STATUS_OF[line.state.value], line.line()) for line in lines)]
+        logins = [Check(f"{line.source} login", LoginChecks.STATUS_OF[line.state.value], line.line()) for line in lines]
+        return [summary, *logins, *self._meeting_keys()]
+
+    def _meeting_keys(self) -> List[Check]:
+        """F11: one Fireflies key for several companies, one of them with no filter."""
+        from briar.iac.runbook.meeting_keys import SharedMeetingKeys
+
+        return [Check("meeting key", WARN, warning) for warning in SharedMeetingKeys(self._directory).warnings()]
 
 
 class ModelLoginCheck:

@@ -76,6 +76,27 @@ class GitlabApi:
         return gitlab.Gitlab(self._login.url(), private_token=self._login.token(), timeout=self.TIMEOUT, retry_transient_errors=True)
 
 
+class GitlabMembers:
+    """The people of the GitLab groups of the token, for the company filter of the meetings
+    (F3b): every group it is a member of, then the active members of each."""
+
+    source = "gitlab"
+    # The lowest access level: every group the token can see as a member.
+    GUEST = 10
+    ACTIVE = "active"
+
+    def __init__(self, rest: GitlabRest) -> None:
+        self._rest = rest
+
+    def names(self) -> List[str]:
+        return GitlabFailures().answer(self._people)
+
+    def _people(self) -> List[str]:
+        groups = self._rest.pages("/groups", {"min_access_level": self.GUEST})
+        members = [member for group in groups for member in self._rest.pages(f"/groups/{group['id']}/members/all")]
+        return [str(member.get("name") or "") for member in members if member.get("state") == self.ACTIVE]
+
+
 class Names:
     """Usernames out of GitLab user objects."""
 
