@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from datetime import datetime, timezone
 from dataclasses import dataclass, replace
 from enum import Enum
 from functools import partial
@@ -53,6 +54,13 @@ class Marker:
         return self.TEXT not in body
 
 
+class WorkDay:
+    """The UTC day of today, `YYYY-MM-DD`: the unit of `max_new_per_day` (decision D3)."""
+
+    def today(self) -> str:
+        return datetime.now(timezone.utc).date().isoformat()
+
+
 @dataclass(frozen=True)
 class WorkItem:
     """One task: a ticket to build, a briar PR with new review comments or a conflict, or
@@ -80,7 +88,7 @@ class WorkItem:
         return (1 if self.kind is WorkKind.TICKET else 0, self.rank, self.created_at)
 
     def entry(self) -> WorkEntry:
-        return WorkEntry(key=self.key, source=self.source, repo=self.repo, title=self.title, status=WorkStatus.FOUND, reason=self.reason)
+        return WorkEntry(key=self.key, source=self.source, repo=self.repo, title=self.title, status=WorkStatus.FOUND, reason=self.reason, started=WorkDay().today())
 
     def resumed(self, entry: WorkEntry) -> "WorkItem":
         """The ticket again, in the repo briar started it in and with why it was picked."""
@@ -471,6 +479,7 @@ class ServeCompanies:
 
 
 __all__ = [
+    "WorkDay",
     "ServeLock",
     "AgentSandbox",
     "BaseDrift",

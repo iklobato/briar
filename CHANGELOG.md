@@ -14,6 +14,11 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Added
 
+- `serve.max_new_per_day`: at most that many new tickets a company starts in one UTC
+  day (tasks already started go on); 0, the default, is no limit.
+- The plan of a `briar serve` task says whether the ticket needs a code change. A plan
+  with none (an operations ticket) writes nothing on the ticket or the repo and ends
+  `blocked` in the state; before, briar posted the plan and moved the ticket first.
 - `briar serve` on GitLab (spec 008 PR 3b): `serve.code_host: gitlab` opens draft
   merge requests, waits for the pipeline of the pushed commit, marks the MR ready,
   and answers MR notes in their threads; tickets come from Jira, a repo is the full

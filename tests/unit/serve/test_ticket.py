@@ -114,6 +114,34 @@ class TestNothingToChange:
         assert tracker.moves == [("ENG-1", "In Progress")]
 
 
+class TestSilentPlan:
+    """Decision D1 of the autonomous serve: the plan comes first and writes nothing; only a
+    plan with a code change is posted, moves the ticket and builds. A real run (2026-11-13)
+    posted a plan and opened an empty MR for an operations ticket."""
+
+    def test_a_plan_with_no_code_change_writes_nothing_anywhere(self, setups: Setups) -> None:
+        setup = setups.make({})
+        agent = ScriptedAgent([Plans().no_code()])
+
+        setup.work_on(agent, Items().jira())
+
+        tracker, github = setup.sources.tracker_side, setup.sources.github_side
+        assert (tracker.comments, tracker.moves, github.pulls, len(agent.requests)) == ([], [], [], 1)
+        assert "briar/ENG-1" not in setup.origin.branches()
+        entry = setup.entry("ENG-1")
+        assert (entry.status, entry.plan.startswith("Copy the dataset to both clusters")) == (WorkStatus.BLOCKED, True)
+        assert entry.report == "the plan needs no code change in acme/app; nothing was posted on the ticket"
+
+    def test_a_plan_with_a_code_change_is_posted_before_the_build(self, setups: Setups) -> None:
+        setup = setups.make({})
+        agent = ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()])
+
+        setup.work_on(agent, Items().jira())
+
+        assert setup.sources.tracker_side.moves[0] == ("ENG-1", "In Progress")
+        assert setup.entry("ENG-1").status is WorkStatus.DONE
+
+
 class TestNoSilencedSecretScanner:
     """Real run, 2026-11-13: a secret scan failed on an MR that re-flowed two lines holding
     plain database passwords; to pass CI the agent wrote `.gitleaksignore` with their

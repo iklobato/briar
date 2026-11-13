@@ -107,6 +107,10 @@ class Plans:
     def plan(self) -> Step:
         return Step(structured={"summary": "Add the feature file", "steps": ["write feature.txt"], "tests": ["test -f feature.txt"]})
 
+    def no_code(self) -> Step:
+        """An operations ticket: the agent finds nothing to change in the repo."""
+        return Step(structured={"summary": "Copy the dataset to both clusters", "steps": ["run the copy jobs"], "needs_code": False})
+
     def approved(self) -> Step:
         return Step(structured={"approved": True, "findings": []})
 

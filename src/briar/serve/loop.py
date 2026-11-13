@@ -22,7 +22,8 @@ from briar.serve.git import Shell
 from briar.serve.open_work import OpenWork
 from briar.serve.select import Choice, Selector
 from briar.serve.task import ServeCache, TaskContext, TaskPrep
-from briar.serve.work import BaseDrift, ServeCompany, WorkFinder, WorkItem, WorkKind, WorkSources
+from briar.serve.state import WorkBook
+from briar.serve.work import BaseDrift, ServeCompany, WorkDay, WorkFinder, WorkItem, WorkKind, WorkSources
 
 
 class Routine(Protocol):
@@ -119,11 +120,21 @@ class CompanyWatch:
         tickets = self._slots.waiting([item for item in items if item.kind is WorkKind.TICKET])
         resumed = [item.resumed(entry) for item in tickets if (entry := book.entry(item.key)) is not None]
         fresh = [item for item in tickets if book.entry(item.key) is None]
-        free = max(self._company.settings.max_parallel - self._slots.busy() - len(resumed), 0)
+        free = min(max(self._company.settings.max_parallel - self._slots.busy() - len(resumed), 0), self._left_today(book, fresh))
         picked = await self._work.choice.choose(fresh, free)
         for item in picked:
             self.LOG.info("serve: %s: picked %s for %s: %s", self._company.name, item.key, item.repo, item.reason)
         return sum(self._slots.dispatch(item, self._work.routine) for item in [*resumed, *picked])
+
+    def _left_today(self, book: WorkBook, fresh: List[WorkItem]) -> int:
+        """Decision D3: the new tickets the company may still start this UTC day."""
+        limit = self._company.settings.max_new_per_day
+        if not limit:
+            return len(fresh)
+        started = book.started_on(WorkDay().today())
+        if started >= limit and fresh:
+            self.LOG.info("serve: %s: %d new ticket(s) started today (max_new_per_day %d): no new ticket until tomorrow (UTC)", self._company.name, started, limit)
+        return max(limit - started, 0)
 
     async def watch(self) -> None:
         while True:
