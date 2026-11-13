@@ -65,7 +65,7 @@ class FirefliesMeetingProvider(MeetingProvider):
             "limit": min(max(max_count, 1), _MAX_LIMIT),
         }
         if attendees:
-            # Fireflies accepts a `participants: [String]` filter — at
+            # Fireflies accepts a `participants: [String!]` filter — at
             # least one match wins, which matches our "attendee allow"
             # semantics (any-of, not all-of).
             variables["participants"] = list(attendees)
@@ -167,8 +167,8 @@ query Transcripts(
   $toDate: DateTime,
   $limit: Int,
   $skip: Int,
-  $participants: [String],
-  $scope: TranscriptsQueryScope
+  $participants: [String!],
+  $scope: String
 ) {
   transcripts(
     keyword: $keyword,

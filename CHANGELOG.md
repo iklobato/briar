@@ -175,7 +175,29 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 - `extract --include active-tickets` said "25 open ticket(s)" when it cut
   the list at 25; it now says "first 25 of 881" (Jira counts the open tickets) or
   "first 25" when the tracker cannot count them.
-
+- `meeting-digest` found no meeting: the Fireflies API stopped taking the
+  `TranscriptsQueryScope` type and `[String]` participants, and the error read as
+  no data. The query now uses `scope: String` and `participants: [String!]`.
+- An Azure or GCP `aws-infra` section said `region us-east-1`, the AWS default.
+  With no region set, each cloud now uses its own (AWS us-east-1, Azure eastus,
+  GCP us-central1).
+- The bash guard of the `briar serve` agent read `2>&1` as `&&` and refused
+  test commands such as `pytest -q 2>&1 | tail`.
+- Each `briar serve` agent call sent every tool of the Claude Code CLI, its skill
+  and agent lists and the MCP servers of the claude.ai account: about 39k input
+  tokens, though the guard refuses all but a few of them. A call now gets only the
+  tools of its step (read, or read and edit) and no outside MCP server; a
+  one-turn call went from US$ 0.149 to US$ 0.008.
+- The bash guard of the `briar serve` agent checked only the first line of a
+  command (a new line did not start a new one). It now checks every line,
+  reads a heredoc body as data, takes an allowed program by a relative path
+  in the worktree (`.venv/bin/python`), a subshell and `NAME=value` before a
+  program, and the builtins `[`, `test`, `true`, `false` and `exit`. A
+  forbidden token must start a word (`gh ` no longer matches "high ").
+- `uv run` failed in the agent sandbox: it could not write `~/.cache/uv`, then
+  panicked on the macOS network settings. Each agent call now gets a tool
+  cache folder (`XDG_CACHE_HOME`) it may write, and the sandbox allows that
+  lookup.
 - `briar doctor` dropped `[repo]` from the `git remote` hint, because the
   table renderer read a word in brackets as style markup. Table cells now
   print as written.

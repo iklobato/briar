@@ -16,7 +16,7 @@ from typing import ClassVar, List, Protocol, Set, Tuple, Type
 
 from briar.errors import CliError
 from briar.iac.runbook.scheduler import RunbookScheduler
-from briar.serve.agent import AgentRunner, BashGuard, ClaudeAgent
+from briar.serve.agent import AgentRunner, BashGuard, ClaudeAgent, SandboxRoom
 from briar.serve.chat import ChatReader
 from briar.serve.git import Shell
 from briar.serve.select import Choice, Selector
@@ -162,7 +162,8 @@ class AgentMaker:
 
     def agent(self, context: TaskContext) -> AgentRunner:
         guard = BashGuard(context.worktree, self._company.settings.bash, [self._company.root])
-        return ClaudeAgent(self._company.settings.model, guard, self._company.settings.allowed_domains)
+        room = SandboxRoom(tuple(self._company.settings.allowed_domains), ServeCache(os.environ).root() / "tools")
+        return ClaudeAgent(self._company.settings.model, guard, room)
 
 
 class ServeLoops:
@@ -179,7 +180,8 @@ class ServeLoops:
     def _choice(self, company: ServeCompany) -> Choice:
         """The selector call only reads (`Access.READ`), inside the knowledge folder."""
         guard = BashGuard(company.root, company.settings.bash, [company.root])
-        selector = Selector(ClaudeAgent(company.settings.model, guard, []), company)
+        room = SandboxRoom((), ServeCache(os.environ).root() / "tools")
+        selector = Selector(ClaudeAgent(company.settings.model, guard, room), company)
         chat = ChatReader(WorkSources(company.logins).slack(), company.settings, date.today) if company.settings.chat.slack else None
         return Choice(selector, company, date.today, chat)
 
