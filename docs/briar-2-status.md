@@ -1173,6 +1173,13 @@ Found in spec 003 (`briar serve`, 2026-11-11):
 
 ## 6. What is missing or open
 
+- The version on `v2` is `2.0.0.dev0` (2026-11-13), so an install from `v2` says what it
+  is. The release workflow on `main` (`.github/workflows/release.yml`, "Bump patch
+  version") reads a plain `X.Y.Z` and publishes the next patch: with `2.0.0.dev0` it stops
+  at `int("dev0")`. Before `v2` merges into `main`, decide how 2.0.0 is published (set the
+  version the bump turns into 2.0.0, or let the workflow publish a version as written).
+  The update notice compares plain `X.Y.Z` only: a `dev` version gets no notice, so `v2`
+  users are not told to "upgrade" to the next 1.x.
 - `extract` is still argparse: its 3 flags do not tab-complete. Its
   `[extract]` values are not type-checked and a runbook still uses the
   1.x option names, until spec 004 (D32).
