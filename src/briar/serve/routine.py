@@ -36,7 +36,10 @@ class ServeRoutine:
     ENDED: ClassVar[Tuple[Tuple[WorkKind, WorkStatus], ...]] = ((WorkKind.MERGED, WorkStatus.MERGED), (WorkKind.CLOSED, WorkStatus.CLOSED))
     # What stops a task with its report. Beyond `CliError` (git, GitHub, Jira, limits): a
     # task left `planned` by any other failure is taken again, and paid for, every poll.
-    TASK_FAILURES: ClassVar[Tuple[Type[Exception], ...]] = (CliError, OSError, RuntimeError, ValueError, LookupError)
+    EXPECTED: ClassVar[Tuple[Type[Exception], ...]] = (CliError, OSError, RuntimeError, ValueError, LookupError)
+    # A bug of briar or of a library (a real run, 2026-11-13: PyGithub raised TypeError, and
+    # the task was paid for again every poll). Decision F2: it blocks too, with the traceback logged.
+    UNEXPECTED: ClassVar[Tuple[Type[Exception], ...]] = (TypeError, AttributeError, ArithmeticError, AssertionError, ImportError)
 
     def __init__(self, company: ServeCompany, agents: Callable[[TaskContext], AgentRunner], prep: TaskPrep) -> None:
         self._company = company
@@ -55,8 +58,11 @@ class ServeRoutine:
         parts = TaskParts(context, steps, TaskFlow(context, steps, budget))
         try:
             await self._run(item, parts)
-        except self.TASK_FAILURES as stop:
+        except self.EXPECTED as stop:
             await parts.flow.blocked(str(stop) or type(stop).__name__)
+        except self.UNEXPECTED as bug:
+            self.LOG.exception("serve: task %s failed with an unexpected error", item.ref())
+            await parts.flow.blocked(f"{type(bug).__name__}: {bug}")
 
     async def _run(self, item: WorkItem, parts: TaskParts) -> None:
         if item.kind is WorkKind.REVIEW:

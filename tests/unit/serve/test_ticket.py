@@ -13,7 +13,7 @@ import pytest
 from briar.extract._provider import BranchPull, CiState
 from briar.serve.flow import TaskFlow
 from briar.serve.state import WorkStatus
-from tests.unit.serve.ticket_fakes import ISSUE, FakeGithubSide, Files, Items, Plans, ScriptedAgent, Setups, Step
+from tests.unit.serve.ticket_fakes import ISSUE, BrokenAgent, FakeGithubSide, Files, Items, Plans, ScriptedAgent, Setups, Step
 
 PR = FakeGithubSide.NUMBER
 # Verify commands that pass on the base, as a test suite does (a base that fails stops the task).
@@ -299,6 +299,17 @@ class TestNoDoubleWork:
         entry = setup.entry("ENG-1")
         assert (entry.status, entry.taken()) == (WorkStatus.BLOCKED, True)
         assert entry.report.startswith("briar stopped: pop from empty list.")
+
+    def test_any_unexpected_failure_blocks_the_ticket(self, setups: Setups) -> None:
+        """Real run, 2026-11-13: a library `TypeError` escaped the task, which stayed taken
+        nowhere and was planned and paid for again every poll (decision F2)."""
+        setup = setups.make({})
+
+        setup.work_on(BrokenAgent([Plans().plan()]), Items().jira())
+
+        entry = setup.entry("ENG-1")
+        assert (entry.status, entry.taken()) == (WorkStatus.BLOCKED, True)
+        assert entry.report.startswith("briar stopped: TypeError: 'NoneType' object is not subscriptable.")
 
     def test_a_refused_ticket_comment_after_the_pr_keeps_the_pr(self, setups: Setups) -> None:
         setup = setups.make({})
