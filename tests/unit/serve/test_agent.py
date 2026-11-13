@@ -164,6 +164,23 @@ class TestBashGuard:
             ("PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src python -m pytest -q 2>&1 | tail -5", ""),
             ("X=1 docker ps", "not in the bash allowlist of this company: 'docker'"),
             ("env PYTHONPATH=src python -m pytest", "not in the bash allowlist of this company: 'env'"),
+            # Real run, 2026-11-13: the lines of a heredoc read as commands ('p', 'status:', 'fresh_db').
+            ("python3 - <<'EOF'\np = 'a.py'\nstatus: str = 'x'\nEOF", ""),
+            ("cat >> tests/test_a.py <<'E'\ndef test_a(fresh_db):\n    assert 1\nE\nls", ""),
+            ("cat <<EOF\nhi\nEOF\ndocker ps", "not in the bash allowlist of this company: 'docker'"),
+            # Found with it: a new line did not start a command, so only the first line was checked.
+            ("ls\ndocker ps", "not in the bash allowlist of this company: 'docker'"),
+            # Same run: a program of the project, by a relative path.
+            (".venv/bin/python -m pytest -q", ""),
+            ("./.venv/bin/ruff check src", ""),
+            ("/usr/local/bin/python -c 1", "not in the bash allowlist of this company: '/usr/local/bin/python'"),
+            ("../other/bin/python -c 1", "not in the bash allowlist of this company: '../other/bin/python'"),
+            # Same run: the verify commands of the runbook use shell builtins.
+            ("git diff --quiet origin/main HEAD -- docker_files || (echo bad; exit 1)", ""),
+            ('files=$(git diff --name-only origin/main HEAD); [ -z "$files" ] || ruff check $files', ""),
+            # A forbidden token is a word, not any part of one: `gh ` is in "high ".
+            ('grep -rn "high priority" src', ""),
+            ("git log | grep gh ", "forbidden in briar serve: 'gh ' (push, PR and comments are done by briar)"),
         ],
     )
     def test_bash_runs_only_allowed_programs(self, guard: BashGuard, command: str, refusal: str) -> None:

@@ -14,7 +14,7 @@ import re
 import shlex
 from dataclasses import dataclass, field
 from enum import Enum
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, ClassVar, Dict, List, Mapping, Optional, Protocol, Sequence, Tuple
 
 
@@ -73,6 +73,9 @@ class BashGuard:
     SEPARATORS: ClassVar[str] = ";|\n"
     REDIRECT: ClassVar["re.Pattern[str]"] = re.compile(r"[0-9]*[<>]&[0-9-]*|&>>?")
     ASSIGNMENT: ClassVar["re.Pattern[str]"] = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+    HEREDOC: ClassVar["re.Pattern[str]"] = re.compile(r"<<-?\s*(?P<quote>['\"]?)(?P<end>[A-Za-z_][A-Za-z0-9_]*)(?P=quote)")
+    # Shell builtins with no effect outside the shell; the verify commands of a runbook use them.
+    BUILTINS: ClassVar[Tuple[str, ...]] = ("[", "[[", "test", "true", "false", "exit")
 
     def __init__(self, worktree: Path, verbs: Sequence[str], readable: Sequence[Path]) -> None:
         self._worktree = worktree
@@ -116,18 +119,43 @@ class BashGuard:
 
     def _bash(self, command: str) -> str:
         lowered = command.lower()
-        forbidden = [token for token in self.FORBIDDEN if token in lowered]
+        # A token starts a word: `gh ` is in "high " (a real run refused a grep for it).
+        forbidden = [token for token in self.FORBIDDEN if re.search(rf"(?<!\w){re.escape(token)}", lowered)]
         if forbidden:
             return f"forbidden in briar serve: {forbidden[0]!r} (push, PR and comments are done by briar)"
-        verbs = self._verbs_of(command)
-        unknown = [verb for verb in verbs if verb not in (self._verbs or self.DEFAULT_VERBS)]
+        unknown = [verb for verb in self._verbs_of(self._without_heredocs(command)) if not self._allowed(verb)]
         return f"not in the bash allowlist of this company: {unknown[0]!r}" if unknown else ""
+
+    def _allowed(self, verb: str) -> bool:
+        """An allowed program, a builtin, or an allowed program of the project by a relative
+        path (`.venv/bin/python`); never one by an absolute path or out of the worktree."""
+        allowed = self._verbs or self.DEFAULT_VERBS
+        path = PurePosixPath(verb)
+        project = len(path.parts) > 1 and not path.is_absolute() and ".." not in path.parts and not verb.startswith("~")
+        return verb in allowed or verb in self.BUILTINS or (project and path.name in allowed)
+
+    def _without_heredocs(self, command: str) -> str:
+        """A real run: the lines of `python3 - <<'EOF' ... EOF` read as commands. The body
+        of a heredoc is data for its program."""
+        kept: List[str] = []
+        ends: List[str] = []
+        for line in command.split("\n"):
+            if ends and line.strip() == ends[0]:
+                ends.pop(0)
+                continue
+            if ends:
+                continue
+            kept.append(line)
+            ends.extend(match.group("end") for match in self.HEREDOC.finditer(line))
+        return "\n".join(kept)
 
     def _verbs_of(self, command: str) -> List[str]:
         """The program of each command of the line (`;`, `|`, `&&`, `(` and `)` start a new
         one). Real runs showed three things that are no command: a redirection (`2>&1` read as
         `&&`), a subshell paren (`(ruff`) and `NAME=value` before the program."""
-        lexer = shlex.shlex(self.REDIRECT.sub(" ", command), posix=True, punctuation_chars=self.SEPARATORS + "&()")
+        # shlex reads a new line as a space: before this, only the first line was checked.
+        lines = self.REDIRECT.sub(" ", command).replace("\n", ";")
+        lexer = shlex.shlex(lines, posix=True, punctuation_chars=self.SEPARATORS + "&()")
         lexer.whitespace_split = True
         verbs: List[str] = []
         starting = True
