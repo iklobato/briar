@@ -15,9 +15,11 @@ import pytest
 from briar.extract._tracker import Ticket
 from briar.iac.runbook.models import ServeSettings
 from briar.serve.agent import AgentAnswer, AgentRequest
-from briar.serve.select import Choice, Score, Selector, Workable
+from briar.serve.chat import ChatMessage, ChatReader
+from briar.serve.select import Choice, Score, Selector, Shortlist, Workable
 from briar.serve.state import WorkSource
 from briar.serve.work import ServeCompany, WorkItem, WorkKind
+from tests.unit.serve.chat_fakes import FakeChat
 from tests.unit.serve.fakes import Companies
 
 TODAY = date(2026, 11, 12)
@@ -27,6 +29,7 @@ SLOTS = 2
 MANY = 7
 UNBLOCKS_THREE = 3
 UNBLOCKS_FIVE = 5
+ASKED_TWICE = 2
 # The points of decision Q1, one signal at a time.
 OVERDUE, WITHIN_WEEK, WITHIN_MONTH, LATER = 50, 40, 20, 5
 UNBLOCK_CAP, HIGHEST, LOW, LABEL, STARTED, EPIC = 30, 20, -5, 10, 30, 0
@@ -125,7 +128,7 @@ class TestSelector:
         tickets = Tickets()
         agent = PickingAgent([{"key": "ENG-3", "repo": "acme/api", "reason": "unblocks the release"}])
 
-        picked = asyncio.run(Setup(tmp_path).selector(agent).pick([tickets.plain(f"ENG-{index}") for index in range(1, MANY + 1)], SLOTS))
+        picked = asyncio.run(Setup(tmp_path).selector(agent).pick([tickets.plain(f"ENG-{index}") for index in range(1, MANY + 1)], SLOTS, {}))
 
         assert len(agent.requests) == 1 and agent.requests[0].prompt.count("\n- ENG-") == TOP
         assert [(item.key, item.repo, item.reason, item.selection_cost) for item in picked] == [("ENG-3", "acme/api", "unblocks the release", SELECTION_COST)]
@@ -134,7 +137,7 @@ class TestSelector:
         tickets = Tickets()
         picks = [{"key": "ENG-1", "repo": "evil/repo", "reason": "x"}, {"key": "ENG-9", "repo": "acme/app", "reason": "y"}, {"key": "ENG-2", "repo": "none", "reason": "no repo fits"}]
 
-        picked = asyncio.run(Setup(tmp_path).selector(PickingAgent(picks)).pick([tickets.plain("ENG-1"), tickets.plain("ENG-2")], SLOTS))
+        picked = asyncio.run(Setup(tmp_path).selector(PickingAgent(picks)).pick([tickets.plain("ENG-1"), tickets.plain("ENG-2")], SLOTS, {}))
 
         assert picked == []
 
@@ -142,7 +145,7 @@ class TestSelector:
         """The first real run: the model answered `1` for `acme/app#1` and both picks were dropped with no line."""
         picks = [{"key": "1", "repo": "acme/app", "reason": "x"}, {"key": "ENG-1", "repo": "evil/repo", "reason": "y"}]
 
-        asyncio.run(Setup(tmp_path).selector(PickingAgent(picks)).pick([Tickets().plain("ENG-1")], SLOTS))
+        asyncio.run(Setup(tmp_path).selector(PickingAgent(picks)).pick([Tickets().plain("ENG-1")], SLOTS, {}))
 
         assert "serve: acme: the selector picked 1 in acme/app, not a ticket of the shortlist with that repo: skipped" in caplog.text
         assert "serve: acme: the selector picked ENG-1 in evil/repo, not a ticket of the shortlist with that repo: skipped" in caplog.text
@@ -151,14 +154,14 @@ class TestSelector:
         agent = PickingAgent([])
         selector = Setup(tmp_path).selector(agent)
 
-        assert (asyncio.run(selector.pick([Tickets().plain("ENG-1")], 0)), asyncio.run(selector.pick([], SLOTS)), agent.requests) == ([], [], [])
+        assert (asyncio.run(selector.pick([Tickets().plain("ENG-1")], 0, {})), asyncio.run(selector.pick([], SLOTS, {})), agent.requests) == ([], [], [])
 
     def test_more_picks_than_free_slots_keeps_the_slots(self, tmp_path: Path) -> None:
         tickets = Tickets()
         keys = [f"ENG-{index}" for index in range(1, MANY + 1)]
         agent = PickingAgent([{"key": key, "repo": "acme/app", "reason": "r"} for key in keys])
 
-        picked = asyncio.run(Setup(tmp_path).selector(agent).pick([tickets.plain(key) for key in keys], SLOTS))
+        picked = asyncio.run(Setup(tmp_path).selector(agent).pick([tickets.plain(key) for key in keys], SLOTS, {}))
 
         assert [item.key for item in picked] == keys[:SLOTS]
 
@@ -176,3 +179,33 @@ class TestChoice:
 
         assert asyncio.run(polls()) == [[], [], []]
         assert [request.prompt.count("\n- ENG-") for request in agent.requests] == [1, 1]
+
+    def test_a_chat_ask_moves_a_ticket_into_the_shortlist_and_its_thread_reaches_the_model(self, tmp_path: Path) -> None:
+        """T014, in a fake: ENG-7 is the newest of 7 plain tickets, so the score alone leaves it out of the 5."""
+        setup, tickets = Setup(tmp_path), Tickets()
+        chat = FakeChat([ChatMessage("U2", "C1", "1.0", "can someone take ENG-7? the release waits on it", "ana")])
+        agent = PickingAgent([{"key": "ENG-7", "repo": "acme/app", "reason": "asked in chat"}])
+        choice = Choice(setup.selector(agent), setup.company(), lambda: TODAY, ChatReader(chat, setup.settings(), lambda: TODAY))
+        found = [tickets.item(f"ENG-{index}", {"created_at": f"2026-01-0{index}"}) for index in range(1, MANY + 1)]
+
+        picked = asyncio.run(choice.choose(found, SLOTS))
+
+        prompt = agent.requests[0].prompt
+        assert [item.key for item in picked] == ["ENG-7"] and prompt.index("\n- ENG-7") < prompt.index("\n- ENG-1")
+        assert f"{Shortlist.CHAT}\n\n### ENG-7\nana in C1: can someone take ENG-7? the release waits on it" in prompt
+
+    def test_a_new_chat_ask_asks_the_model_again(self, tmp_path: Path) -> None:
+        setup, tickets = Setup(tmp_path), Tickets()
+        chat = FakeChat([])
+        agent = PickingAgent([])
+        choice = Choice(setup.selector(agent), setup.company(), lambda: TODAY, ChatReader(chat, setup.settings(), lambda: TODAY))
+        found = [tickets.plain("ENG-1")]
+
+        async def polls() -> None:
+            await choice.choose(found, SLOTS)
+            await choice.choose(found, SLOTS)
+            chat.messages.append(ChatMessage("U2", "C1", "2.0", "ENG-1 is blocking us", "ana"))
+            await choice.choose(found, SLOTS)
+
+        asyncio.run(polls())
+        assert len(agent.requests) == ASKED_TWICE

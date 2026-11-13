@@ -249,6 +249,16 @@ class TestServeCheck:
         with pytest.raises(LoginCheckFailed, match=r"  - github \(acme\): no login saved \(BRIAR_ACME_GITHUB_TOKEN\)"):
             ServeCheck([companies.company({"repos": ["acme/app"]})], {"ANTHROPIC_API_KEY": "PLACEHOLDER-not-a-secret"}, Sandboxes().ready()).require()
 
+    def test_a_company_with_chat_checks_its_slack_login(self, companies: Companies, monkeypatch: pytest.MonkeyPatch) -> None:
+        """C11: a missing Slack login shows before the first poll, as the other logins do."""
+        monkeypatch.setattr("briar.serve.work.WorkSources", lambda logins: FakeSources())
+        company = companies.company({"repos": ["acme/app"], "chat": {"slack": {"channels": ["CTEAM01"]}}})
+
+        lines = ServeCheck([company], {}, Sandboxes().ready()).lines()
+
+        assert [(line.source, line.state) for line in lines] == [("github", CheckState.FAILED), ("slack", CheckState.FAILED)]
+        assert "BRIAR_ACME_SLACK_TOKEN" in lines[-1].line()
+
     def test_no_sandbox_stops_with_the_model_login(self, companies: Companies) -> None:
         with pytest.raises(CliError) as caught:
             ServeCheck([companies.company({"repos": ["acme/app"]})], {}, AgentSandbox("Linux", Sandboxes().without("bwrap"))).require()

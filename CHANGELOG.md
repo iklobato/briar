@@ -80,6 +80,13 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 - The `jira:` block of `serve:` maps a Jira project to its allowed repos and its
   not-workable statuses: `jira: {ENG: {repos: [acme/app, acme/api]}}`. The 1.x form
   `jira: {ENG: acme/app}` stops the load with a message that shows the new form.
+- `briar serve` reads Slack for the ticket choice (spec 008 PR 2), read only, with
+  a new `[auth.slack]` login (a user token, or a session token and its cookie; no
+  bot token) and `serve.chat.slack.channels`. Each person who cited a ticket in the
+  last 14 days adds 25 points (at most 50); for the 5 best tickets the model also
+  reads the threads that cite them and the ones a search of their title finds in a
+  DM, a mention or a team channel (a hit needs two words of the title). Lines by the
+  owner of the token are marked `(owner)`. A Slack error stops `serve` after retries.
 
 - Telemetry is opt-in: the default tier is `off`, and nothing is sent until
   `telemetry = "errors-only"` (or `"full"`) in `.briar.toml`, or

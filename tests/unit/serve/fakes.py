@@ -15,7 +15,7 @@ from briar.iac.runbook.models import ServeSettings
 from briar.serve.state import WorkState
 from briar.serve.work import ServeCompany
 from briar.storage import make_store
-from tests.unit.fake_logins import FakeLogins
+from tests.unit.fake_logins import FakeLogins, FakeProbe
 
 
 class Tickets:
@@ -113,6 +113,10 @@ class FakeSources:
     github_adapter: FakeGithub = field(default_factory=FakeGithub)
     issues_adapter: FakeIssues = field(default_factory=FakeIssues)
     jira_adapter: FakeJira = field(default_factory=FakeJira)
+    slack_adapter: FakeProbe = field(default_factory=lambda: FakeProbe("slack"))
+
+    def slack(self) -> FakeProbe:
+        return self.slack_adapter
 
     def github(self) -> FakeGithub:
         return self.github_adapter

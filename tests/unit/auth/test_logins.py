@@ -206,3 +206,27 @@ class TestCliLogins:
         login: AzureLogin = LoginsFor({"azure": {"tenant": "acme.onmicrosoft.com"}}, {}).logins().azure()
 
         assert login.fix() == "run `az login --tenant acme.onmicrosoft.com`"
+
+
+class TestSlackLogin:
+    """Spec 008 C2: a user token, or a session token with the value of its `d` cookie."""
+
+    def test_the_session_method_names_the_token_and_the_cookie(self) -> None:
+        logins = LoginsFor({"slack": {"method": "session", "workspace": "acme"}}, {}).logins()
+
+        assert logins.slack().names() == ["BRIAR_ACME_CO_SLACK_TOKEN", "BRIAR_ACME_CO_SLACK_COOKIE"]
+
+    def test_a_pasted_d_equals_prefix_is_dropped_from_the_cookie(self) -> None:
+        environ = {"BRIAR_ACME_CO_SLACK_TOKEN": FAKE_TOKEN, "BRIAR_ACME_CO_SLACK_COOKIE": "d=PLACEHOLDER-cookie"}
+
+        login = LoginsFor({"slack": {"method": "session", "workspace": "acme"}}, environ).logins().slack()
+
+        assert (login.problem(), login.cookie(), login.workspace()) == ("", "PLACEHOLDER-cookie", "acme")
+
+    def test_a_user_token_sends_no_cookie_and_needs_the_workspace(self) -> None:
+        environ = {"BRIAR_ACME_CO_SLACK_TOKEN": FAKE_TOKEN, "BRIAR_ACME_CO_SLACK_COOKIE": "PLACEHOLDER-cookie"}
+
+        login = LoginsFor({}, environ).logins().slack()
+
+        assert login.cookie() == ""
+        assert login.problem() == "set `workspace` under `auth.slack` in .briar.toml (briar slack login for acme-co)"

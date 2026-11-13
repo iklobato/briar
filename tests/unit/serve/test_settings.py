@@ -92,3 +92,16 @@ class TestDefaults:
 
     def test_a_company_with_no_serve_block_is_left_alone(self) -> None:
         assert RunbookFile.model_validate({"companies": {"acme": {}}}).companies["acme"].serve is None
+
+
+class TestChat:
+    """Spec 008 C9: the team channels of Slack, by id."""
+
+    def test_no_chat_by_default(self) -> None:
+        assert ServeSettings.model_validate({**Required().block(), "repos": ["acme/app"]}).chat.slack is None
+
+    def test_a_channel_name_stops_the_load(self) -> None:
+        block = {**Required().block(), "repos": ["acme/app"], "chat": {"slack": {"channels": ["C0123ABC", "#general"]}}}
+
+        with pytest.raises(ValidationError, match=r"`chat.slack.channels` takes channel ids \(C0123ABC\), not names: #general"):
+            ServeSettings.model_validate(block)

@@ -44,6 +44,12 @@ class BitbucketMethod(str, enum.Enum):
     ACCESS_TOKEN = "access-token"
 
 
+class SlackMethod(str, enum.Enum):
+    # Spec 008 C2: a user token, or a browser session token with its `d` cookie.
+    TOKEN = "token"
+    SESSION = "session"
+
+
 class ApiKeyMethod(str, enum.Enum):
     # Linear: like H8, OAuth (the G5 default) arrives with spec 005 PR 4.
     API_KEY = "api-key"
@@ -89,6 +95,12 @@ class FirefliesAuth(SourceAuth):
     method: ApiKeyMethod = ApiKeyMethod.API_KEY
 
 
+class SlackAuth(SourceAuth):
+    method: SlackMethod = SlackMethod.TOKEN
+    # The workspace subdomain (`acme` of acme.slack.com): the check refuses a token of another one.
+    workspace: str = ""
+
+
 class AwsAuth(SourceAuth):
     profile: str = ""
 
@@ -111,6 +123,7 @@ class AuthBlock(SourceAuth):
     bitbucket: BitbucketAuth = Field(default_factory=BitbucketAuth)
     linear: LinearAuth = Field(default_factory=LinearAuth)
     fireflies: FirefliesAuth = Field(default_factory=FirefliesAuth)
+    slack: SlackAuth = Field(default_factory=SlackAuth)
     aws: AwsAuth = Field(default_factory=AwsAuth)
     gcp: GcpAuth = Field(default_factory=GcpAuth)
     azure: AzureAuth = Field(default_factory=AzureAuth)
