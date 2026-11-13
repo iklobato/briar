@@ -14,7 +14,7 @@ import pytest
 
 from briar.extract._tracker import Ticket
 from briar.iac.runbook.models import ServeSettings
-from briar.serve.agent import AgentAnswer, AgentRequest
+from briar.serve.agent import Access, AgentAnswer, AgentRequest
 from briar.serve.chat import ChatMessage, ChatReader
 from briar.serve.select import Choice, Score, Selector, Shortlist, Workable
 from briar.serve.state import WorkSource
@@ -140,6 +140,8 @@ class TestSelector:
         picked = asyncio.run(Setup(tmp_path).selector(agent).pick([tickets.plain(f"ENG-{index}") for index in range(1, MANY + 1)], SLOTS, {}))
 
         assert len(agent.requests) == 1 and agent.requests[0].prompt.count("\n- ENG-") == TOP
+        # The pick needs no tool: a call that may read paid for every tool of the CLI.
+        assert agent.requests[0].access is Access.ANSWER
         assert [(item.key, item.repo, item.reason, item.selection_cost) for item in picked] == [("ENG-3", "acme/api", "unblocks the release", SELECTION_COST)]
 
     def test_a_pick_outside_the_allowed_repos_or_the_shortlist_is_skipped(self, tmp_path: Path) -> None:

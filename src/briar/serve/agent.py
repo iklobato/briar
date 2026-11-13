@@ -20,8 +20,10 @@ from typing import Any, ClassVar, Dict, List, Mapping, Optional, Protocol, Seque
 
 
 class Access(Enum):
-    """What an agent call may do: read only (the plan, the self-review), or edit too."""
+    """What an agent call may do: answer from the prompt alone (the selector), read only (the
+    plan, the self-review), or edit too."""
 
+    ANSWER = "answer"
     READ = "read"
     EDIT = "edit"
 
@@ -183,7 +185,7 @@ class ToolGate:
         self._access = access
 
     def refusal(self, tool: str, tool_input: Mapping[str, Any]) -> str:
-        if self._access is Access.READ and tool in BashGuard.EDIT_TOOLS:
+        if self._access is not Access.EDIT and tool in BashGuard.EDIT_TOOLS:
             return "this step only reads: write the answer, do not edit files"
         return self._guard.refusal(tool, tool_input)
 
@@ -217,6 +219,7 @@ class ClaudeAgent:
     # With no list the CLI sends all its tools and the skill and agent lists: about 39k input
     # tokens per call, even when `ToolGate` refuses every one of them (validation run, 2026-11-12).
     TOOLS: ClassVar[Mapping[Access, Tuple[str, ...]]] = {
+        Access.ANSWER: (),
         Access.READ: (*BashGuard.READ_TOOLS, *BashGuard.FREE_TOOLS, "Bash"),
         Access.EDIT: (*BashGuard.READ_TOOLS, *BashGuard.FREE_TOOLS, "Bash", *BashGuard.EDIT_TOOLS),
     }

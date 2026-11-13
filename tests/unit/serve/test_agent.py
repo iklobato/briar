@@ -79,10 +79,11 @@ class TestClaudeAgent:
     @pytest.mark.parametrize(
         "case",
         [
+            ToolsCase(Access.ANSWER, []),
             ToolsCase(Access.READ, ["Read", "Glob", "Grep", "LS", "TodoWrite", "Bash"]),
             ToolsCase(Access.EDIT, ["Read", "Glob", "Grep", "LS", "TodoWrite", "Bash", "Edit", "MultiEdit", "Write", "NotebookEdit"]),
         ],
-        ids=["read", "edit"],
+        ids=["answer", "read", "edit"],
     )
     def test_the_cli_offers_only_the_tools_the_call_may_use(self, case: ToolsCase, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Validation run, 2026-11-12: with no tool list the CLI sent its 27 tools, the skill and

@@ -113,7 +113,7 @@ class Selector:
             return []
         shortlist = list(ranked[: self.SHORTLIST])
         system = Prompts().text("select", {"company": self._company.name, "slots": str(free)})
-        request = AgentRequest(Shortlist(shortlist, talk).text(), system, self._company.root, self._company.settings.max_usd, self.SCHEMA, Access.READ)
+        request = AgentRequest(Shortlist(shortlist, talk).text(), system, self._company.root, self._company.settings.max_usd, self.SCHEMA, Access.ANSWER)
         answer = await self._agent.ask(request)
         if answer.failed:
             self.LOG.error("serve: the selector failed: %s", answer.reason)
