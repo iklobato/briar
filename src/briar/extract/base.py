@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any, ClassVar, Dict, List, Optional
 
 from briar.auth.check import LoginTarget
+from briar.errors import CliError
 
 
 @dataclass
@@ -32,6 +33,12 @@ class ExtractedSection:
     @property
     def is_empty(self) -> bool:
         return not self.title
+
+
+class StepStopped(CliError):
+    """The source of a step failed (not "found nothing"): the run goes on, and the section
+    of the step from the run before stays (a validation run, 2026-11-13: a Slack token that
+    was not valid dropped the meeting section of the run before)."""
 
 
 def empty_section() -> ExtractedSection:

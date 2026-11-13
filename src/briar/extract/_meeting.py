@@ -18,8 +18,8 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from typing import ClassVar, List, Optional
+from dataclasses import dataclass, field, replace
+from typing import ClassVar, List
 
 from briar.auth.check import LoginRejected
 
@@ -80,6 +80,23 @@ class Meeting:
     url: str = ""
     summary: str = ""
     action_items: List[str] = field(default_factory=list)
+    # Names as the meeting tool heard them; the company filter matches them to members.
+    speakers: List[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class MeetingPage:
+    """One page of a date window: at most `size` meetings from the `skip`-th one, most recent
+    first. `since_iso` / `until_iso` are ISO-8601 timestamps."""
+
+    since_iso: str
+    until_iso: str
+    size: int
+    skip: int = 0
+
+    def after(self, seen: int) -> "MeetingPage":
+        """The page that starts after the `seen` meetings of this one."""
+        return replace(self, skip=self.skip + seen)
 
 
 @dataclass(frozen=True)
@@ -125,11 +142,9 @@ class MeetingProvider(ABC):
         provider was built for."""
 
     @abstractmethod
-    def list_meetings(self, *, since_iso: str, until_iso: str, max_count: int, attendees: Optional[List[str]] = None) -> List[Meeting]:
-        """List meetings within a date window. `since_iso` / `until_iso`
-        are ISO-8601 timestamps. `attendees` (optional) filters to
-        meetings where at least one attendee email matches; empty
-        list = no filter. Most-recent first."""
+    def list_meetings(self, page: MeetingPage) -> List[Meeting]:
+        """The meetings of one page of a date window. Which of them belong to the company is
+        decided by the caller (`MeetingFilter`)."""
 
     @abstractmethod
     def search_meetings(self, *, query: str, max_count: int) -> List[Meeting]:

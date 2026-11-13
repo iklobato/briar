@@ -22,6 +22,14 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 - `briar serve` skips a ticket that already has an open PR or MR by anyone but
   briar (its key in the branch, title or description, or a Jira remote link to it),
   and logs which one (spec 008 N6).
+- `meeting-digest` keeps only the meetings of the company, for a Fireflies key
+  that records several companies (a personal account): a new `title_any` list,
+  `attendee_allow` takes a whole `@domain` too, and a speaker who is a person of
+  the company (the people of its `jira_projects`, GitLab group members, Slack
+  workspace people, leaving out the account of each login) keeps a meeting. Any one signal is enough; with none, every meeting is kept.
+  Briar reads more pages until it has `max` meetings. `doctor --runbooks` and
+  `serve` warn when two companies use the same key and one has no filter.
+  `attendee_allow` is now matched by briar, not sent to Fireflies.
 - GitLab as a code host for `briar extract` (spec 008 PR 3a): `provider =
   "gitlab"`, a new `[auth.gitlab]` login (`BRIAR_<COMPANY>_GITLAB_TOKEN`, and
   `url` for a self-hosted GitLab) and the `python-gitlab` dependency
@@ -200,6 +208,9 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
   round now gets the earlier asks, and the limit report lists the open ones.
 - The selector call gets no tool at all, and a review round gets the verify commands
   in its prompt.
+- `briar extract` dropped the section of a step whose source failed (a Slack token
+  that was not valid stopped `meeting-digest`) as if it had found nothing. The section
+  of the last run now stays, and the run says the step stopped and why.
 - `extract --include active-tickets` said "25 open ticket(s)" when it cut
   the list at 25; it now says "first 25 of 881" (Jira counts the open tickets) or
   "first 25" when the tracker cannot count them.

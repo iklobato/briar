@@ -12,7 +12,7 @@ import logging
 import re
 from dataclasses import replace
 from functools import partial
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 
 from briar.auth.check import LoginRejected
 from briar.auth.logins import CompanyLogins, JiraLogin
@@ -62,6 +62,52 @@ class JiraLinks:
     def _open(self, issue: Any) -> bool:
         category = (((issue or {}).get("fields") or {}).get("status") or {}).get("statusCategory") or {}
         return bool(issue) and category.get("key") != self.DONE
+
+
+class JiraSiteClient:
+    """The atlassian client of a login, built as `JiraTracker` builds its own."""
+
+    TIMEOUT = 30
+
+    def __init__(self, login: JiraLogin) -> None:
+        self._login = login
+
+    def client(self) -> Any:
+        from atlassian import Jira
+
+        return Jira(url=self._login.site_url(), cloud=True, timeout=self.TIMEOUT, **JiraAuths.for_login(self._login).configure(self._login))
+
+
+class JiraMembers:
+    """The people of the company in Jira, for the company filter of the meetings (F3b):
+    active accounts of people, not apps. With projects, the people who can be assigned there
+    (a real run: a plain account got 403 `error.no-permission` on `users/search`); without,
+    every user of the site. Jira may give fewer than asked before the end, so the pages go
+    on until an empty one."""
+
+    source = "jira"
+    PAGE = 1000
+    PERSON = "atlassian"
+
+    def __init__(self, client: Any, projects: Sequence[str]) -> None:
+        self._client = client
+        self._projects = projects
+
+    def names(self) -> List[str]:
+        return RequestsFailures().answer(self._people)
+
+    def _people(self) -> List[str]:
+        """F5: the account of the login is left out (it speaks in the meetings of every company)."""
+        owner = self._client.myself().get("accountId")
+        pages = [partial(self._client.get_all_assignable_users_for_project, project) for project in self._projects]
+        users = [user for page in pages or [self._client.users_get_all] for user in self._all(page) if user.get("accountId") != owner]
+        return [str(user.get("displayName") or "") for user in users if user.get("accountType") == self.PERSON and user.get("active")]
+
+    def _all(self, page: Callable[..., Any]) -> List[Dict[str, Any]]:
+        found: List[Dict[str, Any]] = []
+        while rows := page(start=len(found), limit=self.PAGE) or []:
+            found.extend(rows)
+        return found
 
 
 class JiraOpenCount:

@@ -28,7 +28,7 @@ class SlackApi:
     # Without `Retry-After`: 1, 2, 4 seconds.
     BACKOFF_BASE = 2
     RETRY_STATUS: ClassVar[FrozenSet[int]] = frozenset({429, 500, 502, 503, 504})
-    READ_METHODS: ClassVar[FrozenSet[str]] = frozenset({"auth.test", "conversations.info", "conversations.replies", "search.messages"})
+    READ_METHODS: ClassVar[FrozenSet[str]] = frozenset({"auth.test", "conversations.info", "conversations.replies", "search.messages", "users.list"})
 
     def __init__(self, login: SlackLogin, transport: Optional[httpx.BaseTransport], wait: Callable[[float], None] = time.sleep) -> None:
         self._login = login
@@ -139,4 +139,35 @@ class SlackSource:
         return bool(message.get("bot_id")) or not message.get("user")
 
 
-__all__ = ["SlackApi", "SlackSource"]
+class SlackMembers:
+    """The people of the Slack workspace, for the company filter of the meetings (F3b): no
+    bots, no deleted accounts, page by page."""
+
+    source = "slack"
+    # Slack asks for at most 200 per page of `users.list`.
+    PAGE = 200
+    SLACKBOT = "USLACKBOT"
+
+    def __init__(self, api: SlackApi) -> None:
+        self._api = api
+
+    def names(self) -> List[str]:
+        """F5: the user of the token is left out (it speaks in the meetings of every company)."""
+        owner = str(self._api.call("auth.test", {}).get("user_id") or "")
+        names: List[str] = []
+        cursor = ""
+        while True:
+            found = self._api.call("users.list", {"limit": self.PAGE, **({"cursor": cursor} if cursor else {})})
+            names += [self._name(member) for member in found.get("members") or [] if self._person(member) and member.get("id") != owner]
+            cursor = str((found.get("response_metadata") or {}).get("next_cursor") or "")
+            if not cursor:
+                return names
+
+    def _person(self, member: Mapping[str, Any]) -> bool:
+        return not (member.get("deleted") or member.get("is_bot") or member.get("id") == self.SLACKBOT)
+
+    def _name(self, member: Mapping[str, Any]) -> str:
+        return str(member.get("real_name") or (member.get("profile") or {}).get("real_name") or "")
+
+
+__all__ = ["SlackApi", "SlackMembers", "SlackSource"]

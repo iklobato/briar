@@ -22,7 +22,7 @@ from briar.auth.logins import CompanyLogins, LoginScope
 from briar.commands.base import Command
 from briar.errors import CliError
 from briar.extract import EXTRACTORS
-from briar.extract.base import ExtractedSection, KnowledgeExtractor
+from briar.extract.base import ExtractedSection, KnowledgeExtractor, StepStopped
 from briar.extract.canonical import SHARED_CONCEPTS, OptionConcept, _ReplaceDefaultAppend, apply_canonical
 from briar.extract.composer import KnowledgeComposer, render_markdown
 from briar.settings import BriarSettings
@@ -49,6 +49,8 @@ class ExtractorKeys:
         "aws_extract_region": "region",
         "aws_extract_service": "services",
         "meeting_attendee_allow": "attendee_allow",
+        "meeting_title_any": "title_any",
+        "meeting_jira_project": "jira_projects",
         "prhygiene_large_loc": "large_loc",
         "gov_branch": "branch",
         "stale_days": "days",
@@ -350,8 +352,12 @@ class CommandExtract(Command):
 
     def _run_one(self, step: ExtractStep, outcome: ExtractRun) -> None:
         _status(f"  running {step.extractor.name} ...")
+        try:
+            section = step.extractor.extract(step.namespace)
+        except StepStopped as stop:
+            _status(f"  {step.extractor.name} stopped: {stop}; its section of the last run stays")
+            return
         outcome.refreshed.append(step.extractor.heading)
-        section = step.extractor.extract(step.namespace)
         if section.is_empty:
             _status(f"  {step.extractor.name}: no data")
             return

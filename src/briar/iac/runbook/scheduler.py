@@ -120,7 +120,11 @@ class RunbookScheduler:
 
     def check_logins(self) -> None:
         """J8: every company and task of every runbook passes the login check before
-        `serve` starts, or it does not start."""
+        `serve` starts, or it does not start. A Fireflies key shared with no filter only warns (F11)."""
+        from briar.iac.runbook.meeting_keys import SharedMeetingKeys
+
+        for warning in SharedMeetingKeys(self._dir).warnings():
+            log.warning("meeting key: %s", warning)
         found = self.login_results()
         if not all(line.passed() for line in found):
             raise LoginCheckFailed.from_results(found)
