@@ -114,6 +114,32 @@ class TestNothingToChange:
         assert tracker.moves == [("ENG-1", "In Progress")]
 
 
+class TestNoSilencedSecretScanner:
+    """Real run, 2026-11-13: a secret scan failed on an MR that re-flowed two lines holding
+    plain database passwords; to pass CI the agent wrote `.gitleaksignore` with their
+    fingerprints, and briar pushed it and marked the MR ready."""
+
+    def test_an_ignore_file_of_a_secret_scanner_is_never_pushed(self, setups: Setups) -> None:
+        setup = setups.make({"verify": [CLEAN]})
+        agent = ScriptedAgent([Plans().plan(), Step(writes={**Files().feature(), ".gitleaksignore": "abc:app.tfvars:generic-api-key:13\n"})])
+
+        setup.work_on(agent, Items().jira())
+
+        report = setup.sources.tracker_side.comments[-1][1]
+        assert (setup.entry("ENG-1").status, len(agent.requests)) == (WorkStatus.BLOCKED, TWO_STEPS)
+        assert report.startswith("briar stopped: the change silences a secret scanner (.gitleaksignore)")
+        assert ".gitleaksignore" not in setup.origin.files("briar/ENG-1")
+
+    def test_an_allow_comment_of_a_secret_scanner_is_never_pushed(self, setups: Setups) -> None:
+        setup = setups.make({"verify": [CLEAN]})
+        agent = ScriptedAgent([Plans().plan(), Step(writes={"app.tfvars": 'password = "x" # gitleaks:allow\n'})])
+
+        setup.work_on(agent, Items().jira())
+
+        assert setup.sources.tracker_side.comments[-1][1].startswith("briar stopped: the change silences a secret scanner (app.tfvars)")
+        assert "app.tfvars" not in setup.origin.files("briar/ENG-1")
+
+
 class TestLoops:
     def test_a_failed_verify_is_fixed_by_the_agent(self, setups: Setups) -> None:
         # A verify that passes on the base, as a test suite does, and fails on a bad change.

@@ -61,6 +61,9 @@ and `docs/decisions/2026-11-11-briar-2-review-routine.md`.
 
    The agent only edits files in the worktree and runs the allowed commands: the
    commits, the push, the PR, the comments and the status moves are done by briar.
+   briar never commits a change that silences a secret scanner (`.gitleaksignore`,
+   `# gitleaks:allow`, a secrets baseline): it drops that part and the task stops
+   `blocked`, since a secret finding needs a person.
 6. Gives each PR with new review comments, or in conflict with its base, a review
    round:
    1. the worktree is brought up to the branch on GitHub (a fast forward: a

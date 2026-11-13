@@ -195,6 +195,10 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Fixed
 
+- `briar serve` never commits a change that silences a secret scanner (an ignore or
+  baseline file of gitleaks, GitGuardian, detect-secrets or trufflehog, or an added
+  allow comment): it drops that part and stops the task for a person. In a real run the
+  agent wrote `.gitleaksignore` with the fingerprints of two real passwords to pass CI.
 - `briar serve` opened an empty PR or MR when the agent found nothing to change (an
   operations ticket). The task now stops with a report on the ticket and pushes nothing.
 - A limit hit while `briar serve` waited for CI crashed the task (GitHub refuses to make

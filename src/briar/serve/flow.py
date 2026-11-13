@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
-from typing import Any, ClassVar, List, Mapping
+from pathlib import PurePosixPath
+from typing import Any, ClassVar, FrozenSet, List, Mapping
 
 from briar.errors import CliError
 from briar.extract._provider import CiState, PullRequestDraft
@@ -17,6 +19,31 @@ from briar.serve.git import Shell
 from briar.serve.state import WorkSource, WorkStatus
 from briar.serve.task import AgentSteps, Budget, LimitHit, Plan, TaskContext
 from briar.serve.work import Marker, WorkItem, WorkSources
+
+
+class ScannerSilencing:
+    """The files of a staged diff that silence a secret scanner: its ignore or baseline file,
+    or an added line with its allow comment. A real run (2026-11-13): to pass a failed secret
+    scan the agent wrote `.gitleaksignore` with the fingerprints of two real passwords."""
+
+    FILES: ClassVar[FrozenSet[str]] = frozenset({".gitleaksignore", ".secrets.baseline", ".gitguardian.yaml", ".gitguardian.yml", ".trufflehogignore"})
+    MARKS: ClassVar["re.Pattern[str]"] = re.compile(r"gitleaks:allow|pragma: allowlist secret|ggignore|trufflehog:ignore", re.IGNORECASE)
+    NEW_FILE = "+++ b/"
+
+    def __init__(self, diff: str) -> None:
+        self._diff = diff
+
+    def files(self) -> List[str]:
+        found: List[str] = []
+        current = ""
+        for line in self._diff.splitlines():
+            if line.startswith("+++ "):
+                current = line[len(self.NEW_FILE) :] if line.startswith(self.NEW_FILE) else ""
+                continue
+            silences = PurePosixPath(current).name in self.FILES or (line.startswith("+") and bool(self.MARKS.search(line)))
+            if current and silences and current not in found:
+                found.append(current)
+        return found
 
 
 class TicketSide:
@@ -139,7 +166,17 @@ class TaskFlow:
         return bool(self._context.checkout.diff(self._context.worktree, self._context.base).strip())
 
     def commit(self, what: str) -> bool:
+        self._refuse_silenced_scanners()
         return self._context.checkout.commit_all(self._context.worktree, f"{self._context.item.ref()}: {what}", self._context.identity)
+
+    def _refuse_silenced_scanners(self) -> None:
+        """Nothing that silences a secret scanner is committed: briar drops it and stops, since
+        a secret finding needs a person (rotate it, or mark a false positive by hand)."""
+        checkout, worktree = self._context.checkout, self._context.worktree
+        silenced = ScannerSilencing(checkout.staged_diff(worktree)).files()
+        if silenced:
+            checkout.drop(worktree, silenced)
+            raise LimitHit(f"the change silences a secret scanner ({', '.join(silenced)}); briar dropped that part. A secret finding needs a person: rotate the secret, or mark a false positive by hand")
 
     async def _fix_ci(self, number: int) -> None:
         self._budget.next_loop("CI")

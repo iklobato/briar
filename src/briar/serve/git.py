@@ -166,6 +166,20 @@ class RepoCheckout:
         self._git(["add", "-A"], path, "")
         self._git([*identity.args(), "commit", "--no-edit"], path, "")
 
+    def staged_diff(self, path: Path) -> str:
+        """Every change of the worktree, staged: what the next commit holds."""
+        self._git(["add", "-A"], path, "")
+        return self._git(["diff", "--cached"], path, "").output
+
+    def drop(self, path: Path, files: Sequence[str]) -> None:
+        """Take `files` back to HEAD: a changed file is restored, a new one is deleted."""
+        for name in files:
+            self._git(["reset", "-q", "--", name], path, "")
+            if self._shell.program(["git", "cat-file", "-e", f"HEAD:{name}"], path).ok():
+                self._git(["checkout", "HEAD", "--", name], path, "")
+                continue
+            (path / name).unlink(missing_ok=True)
+
     def commit_all(self, path: Path, message: str, identity: GitIdentity) -> bool:
         """Commit every change of the worktree; False when there was nothing to commit."""
         self._git(["add", "-A"], path, "")
