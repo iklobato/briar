@@ -160,6 +160,8 @@ companies:
       max_new_per_day: 5              # optional: new tickets started per UTC day (0, the default, is no limit)
       poll_minutes: 5                 # optional
       verify: ["make lint", "make test"]
+      verify_by_repo:                 # optional: a repo's own verify commands (others use `verify`)
+        acme/infra: ["terraform fmt -check -recursive"]
       bash: [git, make, pytest]       # optional: the programs the agent may run (replaces the default list)
       review_bots: ["coderabbitai[bot]"]   # optional: bots whose PR comments briar answers
       allowed_domains: [pypi.org]     # optional: what the bash of the agent may reach; none by default

@@ -219,7 +219,7 @@ class TaskFlow:
     def _failures_at(self, revision: str) -> str:
         checkout, worktree, shell = self._context.checkout, self._context.worktree, Shell()
         copy = checkout.verify_copy(worktree, revision)
-        found = [(command, shell.line(command, copy)) for command in self._context.company.settings.verify]
+        found = [(command, shell.line(command, copy)) for command in self._context.company.settings.verify_for(self._context.item.repo)]
         checkout.drop_copy(worktree, copy)
         results = ", ".join(f"`{command}` {'ok' if done.ok() else f'exit {done.code}'}" for command, done in found) or "no verify commands set"
         self.LOG.info("serve: %s verify on %s: %s", self._context.item.ref(), revision, results)

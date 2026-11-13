@@ -276,7 +276,7 @@ class AgentSteps:
         return {"key": self._context.item.ref(), "title": self._context.item.title}
 
     def _verify(self) -> str:
-        return "\n".join(f"- `{command}`" for command in self._context.company.settings.verify) or "- (no verify commands set)"
+        return "\n".join(f"- `{command}`" for command in self._context.company.settings.verify_for(self._context.item.repo)) or "- (no verify commands set)"
 
     def _known(self, path: Path) -> str:
         """A real run sent the agent to read files that did not exist yet."""

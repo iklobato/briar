@@ -114,6 +114,30 @@ class TestNothingToChange:
         assert tracker.moves == [("ENG-1", "In Progress")]
 
 
+class TestVerifyPerRepo:
+    """Decision C1 of the autonomous serve: one company has Python and Terraform repos, so the
+    runbook maps each repo to its own verify commands; `verify` stays the default."""
+
+    def test_the_commands_of_the_repo_of_the_task_run(self, setups: Setups, caplog: pytest.LogCaptureFixture) -> None:
+        caplog.set_level(logging.INFO, logger="briar.serve.flow")
+        setup = setups.make({"verify": ["false"], "verify_by_repo": {"acme/app": [CLEAN], "acme/api": ["false"]}})
+
+        setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()]), Items().jira())
+
+        assert setup.entry("ENG-1").status is WorkStatus.DONE
+        assert f"serve: ENG-1 verify on HEAD: `{CLEAN}` ok" in caplog.text
+
+    def test_a_repo_with_no_commands_and_no_default_relies_on_ci_only(self, setups: Setups, caplog: pytest.LogCaptureFixture) -> None:
+        """Decision C3: no local verify; the MR CI is the only check."""
+        caplog.set_level(logging.INFO, logger="briar.serve.flow")
+        setup = setups.make({"verify": [], "verify_by_repo": {"acme/api": ["false"]}})
+
+        setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()]), Items().jira())
+
+        assert setup.entry("ENG-1").status is WorkStatus.DONE
+        assert "serve: ENG-1 verify on HEAD: no verify commands set" in caplog.text
+
+
 class TestSilentPlan:
     """Decision D1 of the autonomous serve: the plan comes first and writes nothing; only a
     plan with a code change is posted, moves the ticket and builds. A real run (2026-11-13)

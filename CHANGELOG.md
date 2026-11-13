@@ -14,6 +14,8 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Added
 
+- `serve.verify_by_repo`: the verify commands of one repo; the others use `verify`.
+  A repo with no commands at all relies on the MR CI only.
 - `serve.max_new_per_day`: at most that many new tickets a company starts in one UTC
   day (tasks already started go on); 0, the default, is no limit.
 - The plan of a `briar serve` task says whether the ticket needs a code change. A plan
