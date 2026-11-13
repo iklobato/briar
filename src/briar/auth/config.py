@@ -33,6 +33,10 @@ class GithubMethod(str, enum.Enum):
     TOKEN = "token"
 
 
+class GitlabMethod(str, enum.Enum):
+    TOKEN = "token"
+
+
 class JiraMethod(str, enum.Enum):
     TOKEN = "token"
     COOKIE = "cookie"
@@ -81,6 +85,26 @@ class JiraAuth(SourceAuth):
         return f"{parts.scheme}://{parts.netloc}"
 
 
+class GitlabAuth(SourceAuth):
+    """G18: gitlab.com, or the origin of a self-hosted GitLab."""
+
+    method: GitlabMethod = GitlabMethod.TOKEN
+    url: str = "https://gitlab.com"
+
+    HOSTED: ClassVar[str] = "https://gitlab.com"
+
+    @field_validator("url")
+    @classmethod
+    def _origin_only(cls, url: str) -> str:
+        """Like the Jira site: `gitlab.acme.test` and a pasted project URL give the origin.
+        ponytail: a GitLab served under a sub path is not kept; add the path when one shows up."""
+        raw = url.strip()
+        if not raw:
+            return cls.HOSTED
+        parts = urlsplit(raw if "://" in raw else f"{JiraAuth.SCHEME}://{raw}")
+        return f"{parts.scheme}://{parts.netloc}"
+
+
 class BitbucketAuth(SourceAuth):
     method: BitbucketMethod = BitbucketMethod.TOKEN
     workspace: str = ""
@@ -121,6 +145,7 @@ class AuthBlock(SourceAuth):
     github: GithubAuth = Field(default_factory=GithubAuth)
     jira: JiraAuth = Field(default_factory=JiraAuth)
     bitbucket: BitbucketAuth = Field(default_factory=BitbucketAuth)
+    gitlab: GitlabAuth = Field(default_factory=GitlabAuth)
     linear: LinearAuth = Field(default_factory=LinearAuth)
     fireflies: FirefliesAuth = Field(default_factory=FirefliesAuth)
     slack: SlackAuth = Field(default_factory=SlackAuth)

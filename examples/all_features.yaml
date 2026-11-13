@@ -553,7 +553,7 @@ companies:
 #                    companies on `hour` don't fire at the same minute.
 #   "monday at HH:MM"  weekly deep mining (reviewer-profile, archaeology).
 #
-# All providers are pluggable. To add GitLab (repo + tracker), add one
-# file to extract/_providers/ + one to extract/_trackers/ + register
-# in the tuple; runbooks reference `provider: gitlab` / `tracker:
-# gitlab-issues` immediately. Same for new clouds.
+# All providers are pluggable: github, bitbucket and gitlab today. To add
+# one (repo or tracker), add one file to extract/_providers/ or
+# extract/_trackers/ and register it in the tuple; runbooks reference
+# `provider: <name>` / `tracker: <name>` at once. Same for new clouds.

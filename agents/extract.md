@@ -3,7 +3,7 @@
 ## What it does
 
 `briar extract` reads the live state of your tools and writes it to one
-markdown file. Sources are GitHub or Bitbucket, Jira or Linear, AWS (or
+markdown file. Sources are GitHub, Bitbucket or GitLab, Jira or Linear, AWS (or
 GCP / Azure), and Fireflies meetings. The result is called a knowledge
 blob (a named markdown document that briar stores for you). Its default
 name is `knowledge:<company>`, for example `knowledge:acme`.
@@ -39,7 +39,7 @@ choices (Jira `site`, Bitbucket `workspace`, the method) go in `[auth]` of
 
 | Extractors | What they need |
 |---|---|
-| Every repo extractor (the 19 in "Repo extractors" below). | `BRIAR_ACME_GITHUB_TOKEN`. With `provider = "bitbucket"`: the Bitbucket login (`BRIAR_ACME_BITBUCKET_EMAIL` and `BRIAR_ACME_BITBUCKET_TOKEN`, or an access token) and `workspace` under `[auth.bitbucket]`. |
+| Every repo extractor (the 19 in "Repo extractors" below). | `BRIAR_ACME_GITHUB_TOKEN`. With `provider = "bitbucket"`: the Bitbucket login (`BRIAR_ACME_BITBUCKET_EMAIL` and `BRIAR_ACME_BITBUCKET_TOKEN`, or an access token) and `workspace` under `[auth.bitbucket]`. With `provider = "gitlab"`: `BRIAR_ACME_GITLAB_TOKEN`, and `url` under `[auth.gitlab]` for a self-hosted GitLab. |
 | `dependency-health`, `code-scanning`. | A GitHub token that can read security alerts (Dependabot alerts and code scanning alerts: read). |
 | `active-tickets`, `ticket-archaeology`. | Jira: `site` under `[auth.jira]` plus `BRIAR_ACME_JIRA_EMAIL` and `BRIAR_ACME_JIRA_TOKEN` (or the cookie). Linear: `BRIAR_ACME_LINEAR_API_KEY`. GitHub Issues: `BRIAR_ACME_GITHUB_TOKEN`. |
 | `aws-infra`. | AWS: the profile in `[auth.aws] profile` (log in with `aws sso login --profile P`), or the boto3 default chain. GCP (`cloud = "gcp"`): `[auth.gcp] project` and the ADC of `config_dir`. Azure (`cloud = "azure"`): `[auth.azure] subscription` and the `az` login of `tenant`. The `tagging-inventory` part also needs the `tag:GetResources` permission. |
@@ -141,8 +141,16 @@ run `briar extract --company acme --repo acme-co/acme-app --include <name>`.
 ### Repo extractors
 
 These read a code host. They need a repo list and a repo token. All of
-them take `--repo`, and `provider = "github"` (default) or `"bitbucket"`
-(in `[repo]`, `[extract]` or `[extract.<name>]`).
+them take `--repo`, and `provider = "github"` (default), `"bitbucket"` or
+`"gitlab"` (in `[repo]`, `[extract]` or `[extract.<name>]`).
+
+On GitLab a repo is the full project path, of any depth
+(`--repo acme/platform/app`), and a pull request is a merge request. Every
+repo extractor works there except two: `dependency-health` and
+`code-scanning` find nothing, since GitLab has no free API for those alerts.
+`repo-governance` counts approval rules only on a GitLab plan that has them.
+GitLab code search has no `OR`, so `todo-density` searches each marker word
+on its own.
 
 PR and review history:
 
@@ -357,30 +365,30 @@ from the code; a test fails when this table and the code differ):
 | `active-work` | `assignees_block` | `[]` |  |
 | `active-work` | `authors_allow` | `[]` |  |
 | `active-work` | `authors_block` | `[]` |  |
-| `active-work` | `provider` | `"github"` | github, bitbucket |
+| `active-work` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `aws-infra` | `cloud` | `"aws"` | aws, gcp, azure |
 | `aws-infra` | `region` | `""` |  |
 | `aws-infra` | `services` | `[]` | ecs, lambda, logs, rds, sqs, tagging-inventory |
 | `ci-health` | `max` | `100` |  |
-| `ci-health` | `provider` | `"github"` | github, bitbucket |
+| `ci-health` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `code-hotspots` | `max` | `100` |  |
-| `code-hotspots` | `provider` | `"github"` | github, bitbucket |
+| `code-hotspots` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `code-hotspots` | `since_days` | `30` |  |
 | `code-hotspots` | `top_n` | `10` |  |
 | `code-scanning` | `max` | `200` |  |
-| `code-scanning` | `provider` | `"github"` | github, bitbucket |
+| `code-scanning` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `code-scanning` | `top_n` | `10` |  |
-| `codebase-conventions` | `provider` | `"github"` | github, bitbucket |
+| `codebase-conventions` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `commit-message-quality` | `max` | `200` |  |
-| `commit-message-quality` | `provider` | `"github"` | github, bitbucket |
+| `commit-message-quality` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `commit-message-quality` | `since_days` | `90` |  |
 | `defect-hotspots` | `max` | `200` |  |
-| `defect-hotspots` | `provider` | `"github"` | github, bitbucket |
+| `defect-hotspots` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `defect-hotspots` | `since_days` | `90` |  |
 | `defect-hotspots` | `top_n` | `10` |  |
 | `dependency-health` | `max` | `200` |  |
-| `dependency-health` | `provider` | `"github"` | github, bitbucket |
-| `github-deployments` | `provider` | `"github"` | github, bitbucket |
+| `dependency-health` | `provider` | `"github"` | github, bitbucket, gitlab |
+| `github-deployments` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `meeting-digest` | `attendee_allow` | `[]` |  |
 | `meeting-digest` | `max` | `25` |  |
 | `meeting-digest` | `meeting` | `"fireflies"` | fireflies |
@@ -390,34 +398,34 @@ from the code; a test fails when this table and the code differ):
 | `pr-archaeology` | `authors_allow` | `[]` |  |
 | `pr-archaeology` | `authors_block` | `[]` |  |
 | `pr-archaeology` | `max` | `100` |  |
-| `pr-archaeology` | `provider` | `"github"` | github, bitbucket |
+| `pr-archaeology` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `pr-hygiene` | `large_loc` | `400` |  |
 | `pr-hygiene` | `max` | `100` |  |
-| `pr-hygiene` | `provider` | `"github"` | github, bitbucket |
+| `pr-hygiene` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `pr-hygiene` | `sample` | `30` |  |
 | `release-cadence` | `max` | `100` |  |
-| `release-cadence` | `provider` | `"github"` | github, bitbucket |
+| `release-cadence` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `repo-governance` | `branch` | `""` |  |
-| `repo-governance` | `provider` | `"github"` | github, bitbucket |
+| `repo-governance` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `revert-signals` | `max` | `200` |  |
-| `revert-signals` | `provider` | `"github"` | github, bitbucket |
+| `revert-signals` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `revert-signals` | `since_days` | `90` |  |
-| `review-nits` | `provider` | `"github"` | github, bitbucket |
+| `review-nits` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `review-nits` | `sample` | `30` |  |
 | `review-nits` | `top_n` | `15` |  |
-| `reviewer-profile` | `provider` | `"github"` | github, bitbucket |
+| `reviewer-profile` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `reviewer-profile` | `sample` | `20` |  |
 | `reviewer-profile` | `top_n` | `5` |  |
 | `stale-prs` | `days` | `14` |  |
 | `stale-prs` | `max` | `100` |  |
-| `stale-prs` | `provider` | `"github"` | github, bitbucket |
-| `test-discipline` | `provider` | `"github"` | github, bitbucket |
+| `stale-prs` | `provider` | `"github"` | github, bitbucket, gitlab |
+| `test-discipline` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `test-discipline` | `top_n` | `10` |  |
 | `ticket-archaeology` | `max` | `100` |  |
 | `ticket-archaeology` | `projects` | `[]` |  |
 | `ticket-archaeology` | `tracker` | `"jira"` | jira, github-issues, bitbucket-issues, linear |
 | `todo-density` | `max` | `200` |  |
-| `todo-density` | `provider` | `"github"` | github, bitbucket |
+| `todo-density` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `todo-density` | `top_n` | `10` |  |
 <!-- END extract-keys -->
 

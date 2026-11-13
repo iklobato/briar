@@ -345,12 +345,14 @@ class RepositoryProvider(ABC):
         convention (`x-access-token@` for GitHub, `x-token-auth@` for
         Bitbucket, …). The actual URL passed to `git clone`."""
 
-    @abstractmethod
     def pr_creation_recipe(self, *, owner: str, repo: str, branch: str, base: str = "") -> str:
         """Procedure lines 6-7 of the engineer archetype's instruction
         string — the vendor-specific recipe for opening a draft PR.
         `base` is the branch the PR targets; empty means the repo's
-        default branch. Returned as ready-to-splice markdown."""
+        default branch. Returned as ready-to-splice markdown.
+
+        Nothing calls it since `briar plan` went away (`a101026`); GitLab gives none."""
+        return ""
 
     @abstractmethod
     def list_pulls(self, repo: str, *, state: str, max_count: int) -> List[PullRequest]:

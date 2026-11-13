@@ -357,7 +357,7 @@ class TestProviderChoice:
         assert seam.make_provider.call_args.args[0] == "github"
 
     def test_provider_invalid_choice_exits_1(self, cli: Callable[..., SimpleNamespace], tmp_root: Path, seam: SimpleNamespace) -> None:
-        run = _run(cli, tmp_root, "pr-archaeology", "--pr-repo", "o/r", "--provider", "gitlab")
+        run = _run(cli, tmp_root, "pr-archaeology", "--pr-repo", "o/r", "--provider", "forgejo")
         assert run.code == 1
         assert "is not one of" in run.err
 

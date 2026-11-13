@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, ClassVar, Dict, List, Mapping, Optional, Tuple, Type
 
-from briar.auth.config import AuthBlock, AwsAuth, AzureAuth, BitbucketAuth, GcpAuth, GithubAuth, JiraAuth, SlackAuth, SourceAuth
+from briar.auth.config import AuthBlock, AwsAuth, AzureAuth, BitbucketAuth, GcpAuth, GithubAuth, GitlabAuth, JiraAuth, SlackAuth, SourceAuth
 from briar.credentials._paths import secrets_path
 from briar.errors import CliError
 
@@ -323,6 +323,26 @@ class GithubLogin(SourceLogin):
         return self._github.host
 
 
+class GitlabLogin(SourceLogin):
+    """G18: a personal, group or project access token; `url` is gitlab.com or a self-hosted origin."""
+
+    SOURCE = "gitlab"
+    FIELDS = {"token": (SecretField("TOKEN"),)}
+    HELP = {
+        "token": "Create a personal access token at <url>/-/user_settings/personal_access_tokens: `read_api` for `briar extract`, `api` and `write_repository` for `briar serve`"
+    }
+
+    def __init__(self, scope: LoginScope, settings: GitlabAuth, environ: Mapping[str, str]) -> None:
+        super().__init__(scope, settings, environ)
+        self._gitlab = settings
+
+    def token(self) -> str:
+        return self.secret("TOKEN")
+
+    def url(self) -> str:
+        return self._gitlab.url
+
+
 class CliLogin(SourceLogin, ABC):
     """A source whose login lives in its own CLI (L3, L14, I1 to I3): a person runs the
     CLI login; runs read what the CLI keeps."""
@@ -434,6 +454,7 @@ class CompanyLogins:
         "github": GithubLogin,
         "jira": JiraLogin,
         "bitbucket": BitbucketLogin,
+        "gitlab": GitlabLogin,
         "linear": LinearLogin,
         "fireflies": FirefliesLogin,
         "slack": SlackLogin,
@@ -484,6 +505,9 @@ class CompanyLogins:
     def bitbucket(self) -> BitbucketLogin:
         return BitbucketLogin(self._scope, self._block.bitbucket, self._environ)
 
+    def gitlab(self) -> GitlabLogin:
+        return GitlabLogin(self._scope, self._block.gitlab, self._environ)
+
     def linear(self) -> LinearLogin:
         return LinearLogin(self._scope, self._block.linear, self._environ)
 
@@ -512,6 +536,7 @@ __all__ = [
     "CompanyLogins",
     "FirefliesLogin",
     "GithubLogin",
+    "GitlabLogin",
     "JiraLogin",
     "SlackLogin",
     "LegacyName",

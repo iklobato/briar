@@ -78,7 +78,7 @@ class GraphqlAnswers:
 class TestAvailableWithoutALogin:
     """J15: the login no longer decides `is_available`; the check before the run does."""
 
-    @pytest.mark.parametrize("kind", ["github", "bitbucket"])
+    @pytest.mark.parametrize("kind", ["github", "bitbucket", "gitlab"])
     def test_repo_hosts(self, kind: str) -> None:
         assert make_provider(kind, FakeLogins().logins()).is_available() is True
 

@@ -682,6 +682,21 @@ subscription set up for it), the Bitbucket cookie (fakes only, H3) and the
 Bitbucket access token path. Keep account ids and emails out of the repo
 and the PRs.
 
+### Spec 008: work selection, part 3a of 4 (branch `gitlab/3a-extract`)
+
+- Decisions: `docs/decisions/2026-11-12-briar-2-work-selection-pr3.md` (G1 to G20).
+  Base `v2`; parts 1 and 2 (selector, Slack) are separate PRs.
+- `[auth.gitlab]` login, `python-gitlab` 8.6 (LGPL-3.0-or-later), `GitlabProvider`
+  (`src/briar/extract/_providers/gitlab.py`) for every repo extractor; `provider = "gitlab"`.
+- Real run, 2026-11-12, read only, a new `read_api` token, two projects of a real company
+  GitLab (5 levels deep), all 19 repo extractors: the first run found three gaps (the
+  python-gitlab error class, a missing file logged as an error 28 times, no `OR` in blob
+  search), fixed in `39d0cc0`. The second run: exit 0, no error, 16 of 19 sections (no code
+  scanning or dependency alerts on GitLab, no releases in those projects), 393 s. Most of
+  the time is in the four commit extractors (41 to 68 s each) and `pr-hygiene` (61 s): each
+  reads the same commits and up to 50 commit diffs per repo again, as on GitHub.
+- Not run: a self-hosted GitLab, a group or project access token.
+
 ## 3. How the command line works now
 
 ```

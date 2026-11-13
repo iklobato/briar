@@ -53,7 +53,7 @@ class TestAuthTable:
         "case",
         [
             BadBlock(
-                {"auth": {"jiraa": {}}}, "`auth.jiraa` in /repo/.briar.toml: unknown key; allowed: github, jira, bitbucket, linear, fireflies, slack, aws, gcp, azure"
+                {"auth": {"jiraa": {}}}, "`auth.jiraa` in /repo/.briar.toml: unknown key; allowed: github, jira, bitbucket, gitlab, linear, fireflies, slack, aws, gcp, azure"
             ),
             BadBlock({"auth": {"jira": {"metod": "token"}}}, "`auth.jira.metod` in /repo/.briar.toml: unknown key; allowed: method, site, user_agent"),
             BadBlock({"auth": {"jira": {"method": "password"}}}, "`auth.jira.method` in /repo/.briar.toml: Input should be 'token' or 'cookie'"),
@@ -88,6 +88,24 @@ class TestJiraSite:
     )
     def test_keeps_the_scheme_and_the_host(self, case: SiteCase) -> None:
         assert AuthTable({"auth": {"jira": {"site": case.written}}}, ORIGIN).block().jira.site == case.kept
+
+
+class TestGitlabUrl:
+    @pytest.mark.parametrize(
+        "case",
+        [
+            SiteCase("gitlab.acme.test", "https://gitlab.acme.test"),
+            SiteCase("https://gitlab.acme.test/group/app/", "https://gitlab.acme.test"),
+            SiteCase("http://127.0.0.1:8080", "http://127.0.0.1:8080"),
+            SiteCase("  ", "https://gitlab.com"),
+        ],
+        ids=["host", "url with a path", "local http", "blank"],
+    )
+    def test_keeps_the_scheme_and_the_host(self, case: SiteCase) -> None:
+        assert AuthTable({"auth": {"gitlab": {"url": case.written}}}, ORIGIN).block().gitlab.url == case.kept
+
+    def test_unset_is_gitlab_com(self) -> None:
+        assert AuthTable({}, ORIGIN).block().gitlab.url == "https://gitlab.com"
 
 
 class TestRunbookBlock:
