@@ -82,7 +82,7 @@ class TestGit:
 
         message = str(caught.value)
         command = f"git clone file://{tmp_path}/remotes/acme/missing.git {tmp_path}/cache/repos/acme__missing"
-        assert message.startswith(f"`{command}` failed in {tmp_path / 'cache'}: ")
+        assert message.startswith(f"`{command}` failed: ")
         assert ("does not appear to be a git repository" in message, TOKEN in message) == (True, False)
 
     def test_the_shell_gives_the_exit_code_and_the_output(self, tmp_path: Path) -> None:

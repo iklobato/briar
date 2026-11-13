@@ -247,6 +247,20 @@ class TestLimits:
         assert setup.sources.tracker_side.comments[-1][1] == entry.report
 
 
+    def test_a_refused_push_reports_without_the_local_folder(self, setups: Setups, tmp_path: Path) -> None:
+        """Real run, 2026-11-13: a person had pushed to the task branch; the report on the
+        public issue held the local worktree path of the machine."""
+        setup = setups.make({})
+        setup.origin.branch("briar/ENG-1")
+        setup.origin.push_commit("briar/ENG-1", {"other.txt": "someone else\n"})
+
+        setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()]), Items().jira())
+
+        report = setup.sources.tracker_side.comments[-1][1]
+        assert ("non-fast-forward" in report, str(tmp_path / "cache") in report) == (True, False)
+        assert setup.entry("ENG-1").status is WorkStatus.BLOCKED
+
+
 class TestNoDoubleWork:
     """Found in the validation run of 2026-11-11: work done twice after a stop or a lost state."""
 

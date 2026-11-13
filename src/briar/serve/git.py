@@ -150,7 +150,7 @@ class RepoCheckout:
             return []
         conflicted = self._git(["diff", "--name-only", "--diff-filter=U"], path, "").output.splitlines()
         if not conflicted:
-            raise GitFailed(f"`git merge --no-edit origin/{base}` failed in {path}: {done.output.strip()[-self.OUTPUT_TAIL :]}")
+            raise GitFailed(f"`git merge --no-edit origin/{base}` failed: {done.output.strip()[-self.OUTPUT_TAIL :]}")
         return conflicted
 
     def marked(self, path: Path, files: Sequence[str]) -> List[str]:
@@ -222,7 +222,8 @@ class RepoCheckout:
         """Run `prefix + args`; a failure names `args` only, never the credential helper."""
         answer = self._shell.program([*prefix, *args], cwd)
         if not answer.ok():
-            raise GitFailed(f"`git {shlex.join(args)}` failed in {cwd}: {answer.output.strip()[-self.OUTPUT_TAIL :]}")
+            # No local folder in the text: it reaches a public ticket or PR (a real run, 2026-11-13).
+            raise GitFailed(f"`git {shlex.join(args)}` failed: {answer.output.strip()[-self.OUTPUT_TAIL :]}")
         return answer
 
 
