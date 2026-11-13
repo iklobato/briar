@@ -58,10 +58,12 @@ class CompanyMembers:
 
 
 class MemberSources:
-    """The member sources of a company: each of Jira, GitLab and Slack that has a login (F12)."""
+    """The member sources of a company: each of Jira, GitLab and Slack that has a login (F12).
+    Jira reads the people of `jira_projects`, or of the whole site when there is none."""
 
-    def __init__(self, logins: CompanyLogins) -> None:
+    def __init__(self, logins: CompanyLogins, jira_projects: Sequence[str]) -> None:
         self._logins = logins
+        self._jira_projects = jira_projects
 
     def configured(self) -> List[MemberSource]:
         builders: Mapping[str, Callable[[], MemberSource]] = {"jira": self._jira, "gitlab": self._gitlab, "slack": self._slack}
@@ -70,7 +72,7 @@ class MemberSources:
     def _jira(self) -> MemberSource:
         from briar.extract._trackers.jira import JiraMembers, JiraSiteClient
 
-        return JiraMembers(JiraSiteClient(self._logins.jira()).client())
+        return JiraMembers(JiraSiteClient(self._logins.jira()).client(), self._jira_projects)
 
     def _gitlab(self) -> MemberSource:
         from briar.extract._providers.gitlab import GitlabApi, GitlabMembers

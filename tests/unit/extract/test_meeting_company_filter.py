@@ -102,6 +102,11 @@ class FakeJiraUsers:
         self.starts.append(start)
         return self.pages[len(self.starts) - 1] if len(self.starts) <= len(self.pages) else []
 
+    def get_all_assignable_users_for_project(self, project_key: str, start: int, limit: int) -> List[Dict[str, Any]]:
+        """`user/assignable/search`: what a plain account can read (a real run: `users/search`
+        answered 403 `error.no-permission`)."""
+        return self.users_get_all(start, limit) if project_key == "ENG" else []
+
 
 class SlackUsers:
     """The fake Web API of `users.list`: two pages joined by a cursor."""
@@ -121,7 +126,13 @@ class TestMemberSources:
         pages = [[{**person, "displayName": "Bo Wang"}, {**app, "displayName": "Automation"}], [{**gone, "displayName": "Old One"}]]
         client = FakeJiraUsers(pages)
 
-        assert (JiraMembers(client).names(), client.starts) == (["Bo Wang"], [0, len(pages[0]), len(pages[0]) + len(pages[1])])
+        assert (JiraMembers(client, ()).names(), client.starts) == (["Bo Wang"], [0, len(pages[0]), len(pages[0]) + len(pages[1])])
+
+    def test_jira_with_projects_gives_the_people_who_can_work_on_them(self) -> None:
+        person = {"accountType": "atlassian", "active": True}
+        client = FakeJiraUsers([[{**person, "displayName": "Bo Wang"}]])
+
+        assert JiraMembers(client, ("ENG", "OPS")).names() == ["Bo Wang"]
 
     def test_gitlab_gives_the_active_members_of_every_group_of_the_token(self) -> None:
         api = FakeGitlabApi(

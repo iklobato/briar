@@ -293,6 +293,7 @@ services = ["ecs", "rds"]
 since_days = 14
 attendee_allow = ["lead@acme.com", "@acme.com"]
 title_any = ["standup", "platform sync"]
+jira_projects = ["ENG"]
 ```
 
 One Fireflies key can be a personal account with the meetings of several
@@ -303,8 +304,9 @@ of the company:
 - an attendee or the organizer is in `attendee_allow`, as an exact email or a
   whole `@domain`;
 - a speaker has the full name (case and accents left out) of a person of the
-  company: the users of its Jira site, the members of the GitLab groups of its
-  token, the people of its Slack workspace. These lists are read on every run
+  company: the people who can be assigned in its `jira_projects` (or every
+  user of its Jira site, which a plain account often cannot read), the members
+  of the GitLab groups of its token, the people of its Slack workspace. These lists are read on every run
   of a company with a Jira, GitLab or Slack login; when one of them cannot be
   read, `meeting-digest` stops for that run and the log says why.
 
@@ -412,6 +414,7 @@ from the code; a test fails when this table and the code differ):
 | `dependency-health` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `github-deployments` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `meeting-digest` | `attendee_allow` | `[]` |  |
+| `meeting-digest` | `jira_projects` | `[]` |  |
 | `meeting-digest` | `max` | `25` |  |
 | `meeting-digest` | `meeting` | `"fireflies"` | fireflies |
 | `meeting-digest` | `since_days` | `7` |  |

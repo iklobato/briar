@@ -51,6 +51,7 @@ class ExtractMeetingDigest(MeetingBackedExtractor):
             help=f"Cap on meetings included in the digest (default: {_DEFAULT_MAX})",
         )
         self._add_company_filter(parser)
+        self._add_member_sources(parser)
 
     def _add_company_filter(self, parser: argparse.ArgumentParser) -> None:
         """F1: one key can hold the meetings of several companies."""
@@ -66,6 +67,15 @@ class ExtractMeetingDigest(MeetingBackedExtractor):
             default=[],
             help="Keep meetings whose title contains one of these words (any case). Repeatable. "
             "With no title word, no email and no Jira, GitLab or Slack login, every meeting is kept.",
+        )
+
+    def _add_member_sources(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--meeting-jira-project",
+            action="append",
+            default=[],
+            help="Jira projects whose people count as the company for the speakers (default: every user of the site, "
+            "which a plain account often cannot read). Repeatable.",
         )
 
     def is_available(self, args: argparse.Namespace) -> bool:
@@ -116,7 +126,8 @@ class ExtractMeetingDigest(MeetingBackedExtractor):
 
     def _rules(self, args: argparse.Namespace) -> MeetingFilter:
         """F1, F12: the title words, the allowed emails and the members of the company."""
-        members = CompanyMembers(MemberSources(CompanyLogins.from_args(args)).configured()).keys()
+        projects = tuple(getattr(args, "meeting_jira_project", []) or [])
+        members = CompanyMembers(MemberSources(CompanyLogins.from_args(args), projects).configured()).keys()
         titles = tuple(getattr(args, "meeting_title_any", []) or [])
         return MeetingFilter(titles, tuple(getattr(args, "meeting_attendee_allow", []) or []), members)
 

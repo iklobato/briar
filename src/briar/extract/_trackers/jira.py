@@ -12,7 +12,7 @@ import logging
 import re
 from dataclasses import replace
 from functools import partial
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 
 from briar.auth.check import LoginRejected
 from briar.auth.logins import CompanyLogins, JiraLogin
@@ -79,27 +79,33 @@ class JiraSiteClient:
 
 
 class JiraMembers:
-    """The people of the Jira site, for the company filter of the meetings (F3b): active
-    accounts of people, not apps. `users/search` may give fewer than asked before the end,
-    so the pages go on until an empty one."""
+    """The people of the company in Jira, for the company filter of the meetings (F3b):
+    active accounts of people, not apps. With projects, the people who can be assigned there
+    (a real run: a plain account got 403 `error.no-permission` on `users/search`); without,
+    every user of the site. Jira may give fewer than asked before the end, so the pages go
+    on until an empty one."""
 
     source = "jira"
     PAGE = 1000
     PERSON = "atlassian"
 
-    def __init__(self, client: Any) -> None:
+    def __init__(self, client: Any, projects: Sequence[str]) -> None:
         self._client = client
+        self._projects = projects
 
     def names(self) -> List[str]:
         return RequestsFailures().answer(self._people)
 
     def _people(self) -> List[str]:
-        names: List[str] = []
-        start = 0
-        while page := self._client.users_get_all(start=start, limit=self.PAGE) or []:
-            names.extend(str(user.get("displayName") or "") for user in page if user.get("accountType") == self.PERSON and user.get("active"))
-            start += len(page)
-        return names
+        pages = [partial(self._client.get_all_assignable_users_for_project, project) for project in self._projects]
+        users = [user for page in pages or [self._client.users_get_all] for user in self._all(page)]
+        return [str(user.get("displayName") or "") for user in users if user.get("accountType") == self.PERSON and user.get("active")]
+
+    def _all(self, page: Callable[..., Any]) -> List[Dict[str, Any]]:
+        found: List[Dict[str, Any]] = []
+        while rows := page(start=len(found), limit=self.PAGE) or []:
+            found.extend(rows)
+        return found
 
 
 class JiraOpenCount:

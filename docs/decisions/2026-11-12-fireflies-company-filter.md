@@ -36,6 +36,7 @@ the only signals.
 | F12 | When the members are fetched | on every run of a company that has a member source (Jira, GitLab or Slack login) | maintainer choice, asked after the grill; see R1 | F3 |
 | F13 | How many PRs | one, on top of the Slack PR and the GitLab extract PR | maintainer choice | |
 | F3b | Member sources in practice | the users of the Jira site, the members of the GitLab groups of the token, the users of the Slack workspace (no bots, no deleted) | extract has no Slack channels (they are under `serve:`) and no Jira project key; approved with the plan | F3 |
+| F3c | Jira people with a plain account | the people who can be assigned in `jira_projects` (`user/assignable/search`); the whole site only when no project is set | a real run, 2026-11-13: `users/search` answered 403 `error.no-permission` for a plain account, `user/assignable/search?project=...` worked | F3b |
 | F10b | What "no filter" means with F12 | no title words, no `attendee_allow`, and no member source | F12 turns the speaker signal on whenever a member source exists | F10, F12 |
 | F11 | Warning when the key is shared | `briar doctor` and `briar extract` warn when the same Fireflies key is set for 2 or more companies and one of them has no filter; the key value is never shown | sure signal when several companies live on one machine | F10 |
 

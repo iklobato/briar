@@ -50,6 +50,7 @@ class ExtractorKeys:
         "aws_extract_service": "services",
         "meeting_attendee_allow": "attendee_allow",
         "meeting_title_any": "title_any",
+        "meeting_jira_project": "jira_projects",
         "prhygiene_large_loc": "large_loc",
         "gov_branch": "branch",
         "stale_days": "days",
