@@ -189,7 +189,7 @@ class Settings:
     """The `serve:` block of the routine tests."""
 
     def block(self, verify: Sequence[str]) -> Dict[str, Any]:
-        return {"jira": {"ENG": "acme/app"}, "verify": list(verify), "status": {"started": "In Progress", "review": "In Review"}}
+        return {"jira": {"ENG": {"repos": ["acme/app"]}}, "verify": list(verify), "status": {"started": "In Progress", "review": "In Review"}}
 
 
 class Files:

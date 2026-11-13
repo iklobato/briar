@@ -156,4 +156,6 @@ class GithubIssuesTracker(TrackerProvider):
             updated_at=str(issue.get("updated_at") or ""),
             labels=labels,
             url=str(issue.get("html_url") or ""),
+            open_blockers=int((issue.get("issue_dependencies_summary") or {}).get("blocked_by") or 0),
+            unblocks=int((issue.get("issue_dependencies_summary") or {}).get("blocking") or 0),
         )

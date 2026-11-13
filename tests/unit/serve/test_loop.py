@@ -13,11 +13,13 @@ import pytest
 
 from briar.auth.check import SourceUnreachable
 from briar.extract._tracker import Ticket
-from briar.serve.loop import CompanyWatch, TaskSlots
+from briar.serve.loop import CompanyWatch, TaskSlots, WatchWork
+from briar.serve.select import Choice, Selector
 from briar.serve.state import WorkState
 from briar.serve.state import WorkEntry, WorkSource, WorkStatus
-from briar.serve.work import WorkItem, WorkKind
+from briar.serve.work import ServeCompany, WorkItem, WorkKind
 from tests.unit.serve.fakes import Companies, FakeJira, FakeSources, Tickets
+from tests.unit.serve.test_select import PickingAgent
 
 TWO_SLOTS = 2
 FIVE_TASKS = 5
@@ -116,14 +118,25 @@ class FlakyJira:
         return [Tickets().jira("ENG-1", "High", "2026-01-03")]
 
 
+class Watching:
+    """The work of a watch whose selector picks ENG-1 for `acme/app`."""
+
+    def __init__(self, company: ServeCompany) -> None:
+        self._company = company
+
+    def work(self) -> WatchWork:
+        agent = PickingAgent([{"key": "ENG-1", "repo": "acme/app", "reason": "the only ticket"}])
+        return WatchWork(RecordingRoutine(self._company.state), Choice(Selector(agent, self._company), self._company))
+
+
 class TestCycle:
     def test_a_failed_poll_is_logged_and_the_next_poll_works(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
         """One Jira or GitHub error must not stop `serve` for every company and task."""
         jira = FlakyJira()
         monkeypatch.setattr("briar.serve.loop.WorkSources", lambda logins: FakeSources(jira_adapter=jira))
-        company = Companies(tmp_path / "knowledge").company({"jira": {"ENG": "acme/app"}})
+        company = Companies(tmp_path / "knowledge").company({"jira": {"ENG": {"repos": ["acme/app"]}}})
         slots = TaskSlots(asyncio.Semaphore(TWO_SLOTS), set(), set())
-        watch = CompanyWatch(company, slots, RecordingRoutine(company.state))
+        watch = CompanyWatch(company, slots, Watching(company).work())
 
         async def scenario() -> List[int]:
             return [await watch.cycle(), await watch.cycle()]
@@ -131,12 +144,12 @@ class TestCycle:
         assert asyncio.run(scenario()) == [0, 1]
         assert "serve: acme: the poll failed, trying again next poll: jira (acme): could not reach the source (HTTP 502)" in caplog.text
 
-    def test_a_ticket_with_a_pr_is_not_started_again(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_a_ticket_with_a_pr_is_not_started_again_and_keeps_why_it_was_picked(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         jira = FakeJira({"ENG": [Tickets().jira("ENG-1", "High", "2026-01-03")]})
         monkeypatch.setattr("briar.serve.loop.WorkSources", lambda logins: FakeSources(jira_adapter=jira))
-        company = Companies(tmp_path / "knowledge").company({"jira": {"ENG": "acme/app"}})
+        company = Companies(tmp_path / "knowledge").company({"jira": {"ENG": {"repos": ["acme/app"]}}})
         slots = TaskSlots(asyncio.Semaphore(TWO_SLOTS), set(), set())
-        watch = CompanyWatch(company, slots, RecordingRoutine(company.state))
+        watch = CompanyWatch(company, slots, Watching(company).work())
 
         async def scenario() -> List[int]:
             first = await watch.cycle()
@@ -144,8 +157,27 @@ class TestCycle:
             return [first, await watch.cycle()]
 
         assert asyncio.run(scenario()) == [1, 0]
-        expected = WorkEntry(key="ENG-1", source=WorkSource.JIRA, repo="acme/app", title="title of ENG-1", status=WorkStatus.PR_OPEN)
+        expected = WorkEntry(key="ENG-1", source=WorkSource.JIRA, repo="acme/app", title="title of ENG-1", status=WorkStatus.PR_OPEN, reason="the only ticket")
         assert company.state.book().entries == {"ENG-1": expected}
+
+    def test_a_ticket_briar_started_goes_on_in_its_repo_without_the_selector(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        jira = FakeJira({"ENG": [Tickets().jira("ENG-1", "High", "2026-01-03")]})
+        monkeypatch.setattr("briar.serve.loop.WorkSources", lambda logins: FakeSources(jira_adapter=jira))
+        company = Companies(tmp_path / "knowledge").company({"jira": {"ENG": {"repos": ["acme/app", "acme/api"]}}})
+        started = WorkEntry(key="ENG-1", source=WorkSource.JIRA, repo="acme/api", title="title of ENG-1", status=WorkStatus.FOUND)
+        asyncio.run(company.state.record(started))
+        agent = PickingAgent([])
+        slots = TaskSlots(asyncio.Semaphore(TWO_SLOTS), set(), set())
+        watch = CompanyWatch(company, slots, WatchWork(RecordingRoutine(company.state), Choice(Selector(agent, company), company)))
+
+        async def scenario() -> int:
+            count = await watch.cycle()
+            await slots.drain()
+            return count
+
+        assert (asyncio.run(scenario()), agent.requests) == (1, [])
+        entry = company.state.book().entries["ENG-1"]
+        assert (entry.status, entry.repo) == (WorkStatus.PR_OPEN, "acme/api")
 
 
 class TestState:

@@ -34,7 +34,7 @@ class TestOrder:
         jira = FakeJira({"ENG": [tickets.jira("ENG-2", "Low", "2026-01-02"), tickets.jira("ENG-1", "High", "2026-01-03")]})
         issues = FakeIssues({"acme/web": [tickets.issue(ISSUE_PLAIN, [], "2026-01-01"), tickets.issue(ISSUE_HIGH, ["p0"], "2026-01-05")]})
         github = FakeGithub(comments={("acme/app", PR_NUMBER): [Comments().of("c1", "MEMBER", "rename this")]})
-        company = companies.company({"repos": ["acme/web"], "jira": {"ENG": "acme/app"}, "priority_labels": ["p0", "p1"]})
+        company = companies.company({"repos": ["acme/web"], "jira": {"ENG": {"repos": ["acme/app"]}}, "priority_labels": ["p0", "p1"]})
         asyncio.run(company.state.record(WorkEntry(key="ENG-9", source=WorkSource.JIRA, repo="acme/app", title="t", status=WorkStatus.DONE, pr=PR_NUMBER)))
 
         items = WorkFinder(company, FakeSources(github, issues, jira)).find()
@@ -51,7 +51,7 @@ class TestOrder:
     @pytest.mark.parametrize("status", [WorkStatus.PR_OPEN, WorkStatus.DONE, WorkStatus.BLOCKED])
     def test_a_ticket_briar_took_is_not_found_again(self, companies: Companies, status: WorkStatus) -> None:
         jira = FakeJira({"ENG": [Tickets().jira("ENG-1", "High", "2026-01-03")]})
-        company = companies.company({"jira": {"ENG": "acme/app"}})
+        company = companies.company({"jira": {"ENG": {"repos": ["acme/app"]}}})
         asyncio.run(company.state.record(WorkEntry(key="ENG-1", source=WorkSource.JIRA, repo="acme/app", title="t", status=status)))
 
         assert WorkFinder(company, FakeSources(jira_adapter=jira)).find() == []
@@ -60,7 +60,7 @@ class TestOrder:
     def test_a_ticket_that_stopped_halfway_is_taken_again(self, companies: Companies, status: WorkStatus) -> None:
         """A `serve` that stopped in the middle picks the ticket up again (S17)."""
         jira = FakeJira({"ENG": [Tickets().jira("ENG-1", "High", "2026-01-03")]})
-        company = companies.company({"jira": {"ENG": "acme/app"}})
+        company = companies.company({"jira": {"ENG": {"repos": ["acme/app"]}}})
         asyncio.run(company.state.record(WorkEntry(key="ENG-1", source=WorkSource.JIRA, repo="acme/app", title="t", status=status)))
 
         assert [item.key for item in WorkFinder(company, FakeSources(jira_adapter=jira)).find()] == ["ENG-1"]
@@ -90,7 +90,7 @@ class Watched:
         self._companies = companies
 
     def company(self, settings: Dict[str, Any], entry: Dict[str, Any]) -> ServeCompany:
-        company = self._companies.company({"jira": {"ENG": "acme/app"}, **settings})
+        company = self._companies.company({"jira": {"ENG": {"repos": ["acme/app"]}}, **settings})
         fields = {"key": "ENG-9", "source": WorkSource.JIRA, "repo": "acme/app", "title": "t", "status": WorkStatus.DONE, "pr": PR_NUMBER, **entry}
         asyncio.run(company.state.record(WorkEntry(**fields)))
         return company
@@ -208,7 +208,7 @@ class TestWriteCheck:
 
     def test_jira_needs_the_transition_permission_only_with_status_names(self, companies: Companies) -> None:
         jira = FakeJira(missing=("TRANSITION_ISSUES",))
-        company = companies.company({"jira": {"ENG": "acme/app"}, "status": {"started": "In Progress"}})
+        company = companies.company({"jira": {"ENG": {"repos": ["acme/app"]}}, "status": {"started": "In Progress"}})
 
         lines = WriteCheck(company, FakeSources(jira_adapter=jira)).results()
 
@@ -218,7 +218,7 @@ class TestWriteCheck:
     def test_jira_without_status_names_needs_comments_only(self, companies: Companies) -> None:
         jira = FakeJira(missing=("TRANSITION_ISSUES",))
 
-        lines = WriteCheck(companies.company({"jira": {"ENG": "acme/app"}}), FakeSources(jira_adapter=jira)).results()
+        lines = WriteCheck(companies.company({"jira": {"ENG": {"repos": ["acme/app"]}}}), FakeSources(jira_adapter=jira)).results()
 
         assert (jira.calls, lines[-1].state) == (["can_write ENG ADD_COMMENTS"], CheckState.OK)
 
