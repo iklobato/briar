@@ -11,6 +11,7 @@ from urllib.parse import parse_qs
 
 import httpx
 import pytest
+import requests
 from gitlab.exceptions import GitlabHttpError
 
 from briar.auth.check import LoginRejected
@@ -114,6 +115,18 @@ class FakeJiraUsers:
         return self.users_get_all(start, limit) if project_key == "ENG" else []
 
 
+class RefusedJiraUsers(FakeJiraUsers):
+    """`users/search` as a plain account sees it: 403."""
+
+    def __init__(self) -> None:
+        super().__init__([])
+
+    def users_get_all(self, start: int, limit: int) -> List[Dict[str, Any]]:
+        refused = requests.Response()
+        refused.status_code = FORBIDDEN
+        raise requests.HTTPError("no permission", response=refused)
+
+
 class SlackUsers:
     """The fake Web API: `auth.test` names the owner of the token, `users.list` gives its pages."""
 
@@ -141,6 +154,14 @@ class TestMemberSources:
         client = FakeJiraUsers([[{**person, "displayName": "Bo Wang"}]])
 
         assert JiraMembers(client, ("ENG", "OPS")).names() == ["Bo Wang"]
+
+    def test_a_site_list_refused_names_the_setting_that_fixes_it(self) -> None:
+        """A real run (2026-11-13): with no `jira_projects`, a plain account got 403 on
+        `users/search` and the message did not say what to set."""
+        client = RefusedJiraUsers()
+
+        with pytest.raises(LoginRejected, match=r"^HTTP 403: no permission; .*`jira_projects` under `\[extract\.meeting-digest\]`"):
+            JiraMembers(client, ()).names()
 
     def test_gitlab_gives_the_active_members_of_every_group_of_the_token(self) -> None:
         api = FakeGitlabApi(

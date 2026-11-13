@@ -94,7 +94,13 @@ class JiraMembers:
         self._projects = projects
 
     def names(self) -> List[str]:
-        return RequestsFailures().answer(self._people)
+        try:
+            return RequestsFailures().answer(self._people)
+        except LoginRejected as refused:
+            if self._projects:
+                raise
+            # A real run (2026-11-13): the bare 403 did not say what to set.
+            raise LoginRejected(f"{refused}; a plain Jira account cannot list the users of the site: set `jira_projects` under `[extract.meeting-digest]`") from refused
 
     def _people(self) -> List[str]:
         """F5: the account of the login is left out (it speaks in the meetings of every company)."""
