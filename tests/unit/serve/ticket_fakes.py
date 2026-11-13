@@ -93,6 +93,16 @@ class ScriptedAgent:
         return AgentAnswer("done", step.structured, step.cost, step.failed, step.reason)
 
 
+class BrokenAgent(ScriptedAgent):
+    """Plays its steps, then fails as PyGithub did on a draft PR (a `TypeError`, outside any
+    list of expected failures)."""
+
+    async def ask(self, request: AgentRequest) -> AgentAnswer:
+        if not self.steps:
+            raise TypeError("'NoneType' object is not subscriptable")
+        return await super().ask(request)
+
+
 class Plans:
     def plan(self) -> Step:
         return Step(structured={"summary": "Add the feature file", "steps": ["write feature.txt"], "tests": ["test -f feature.txt"]})

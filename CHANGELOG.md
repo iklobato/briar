@@ -195,6 +195,9 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Fixed
 
+- A bug inside a `briar serve` task (a `TypeError` or `AttributeError` of briar or of a
+  library) now stops the task `blocked` with its report and logs the traceback. Before,
+  the task was planned, posted and paid for again every poll.
 - `briar serve` never commits a change that silences a secret scanner (an ignore or
   baseline file of gitleaks, GitGuardian, detect-secrets or trufflehog, or an added
   allow comment): it drops that part and stops the task for a person. In a real run the

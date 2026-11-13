@@ -13,7 +13,7 @@ import pytest
 from briar.extract._provider import BranchPull, CiState
 from briar.serve.flow import TaskFlow
 from briar.serve.state import WorkStatus
-from tests.unit.serve.ticket_fakes import ISSUE, FakeGithubSide, Files, Items, Plans, ScriptedAgent, Setups, Step
+from tests.unit.serve.ticket_fakes import ISSUE, BrokenAgent, FakeGithubSide, Files, Items, Plans, ScriptedAgent, Setups, Step
 
 PR = FakeGithubSide.NUMBER
 # Verify commands that pass on the base, as a test suite does (a base that fails stops the task).
@@ -300,6 +300,17 @@ class TestNoDoubleWork:
         assert (entry.status, entry.taken()) == (WorkStatus.BLOCKED, True)
         assert entry.report.startswith("briar stopped: pop from empty list.")
 
+    def test_any_unexpected_failure_blocks_the_ticket(self, setups: Setups) -> None:
+        """Real run, 2026-11-13: a library `TypeError` escaped the task, which stayed taken
+        nowhere and was planned and paid for again every poll (decision F2)."""
+        setup = setups.make({})
+
+        setup.work_on(BrokenAgent([Plans().plan()]), Items().jira())
+
+        entry = setup.entry("ENG-1")
+        assert (entry.status, entry.taken()) == (WorkStatus.BLOCKED, True)
+        assert entry.report.startswith("briar stopped: TypeError: 'NoneType' object is not subscriptable.")
+
     def test_a_refused_ticket_comment_after_the_pr_keeps_the_pr(self, setups: Setups) -> None:
         setup = setups.make({})
         setup.sources.tracker_side.refused_prefixes.append("briar opened")
@@ -316,10 +327,24 @@ class TestNoDoubleWork:
         planned = [text for _, text in setup.sources.tracker_side.comments if text.startswith("briar plan for")]
         asyncio.run(setup.company.state.record(setup.entry("ENG-1").model_copy(update={"status": WorkStatus.PLANNED})))
 
-        setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()]), Items().jira())
+        setup.work_on(ScriptedAgent([Step(writes=Files().feature()), Plans().approved()]), Items().jira())
 
-        again = [text for _, text in setup.sources.tracker_side.comments if text.startswith("briar plan for")]
+        again =[text for _, text in setup.sources.tracker_side.comments if text.startswith("briar plan for")]
         assert (len(planned), len(again)) == (1, 1)
+
+    def test_a_ticket_planned_before_a_stop_builds_the_posted_plan_without_a_new_one(self, setups: Setups) -> None:
+        """Real run, 2026-11-13 (test plan A6): serve was killed after the plan; on restart it
+        asked the agent for a new plan (paid twice) and built that one, not the plan on the ticket."""
+        setup = setups.make({})
+        setup.work_on(ScriptedAgent([Plans().plan(), Step(cost=MAX_USD)]), Items().jira())
+        asyncio.run(setup.company.state.record(setup.entry("ENG-1").model_copy(update={"status": WorkStatus.PLANNED})))
+        second = ScriptedAgent([Step(writes=Files().feature()), Plans().approved()])
+
+        setup.work_on(second, Items().jira())
+
+        build = second.requests[0]
+        assert (build.access.value, setup.entry("ENG-1").status) == ("edit", WorkStatus.DONE)
+        assert "Add the feature file" in build.prompt
 
     @pytest.mark.parametrize(
         "found, status",
