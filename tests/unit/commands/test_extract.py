@@ -13,7 +13,7 @@ from pytest_mock import MockerFixture
 from time_machine import TimeMachineFixture
 
 from briar.config import load_project_config
-from briar.extract.base import ExtractedSection, empty_section
+from briar.extract.base import ExtractedSection, StepStopped, empty_section
 
 # The login check passes: these tests are about what a run does after it (spec 005 PR 3).
 pytestmark = pytest.mark.usefixtures("logins_pass")
@@ -199,6 +199,26 @@ class TestExtractKeepsOtherSections:
 
         assert result.code == 0, result.err
         assert "old hotspots" in self._sections(root)["code-hotspots"]
+
+
+    def test_included_extractor_whose_source_failed_keeps_its_old_section(self, cli: Callable[..., SimpleNamespace], tmp_root: Path, mocker: MockerFixture) -> None:
+        """A validation run, 2026-11-13: a Slack token that was not valid stopped
+        `meeting-digest`, and its good section of the run before was dropped as "no data"."""
+        from briar.extract import EXTRACTORS
+
+        root = tmp_root / "knowledge"
+        self._seed(root, **{"code-hotspots": "old hotspots"})
+        pr, hot = EXTRACTORS["pr-archaeology"], EXTRACTORS["code-hotspots"]
+        for ext in (pr, hot):
+            mocker.patch.object(ext, "is_available", return_value=True)
+        mocker.patch.object(pr, "extract", return_value=ExtractedSection(title=pr.heading, body="new prs"))
+        mocker.patch.object(hot, "extract", side_effect=StepStopped("the members of slack could not be read: invalid_auth"))
+
+        run = self._run(cli, root, "pr-archaeology", "code-hotspots")
+
+        assert run.code == 0, run.err
+        assert "old hotspots" in self._sections(root)["code-hotspots"]
+        assert "code-hotspots stopped: the members of slack could not be read: invalid_auth; its section of the last run stays" in run.err
 
 
 class TestExtractOutputSnapshot:

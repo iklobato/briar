@@ -13,15 +13,14 @@ logic onto a different vendor."""
 from __future__ import annotations
 
 import argparse
-import logging
 from datetime import datetime, timedelta, timezone
-from typing import ClassVar, List
+from typing import List
 
 from briar.auth.logins import CompanyLogins
 from briar.errors import CliError
 from briar.extract._meeting import Meeting, MeetingPage, MeetingProvider, render_meeting_header
 from briar.extract._meetings.company_filter import CompanyMembers, MeetingFilter, MemberSources, MembersUnreadable
-from briar.extract.base import ExtractedSection, MeetingBackedExtractor, empty_section
+from briar.extract.base import ExtractedSection, MeetingBackedExtractor, StepStopped, empty_section
 
 
 _DEFAULT_SINCE_DAYS = 7
@@ -34,7 +33,6 @@ class ExtractMeetingDigest(MeetingBackedExtractor):
     name = "meeting-digest"
     heading = "Meeting digest"
     description = "recent meetings: summaries + action items"
-    LOG: ClassVar[logging.Logger] = logging.getLogger(__name__)
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         super().add_arguments(parser)
@@ -100,8 +98,7 @@ class ExtractMeetingDigest(MeetingBackedExtractor):
         try:
             rules = self._rules(args)
         except MembersUnreadable as stop:
-            self.LOG.error("meeting-digest stopped: %s", stop)
-            return empty_section()
+            raise StepStopped(str(stop)) from stop
         meetings = MeetingPages(provider, rules).kept(MeetingPage(since, until, max_count))
         if not meetings:
             return empty_section()

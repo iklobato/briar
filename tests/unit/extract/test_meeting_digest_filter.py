@@ -5,7 +5,6 @@ pages go on until enough meetings are kept, and a member source that fails stops
 from __future__ import annotations
 
 import argparse
-import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Sequence
 
@@ -13,6 +12,7 @@ import pytest
 
 from briar.auth.check import LoginRejected
 from briar.extract._meeting import Meeting, MeetingPage
+from briar.extract.base import StepStopped
 from briar.extract.meeting_digest import ExtractMeetingDigest
 from tests.unit.fake_logins import FakeLogins
 
@@ -115,12 +115,12 @@ class TestMeetingDigestFilter:
 
         assert (len(Digest(monkeypatch, fake).titles([])), fake.skips) == (len(fake.meetings), [0])
 
-    def test_a_member_source_that_fails_stops_only_this_step(self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
-        """F6: no meeting of another company slips in, and the log says why."""
+    def test_a_member_source_that_fails_stops_the_step_with_the_reason(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """F6: no meeting of another company slips in; `briar extract` keeps the section of the
+        run before (`StepStopped`)."""
         fake = FakeMeetings([Meetings().one("standup")])
-        caplog.set_level(logging.ERROR)
 
-        titles = Digest(monkeypatch, fake).titles([], [FakeMembers("jira", error="HTTP 403")])
+        with pytest.raises(StepStopped, match=r"^the members of jira could not be read: HTTP 403$"):
+            Digest(monkeypatch, fake).titles([], [FakeMembers("jira", error="HTTP 403")])
 
-        assert (titles, fake.skips) == ([], [])
-        assert "meeting-digest stopped: the members of jira could not be read: HTTP 403" in caplog.text
+        assert fake.skips == []
