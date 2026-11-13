@@ -1,5 +1,15 @@
 # briar 2.0: work status
 
+**State on 2026-11-13:** every 2.0 PR is merged into `v2` (#79 to #110, as merge
+commits; `v2` at `f7bc267`, checked with `git ls-remote briar v2 main`), and no 2.0 PR is
+open. `v2` runs `briar extract` (GitHub, GitLab, Bitbucket, Jira, Linear, AWS, Azure,
+GCP, Fireflies with a company filter) and `briar serve` (GitHub or GitLab, Jira or
+GitHub Issues, the ticket choice with Slack, the open PR or MR rule). `main` is still the
+1.x line (`ec6d313`, release 1.1.101); 2.0 ships when `v2` merges into `main`. A push to
+`v2` runs no CI (`tests.yml` runs on pushes to `main` and on PRs into `main` or `v2`):
+each PR was green on its merge ref. Sections 1 to 8 below keep the history of how the
+work got here.
+
 **Re-scoped on 2026-11-11:** the core of 2.0 is `briar extract` and `briar serve`, the
 agentic development pipeline (watch the tickets assigned to briar and the review comments
 on its PRs; plan, build, open the PR, answer every comment; in parallel, with the Claude
@@ -47,8 +57,8 @@ now, what was found on the way, what is left and what to watch.
 
 - **Branch `v2`** takes every 2.0 PR (D27). One 2.0 release ships when `v2`
   merges to `main`. Until then `main` gets 1.x fixes only.
-- `v2` on GitHub still equals `main` (`ec6d313`, release 1.1.101): no 2.0
-  PR is merged yet. Checked with `git ls-remote briar v2 main`.
+- `v2` holds every 2.0 PR, #79 to #110, merged in order as merge commits (2026-11-13,
+  `f7bc267`). `main` is still `ec6d313` (release 1.1.101).
 - The PRs are **stacked**: each one is based on the branch of the one
   before it, and each targets `v2`. A PR's diff shows the commits of the
   PRs under it until those merge. Merge them **in order, #79 first, as
@@ -92,6 +102,12 @@ now, what was found on the way, what is left and what to watch.
 | https://github.com/iklobato/briar/pull/102 | `serve/03-review-routine` | Spec 003 part 3: the review routine (writers and listed bots, marker, edits, resolved threads, base merge, replies, `max_review_rounds`), the agent sandbox and read limit, `ServeRoutine` |
 | https://github.com/iklobato/briar/pull/103 | `serve/04-cleanup` | Spec 003 part 4: `briar auth` and `briar runbook` leave; `serve` runs extract-only folders, `doctor --runbooks`, `init` writes an example runbook; the hints, manuals, README and CHANGELOG |
 | https://github.com/iklobato/briar/pull/104 | `serve/05-knowledge-draft` | The fixes from the first real runs: absolute knowledge path, PR as a draft until CI passes, verify on a clean copy, CI pending while Actions runs are queued, scheduled tasks into the company blob, no ticket done twice, a failed poll retried, the clone lock, conflicts GitHub has not computed, the mutation tool; `docs/briar-2-validation.md` |
+| https://github.com/iklobato/briar/pull/105 | `select/01-selector` | Spec 008 part 1: `briar serve` chooses which tickets to start (not workable, blockers, fixed scores, one model pick with the repo and a reason) |
+| https://github.com/iklobato/briar/pull/106 | `select/02-chat` | Spec 008 part 2: `briar serve` reads Slack for the ticket choice (asks of other people, the threads as data) |
+| https://github.com/iklobato/briar/pull/107 | `gitlab/3a-extract` | Spec 008 part 3a: GitLab as a code host for `briar extract` (`[auth.gitlab]`, `python-gitlab`) |
+| https://github.com/iklobato/briar/pull/108 | `fix/real-run-bugs` | Fixes from real runs: the Fireflies query, the cloud region, the agent bash guard (every line, heredocs, relative programs, builtins, word tokens), the tools of each agent step, the tool cache of the sandbox |
+| https://github.com/iklobato/briar/pull/109 | `serve/3b-gitlab` | Spec 008 part 3b: `briar serve` on GitLab, `serve.only`, the open PR or MR rule (N6), the selector with no tool, and the fixes of two real GitLab runs |
+| https://github.com/iklobato/briar/pull/110 | `meetings/company-filter-v2` | `meeting-digest` keeps only the meetings of the company (title words, emails and domains, member speakers); a step whose source fails keeps its last section |
 
 ### A local test build (not a release)
 
