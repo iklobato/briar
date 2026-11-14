@@ -56,6 +56,7 @@ class ExtractorKeys:
         "prhygiene_large_loc": "large_loc",
         "gov_branch": "branch",
         "stale_days": "days",
+        "tf_max_files": "max_files",
     }
 
     def __init__(self, extractor: KnowledgeExtractor) -> None:

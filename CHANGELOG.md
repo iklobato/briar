@@ -14,6 +14,7 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Added
 
+- `iac-terraform` extractor: the Terraform of a repo (roots, backends, providers, modules, variable files) read through the GitLab or GitHub API. It never writes a secret value: variable files give names only, and secret-looking names and credential-looking values show `(set)`.
 - `briar extract` also writes `knowledge/<company>/index.md` and one file for each topic beside the single knowledge file (which is unchanged). `briar serve` points the agent to the index, and the plan comment lists the topics the agent read (`Sources read`).
 - Release workflow: a version PyPI does not have yet (for example `2.0.0rc1`) is published as it is, tagged, and marked a pre-release on GitHub and Docker (`latest` does not move); a final version PyPI already has still gets its patch bump. A pre-release PyPI already has ends the run green without publishing again.
 - `serve.format` and `serve.format_by_repo`: commands that format the worktree before each
