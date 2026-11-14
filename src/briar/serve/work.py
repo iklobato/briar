@@ -129,8 +129,8 @@ class ServeCompany:
     state: WorkState
     # The knowledge store folder: the blob `knowledge:<name>` and the state `work:<name>`.
     root: Path = Path("knowledge")
-    # Day -> the active pushable repos found that day (decision C2: read once a day).
-    found_repos: Dict[str, Tuple[str, ...]] = field(default_factory=dict, compare=False)
+    # Day -> (the repos of the owner PRs, every active pushable repo) found that day (read once a day).
+    found_repos: Dict[str, Tuple[Tuple[str, ...], Tuple[str, ...]]] = field(default_factory=dict, compare=False)
     # Day -> what the polls of that day skipped or hit (a dead chat, the day limit), for the
     # daily report (decision F1).
     notes: Dict[str, List[str]] = field(default_factory=dict, compare=False)
@@ -229,24 +229,40 @@ class WorkSources:
 
 
 class ActiveRepos:
-    """The repos a Jira project offers the selector: the listed ones, plus, for `*`, every
-    repo the token can push to with activity in the last `DAYS` days (decisions C2, C2b). The
-    code host is read once a day per company: 138 projects on one real token, 65 active."""
+    """The repos a Jira project offers the selector. For `*` (decisions C2, R10): the repos
+    where the token owner had a PR or MR in the last `DAYS` days, plus any other active
+    pushable repo the ticket names (by its path, or its name as a whole word). Both lists are
+    read from the code host once a day per company: 138 projects on one real token, 61 active
+    and taking MRs; fewer where the owner worked."""
 
     DAYS = 90
+    # A repo name shorter than this is too common a word to count as a mention.
+    MIN_NAME = 4
 
     def __init__(self, company: ServeCompany, sources: "WorkSources") -> None:
         self._company = company
         self._sources = sources
 
-    def of(self, project: JiraProject) -> Tuple[str, ...]:
+    def of(self, project: JiraProject, ticket_text: str = "") -> Tuple[str, ...]:
         listed = [repo for repo in project.repos if repo != JiraProject.ANY]
         if JiraProject.ANY not in project.repos:
             return tuple(listed)
+        own, active = self._found()
+        named = [repo for repo in active if self._mentioned(repo, ticket_text)]
+        return tuple(dict.fromkeys([*listed, *own, *named]))
+
+    def _found(self) -> Tuple[Tuple[str, ...], Tuple[str, ...]]:
         day = WorkDay().today()
         if day not in self._company.found_repos:
-            self._company.found_repos[day] = tuple(self._sources.code_host().active_repos(self.DAYS))
-        return tuple(dict.fromkeys([*listed, *self._company.found_repos[day]]))
+            host = self._sources.code_host()
+            self._company.found_repos[day] = (tuple(host.own_repos(self.DAYS)), tuple(host.active_repos(self.DAYS)))
+        return self._company.found_repos[day]
+
+    def _mentioned(self, repo: str, text: str) -> bool:
+        name = repo.rsplit("/", 1)[-1]
+        if repo in text:
+            return True
+        return len(name) >= self.MIN_NAME and re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", text, re.IGNORECASE) is not None
 
 
 class ReviewReminders:
@@ -306,7 +322,7 @@ class WorkFinder:
             return []
         tracker = self._sources.jira()
         return [
-            self._jira_item(ticket, ActiveRepos(self._company, self._sources).of(project))
+            self._jira_item(ticket, ActiveRepos(self._company, self._sources).of(project, f"{ticket.title} {ticket.description}"))
             for key, project in self._company.settings.jira.items()
             for ticket in tracker.assigned(key, self.MAX_TICKETS)
         ]

@@ -72,27 +72,40 @@ class TestOrder:
 
 
 class TestEveryActiveRepo:
-    """Decisions C2 and C2b of the autonomous serve: `repos: ["*"]` means every repo the
-    token can push to with activity in the last 90 days, found on the code host once a day."""
+    """Decisions C2, C2b and R10 of the autonomous serve: `repos: ["*"]` offers the repos where
+    the token owner had a PR or MR in the last 90 days, plus the listed ones, plus any other
+    active pushable repo the ticket names; read from the code host once a day."""
 
-    def test_a_star_offers_every_active_pushable_repo_and_the_listed_ones(self, companies: Companies) -> None:
+    def test_a_star_offers_the_repos_of_recent_own_prs_and_the_listed_ones(self, companies: Companies) -> None:
         jira = FakeJira({"ENG": [Tickets().jira("ENG-1", "High", "2026-01-03")]})
-        github = FakeGithub(active=("acme/app", "acme/infra"))
+        github = FakeGithub(active=("acme/app", "acme/infra", "acme/other"), own=("acme/app",))
         company = companies.company({"jira": {"ENG": {"repos": ["*", "acme/web"]}}})
 
         [item] = WorkFinder(company, FakeSources(github, jira_adapter=jira)).find()
 
-        assert (item.repos, item.repo, github.active_calls) == (("acme/web", "acme/app", "acme/infra"), "", [ActiveRepos.DAYS])
+        assert (item.repos, item.repo, github.own_calls) == (("acme/web", "acme/app"), "", [ActiveRepos.DAYS])
 
-    def test_the_active_repos_are_read_once_a_day(self, companies: Companies) -> None:
+    def test_an_active_repo_the_ticket_names_is_offered_too(self, companies: Companies) -> None:
+        """A ticket for a repo the owner never touched in 90 days can still go there when it
+        names the repo: by path, or by its name as a whole word."""
+        by_name = Tickets().titled("ENG-1", "Fix the retry loop in infra-backend")
+        jira = FakeJira({"ENG": [by_name]})
+        github = FakeGithub(active=("acme/app", "acme/infra-backend", "acme/api"), own=("acme/app",))
+        company = companies.company({"jira": {"ENG": {"repos": ["*"]}}})
+
+        [item] = WorkFinder(company, FakeSources(github, jira_adapter=jira)).find()
+
+        assert item.repos == ("acme/app", "acme/infra-backend")
+
+    def test_the_repos_are_read_once_a_day(self, companies: Companies) -> None:
         jira = FakeJira({"ENG": [Tickets().jira("ENG-1", "High", "2026-01-03")]})
-        github = FakeGithub(active=("acme/app",))
+        github = FakeGithub(active=("acme/app",), own=("acme/app",))
         company = companies.company({"jira": {"ENG": {"repos": ["*"]}}})
 
         for _ in range(TWO_POLLS):
             WorkFinder(company, FakeSources(github, jira_adapter=jira)).find()
 
-        assert github.active_calls == [ActiveRepos.DAYS]
+        assert (github.active_calls, github.own_calls) == ([ActiveRepos.DAYS], [ActiveRepos.DAYS])
 
     def test_the_write_check_skips_the_star(self, companies: Companies) -> None:
         company = companies.company({"jira": {"ENG": {"repos": ["*", "acme/web"]}}})
