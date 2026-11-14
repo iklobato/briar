@@ -7,9 +7,13 @@ cut to 1.5 seconds, so a run of minutes fits in half a minute.
 
 | GIF | Script | What it shows | Needs |
 |---|---|---|---|
-| `01-first-steps.gif` | `01-first-steps.sh` | `init`, `doctor`, `extract`, reading the result | a fresh clone of a GitHub repo, `gh` logged in |
-| `02-serve-an-issue.gif` | `02-serve-an-issue.sh` | `serve` takes one issue to a ready PR | a clone, a `runbooks/myteam.yaml`, an issue assigned to you, a Claude login. It spends model money and opens a real PR: close it after |
-| `03-keep-facts-fresh.gif` | `03-keep-facts-fresh.sh` | a runbook schedule refreshing the knowledge file | a clone and a `runbooks/myteam.yaml` with a schedule |
+| `hero.gif` | `hero.sh` | one `extract`, then the facts file (top of the README) | a clone of a GitHub repo with releases and CI runs, `gh` logged in |
+| `lesson1-setup.gif` | `lesson1-setup.sh` | token, `init`, `doctor` | a fresh clone, `gh` logged in |
+| `lesson1-collect.gif` | `lesson1-collect.sh` | `extract` of three readers, reading the file | the same clone, after `lesson1-setup` (needs its `.briar.toml`) |
+| `lesson2-serve.gif` | `lesson2-serve.sh` | `serve` takes one issue to a ready PR | a clone, a `runbooks/myteam.yaml`, an issue assigned to you, a Claude login. It spends model money and opens a real PR: close it after |
+| `lesson3-schedule.gif` | `lesson3-schedule.sh` | a runbook schedule refreshing the knowledge file | a clone and a `runbooks/myteam.yaml` with a schedule |
+
+The README and the lessons in `docs/guide/` embed these. Rename a GIF only together with those pages.
 
 The old `01-setup-and-extract.gif` to `04-agent-review.gif` were recorded on briar 1.x and show
 commands that no longer exist. They are kept only because the site may still load them.
@@ -21,10 +25,10 @@ PATH, and the logins in the environment.
 
 ```bash
 git clone --depth 1 https://github.com/<you>/<repo> /tmp/demo/repo
-DEMO_DIR=/tmp/demo/repo docs/demo/record.sh 01-first-steps
+DEMO_DIR=/tmp/demo/repo docs/demo/record.sh lesson1-setup
 
 # the serve demo also needs the issue number and the repo:
-ISSUE=12 REPO=<you>/<repo> DEMO_DIR=/tmp/demo/repo docs/demo/record.sh 02-serve-an-issue
+ISSUE=12 REPO=<you>/<repo> DEMO_DIR=/tmp/demo/repo docs/demo/record.sh lesson2-serve
 ```
 
 Use a short, neutral folder such as `/tmp/demo/repo`: `briar doctor` prints the path, and a

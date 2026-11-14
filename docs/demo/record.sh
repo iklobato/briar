@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Record one README demo GIF from its script, with asciinema and agg.
 #
-#   DEMO_DIR=/path/to/a/fresh/clone docs/demo/record.sh 01-first-steps
+#   DEMO_DIR=/path/to/a/fresh/clone docs/demo/record.sh lesson1-setup
 #
 # DEMO_DIR is a clean clone the demo runs in (the scripts say what they need in it).
 # `briar` and `gh` must be on the PATH, and the logins in the environment. Waits with no

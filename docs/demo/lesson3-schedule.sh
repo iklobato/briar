@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# README demo 3: a runbook with a schedule keeps the knowledge file fresh. Needs, in the current
+# README lesson 3: a runbook with a schedule keeps the knowledge file fresh. Needs, in the current
 # folder, a clone of a GitHub repo and a runbooks/myteam.yaml like the README one (every minute),
 # and `gh` logged in. It runs for real until the job has fired twice.
 source "$(dirname "$0")/typed.sh"

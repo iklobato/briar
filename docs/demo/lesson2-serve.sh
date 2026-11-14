@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# README demo 2: briar serve works one small GitHub issue. A REAL run: it spends model money and opens
+# README lesson 2: briar serve works one small GitHub issue. A REAL run: it spends model money and opens
 # a real PR. Needs, in the current folder, a clone of the repo (default branch checked out), a
 # runbooks/myteam.yaml like the README one that lists ISSUE under `only`, `gh` logged in, a Claude
 # login in the environment, ISSUE (the number of an issue assigned to you) and REPO (owner/name).
