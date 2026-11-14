@@ -180,6 +180,8 @@ class FakeTrackerSide:
     moves: List[Tuple[str, str]] = field(default_factory=list)
     # A comment that starts with one of these is refused by the tracker.
     refused_prefixes: List[str] = field(default_factory=list)
+    # Statuses the workflow has no transition to from where the ticket is.
+    refused_moves: List[str] = field(default_factory=list)
 
     def get_ticket(self, project: str, key: str) -> Ticket:
         return Ticket(
@@ -192,6 +194,8 @@ class FakeTrackerSide:
         self.comments.append((key, text))
 
     def move(self, key: str, status: str) -> None:
+        if status in self.refused_moves:
+            raise LoginRejected(f"HTTP 400: no transition to {status}")
         self.moves.append((key, status))
 
 

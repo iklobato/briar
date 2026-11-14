@@ -205,6 +205,38 @@ class TestLimits:
         assert setup.sources.tracker_side.comments[-1][1] == entry.report
 
 
+class TestTicketAfterTheEnd:
+    """Decisions E1 and E2 of the autonomous serve: the board follows the MR without a person."""
+
+    def test_a_merged_pr_moves_the_ticket_to_done(self, opened: Opened) -> None:
+        setup = opened.make({"status": {"started": "In Progress", "review": "In Review", "done": "Done"}})
+
+        setup.work_on(ScriptedAgent([]), WorkItem(WorkKind.MERGED, "ENG-1", WorkSource.JIRA, "acme/app", "Add the feature", pr=PR))
+
+        assert setup.sources.tracker_side.moves[-1] == ("ENG-1", "Done")
+        assert setup.entry("ENG-1").status is WorkStatus.MERGED
+
+    def test_a_pr_closed_by_a_person_moves_the_ticket_back_and_says_why(self, opened: Opened) -> None:
+        setup = opened.make({})
+
+        setup.work_on(ScriptedAgent([]), WorkItem(WorkKind.CLOSED, "ENG-1", WorkSource.JIRA, "acme/app", "Add the feature", pr=PR))
+
+        tracker = setup.sources.tracker_side
+        assert tracker.moves[-1] == ("ENG-1", "In Progress")
+        assert tracker.comments[-1][1].startswith(f"briar: https://github.com/acme/app/pull/{PR} was closed without a merge")
+        assert (setup.entry("ENG-1").status, setup.entry("ENG-1").taken()) == (WorkStatus.CLOSED, True)
+
+    def test_a_refused_move_after_the_end_is_logged_and_the_end_still_recorded(self, opened: Opened, caplog: pytest.LogCaptureFixture) -> None:
+        """Case I5: `Done` may not be a transition from the current status."""
+        setup = opened.make({"status": {"started": "In Progress", "review": "In Review", "done": "Done"}})
+        setup.sources.tracker_side.refused_moves.append("Done")
+
+        setup.work_on(ScriptedAgent([]), WorkItem(WorkKind.MERGED, "ENG-1", WorkSource.JIRA, "acme/app", "Add the feature", pr=PR))
+
+        assert setup.entry("ENG-1").status is WorkStatus.MERGED
+        assert "serve: ENG-1: could not move the ticket to Done: HTTP 400: no transition to Done" in caplog.text
+
+
 class TestEnded:
     @pytest.mark.parametrize("kind, status", [(WorkKind.MERGED, WorkStatus.MERGED), (WorkKind.CLOSED, WorkStatus.CLOSED)])
     def test_a_pr_that_ended_is_recorded_and_left(self, opened: Opened, kind: WorkKind, status: WorkStatus) -> None:

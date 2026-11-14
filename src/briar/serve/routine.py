@@ -12,12 +12,12 @@ from typing import Callable, ClassVar, Tuple, Type
 
 from briar.errors import CliError
 from briar.serve.agent import AgentRunner
-from briar.serve.flow import TaskFlow
+from briar.serve.flow import TaskFlow, TicketSide
 from briar.serve.review import ReviewRun
 from briar.serve.state import WorkStatus
 from briar.serve.task import AgentSteps, Budget, TaskContext, TaskPrep
 from briar.serve.ticket import TicketRun
-from briar.serve.work import ServeCompany, WorkItem, WorkKind, WorkSources
+from briar.serve.work import ServeCompany, WorkItem, WorkKind
 
 
 @dataclass(frozen=True)
@@ -76,8 +76,22 @@ class ServeRoutine:
         if known is None:
             return
         await self._company.state.record(known.model_copy(update={"status": status}))
-        style = WorkSources(self._company.logins, self._company.settings.code_host).style()
-        self.LOG.info("serve: %s is %s %s", item.ref(), status.value, style.pull_url(item.repo, item.pr))
+        self.LOG.info("serve: %s is %s %s", item.ref(), status.value, self._prep.sources().style().pull_url(item.repo, item.pr))
+        await asyncio.to_thread(self._board_after, item, status)
 
+    def _board_after(self, item: WorkItem, status: WorkStatus) -> None:
+        """Decisions E1, E2: a merged PR moves the ticket to `status.done`; a PR a person closed
+        moves it back to `status.started` with a comment, and briar never takes it again. A
+        refused move (no such transition) is logged, never a failure of the cycle."""
+        names = self._company.settings.status
+        side = TicketSide(self._prep.sources())
+        target = names.done if status is WorkStatus.MERGED else names.started
+        try:
+            if status is WorkStatus.CLOSED:
+                url = self._prep.sources().style().pull_url(item.repo, item.pr)
+                side.comment(item, f"briar: {url} was closed without a merge; briar will not take this ticket again.")
+            side.move(item, target)
+        except CliError as refused:
+            self.LOG.warning("serve: %s: could not move the ticket to %s: %s", item.ref(), target, refused)
 
 __all__ = ["ServeRoutine"]

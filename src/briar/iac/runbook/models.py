@@ -100,6 +100,8 @@ class StatusNames(_Strict):
 
     started: str = ""
     review: str = ""
+    # After a person merges the PR (decision E1 of the autonomous serve), e.g. "Done".
+    done: str = ""
 
 
 class JiraProject(_Strict):
