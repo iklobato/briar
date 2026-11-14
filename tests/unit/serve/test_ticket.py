@@ -116,6 +116,28 @@ class TestNothingToChange:
         assert tracker.moves == [("ENG-1", "In Progress")]
 
 
+class TestFormatBeforeCommit:
+    """Decision R11: the formatter of the repo runs before each commit, so the self-review
+    cannot ask for a format the formatter undoes (a real run spent 4 of 3 fix loops on it)."""
+
+    def test_the_format_commands_of_the_repo_run_before_the_commit(self, setups: Setups) -> None:
+        setup = setups.make({"format_by_repo": {"acme/app": ["printf 'formatted\\n' > formatted.txt"]}})
+
+        setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()]), Items().jira())
+
+        assert setup.entry("ENG-1").status is WorkStatus.DONE
+        assert "formatted.txt" in setup.origin.files("briar/ENG-1")
+
+    def test_a_failing_formatter_is_logged_and_the_task_goes_on(self, setups: Setups, caplog: pytest.LogCaptureFixture) -> None:
+        caplog.set_level(logging.INFO, logger="briar.serve.flow")
+        setup = setups.make({"format": ["exit 3"]})
+
+        setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()]), Items().jira())
+
+        assert setup.entry("ENG-1").status is WorkStatus.DONE
+        assert "serve: ENG-1 format `exit 3` failed (exit 3)" in caplog.text
+
+
 class TestMissingProgram:
     """Real run, 2026-11-14 (test plan A3): under launchd the PATH had no `~/.local/bin`, so
     `uv` was not found, and the report only said the verify fails on the base."""

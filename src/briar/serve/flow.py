@@ -178,8 +178,18 @@ class TaskFlow:
         return bool(self._context.checkout.diff(self._context.worktree, self._context.base).strip())
 
     def commit(self, what: str) -> bool:
+        self._format()
         self._refuse_silenced_scanners()
         return self._context.checkout.commit_all(self._context.worktree, f"{self._context.item.ref()}: {what}", self._context.identity)
+
+    def _format(self) -> None:
+        """Decision R11: run the format commands of the repo in the worktree. A failing one is
+        logged and the task goes on: the verify commands are what decides."""
+        item, shell = self._context.item, Shell()
+        for command in self._context.company.settings.format_for(item.repo):
+            done = shell.line(command, self._context.worktree)
+            if not done.ok():
+                self.LOG.info("serve: %s format `%s` failed (exit %s): %s", item.ref(), command, done.code, done.output.strip()[-self.OUTPUT_TAIL :])
 
     def _refuse_silenced_scanners(self) -> None:
         """Nothing that silences a secret scanner is committed: briar drops it and stops, since

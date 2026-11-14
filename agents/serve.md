@@ -169,6 +169,8 @@ companies:
       verify: ["make lint", "make test"]
       verify_by_repo:                 # optional: a repo's own verify commands (others use `verify`)
         acme/infra: ["terraform fmt -check -recursive"]
+      format_by_repo:                 # optional: commands that format the worktree before each commit
+        acme/infra: ["terraform fmt -recursive"]   # (`format: [...]` is the default for the other repos)
       bash: [git, make, pytest]       # optional: the programs the agent may run (replaces the default list)
       review_bots: ["coderabbitai[bot]"]   # optional: bots whose PR comments briar answers
       allowed_domains: [pypi.org]     # optional: what the bash of the agent may reach; none by default

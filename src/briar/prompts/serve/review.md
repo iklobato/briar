@@ -23,6 +23,10 @@ failure (skipped or removed tests, lowered checks), and then say what to do inst
 too a change that only adapts the repo to the machine it runs on: a plugin turned off in the
 config, a path added to `sys.path` or `PYTHONPATH`, an environment variable set in a test.
 
+Do not ask for a change of formatting (alignment, spacing, quotes, line breaks, import
+order): the formatter of the repo runs before every commit and would undo it. Ask only
+when the code is wrong, not when it looks different.
+
 Earlier rounds of this review asked for:
 {earlier}
 

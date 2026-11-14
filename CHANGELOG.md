@@ -14,6 +14,9 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Added
 
+- `serve.format` and `serve.format_by_repo`: commands that format the worktree before each
+  commit, so the formatter of the repo always wins; the self-review no longer asks for a
+  format the formatter would undo (a real run spent all its fix loops on it).
 - `serve.max_usd_per_day`: when the tasks of a company have spent that many US$ on the
   model in one UTC day, no new ticket starts until the next day; open tasks and review
   rounds go on. 0, the default, is no cap.
