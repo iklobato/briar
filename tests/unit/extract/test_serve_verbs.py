@@ -189,6 +189,18 @@ class TestGithubReviewers:
         assert client.get_repo.return_value.get_pull.return_value.create_review_request.call_args.kwargs == {"reviewers": ["ann"]}
 
 
+class TestGithubOwnRepos:
+    def test_the_repos_of_the_recent_prs_of_the_token_owner(self) -> None:
+        """Decision R10 of the autonomous serve."""
+        rows = {"items": [{"repository_url": "https://api.github.com/repos/acme/app"}, {"repository_url": "https://api.github.com/repos/acme/api"}, {"repository_url": "https://api.github.com/repos/acme/app"}]}
+
+        with mock.patch("briar.extract._gh.GithubApi.get_json", return_value=rows) as read:
+            with mock.patch("briar.extract._providers.github.GithubProvider.who_am_i", return_value="octo"):
+                found = make_provider("github", Logins().github()).own_repos(ACTIVE_DAYS)
+
+        assert (found, "author:octo" in read.call_args.args[0], "type:pr" in read.call_args.args[0]) == (["acme/app", "acme/api"], True, True)
+
+
 class PushedAt:
     def days_ago(self, days: int) -> str:
         return (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")

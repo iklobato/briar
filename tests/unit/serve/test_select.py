@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Sequence
 
 import pytest
 
+from briar.auth.check import LoginRejected
 from briar.extract._tracker import Ticket
 from briar.iac.runbook.models import ServeSettings
 from briar.serve.agent import Access, AgentAnswer, AgentRequest
@@ -184,7 +185,29 @@ class NoneFree:
         return []
 
 
+class DeadChat:
+    """A chat whose session the workspace refused (a real Slack `invalid_auth`)."""
+
+    def asks(self) -> Any:
+        raise LoginRejected("slack auth.test: invalid_auth")
+
+    def talk(self, items: Any, asks: Any) -> Any:
+        raise LoginRejected("slack auth.test: invalid_auth")
+
+
 class TestChoice:
+    def test_a_refused_chat_login_skips_the_chat_and_the_choice_goes_on(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """Decision B3 of the autonomous serve: Slack is optional; a dead session drops the
+        chat asks for that poll instead of failing every poll."""
+        setup = Setup(tmp_path)
+        agent = PickingAgent([{"key": "ENG-1", "repo": "acme/app", "reason": "the only ticket"}])
+        choice = Choice(setup.selector(agent), setup.company(), lambda: TODAY, DeadChat())  # type: ignore[arg-type]  # a ChatReader stand-in
+
+        picked = asyncio.run(choice.choose([Tickets().plain("ENG-1")], SLOTS))
+
+        assert [item.key for item in picked] == ["ENG-1"]
+        assert "serve: acme: the chat was skipped on this poll: slack auth.test: invalid_auth" in caplog.text
+
     def test_tickets_with_an_open_mr_never_reach_the_model(self, tmp_path: Path) -> None:
         """N6 (M4): the rule runs before the score; nothing left means no model call."""
         setup, agent = Setup(tmp_path), PickingAgent([])

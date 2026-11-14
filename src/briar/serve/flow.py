@@ -11,14 +11,15 @@ import logging
 import re
 import time
 from pathlib import PurePosixPath
-from typing import Any, ClassVar, FrozenSet, List, Mapping
+from functools import cached_property
+from typing import Any, ClassVar, FrozenSet, List, Mapping, Tuple
 
 from briar.errors import CliError
 from briar.extract._provider import CiState, PullRequestDraft
 from briar.serve.git import Shell
 from briar.serve.state import WorkSource, WorkStatus
 from briar.serve.task import AgentSteps, Budget, LimitHit, Plan, TaskContext
-from briar.serve.work import Marker, WorkItem, WorkSources
+from briar.serve.work import Marker, WorkDay, WorkItem, WorkSources
 
 
 class ScannerSilencing:
@@ -154,20 +155,41 @@ class TaskFlow:
         item = self._context.item
         known = self._context.company.state.book().entry(item.key)
         base = known or item.entry()
-        entry = base.model_copy(update={**changes, "status": status, "branch": self._context.branch})
+        day, before = self._spend_start
+        spent = {**base.spent_by_day, day: before + self._budget.spent[0]}
+        entry = base.model_copy(update={**changes, "status": status, "branch": self._context.branch, "spent_by_day": spent})
         await self._context.company.state.record(entry)
         link = f" {self._context.sources.style().pull_url(item.repo, entry.pr)}" if entry.pr else ""
         # A done task says what it cost too: before, only a blocked one did (real run, 2026-11-12).
         extra = {WorkStatus.BLOCKED: entry.report, WorkStatus.DONE: self.spent()}.get(status, "")
         self.LOG.info("serve: %s is %s%s %s", item.ref(), status.value, link, extra)
 
+    @cached_property
+    def _spend_start(self) -> Tuple[str, float]:
+        """The day of this run and what the task spent that day before it, read at the first
+        record of the run (the state holds nothing of this run yet). ponytail: a run past
+        midnight UTC books all of its spend on the day it started."""
+        day = WorkDay().today()
+        known = self._context.company.state.book().entry(self._context.item.key)
+        return day, (known.spent_by_day.get(day, 0.0) if known is not None else 0.0)
+
     def changed(self) -> bool:
         """The branch holds a change of its own: no PR is ever opened for the base alone."""
         return bool(self._context.checkout.diff(self._context.worktree, self._context.base).strip())
 
     def commit(self, what: str) -> bool:
+        self._format()
         self._refuse_silenced_scanners()
         return self._context.checkout.commit_all(self._context.worktree, f"{self._context.item.ref()}: {what}", self._context.identity)
+
+    def _format(self) -> None:
+        """Decision R11: run the format commands of the repo in the worktree. A failing one is
+        logged and the task goes on: the verify commands are what decides."""
+        item, shell = self._context.item, Shell()
+        for command in self._context.company.settings.format_for(item.repo):
+            done = shell.line(command, self._context.worktree)
+            if not done.ok():
+                self.LOG.info("serve: %s format `%s` failed (exit %s): %s", item.ref(), command, done.code, done.output.strip()[-self.OUTPUT_TAIL :])
 
     def _refuse_silenced_scanners(self) -> None:
         """Nothing that silences a secret scanner is committed: briar drops it and stops, since
@@ -209,7 +231,13 @@ class TaskFlow:
         base = f"origin/{self._context.base}"
         failures = await asyncio.to_thread(self._failures_at, base)
         if failures:
-            raise LimitHit(f"the verify commands fail on {base} too, before any change: fix the environment or the `verify` commands of the runbook.\n\n{failures}")
+            raise LimitHit(f"the verify commands fail on {base} too, before any change: fix the environment or the `verify` commands of the runbook.{self._path_hint(failures)}\n\n{failures}")
+
+    def _path_hint(self, failures: str) -> str:
+        """Real run (2026-11-14): under launchd `uv` was not found; say what to fix."""
+        if "(exit 127)" not in failures:
+            return ""
+        return " A program the verify commands run is not on the PATH of this process: launchd and systemd do not load your shell profile, so put its folder in the PATH of the service."
 
     def _verify_failures(self) -> str:
         """The verify commands, run on a clean copy of the commit: what will be pushed."""

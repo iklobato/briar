@@ -231,6 +231,16 @@ class GithubProvider(RepositoryProvider):
         pushable = [row for row in rows if (row.get("permissions") or {}).get("push") and not row.get("archived")]
         return [str(row["full_name"]) for row in pushable if str(row.get("pushed_at") or "") >= since]
 
+    def own_repos(self, days: int) -> List[str]:
+        """The repos where the token owner opened a PR in the last `days` days (decision R10 of
+        the autonomous serve), most recent first. ponytail: the first 100 results of the search."""
+        from datetime import datetime, timedelta, timezone
+
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+        query = f"/search/issues?q=type:pr+author:{self.who_am_i()}+created:>={since}&sort=created&order=desc&per_page=100"
+        found = GithubFailures().answer(partial(self._api().get_json, query))
+        return list(dict.fromkeys(str(row["repository_url"]).split("/repos/", 1)[1] for row in found.get("items") or []))
+
     def usual_reviewers(self, repo: str, count: int) -> List[str]:
         """The `count` most frequent reviewers of the recent merged PRs of `repo`, without the
         token owner (decision D2 of the autonomous serve)."""

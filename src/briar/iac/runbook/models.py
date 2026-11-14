@@ -160,6 +160,9 @@ class ServeSettings(_Strict):
     poll_minutes: int = Field(default=5, ge=1)
     # New tickets a company may start in one UTC day; 0 is no limit (decision D3).
     max_new_per_day: int = Field(default=0, ge=0)
+    # US$ the tasks of a company may spend on the model in one UTC day before no NEW ticket
+    # starts; open tasks and review rounds go on. 0 is no cap (decision R9).
+    max_usd_per_day: float = Field(default=0, ge=0)
     # GitHub repos to work in: an open issue there assigned to the token owner is a ticket.
     repos: List[str] = Field(default_factory=list)
     # Jira project key -> the repos its tickets may be built in (spec 008 N5, N7).
@@ -168,6 +171,10 @@ class ServeSettings(_Strict):
     # Repo -> its own verify commands (decision C1: a company has Python and Terraform repos);
     # a repo not listed uses `verify`, and with no commands at all the MR CI is the only check.
     verify_by_repo: Dict[str, List[str]] = Field(default_factory=dict)
+    # Commands that format the worktree, run before each commit (decision R11): the formatter of
+    # the repo always wins, so the self-review cannot ask for a format it undoes.
+    format: List[str] = Field(default_factory=list)
+    format_by_repo: Dict[str, List[str]] = Field(default_factory=dict)
     bash: List[str] = Field(default_factory=list)
     priority_labels: List[str] = Field(default_factory=list)
     # Bot logins whose PR comments briar answers (V1); people need write access.
@@ -230,6 +237,10 @@ class ServeSettings(_Strict):
     def verify_for(self, repo: str) -> List[str]:
         """The verify commands of a task in `repo`."""
         return self.verify_by_repo.get(repo, self.verify)
+
+    def format_for(self, repo: str) -> List[str]:
+        """The format commands of a task in `repo`."""
+        return self.format_by_repo.get(repo, self.format)
 
     def all_repos(self) -> List[str]:
         """Every repo briar works in: `repos`, then the repos of `jira`, each once."""

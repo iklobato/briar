@@ -14,14 +14,27 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Added
 
+- `serve.format` and `serve.format_by_repo`: commands that format the worktree before each
+  commit, so the formatter of the repo always wins; the self-review no longer asks for a
+  format the formatter would undo (a real run spent all its fix loops on it).
+- `serve.max_usd_per_day`: when the tasks of a company have spent that many US$ on the
+  model in one UTC day, no new ticket starts until the next day; open tasks and review
+  rounds go on. 0, the default, is no cap.
+- `briar serve` writes a daily report per company, `<knowledge root>/reports/YYYY-MM-DD.md`,
+  rewritten every poll: what waits for a merge, what stopped and why, what the day cost and
+  what a poll skipped. Each state entry keeps its spend per UTC day.
+- A failed chat (Slack) login no longer stops `briar serve`: the start check warns and a
+  poll skips the chat asks. Running unattended (launchd, tokens) is in `agents/serve.md`.
 - `briar serve` asks the two usual reviewers of the repo when a PR is marked ready, and
   sends one reminder naming them when nobody commented after 48 hours.
 - `serve.status.done`: a PR a person merges moves the ticket there; a PR a person closes
   without a merge moves it back to `status.started` with a comment, and briar never takes
   it again.
-- `jira.<PROJ>.repos: ["*"]`: every repo the token can push to (GitLab Developer or more,
-  merge requests on; GitHub push, not archived) with activity in the last 90 days, read
-  from the code host once a day, joins the listed repos for the ticket choice.
+- `jira.<PROJ>.repos: ["*"]`: the repos where the token owner opened a PR or MR in the
+  last 90 days, plus any other repo the token can push to (GitLab Developer or more, merge
+  requests on; GitHub push, not archived) with activity in that time that the ticket names
+  by its path or its name, read from the code host once a day, join the listed repos for the
+  ticket choice.
 - `serve.verify_by_repo`: the verify commands of one repo; the others use `verify`.
   A repo with no commands at all relies on the MR CI only.
 - `serve.max_new_per_day`: at most that many new tickets a company starts in one UTC

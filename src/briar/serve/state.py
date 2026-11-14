@@ -56,6 +56,8 @@ class WorkEntry(BaseModel):
     ready_at: str = ""
     reviewers: List[str] = Field(default_factory=list)
     reminded: bool = False
+    # What the task spent on the model per UTC day, US$ (the daily report and `max_usd_per_day`).
+    spent_by_day: Dict[str, float] = Field(default_factory=dict)
 
     # A ticket in one of these is not taken again; one found or planned when `serve`
     # stopped is taken again and picks up its worktree.
@@ -87,6 +89,10 @@ class WorkBook(BaseModel):
     def started_on(self, day: str) -> int:
         """How many tickets briar took on `day` (decision D3)."""
         return sum(1 for entry in self.entries.values() if entry.started == day)
+
+    def spent_on(self, day: str) -> float:
+        """What every task of the company spent on the model on `day`, US$ (decision R9)."""
+        return sum(entry.spent_by_day.get(day, 0.0) for entry in self.entries.values())
 
     def watched(self) -> List[WorkEntry]:
         """The PRs briar still reads: open, and not blocked (V3)."""

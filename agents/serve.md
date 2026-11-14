@@ -158,16 +158,19 @@ companies:
       repos: [acme/web]               # GitHub repos: an issue assigned to the token owner is a ticket
       jira:                           # Jira project -> the repos its tickets may be built in
         ENG:
-          repos: [acme/app, acme/api]   # `*` adds every repo the token can push to with activity in 90 days
+          repos: [acme/app, acme/api]   # `*` adds the repos where the token owner had a PR/MR in 90 days, and any active pushable repo the ticket names
           not_workable: [Blocked, In Review]   # optional: statuses briar never takes (this is the default)
       priority_labels: [p0, p1]       # optional: labels that move a ticket up (+10)
       only: [ENG-7, acme/web#12]      # optional: when set, only these tickets are candidates
       max_parallel: 3                 # optional
       max_new_per_day: 5              # optional: new tickets started per UTC day (0, the default, is no limit)
+      max_usd_per_day: 10             # optional: US$ the tasks may spend per UTC day before no NEW ticket starts (0: no cap)
       poll_minutes: 5                 # optional
       verify: ["make lint", "make test"]
       verify_by_repo:                 # optional: a repo's own verify commands (others use `verify`)
         acme/infra: ["terraform fmt -check -recursive"]
+      format_by_repo:                 # optional: commands that format the worktree before each commit
+        acme/infra: ["terraform fmt -recursive"]   # (`format: [...]` is the default for the other repos)
       bash: [git, make, pytest]       # optional: the programs the agent may run (replaces the default list)
       review_bots: ["coderabbitai[bot]"]   # optional: bots whose PR comments briar answers
       allowed_domains: [pypi.org]     # optional: what the bash of the agent may reach; none by default
@@ -306,6 +309,51 @@ and the pipeline of the pushed commit for the CI wait.
 | Parameter | What it means | Default | Example |
 |---|---|---|---|
 | `directory` (positional) | The folder with the runbooks. Required. | none | `runbooks/` |
+
+## Run it unattended
+
+`serve` writes a daily report for each company to `<knowledge root>/reports/YYYY-MM-DD.md`,
+rewritten every poll: what waits for a merge, what stopped and why, what the day cost, and
+what a poll skipped (a dead chat login, the `max_new_per_day` limit). Read it instead of the
+log. A failed chat (Slack) login never stops `serve`: the start check shows it as a warning,
+and a poll skips the chat asks that time.
+
+Use API tokens, not browser sessions: a browser cookie expires in days. For Jira set
+`[auth.jira] method = "token"` with `BRIAR_<COMPANY>_JIRA_EMAIL` and
+`BRIAR_<COMPANY>_JIRA_TOKEN` (an API token from
+https://id.atlassian.com/manage-profile/security/api-tokens).
+A process manager does not load your shell profile, so keep every login in
+`~/.config/briar/secrets.env`.
+
+On macOS, a LaunchAgent starts `serve` when you log in. Save this as
+`~/Library/LaunchAgents/com.usebriar.serve.plist` (set your paths), then
+`launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.usebriar.serve.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.usebriar.serve</string>
+  <key>ProgramArguments</key>
+  <array><string>/Users/you/.local/bin/briar</string><string>serve</string><string>/Users/you/runbooks</string></array>
+  <key>WorkingDirectory</key><string>/Users/you/runbooks</string>
+  <key>EnvironmentVariables</key>
+  <dict><key>PATH</key><string>/Users/you/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string></dict>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>/Users/you/Library/Logs/briar-serve.log</string>
+  <key>StandardErrorPath</key><string>/Users/you/Library/Logs/briar-serve.log</string>
+</dict>
+</plist>
+```
+
+The `PATH` must hold the folder of every program your `verify` commands run (`uv`,
+`node`, `terraform`...): launchd does not load your shell profile. A missing one ends the
+task `blocked` with "not on the PATH of this process" (found in a real run, exit 127).
+Stop it with `launchctl bootout gui/$(id -u)/com.usebriar.serve`. Add
+`<key>KeepAlive</key><true/>` to have launchd start it again after a crash. A Mac that
+sleeps stops polling until it wakes. On Linux, use a systemd user unit with the same
+command and `Restart=on-failure`.
 
 ## Good to know
 
