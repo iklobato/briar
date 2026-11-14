@@ -21,6 +21,7 @@ from briar.extract.commit_message_quality import ExtractCommitMessageQuality
 from briar.extract.defect_hotspots import ExtractDefectHotspots
 from briar.extract.dependency_health import ExtractDependencyHealth
 from briar.extract.github_deployments import ExtractGithubDeployments
+from briar.extract.iac_terraform import ExtractIacTerraform
 from briar.extract.meeting_digest import ExtractMeetingDigest
 from briar.extract.pr_archaeology import ExtractPrArchaeology
 from briar.extract.pr_hygiene import ExtractPrHygiene
@@ -38,6 +39,7 @@ EXTRACTORS: Dict[str, KnowledgeExtractor] = build_registry(
     (
         ExtractPrArchaeology(),
         ExtractAwsInfra(),
+        ExtractIacTerraform(),
         ExtractActiveWork(),
         ExtractGithubDeployments(),
         ExtractCodebaseConventions(),

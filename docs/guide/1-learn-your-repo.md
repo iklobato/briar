@@ -81,11 +81,11 @@ It is a plain markdown file on your disk. Read it yourself, or give it to any AI
 You now have a file of facts about your repo. Run `extract` again any time: it only replaces the sections of the readers that ran.
 
 **Try next**
-- `briar extract -h` lists all 23 readers (briar calls them extractors).
+- `briar extract -h` lists all 24 readers (briar calls them extractors).
 - `code-hotspots`: the files that change the most.
 - `codebase-conventions`: your test runner, linter and formatter.
 - `stale-prs`: open pull requests that nobody touched for a while.
-- `briar extract` with no `--include` runs all 23. It takes a few minutes.
+- `briar extract` with no `--include` runs all 24. It takes a few minutes.
 
 ### With Jira too
 

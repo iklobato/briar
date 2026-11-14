@@ -25,7 +25,7 @@ They match briar-cli 1.1.75.
 |---|---|
 | [flows.md](flows.md) | Recipes that chain several commands into one result. Start here for "how do I...". |
 | [setup.md](setup.md) | `briar init`, `briar doctor`, shell completion, telemetry: set up a project and check it. |
-| [extract.md](extract.md) | `briar extract`: read your tools into a knowledge blob (23 extractors). |
+| [extract.md](extract.md) | `briar extract`: read your tools into a knowledge blob (24 extractors). |
 | [serve.md](serve.md) | `briar serve`: watch the tickets assigned to briar and the review comments on its PRs (GitHub, Jira). |
 | [runbooks.md](runbooks.md) | The runbook YAML: the extractors of each company and their schedules, which `briar serve` runs. |
 | [logins.md](logins.md) | The `BRIAR_*` names of each source, the `[auth]` choices, `secrets.env`, and how `briar doctor` checks them. |
