@@ -11,6 +11,8 @@ source .venv/bin/activate
 briar --help
 ```
 
+After `make venv`, run `briar --version`; it should print a version, which tells you the setup worked.
+
 The editable install (`-e`) puts the `briar` console script on your PATH and
 makes `import briar` work without `PYTHONPATH` games.
 

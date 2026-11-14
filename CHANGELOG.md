@@ -5,6 +5,13 @@ All notable changes to `briar-cli` are documented here. The format follows
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases are
 cut automatically on merge to `main` (patch bump + PyPI + Docker).
 
+## [1.1.102] - 2026-11-13
+
+### Docs
+
+- `CONTRIBUTING.md`: the Setup section says that `briar --version` should
+  print a version after `make venv`.
+
 ## [1.1.101] - 2026-10-29
 
 ### Docs
