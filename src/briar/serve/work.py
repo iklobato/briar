@@ -138,6 +138,10 @@ class ServeCompany:
     def knowledge_file(self) -> Path:
         return self.root / "knowledge" / f"{self.name}.md"
 
+    def index_file(self) -> Path:
+        """The index of the topic files that `briar extract` writes beside the knowledge file."""
+        return self.root / "knowledge" / self.name / "index.md"
+
     def state_file(self) -> Path:
         return self.root / "work" / f"{self.name}.md"
 

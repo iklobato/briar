@@ -6,7 +6,8 @@ Ticket {key}: {title}
 {description}
 
 Answer with the plan: a short summary of the change, the steps in order (each one small
-enough to check), the tests that prove it, and the risks a reviewer should look at. If the
+enough to check), the tests that prove it, the risks a reviewer should look at, and in
+`sources` the topics of the knowledge you read (for example "CI health"). If the
 ticket has no clear acceptance criteria, write the ones you will build to in the summary.
 
 Set `needs_code` to false only when the ticket needs no change in this repo at all (an

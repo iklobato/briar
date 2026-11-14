@@ -107,7 +107,8 @@ class TestRound:
 
         request = agent.requests[0]
         assert "- `test -f feature.txt`" in request.prompt
-        assert "the knowledge of the company: (none yet)" in request.system_prompt
+        assert "Start with its index: (none yet)" in request.system_prompt
+        assert "read the one file with all of it:\n  (none yet);" in request.system_prompt
 
     def test_a_round_with_no_change_only_replies(self, opened: Opened) -> None:
         setup = opened.make({})

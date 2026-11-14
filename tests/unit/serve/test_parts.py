@@ -181,6 +181,15 @@ class TestAnswers:
 
         assert plan.markdown() == "Fix login\n\nSteps:\n1. a\n2. b\n\nRisks:\n1. c"
 
+    def test_a_plan_lists_the_sources_the_agent_read(self) -> None:
+        plan = Plan.from_answer(AgentAnswer("", {"summary": "Fix login", "steps": ["a"], "sources": ["Terraform", "Deploy map"]}, 0.0))
+
+        assert plan.markdown() == "Fix login\n\nSteps:\n1. a\n\nSources read:\n1. Terraform\n2. Deploy map"
+
+    def test_the_plan_schema_lets_the_agent_name_its_sources_without_requiring_them(self) -> None:
+        assert Plan.SCHEMA["properties"]["sources"] == {"type": "array", "items": {"type": "string"}}
+        assert "sources" not in Plan.SCHEMA["required"]
+
     def test_a_plan_with_no_structure_keeps_the_text(self) -> None:
         assert Plan.from_answer(AgentAnswer("do it", {}, 0.0)).markdown() == "do it"
 
@@ -216,10 +225,11 @@ class TestPrompts:
     def test_every_prompt_file_ships_and_fills_in(self, name: str) -> None:
         values = {
             key: f"<{key}>"
-            for key in ("company", "repo", "knowledge", "state", "key", "title", "description", "plan", "verify", "what", "details", "diff", "comments", "earlier")
+            for key in ("company", "repo", "knowledge", "index", "state", "key", "title", "description", "plan", "verify", "what", "details", "diff", "comments", "earlier")
         }
 
         text = Prompts().text(name, values)
 
         assert ("{" in text, "}" in text) == (False, False)
         assert ("<key>" in text) is (name != "system")
+        assert ("<index>" in text) is (name == "system")

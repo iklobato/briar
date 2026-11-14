@@ -6,8 +6,11 @@ commands.
 
 Before you change code, read what the team knows:
 
-- the knowledge of the company: {knowledge} (merged PRs, CI health, conventions, hotspots,
-  reviewers, open work; read the parts about {repo});
+- the knowledge of the company. Start with its index: {index} (one line for each topic: merged
+  PRs, CI health, conventions, hotspots, reviewers, open work, and the infrastructure and
+  meeting topics when they exist). Open only the topic files you need for {repo}; they are in
+  the same folder as the index. When there is no index yet, read the one file with all of it:
+  {knowledge};
 - the state of the work of briar for this company: {state}.
 
 Rules:

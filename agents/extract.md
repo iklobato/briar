@@ -76,7 +76,10 @@ Run every extractor that is set up, for one repo:
 briar extract --company acme --repo acme-co/acme-app
 ```
 
-You get `./knowledge/knowledge/acme.md`. With no `--include` every
+You get `./knowledge/knowledge/acme.md`, and beside it a folder
+`./knowledge/knowledge/acme/` with `index.md` (one line for each topic) and one file for each
+topic. The topic files are cut from the same text, so they always match the single file;
+`briar serve` gives the agent the index, so it opens only the topics it needs. With no `--include` every
 extractor that has its repo or project list runs, so the run needs every
 login they use: the check stops it when one is missing. Extractors with no
 repo or project list print `skipped <name>  (not available in this env)`
