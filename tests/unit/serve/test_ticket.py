@@ -138,6 +138,28 @@ class TestVerifyPerRepo:
         assert "serve: ENG-1 verify on HEAD: no verify commands set" in caplog.text
 
 
+class TestUsualReviewers:
+    """Decision D2 of the autonomous serve: a ready MR asks the usual reviewers of its repo,
+    so it does not wait for the maintainer."""
+
+    def test_a_ready_pr_asks_the_two_usual_reviewers_of_the_repo(self, setups: Setups) -> None:
+        setup = setups.make({})
+        setup.sources.github_side.usual["acme/app"] = ["ann", "bob", "cy"]
+
+        setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()]), Items().jira())
+
+        assert setup.sources.github_side.asked == [(PR, ["ann", "bob"])]
+
+    def test_a_repo_with_no_review_history_asks_nobody_and_says_so(self, setups: Setups, caplog: pytest.LogCaptureFixture) -> None:
+        caplog.set_level(logging.INFO, logger="briar.serve.ticket")
+        setup = setups.make({})
+
+        setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()]), Items().jira())
+
+        assert setup.sources.github_side.asked == []
+        assert "serve: ENG-1: no usual reviewers found for acme/app; nobody was asked to review" in caplog.text
+
+
 class TestSilentPlan:
     """Decision D1 of the autonomous serve: the plan comes first and writes nothing; only a
     plan with a code change is posted, moves the ticket and builds. A real run (2026-11-13)

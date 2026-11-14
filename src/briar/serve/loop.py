@@ -23,7 +23,7 @@ from briar.serve.open_work import OpenWork
 from briar.serve.select import Choice, Selector
 from briar.serve.task import ServeCache, TaskContext, TaskPrep
 from briar.serve.state import WorkBook
-from briar.serve.work import BaseDrift, ServeCompany, WorkDay, WorkFinder, WorkItem, WorkKind, WorkSources
+from briar.serve.work import BaseDrift, ReviewReminders, ServeCompany, WorkDay, WorkFinder, WorkItem, WorkKind, WorkSources
 
 
 class Routine(Protocol):
@@ -110,6 +110,7 @@ class CompanyWatch:
         except self.POLL_FAILURES as failure:
             self.LOG.error("serve: %s: the poll failed, trying again next poll: %s", self._company.name, failure)
             return 0
+        await ReviewReminders(self._company, sources).send()
         pulls = [item for item in items if item.kind is not WorkKind.TICKET]
         started = sum(self._slots.dispatch(item, self._work.routine) for item in pulls) + await self._tickets(items)
         self.LOG.info("serve: %s: %d found, %d started", self._company.name, len(items), started)

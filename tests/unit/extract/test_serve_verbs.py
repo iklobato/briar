@@ -29,6 +29,8 @@ LONG_BODY = 2000
 # Open issues a GitHub issue blocks, in its dependencies summary.
 BLOCKING = 2
 ACTIVE_DAYS = 90
+TWO_REVIEWERS = 2
+FIRST_PR, SECOND_PR, UNMERGED_PR = 1, 2, 3
 # A push inside the window and one well outside it, in days before now.
 RECENT_PUSH, OLD_PUSH = 1, 400
 
@@ -162,6 +164,29 @@ class TestGithub:
         with mock.patch("briar.extract._gh.GithubApi.client", return_value=client):
             with pytest.raises(LoginRejected, match=r'^HTTP 422: 422 \{"message": "Validation Failed"\}$'):
                 make_provider("github", Logins().github()).open_pull("acme/app", PullRequestDraft("briar/ENG-1", "main", "t", "b"))
+
+
+class TestGithubReviewers:
+    """Decision D2 of the autonomous serve on GitHub."""
+
+    def test_the_most_frequent_reviewers_of_recent_merged_prs_but_the_owner(self) -> None:
+        pulls = [{"number": FIRST_PR, "merged_at": "t"}, {"number": SECOND_PR, "merged_at": "t"}, {"number": UNMERGED_PR, "merged_at": None}]
+        reviews = {FIRST_PR: [{"user": {"login": "ann"}}, {"user": {"login": "octo"}}], SECOND_PR: [{"user": {"login": "ann"}}, {"user": {"login": "bob"}}]}
+        answers = {"/repos/acme/app/pulls?state=closed&sort=updated&direction=desc": pulls, **{f"/repos/acme/app/pulls/{number}/reviews": rows for number, rows in reviews.items()}}
+
+        with mock.patch("briar.extract._gh.GithubApi.get_paginated", side_effect=lambda path, **kwargs: answers[path]):
+            with mock.patch("briar.extract._providers.github.GithubProvider.who_am_i", return_value="octo"):
+                found = make_provider("github", Logins().github()).usual_reviewers("acme/app", TWO_REVIEWERS)
+
+        assert found == ["ann", "bob"]
+
+    def test_asking_a_review_requests_the_reviewers(self) -> None:
+        client = mock.MagicMock()
+
+        with mock.patch("briar.extract._gh.GithubApi.client", return_value=client):
+            make_provider("github", Logins().github()).request_review("acme/app", PULL_NUMBER, ["ann"])
+
+        assert client.get_repo.return_value.get_pull.return_value.create_review_request.call_args.kwargs == {"reviewers": ["ann"]}
 
 
 class PushedAt:

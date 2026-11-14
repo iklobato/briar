@@ -14,6 +14,11 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Added
 
+- `briar serve` asks the two usual reviewers of the repo when a PR is marked ready, and
+  sends one reminder naming them when nobody commented after 48 hours.
+- `serve.status.done`: a PR a person merges moves the ticket there; a PR a person closes
+  without a merge moves it back to `status.started` with a comment, and briar never takes
+  it again.
 - `jira.<PROJ>.repos: ["*"]`: every repo the token can push to (GitLab Developer or more,
   merge requests on; GitHub push, not archived) with activity in the last 90 days, read
   from the code host once a day, joins the listed repos for the ticket choice.

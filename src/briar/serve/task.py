@@ -95,6 +95,10 @@ class TaskPrep:
         self._shell = shell
         self._cache = cache
 
+    def sources(self) -> WorkSources:
+        """The code host and trackers the tasks of this prep work with."""
+        return self._sources
+
     def context(self, company: ServeCompany, item: WorkItem) -> TaskContext:
         """A ticket: a new branch from the base."""
         branch = BranchName(company.settings).of(item)

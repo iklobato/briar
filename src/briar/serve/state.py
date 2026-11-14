@@ -51,6 +51,11 @@ class WorkEntry(BaseModel):
     reason: str = ""
     # The UTC day briar took the ticket, `YYYY-MM-DD` (decision D3: `max_new_per_day`).
     started: str = ""
+    # When the PR was marked ready (ISO, UTC), who was asked to review it, and whether the one
+    # reminder after 48 h was sent (decisions D2, E3).
+    ready_at: str = ""
+    reviewers: List[str] = Field(default_factory=list)
+    reminded: bool = False
 
     # A ticket in one of these is not taken again; one found or planned when `serve`
     # stopped is taken again and picks up its worktree.

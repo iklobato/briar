@@ -59,7 +59,13 @@ and `docs/decisions/2026-11-11-briar-2-review-routine.md`.
       ticket and moves it to `status.review`;
    5. briar waits for CI on the PR and, when it fails, gives the agent the failed job
       logs, then pushes the fix; when CI passes (or the repo has no CI), briar marks
-      the PR ready for review, so reviewers are asked only for work that passed.
+      the PR ready for review, so reviewers are asked only for work that passed, and asks
+      the two usual reviewers of the repo (the most frequent reviewers of its recent merged
+      PRs, never the token owner). A ready PR nobody commented on after 48 hours gets one
+      note naming them; never a second one.
+   6. when a person merges the PR, the ticket moves to `status.done`; when a person closes it
+      without a merge, the ticket moves back to `status.started` with a comment, and briar
+      never takes it again.
 
    The agent only edits files in the worktree and runs the allowed commands: the
    commits, the push, the PR, the comments and the status moves are done by briar.
@@ -165,7 +171,7 @@ companies:
       bash: [git, make, pytest]       # optional: the programs the agent may run (replaces the default list)
       review_bots: ["coderabbitai[bot]"]   # optional: bots whose PR comments briar answers
       allowed_domains: [pypi.org]     # optional: what the bash of the agent may reach; none by default
-      status: {started: In Progress, review: In Review}   # optional; no names: no move
+      status: {started: In Progress, review: In Review, done: Done}   # optional; no names: no move
       branch: "briar/{key}"           # optional
       title: "{key}: {title}"         # optional
 ```

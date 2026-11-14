@@ -127,6 +127,9 @@ class FakeGithubSide:
     comments: List[Tuple[str, int, str]] = field(default_factory=list)
     drafts: List[int] = field(default_factory=list)
     readies: List[int] = field(default_factory=list)
+    # Repo -> its usual reviewers (most frequent first), and the review asks briar sent.
+    usual: Dict[str, List[str]] = field(default_factory=dict)
+    asked: List[Tuple[int, List[str]]] = field(default_factory=list)
     replies: List[ThreadReply] = field(default_factory=list)
     # A PR refusal of GitHub, raised by every `open_pull` while set.
     refusals: List[str] = field(default_factory=list)
@@ -159,6 +162,12 @@ class FakeGithubSide:
     def make_ready(self, repo: str, number: int) -> None:
         self.readies.append(number)
 
+    def usual_reviewers(self, repo: str, count: int) -> List[str]:
+        return self.usual.get(repo, [])[:count]
+
+    def request_review(self, repo: str, number: int, reviewers: List[str]) -> None:
+        self.asked.append((number, list(reviewers)))
+
     def branch_pull(self, repo: str, branch: str) -> Optional[BranchPull]:
         return self.branch_pulls.get(branch)
 
@@ -180,6 +189,8 @@ class FakeTrackerSide:
     moves: List[Tuple[str, str]] = field(default_factory=list)
     # A comment that starts with one of these is refused by the tracker.
     refused_prefixes: List[str] = field(default_factory=list)
+    # Statuses the workflow has no transition to from where the ticket is.
+    refused_moves: List[str] = field(default_factory=list)
 
     def get_ticket(self, project: str, key: str) -> Ticket:
         return Ticket(
@@ -192,6 +203,8 @@ class FakeTrackerSide:
         self.comments.append((key, text))
 
     def move(self, key: str, status: str) -> None:
+        if status in self.refused_moves:
+            raise LoginRejected(f"HTTP 400: no transition to {status}")
         self.moves.append((key, status))
 
 

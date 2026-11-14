@@ -7,6 +7,7 @@ level of each author, and the write check. Every call raises `LoginRejected` or
 from __future__ import annotations
 
 import re
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from dataclasses import replace
 from functools import cached_property, partial
@@ -119,6 +120,8 @@ class GitlabHost:
     WRITE_SCOPE = "api"
     # The ref of a merged results pipeline (or a merge train) of an MR.
     MERGE_REFS = "refs/merge-requests/"
+    # The merged MRs read for the usual reviewers of a repo (decision D2).
+    RECENT_MERGED = 30
 
     def __init__(self, login: GitlabLogin, api: Optional[GitlabRest] = None) -> None:
         self._login = login
@@ -218,6 +221,20 @@ class GitlabHost:
         # answered 403 to the MR list and stopped every ticket choice (2026-11-13).
         usable = [row for row in rows if row.get("merge_requests_access_level") != "disabled" and row.get("repository_access_level") != "disabled"]
         return [str(row["path_with_namespace"]) for row in usable]
+
+    def usual_reviewers(self, repo: str, count: int) -> List[str]:
+        """The `count` most frequent reviewers of the recent merged MRs of `repo`, without the
+        token owner (decision D2 of the autonomous serve)."""
+        query = {"state": "merged", "order_by": "updated_at", "sort": "desc"}
+        rows = GitlabFailures().answer(partial(self._rest.pages, f"{self._project(repo)}/merge_requests", query, self.RECENT_MERGED))
+        owner = self.who_am_i()
+        seen = Counter(str(person.get("username") or "") for row in rows for person in row.get("reviewers") or [])
+        return [name for name, _ in seen.most_common() if name and name != owner][:count]
+
+    def request_review(self, repo: str, number: int, reviewers: List[str]) -> None:
+        """Set `reviewers` (usernames) as the reviewers of the MR."""
+        ids = [int(GitlabFailures().answer(partial(self._rest.pages, "/users", {"username": name}))[0]["id"]) for name in reviewers]
+        GitlabFailures().read(partial(self._rest.put, self._mr(repo, number), {"reviewer_ids": ids}))
 
     def branch_head(self, repo: str, branch: str) -> str:
         found = GitlabFailures().answer(partial(self._rest.get, f"{self._project(repo)}/repository/branches/{quote(branch, safe='')}"))
