@@ -12,7 +12,8 @@ briar --help
 ```
 
 The editable install (`-e`) puts the `briar` console script on your PATH and
-makes `import briar` work without `PYTHONPATH` games.
+makes `import briar` work without `PYTHONPATH` games. To check the setup
+worked, run `briar --version`; it should print a version.
 
 ## The pre-push gate
 
