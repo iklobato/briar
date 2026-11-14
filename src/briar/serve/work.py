@@ -17,7 +17,7 @@ from dataclasses import dataclass, field, replace
 from enum import Enum
 from functools import partial
 from pathlib import Path
-from typing import Any, Callable, ClassVar, Dict, List, Mapping, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, ClassVar, Dict, FrozenSet, List, Mapping, Optional, Sequence, Set, Tuple
 
 from briar.auth.check import CheckResult, CheckState, LoginCheck, LoginCheckFailed, LoginTarget, SourceUnreachable
 from briar.auth.logins import CompanyLogins, LoginScope
@@ -131,6 +131,9 @@ class ServeCompany:
     root: Path = Path("knowledge")
     # Day -> the active pushable repos found that day (decision C2: read once a day).
     found_repos: Dict[str, Tuple[str, ...]] = field(default_factory=dict, compare=False)
+    # Day -> what the polls of that day skipped or hit (a dead chat, the day limit), for the
+    # daily report (decision F1).
+    notes: Dict[str, List[str]] = field(default_factory=dict, compare=False)
 
     def knowledge_file(self) -> Path:
         return self.root / "knowledge" / f"{self.name}.md"
@@ -482,6 +485,10 @@ class ServeCheck:
     write checks of every company; any failure stops `serve` with every failed line (G13,
     J8, V14)."""
 
+    LOG: ClassVar[logging.Logger] = logging.getLogger(__name__)
+    # Sources whose failed check warns instead of stopping serve (decision B3).
+    OPTIONAL: ClassVar[FrozenSet[str]] = frozenset({"slack"})
+
     def __init__(self, companies: Sequence[ServeCompany], environ: Mapping[str, str], sandbox: AgentSandbox) -> None:
         self._companies = companies
         self._environ = environ
@@ -492,7 +499,12 @@ class ServeCheck:
         if problems:
             raise CliError("\n".join(problems))
         lines = self.lines()
-        if not all(line.passed() for line in lines):
+        # Decision B3 of the autonomous serve: the chat is optional; its failed line warns.
+        for line in lines:
+            if line.source in self.OPTIONAL and not line.passed():
+                self.LOG.warning("serve: %s; serve goes on without the chat", line.line())
+        blocking = [line for line in lines if line.source not in self.OPTIONAL]
+        if not all(line.passed() for line in blocking):
             raise LoginCheckFailed.from_results(lines)
 
     def lines(self) -> List[CheckResult]:
