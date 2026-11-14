@@ -77,6 +77,8 @@ class CiStates:
 class GithubProvider(RepositoryProvider):
     kind = "github"
     login_source = "github"
+    # The merged PRs read for the usual reviewers of a repo (decision D2 of the autonomous serve).
+    RECENT_MERGED = 10
     # ponytail: the first 100 threads of a PR and 100 comments each; page when a PR has more.
     RESOLVED_THREADS: ClassVar[str] = (
         "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) {"
@@ -228,6 +230,26 @@ class GithubProvider(RepositoryProvider):
         rows = GithubFailures().answer(partial(self._api().get_paginated, "/user/repos?affiliation=owner,collaborator,organization_member&sort=pushed"))
         pushable = [row for row in rows if (row.get("permissions") or {}).get("push") and not row.get("archived")]
         return [str(row["full_name"]) for row in pushable if str(row.get("pushed_at") or "") >= since]
+
+    def usual_reviewers(self, repo: str, count: int) -> List[str]:
+        """The `count` most frequent reviewers of the recent merged PRs of `repo`, without the
+        token owner (decision D2 of the autonomous serve)."""
+        from collections import Counter
+
+        _validate_repo(repo)
+        pulls = GithubFailures().answer(partial(self._api().get_paginated, f"/repos/{repo}/pulls?state=closed&sort=updated&direction=desc"))
+        merged = [pull for pull in pulls if pull.get("merged_at")][: self.RECENT_MERGED]
+        owner = self.who_am_i()
+        reviews = [review for pull in merged for review in GithubFailures().answer(partial(self._api().get_paginated, f"/repos/{repo}/pulls/{pull['number']}/reviews"))]
+        seen = Counter(str((review.get("user") or {}).get("login") or "") for review in reviews)
+        return [name for name, _ in seen.most_common() if name and name != owner][:count]
+
+    def request_review(self, repo: str, number: int, reviewers: List[str]) -> None:
+        _validate_repo(repo)
+        GithubFailures().read(partial(self._request_review, repo, number, reviewers))
+
+    def _request_review(self, repo: str, number: int, reviewers: List[str]) -> None:
+        self._api().client().get_repo(repo).get_pull(number).create_review_request(reviewers=reviewers)
 
     def can_write(self, repo: str) -> None:
         """Raise `LoginRejected` when the token cannot push to `repo` (`permissions.push` of

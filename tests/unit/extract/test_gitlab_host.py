@@ -32,6 +32,8 @@ BOB, CY, BOT = 11, 12, 13
 NOTE, REPLY, BOT_NOTE, SYSTEM = 101, 102, 103, 104
 LINE = 4
 ACTIVE_DAYS = 90
+TWO = 2
+OWNER_ID = 99
 FORBIDDEN, NOT_FOUND = 403, 404
 
 
@@ -139,6 +141,26 @@ class TestActiveRepos:
         assert (found, path) == (["acme/platform/app", "acme/infra"], "/projects")
         assert {key: query[key] for key in ("membership", "min_access_level", "archived")} == {"membership": True, "min_access_level": DEVELOPER, "archived": False}
         assert query["last_activity_after"].endswith("T00:00:00Z")
+
+
+class TestUsualReviewers:
+    """Decision D2 of the autonomous serve: the reviewers of the recent merged MRs, most
+    frequent first, without the token owner (real sub-infra: 30 of 30 merged MRs had reviewers)."""
+
+    def test_the_most_frequent_reviewers_of_recent_merged_mrs_but_the_owner(self) -> None:
+        bo, ravish, me = {"id": BOB, "username": "bo"}, {"id": CY, "username": "ravish"}, {"id": OWNER_ID, "username": "briar-owner"}
+        rows = [{"reviewers": [bo, ravish, me]}, {"reviewers": [bo]}, {"reviewers": []}]
+        host = Host.of({f"{PROJECT}/merge_requests": rows, "/user": {"id": OWNER_ID, "username": "briar-owner"}})
+
+        assert host.host().usual_reviewers(REPO, TWO) == ["bo", "ravish"]
+        assert (f"{PROJECT}/merge_requests", {"state": "merged", "order_by": "updated_at", "sort": "desc"}) in host.calls()
+
+    def test_asking_a_review_sets_the_reviewers_of_the_mr_by_id(self) -> None:
+        host = Host.of({"/users": [{"id": BOB, "username": "bo"}], f"PUT {MR}": {"iid": IID}})
+
+        host.host().request_review(REPO, IID, ["bo"])
+
+        assert (f"PUT {MR}", {"reviewer_ids": [BOB]}) in host.calls()
 
 
 class TestMergeRequestState:

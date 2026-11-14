@@ -11,8 +11,10 @@ ticket gets the report too (`TaskFlow.blocked`)."""
 from __future__ import annotations
 
 import asyncio
-from typing import Optional
+import logging
+from typing import ClassVar, Optional
 
+from briar.errors import CliError
 from briar.extract._provider import PullRequestDraft
 from briar.serve.flow import TaskFlow, TicketSide
 from briar.serve.state import WorkSource, WorkStatus
@@ -21,6 +23,10 @@ from briar.serve.task import AgentSteps, LimitHit, Plan, TaskContext
 
 class TicketRun:
     """One ticket, from the plan to green CI."""
+
+    LOG: ClassVar[logging.Logger] = logging.getLogger(__name__)
+    # How many usual reviewers a ready PR asks (decision D2).
+    REVIEWERS = 2
 
     def __init__(self, context: TaskContext, steps: AgentSteps, flow: TaskFlow) -> None:
         self._context = context
@@ -53,7 +59,22 @@ class TicketRun:
         when `serve` stopped during the wait."""
         await self._flow.ci(number)
         await asyncio.to_thread(self._context.sources.code_host().make_ready, self._context.item.repo, number)
+        await asyncio.to_thread(self._ask_reviewers, number)
         await self._flow.record(WorkStatus.DONE, {})
+
+    def _ask_reviewers(self, number: int) -> None:
+        """Decision D2: the usual reviewers of the repo are asked, so a ready PR does not wait
+        for a person to pick them. A refused ask is logged; the PR stays ready."""
+        item, host = self._context.item, self._context.sources.code_host()
+        try:
+            reviewers = host.usual_reviewers(item.repo, self.REVIEWERS)
+            if not reviewers:
+                self.LOG.info("serve: %s: no usual reviewers found for %s; nobody was asked to review", item.ref(), item.repo)
+                return
+            host.request_review(item.repo, number, reviewers)
+            self.LOG.info("serve: %s: asked %s to review", item.ref(), ", ".join(reviewers))
+        except CliError as refused:
+            self.LOG.warning("serve: %s: the review ask failed: %s", item.ref(), refused)
 
     async def _adopted(self) -> bool:
         """A PR of the task branch already exists (the state was lost, or a person closed it):

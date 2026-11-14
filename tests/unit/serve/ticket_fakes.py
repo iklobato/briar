@@ -127,6 +127,9 @@ class FakeGithubSide:
     comments: List[Tuple[str, int, str]] = field(default_factory=list)
     drafts: List[int] = field(default_factory=list)
     readies: List[int] = field(default_factory=list)
+    # Repo -> its usual reviewers (most frequent first), and the review asks briar sent.
+    usual: Dict[str, List[str]] = field(default_factory=dict)
+    asked: List[Tuple[int, List[str]]] = field(default_factory=list)
     replies: List[ThreadReply] = field(default_factory=list)
     # A PR refusal of GitHub, raised by every `open_pull` while set.
     refusals: List[str] = field(default_factory=list)
@@ -158,6 +161,12 @@ class FakeGithubSide:
 
     def make_ready(self, repo: str, number: int) -> None:
         self.readies.append(number)
+
+    def usual_reviewers(self, repo: str, count: int) -> List[str]:
+        return self.usual.get(repo, [])[:count]
+
+    def request_review(self, repo: str, number: int, reviewers: List[str]) -> None:
+        self.asked.append((number, list(reviewers)))
 
     def branch_pull(self, repo: str, branch: str) -> Optional[BranchPull]:
         return self.branch_pulls.get(branch)
