@@ -12,7 +12,8 @@ serve_until_done() {
   local pid_file line
   pid_file=$(mktemp)
   sh -c 'echo $$ > "$0"; exec briar serve runbooks' "$pid_file" 2>&1 | grep --line-buffered 'serve:' | while IFS= read -r line; do
-    printf '%s\n' "$line" | cut -c1-96
+    # briar logs a date and a module name in front of each line; show the time and the rest.
+    printf '%s\n' "$line" | sed -E 's/^[0-9-]+T([0-9:]+)Z \[INFO +\] [^ ]+ serve: /\1 /' | cut -c1-100
     case "$line" in *"is done"* | *"is blocked"*) stop_serve "$pid_file" ;; esac
   done
   printf '^C\n'
@@ -26,4 +27,4 @@ run 'briar doctor --runbooks runbooks'
 typed 'briar serve runbooks'
 serve_until_done
 sleep 1
-run "gh pr list --head briar/issue-$ISSUE" "gh pr list -R $REPO --head briar/issue-$ISSUE"
+run "gh pr list --head briar/issue-$ISSUE" "GH_PAGER=cat gh pr list -R $REPO --head briar/issue-$ISSUE"
