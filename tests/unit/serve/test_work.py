@@ -12,7 +12,7 @@ from typing import Any, Callable, Dict, Optional
 
 import pytest
 
-from briar.auth.check import CheckState, LoginCheckFailed
+from briar.auth.check import CheckResult, CheckState, LoginCheckFailed
 from briar.errors import CliError
 from briar.extract._provider import CommentKind, PullState, ReviewComment
 from briar.serve.state import WorkEntry, WorkSource, WorkStatus
@@ -344,6 +344,16 @@ class TestServeCheck:
 
         assert [(line.source, line.state) for line in lines] == [("github", CheckState.FAILED), ("slack", CheckState.FAILED)]
         assert "BRIAR_ACME_SLACK_TOKEN" in lines[-1].line()
+
+    def test_a_failed_slack_line_warns_and_does_not_stop_serve(self, companies: Companies, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+        """Decision B3 of the autonomous serve: Slack is optional. Its line still shows before
+        the first poll, but a dead session must not keep serve from starting."""
+        lines = [CheckResult("github", "acme", CheckState.OK, "ok"), CheckResult("slack", "acme", CheckState.FAILED, "invalid_auth")]
+        monkeypatch.setattr(ServeCheck, "lines", lambda check: lines)
+
+        ServeCheck([companies.company({"repos": ["acme/app"]})], {"ANTHROPIC_API_KEY": "PLACEHOLDER-not-a-secret"}, Sandboxes().ready()).require()
+
+        assert "serve: slack (acme): invalid_auth; serve goes on without the chat" in caplog.text
 
     def test_no_sandbox_stops_with_the_model_login(self, companies: Companies) -> None:
         with pytest.raises(CliError) as caught:

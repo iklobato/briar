@@ -11,6 +11,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any, Callable, ClassVar, Dict, List, Mapping, Optional, Sequence, Tuple
 
+from briar.errors import AuthError
 from briar.extract._tracker import Ticket
 from briar.iac.runbook.models import ServeSettings
 from briar.serve.agent import Access, AgentAnswer, AgentRequest, AgentRunner
@@ -174,6 +175,8 @@ class Choice:
     the free slots. The model is asked again only when the shortlist or the free slots
     change, so a poll with nothing new costs nothing."""
 
+    LOG: ClassVar[logging.Logger] = logging.getLogger(__name__)
+
     selector: Selector
     company: ServeCompany
     today: Callable[[], date] = date.today
@@ -193,15 +196,35 @@ class Choice:
             workable = await asyncio.to_thread(self.open_work.free, workable)
         if free <= 0 or not workable:
             return []
-        asks = await asyncio.to_thread(self.chat.asks) if self.chat is not None else ChatAsks()
+        asks = await asyncio.to_thread(self._asks)
         ranked = Score(self.today(), self.company.settings.priority_labels, asks).rank(workable)
         shortlist = ranked[: Selector.SHORTLIST]
         fingerprint = (str(free), *(item.key for item in shortlist), *asks.fingerprint())
         if fingerprint in self.asked:
             return []
         self.asked[:] = [fingerprint]
-        talk = await asyncio.to_thread(self.chat.talk, shortlist, asks) if self.chat is not None else {}
+        talk = await asyncio.to_thread(self._talk, shortlist, asks)
         return await self.selector.pick(ranked, free, talk)
+
+    def _asks(self) -> ChatAsks:
+        """Decision B3 of the autonomous serve: the chat is optional; a refused or unreachable
+        chat drops its asks for this poll instead of failing every poll."""
+        if self.chat is None:
+            return ChatAsks()
+        try:
+            return self.chat.asks()
+        except AuthError as dead:
+            self.LOG.warning("serve: %s: the chat was skipped on this poll: %s", self.company.name, dead)
+            return ChatAsks()
+
+    def _talk(self, shortlist: Sequence[WorkItem], asks: ChatAsks) -> Dict[str, List[str]]:
+        if self.chat is None:
+            return {}
+        try:
+            return self.chat.talk(shortlist, asks)
+        except AuthError as dead:
+            self.LOG.warning("serve: %s: the chat was skipped on this poll: %s", self.company.name, dead)
+            return {}
 
 
 __all__ = ["Choice", "Picks", "Score", "Selector", "Shortlist", "Workable"]
