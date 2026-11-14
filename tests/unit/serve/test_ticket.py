@@ -13,6 +13,7 @@ import pytest
 from briar.extract._provider import BranchPull, CiState
 from briar.serve.flow import TaskFlow
 from briar.serve.state import WorkStatus
+from briar.serve.work import WorkDay
 from tests.unit.serve.ticket_fakes import ISSUE, BrokenAgent, FakeGithubSide, Files, Items, Plans, ScriptedAgent, Setups, Step
 
 PR = FakeGithubSide.NUMBER
@@ -21,6 +22,7 @@ CLEAN = "! grep -qs bad state.txt"
 IGNORED_CHECK = "test ! -e .gitignore || test -f feature.txt"
 NO_OTHER = "test ! -e other.txt"
 TWO_STEPS = 2
+THREE_STEPS = 3
 MAX_USD = 5.0
 STEP_COST = 0.1
 THIRD_STEP, FOURTH_STEP = 2, 3
@@ -136,6 +138,28 @@ class TestVerifyPerRepo:
 
         assert setup.entry("ENG-1").status is WorkStatus.DONE
         assert "serve: ENG-1 verify on HEAD: no verify commands set" in caplog.text
+
+
+class TestSpendOfTheDay:
+    """The state keeps what each task spent per UTC day: the daily report and the daily US$
+    cap read it (decisions F1, R9)."""
+
+    def test_a_task_records_its_spend_of_the_day_once(self, setups: Setups) -> None:
+        setup = setups.make({})
+
+        setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()]), Items().jira())
+
+        assert setup.entry("ENG-1").spent_by_day == {WorkDay().today(): pytest.approx(THREE_STEPS * STEP_COST)}
+
+    def test_a_resumed_task_adds_to_what_it_spent_before(self, setups: Setups) -> None:
+        setup = setups.make({})
+        setup.work_on(ScriptedAgent([Plans().plan(), Step(cost=MAX_USD)]), Items().jira())
+        before = setup.entry("ENG-1").spent_by_day[WorkDay().today()]
+        asyncio.run(setup.company.state.record(setup.entry("ENG-1").model_copy(update={"status": WorkStatus.PLANNED})))
+
+        setup.work_on(ScriptedAgent([Step(writes=Files().feature()), Plans().approved()]), Items().jira())
+
+        assert setup.entry("ENG-1").spent_by_day[WorkDay().today()] == pytest.approx(before + TWO_STEPS * STEP_COST)
 
 
 class TestUsualReviewers:

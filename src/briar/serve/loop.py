@@ -22,6 +22,7 @@ from briar.serve.git import Shell
 from briar.serve.open_work import OpenWork
 from briar.serve.select import Choice, Selector
 from briar.serve.task import ServeCache, TaskContext, TaskPrep
+from briar.serve.report import DailyReport
 from briar.serve.state import WorkBook
 from briar.serve.work import BaseDrift, ReviewReminders, ServeCompany, WorkDay, WorkFinder, WorkItem, WorkKind, WorkSources
 
@@ -114,6 +115,7 @@ class CompanyWatch:
         pulls = [item for item in items if item.kind is not WorkKind.TICKET]
         started = sum(self._slots.dispatch(item, self._work.routine) for item in pulls) + await self._tickets(items)
         self.LOG.info("serve: %s: %d found, %d started", self._company.name, len(items), started)
+        await asyncio.to_thread(DailyReport(self._company, sources).write)
         return started
 
     async def _tickets(self, items: List[WorkItem]) -> int:
@@ -134,7 +136,9 @@ class CompanyWatch:
             return len(fresh)
         started = book.started_on(WorkDay().today())
         if started >= limit and fresh:
-            self.LOG.info("serve: %s: %d new ticket(s) started today (max_new_per_day %d): no new ticket until tomorrow (UTC)", self._company.name, started, limit)
+            note = f"{started} new ticket(s) started today (max_new_per_day {limit}): no new ticket until tomorrow (UTC)"
+            self.LOG.info("serve: %s: %s", self._company.name, note)
+            self._company.notes.setdefault(WorkDay().today(), []).append(note)
         return max(limit - started, 0)
 
     async def watch(self) -> None:

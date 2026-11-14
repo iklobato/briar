@@ -14,6 +14,11 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Added
 
+- `briar serve` writes a daily report per company, `<knowledge root>/reports/YYYY-MM-DD.md`,
+  rewritten every poll: what waits for a merge, what stopped and why, what the day cost and
+  what a poll skipped. Each state entry keeps its spend per UTC day.
+- A failed chat (Slack) login no longer stops `briar serve`: the start check warns and a
+  poll skips the chat asks. Running unattended (launchd, tokens) is in `agents/serve.md`.
 - `briar serve` asks the two usual reviewers of the repo when a PR is marked ready, and
   sends one reminder naming them when nobody commented after 48 hours.
 - `serve.status.done`: a PR a person merges moves the ticket there; a PR a person closes

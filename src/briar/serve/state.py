@@ -56,6 +56,8 @@ class WorkEntry(BaseModel):
     ready_at: str = ""
     reviewers: List[str] = Field(default_factory=list)
     reminded: bool = False
+    # What the task spent on the model per UTC day, US$ (the daily report and `max_usd_per_day`).
+    spent_by_day: Dict[str, float] = Field(default_factory=dict)
 
     # A ticket in one of these is not taken again; one found or planned when `serve`
     # stopped is taken again and picks up its worktree.

@@ -131,6 +131,9 @@ class ServeCompany:
     root: Path = Path("knowledge")
     # Day -> the active pushable repos found that day (decision C2: read once a day).
     found_repos: Dict[str, Tuple[str, ...]] = field(default_factory=dict, compare=False)
+    # Day -> what the polls of that day skipped or hit (a dead chat, the day limit), for the
+    # daily report (decision F1).
+    notes: Dict[str, List[str]] = field(default_factory=dict, compare=False)
 
     def knowledge_file(self) -> Path:
         return self.root / "knowledge" / f"{self.name}.md"

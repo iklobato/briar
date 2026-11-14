@@ -17,7 +17,7 @@ from briar.iac.runbook.models import ServeSettings
 from briar.serve.agent import Access, AgentAnswer, AgentRequest, AgentRunner
 from briar.serve.chat import ChatAsks, ChatReader
 from briar.serve.task import Prompts
-from briar.serve.work import ServeCompany, WorkItem
+from briar.serve.work import ServeCompany, WorkDay, WorkItem
 
 
 class Workable:
@@ -214,7 +214,7 @@ class Choice:
         try:
             return self.chat.asks()
         except AuthError as dead:
-            self.LOG.warning("serve: %s: the chat was skipped on this poll: %s", self.company.name, dead)
+            self._skipped(dead)
             return ChatAsks()
 
     def _talk(self, shortlist: Sequence[WorkItem], asks: ChatAsks) -> Dict[str, List[str]]:
@@ -223,8 +223,12 @@ class Choice:
         try:
             return self.chat.talk(shortlist, asks)
         except AuthError as dead:
-            self.LOG.warning("serve: %s: the chat was skipped on this poll: %s", self.company.name, dead)
+            self._skipped(dead)
             return {}
+
+    def _skipped(self, dead: AuthError) -> None:
+        self.LOG.warning("serve: %s: the chat was skipped on this poll: %s", self.company.name, dead)
+        self.company.notes.setdefault(WorkDay().today(), []).append(f"the chat was skipped: {dead}")
 
 
 __all__ = ["Choice", "Picks", "Score", "Selector", "Shortlist", "Workable"]

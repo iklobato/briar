@@ -11,14 +11,15 @@ import logging
 import re
 import time
 from pathlib import PurePosixPath
-from typing import Any, ClassVar, FrozenSet, List, Mapping
+from functools import cached_property
+from typing import Any, ClassVar, FrozenSet, List, Mapping, Tuple
 
 from briar.errors import CliError
 from briar.extract._provider import CiState, PullRequestDraft
 from briar.serve.git import Shell
 from briar.serve.state import WorkSource, WorkStatus
 from briar.serve.task import AgentSteps, Budget, LimitHit, Plan, TaskContext
-from briar.serve.work import Marker, WorkItem, WorkSources
+from briar.serve.work import Marker, WorkDay, WorkItem, WorkSources
 
 
 class ScannerSilencing:
@@ -154,12 +155,23 @@ class TaskFlow:
         item = self._context.item
         known = self._context.company.state.book().entry(item.key)
         base = known or item.entry()
-        entry = base.model_copy(update={**changes, "status": status, "branch": self._context.branch})
+        day, before = self._spend_start
+        spent = {**base.spent_by_day, day: before + self._budget.spent[0]}
+        entry = base.model_copy(update={**changes, "status": status, "branch": self._context.branch, "spent_by_day": spent})
         await self._context.company.state.record(entry)
         link = f" {self._context.sources.style().pull_url(item.repo, entry.pr)}" if entry.pr else ""
         # A done task says what it cost too: before, only a blocked one did (real run, 2026-11-12).
         extra = {WorkStatus.BLOCKED: entry.report, WorkStatus.DONE: self.spent()}.get(status, "")
         self.LOG.info("serve: %s is %s%s %s", item.ref(), status.value, link, extra)
+
+    @cached_property
+    def _spend_start(self) -> Tuple[str, float]:
+        """The day of this run and what the task spent that day before it, read at the first
+        record of the run (the state holds nothing of this run yet). ponytail: a run past
+        midnight UTC books all of its spend on the day it started."""
+        day = WorkDay().today()
+        known = self._context.company.state.book().entry(self._context.item.key)
+        return day, (known.spent_by_day.get(day, 0.0) if known is not None else 0.0)
 
     def changed(self) -> bool:
         """The branch holds a change of its own: no PR is ever opened for the base alone."""
