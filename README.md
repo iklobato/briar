@@ -252,6 +252,24 @@ itself.
 minutes by default (`poll_minutes`), so a quiet log is normal. Run only one
 `serve` per runbook folder.
 
+**Read what it did.** Every poll, briar rewrites a daily report at
+`./knowledge/reports/YYYY-MM-DD.md` (the folder you ran `serve` from): what is
+waiting for a merge, which tasks stopped and why, what the day cost, and what a
+poll skipped. Open it instead of the log.
+
+**Add brakes before you leave it alone.** In the `serve:` block:
+
+```yaml
+      max_new_per_day: 3        # new tickets it may start per day
+      max_usd_per_day: 10       # when the day spend reaches this, no NEW ticket starts
+                                # (tickets and reviews already open go on)
+      format: ["ruff format ."] # your formatter; briar runs it before every commit
+```
+
+To keep it running when you close the terminal, see "Run it unattended" in
+[serve.md](https://github.com/iklobato/briar/blob/main/agents/serve.md): a
+macOS LaunchAgent, and Jira by API token instead of a browser cookie.
+
 When this works, remove `only` and let it choose among all the tickets
 assigned to you. [serve.md](https://github.com/iklobato/briar/blob/main/agents/serve.md)
 covers Jira tickets, GitLab, the usual reviewers, limits per day and how it
