@@ -221,7 +221,13 @@ class TaskFlow:
         base = f"origin/{self._context.base}"
         failures = await asyncio.to_thread(self._failures_at, base)
         if failures:
-            raise LimitHit(f"the verify commands fail on {base} too, before any change: fix the environment or the `verify` commands of the runbook.\n\n{failures}")
+            raise LimitHit(f"the verify commands fail on {base} too, before any change: fix the environment or the `verify` commands of the runbook.{self._path_hint(failures)}\n\n{failures}")
+
+    def _path_hint(self, failures: str) -> str:
+        """Real run (2026-11-14): under launchd `uv` was not found; say what to fix."""
+        if "(exit 127)" not in failures:
+            return ""
+        return " A program the verify commands run is not on the PATH of this process: launchd and systemd do not load your shell profile, so put its folder in the PATH of the service."
 
     def _verify_failures(self) -> str:
         """The verify commands, run on a clean copy of the commit: what will be pushed."""

@@ -336,7 +336,7 @@ On macOS, a LaunchAgent starts `serve` when you log in. Save this as
   <array><string>/Users/you/.local/bin/briar</string><string>serve</string><string>/Users/you/runbooks</string></array>
   <key>WorkingDirectory</key><string>/Users/you/runbooks</string>
   <key>EnvironmentVariables</key>
-  <dict><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string></dict>
+  <dict><key>PATH</key><string>/Users/you/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string></dict>
   <key>RunAtLoad</key><true/>
   <key>StandardOutPath</key><string>/Users/you/Library/Logs/briar-serve.log</string>
   <key>StandardErrorPath</key><string>/Users/you/Library/Logs/briar-serve.log</string>
@@ -344,6 +344,9 @@ On macOS, a LaunchAgent starts `serve` when you log in. Save this as
 </plist>
 ```
 
+The `PATH` must hold the folder of every program your `verify` commands run (`uv`,
+`node`, `terraform`...): launchd does not load your shell profile. A missing one ends the
+task `blocked` with "not on the PATH of this process" (found in a real run, exit 127).
 Stop it with `launchctl bootout gui/$(id -u)/com.usebriar.serve`. Add
 `<key>KeepAlive</key><true/>` to have launchd start it again after a crash. A Mac that
 sleeps stops polling until it wakes. On Linux, use a systemd user unit with the same

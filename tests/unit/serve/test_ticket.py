@@ -116,6 +116,20 @@ class TestNothingToChange:
         assert tracker.moves == [("ENG-1", "In Progress")]
 
 
+class TestMissingProgram:
+    """Real run, 2026-11-14 (test plan A3): under launchd the PATH had no `~/.local/bin`, so
+    `uv` was not found, and the report only said the verify fails on the base."""
+
+    def test_a_program_not_found_says_to_fix_the_path_of_the_process(self, setups: Setups) -> None:
+        setup = setups.make({"verify": ["briar-no-such-program --version"]})
+
+        setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature())]), Items().jira())
+
+        report = setup.entry("ENG-1").report
+        assert "(exit 127)" in report
+        assert "A program the verify commands run is not on the PATH of this process: launchd and systemd do not load your shell profile" in report
+
+
 class TestVerifyPerRepo:
     """Decision C1 of the autonomous serve: one company has Python and Terraform repos, so the
     runbook maps each repo to its own verify commands; `verify` stays the default."""
