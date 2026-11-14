@@ -23,6 +23,10 @@ from tests.unit.serve.fakes import Companies, FakeJira, FakeSources, Tickets
 from tests.unit.serve.test_select import PickingAgent
 
 TWO_SLOTS = 2
+# The US$ a day cap of `TestDailyMoneyLimit`.
+DAY_CAP = 10.0
+# A big spend on another day: it must not count against today.
+OTHER_DAY_SPEND = 100.0
 FIVE_TASKS = 5
 
 
@@ -211,6 +215,39 @@ class TestDailyLimit:
 
         assert asyncio.run(self._watch(company, agent).cycle()) == 1
         assert company.state.book().entries["ENG-1"].started == WorkDay().today()
+
+
+class TestDailyMoneyLimit:
+    """Decision R9: `max_usd_per_day` stops only NEW tickets; tasks and review rounds that are
+    already open go on, so nothing is left half done."""
+
+    def _company(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spent_today: float) -> ServeCompany:
+        jira = FakeJira({"ENG": [Tickets().jira("ENG-1", "High", "2026-01-03")]})
+        monkeypatch.setattr("briar.serve.loop.WorkSources", lambda logins, kind: FakeSources(jira_adapter=jira))
+        company = Companies(tmp_path / "knowledge").company({"jira": {"ENG": {"repos": ["acme/app"]}}, "max_usd_per_day": DAY_CAP})
+        earlier = WorkEntry(key="ENG-9", source=WorkSource.JIRA, repo="acme/app", title="earlier", status=WorkStatus.DONE, spent_by_day={WorkDay().today(): spent_today, "2026-01-01": OTHER_DAY_SPEND})
+        asyncio.run(company.state.record(earlier))
+        return company
+
+    def _cycle(self, company: ServeCompany, agent: PickingAgent) -> int:
+        slots = TaskSlots(asyncio.Semaphore(TWO_SLOTS), set(), set())
+        watch = CompanyWatch(company, slots, WatchWork(RecordingRoutine(company.state), Choice(Selector(agent, company), company)))
+        return asyncio.run(watch.cycle())
+
+    def test_no_new_ticket_starts_once_the_day_spend_reaches_the_cap(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+        caplog.set_level(logging.INFO, logger="briar.serve.loop")
+        company = self._company(tmp_path, monkeypatch, DAY_CAP)
+        agent = PickingAgent([{"key": "ENG-1", "repo": "acme/app", "reason": "the only ticket"}])
+
+        assert (self._cycle(company, agent), agent.requests) == (0, [])
+        assert "serve: acme: US$ 10.00 spent today (max_usd_per_day 10.0): no new ticket until tomorrow (UTC)" in caplog.text
+        assert company.notes[WorkDay().today()] == ["US$ 10.00 spent today (max_usd_per_day 10.0): no new ticket until tomorrow (UTC)"]
+
+    def test_a_day_under_the_cap_and_spend_of_other_days_do_not_stop_a_ticket(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        company = self._company(tmp_path, monkeypatch, DAY_CAP - 1)
+        agent = PickingAgent([{"key": "ENG-1", "repo": "acme/app", "reason": "the only ticket"}])
+
+        assert self._cycle(company, agent) == 1
 
 
 class TestState:

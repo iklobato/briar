@@ -14,6 +14,9 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Added
 
+- `serve.max_usd_per_day`: when the tasks of a company have spent that many US$ on the
+  model in one UTC day, no new ticket starts until the next day; open tasks and review
+  rounds go on. 0, the default, is no cap.
 - `briar serve` writes a daily report per company, `<knowledge root>/reports/YYYY-MM-DD.md`,
   rewritten every poll: what waits for a merge, what stopped and why, what the day cost and
   what a poll skipped. Each state entry keeps its spend per UTC day.

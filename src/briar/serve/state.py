@@ -90,6 +90,10 @@ class WorkBook(BaseModel):
         """How many tickets briar took on `day` (decision D3)."""
         return sum(1 for entry in self.entries.values() if entry.started == day)
 
+    def spent_on(self, day: str) -> float:
+        """What every task of the company spent on the model on `day`, US$ (decision R9)."""
+        return sum(entry.spent_by_day.get(day, 0.0) for entry in self.entries.values())
+
     def watched(self) -> List[WorkEntry]:
         """The PRs briar still reads: open, and not blocked (V3)."""
         return [entry for entry in self.entries.values() if entry.watched()]

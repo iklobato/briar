@@ -130,16 +130,31 @@ class CompanyWatch:
         return sum(self._slots.dispatch(item, self._work.routine) for item in [*resumed, *picked])
 
     def _left_today(self, book: WorkBook, fresh: List[WorkItem]) -> int:
-        """Decision D3: the new tickets the company may still start this UTC day."""
+        """Decisions D3 and R9: the new tickets the company may still start this UTC day, by
+        `max_new_per_day` and by `max_usd_per_day`."""
+        return min(len(fresh), self._by_count(book, fresh), self._by_money(book, fresh))
+
+    def _by_count(self, book: WorkBook, fresh: List[WorkItem]) -> int:
         limit = self._company.settings.max_new_per_day
         if not limit:
             return len(fresh)
         started = book.started_on(WorkDay().today())
         if started >= limit and fresh:
-            note = f"{started} new ticket(s) started today (max_new_per_day {limit}): no new ticket until tomorrow (UTC)"
-            self.LOG.info("serve: %s: %s", self._company.name, note)
-            self._company.notes.setdefault(WorkDay().today(), []).append(note)
+            self._noted(f"{started} new ticket(s) started today (max_new_per_day {limit}): no new ticket until tomorrow (UTC)")
         return max(limit - started, 0)
+
+    def _by_money(self, book: WorkBook, fresh: List[WorkItem]) -> int:
+        cap = self._company.settings.max_usd_per_day
+        spent = book.spent_on(WorkDay().today())
+        if not cap or spent < cap:
+            return len(fresh)
+        if fresh:
+            self._noted(f"US$ {spent:.2f} spent today (max_usd_per_day {cap}): no new ticket until tomorrow (UTC)")
+        return 0
+
+    def _noted(self, note: str) -> None:
+        self.LOG.info("serve: %s: %s", self._company.name, note)
+        self._company.notes.setdefault(WorkDay().today(), []).append(note)
 
     async def watch(self) -> None:
         while True:

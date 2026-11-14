@@ -164,6 +164,7 @@ companies:
       only: [ENG-7, acme/web#12]      # optional: when set, only these tickets are candidates
       max_parallel: 3                 # optional
       max_new_per_day: 5              # optional: new tickets started per UTC day (0, the default, is no limit)
+      max_usd_per_day: 10             # optional: US$ the tasks may spend per UTC day before no NEW ticket starts (0: no cap)
       poll_minutes: 5                 # optional
       verify: ["make lint", "make test"]
       verify_by_repo:                 # optional: a repo's own verify commands (others use `verify`)
