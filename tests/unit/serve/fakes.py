@@ -90,6 +90,8 @@ class FakeGithub:
     # The repos `active_repos` gives (every pushable repo with recent activity), and its calls.
     active: Tuple[str, ...] = ()
     active_calls: List[int] = field(default_factory=list)
+    # The comments briar posted: (repo, number, text).
+    posted: List[Tuple[str, int, str]] = field(default_factory=list)
     login_source: ClassVar[str] = "github"
 
     def read(self, resource: str) -> None:
@@ -107,6 +109,9 @@ class FakeGithub:
 
     def review_comments(self, repo: str, number: int) -> List[ReviewComment]:
         return list(self.comments.get((repo, number), []))
+
+    def comment(self, repo: str, number: int, text: str) -> None:
+        self.posted.append((repo, number, text))
 
     def resolved_comment_ids(self, repo: str, number: int) -> Set[str]:
         return set(self.resolved.get((repo, number), set()))

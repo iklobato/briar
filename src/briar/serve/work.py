@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from functools import partial
@@ -244,6 +244,40 @@ class ActiveRepos:
         if day not in self._company.found_repos:
             self._company.found_repos[day] = tuple(self._sources.code_host().active_repos(self.DAYS))
         return tuple(dict.fromkeys([*listed, *self._company.found_repos[day]]))
+
+
+class ReviewReminders:
+    """Decision E3 of the autonomous serve: a ready PR that nobody commented on 48 h after
+    it was marked ready gets one note naming its reviewers; never a second one."""
+
+    LOG: ClassVar[logging.Logger] = logging.getLogger(__name__)
+    WAIT = timedelta(hours=48)
+
+    def __init__(self, company: ServeCompany, sources: "WorkSources") -> None:
+        self._company = company
+        self._sources = sources
+
+    async def send(self) -> None:
+        for entry in self._due():
+            try:
+                await asyncio.to_thread(self._remind, entry)
+            except CliError as refused:
+                self.LOG.warning("serve: %s: the review reminder failed, trying again next poll: %s", entry.key, refused)
+                continue
+            await self._company.state.record(entry.model_copy(update={"reminded": True}))
+
+    def _due(self) -> List[WorkEntry]:
+        late = datetime.now(timezone.utc) - self.WAIT
+        entries = self._company.state.book().entries.values()
+        return [entry for entry in entries if entry.status is WorkStatus.DONE and entry.pr and entry.reviewers and not entry.reminded and entry.ready_at and datetime.fromisoformat(entry.ready_at) <= late]
+
+    def _remind(self, entry: WorkEntry) -> None:
+        host = self._sources.code_host()
+        if any(Marker().absent(comment.body) for comment in host.review_comments(entry.repo, entry.pr)):
+            return
+        mentions = " ".join(f"@{name}" for name in entry.reviewers)
+        host.comment(entry.repo, entry.pr, Marker().mark(f"{mentions} this has been ready for review for 2 days; could you take a look?"))
+        self.LOG.info("serve: %s: reminded %s to review", entry.key, ", ".join(entry.reviewers))
 
 
 class WorkFinder:
@@ -502,6 +536,7 @@ class ServeCompanies:
 
 
 __all__ = [
+    "ReviewReminders",
     "ActiveRepos",
     "WorkDay",
     "ServeLock",

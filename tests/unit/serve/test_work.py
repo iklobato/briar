@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
@@ -15,7 +16,7 @@ from briar.auth.check import CheckState, LoginCheckFailed
 from briar.errors import CliError
 from briar.extract._provider import CommentKind, PullState, ReviewComment
 from briar.serve.state import WorkEntry, WorkSource, WorkStatus
-from briar.serve.work import ActiveRepos, AgentSandbox, Marker, ModelLogin, PriorityRank, ServeCheck, ServeCompanies, ServeCompany, WorkFinder, WorkKind, WriteCheck
+from briar.serve.work import ActiveRepos, AgentSandbox, Marker, ReviewReminders, ModelLogin, PriorityRank, ServeCheck, ServeCompanies, ServeCompany, WorkFinder, WorkKind, WriteCheck
 from tests.unit.serve.fakes import Companies, FakeGithub, FakeIssues, FakeJira, FakeSources, Tickets
 
 PR_NUMBER = 12
@@ -23,6 +24,8 @@ ISSUE_HIGH = 7
 ISSUE_PLAIN = 8
 # Two polls of one day: the active repos are read once.
 TWO_POLLS = 2
+# Hours since a PR was marked ready: past and before the 48 h of decision E3.
+PAST_48_HOURS, BEFORE_48_HOURS = 50, 30
 
 
 @pytest.fixture
@@ -95,6 +98,43 @@ class TestEveryActiveRepo:
         company = companies.company({"jira": {"ENG": {"repos": ["*", "acme/web"]}}})
 
         assert company.settings.all_repos() == ["acme/web"]
+
+
+class ReadyEntries:
+    def done(self, hours_ago: int) -> WorkEntry:
+        ready = (datetime.now(timezone.utc) - timedelta(hours=hours_ago)).isoformat()
+        return WorkEntry(key="ENG-1", source=WorkSource.JIRA, repo="acme/app", title="t", status=WorkStatus.DONE, pr=PR_NUMBER, ready_at=ready, reviewers=["ann", "bob"])
+
+
+class TestReviewReminder:
+    """Decision E3 of the autonomous serve: a ready MR with no review after 48 h gets one
+    note naming its reviewers, never a second one."""
+
+    def test_a_ready_pr_with_no_review_after_48_hours_gets_one_note(self, companies: Companies) -> None:
+        github = FakeGithub()
+        company = companies.company({"jira": {"ENG": {"repos": ["acme/app"]}}})
+        asyncio.run(company.state.record(ReadyEntries().done(PAST_48_HOURS)))
+
+        for _ in range(TWO_POLLS):
+            asyncio.run(ReviewReminders(company, FakeSources(github)).send())
+
+        [(repo, number, text)] = github.posted
+        assert (repo, number, text.startswith("@ann @bob this has been ready for review for 2 days")) == ("acme/app", PR_NUMBER, True)
+        assert not Marker().absent(text)
+        assert company.state.book().entry("ENG-1").reminded is True
+
+    def test_no_note_before_48_hours_or_when_someone_commented(self, companies: Companies, tmp_path: Path) -> None:
+        github = FakeGithub(comments={("acme/app", PR_NUMBER): [Comments().of("c1", "MEMBER", "looks fine")]})
+        company = companies.company({"jira": {"ENG": {"repos": ["acme/app"]}}})
+        asyncio.run(company.state.record(ReadyEntries().done(PAST_48_HOURS)))
+        fresh = FakeGithub()
+        early = Companies(tmp_path / "early").company({"jira": {"ENG": {"repos": ["acme/app"]}}})
+        asyncio.run(early.state.record(ReadyEntries().done(BEFORE_48_HOURS)))
+
+        asyncio.run(ReviewReminders(company, FakeSources(github)).send())
+        asyncio.run(ReviewReminders(early, FakeSources(fresh)).send())
+
+        assert (github.posted, fresh.posted) == ([], [])
 
 
 class Comments:
