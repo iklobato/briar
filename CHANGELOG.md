@@ -408,6 +408,10 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Tests
 
+- A GitLab fake with state (`tests/unit/serve/gitlab_server.py`) runs `briar serve` end
+  to end on `code_host: gitlab` with the real `GitlabHost`: a ticket to a ready MR with its
+  Jira moves, and a failed merged results pipeline whose job log reaches the agent.
+
 - `briar extract` output is pinned byte for byte (the blob) against
   `tests/fixtures/extract_snapshot/blob.golden.md`, so the 2.0 refactors
   cannot change it by accident. Regenerate on purpose with
