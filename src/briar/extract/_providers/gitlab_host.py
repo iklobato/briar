@@ -222,6 +222,14 @@ class GitlabHost:
         usable = [row for row in rows if row.get("merge_requests_access_level") != "disabled" and row.get("repository_access_level") != "disabled"]
         return [str(row["path_with_namespace"]) for row in usable]
 
+    def own_repos(self, days: int) -> List[str]:
+        """The projects where the token owner opened a merge request in the last `days` days
+        (decision R10 of the autonomous serve), most recent first."""
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT00:00:00Z")
+        query = {"scope": "created_by_me", "created_after": since, "order_by": "created_at", "sort": "desc"}
+        rows = GitlabFailures().answer(partial(self._rest.pages, "/merge_requests", query))
+        return list(dict.fromkeys(str(row["references"]["full"]).rsplit("!", 1)[0] for row in rows))
+
     def usual_reviewers(self, repo: str, count: int) -> List[str]:
         """The `count` most frequent reviewers of the recent merged MRs of `repo`, without the
         token owner (decision D2 of the autonomous serve)."""

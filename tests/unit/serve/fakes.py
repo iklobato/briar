@@ -4,7 +4,7 @@ checks read through, a company with a `serve:` block, and the knowledge store.""
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Mapping, Sequence, Set, Tuple
 
@@ -21,6 +21,10 @@ from tests.unit.fake_logins import FakeLogins, FakeProbe
 
 class Tickets:
     """Tickets as the trackers give them."""
+
+    def titled(self, key: str, title: str) -> Ticket:
+        """A Jira ticket with its own title (a title that names a repo)."""
+        return replace(self.jira(key, "High", "2026-01-03"), title=title)
 
     def jira(self, key: str, priority: str, created_at: str) -> Ticket:
         return Ticket(key=key, title=f"title of {key}", reporter="", assignee="bot", status="To Do", kind="Task", priority=priority, created_at=created_at)
@@ -90,6 +94,9 @@ class FakeGithub:
     # The repos `active_repos` gives (every pushable repo with recent activity), and its calls.
     active: Tuple[str, ...] = ()
     active_calls: List[int] = field(default_factory=list)
+    # The repos where the token owner had a PR lately (`own_repos`), and its calls.
+    own: Tuple[str, ...] = ()
+    own_calls: List[int] = field(default_factory=list)
     # The comments briar posted: (repo, number, text).
     posted: List[Tuple[str, int, str]] = field(default_factory=list)
     login_source: ClassVar[str] = "github"
@@ -100,6 +107,10 @@ class FakeGithub:
     def active_repos(self, days: int) -> List[str]:
         self.active_calls.append(days)
         return list(self.active)
+
+    def own_repos(self, days: int) -> List[str]:
+        self.own_calls.append(days)
+        return list(self.own)
 
     def who_am_i(self) -> str:
         return self.login

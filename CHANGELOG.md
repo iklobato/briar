@@ -30,9 +30,11 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 - `serve.status.done`: a PR a person merges moves the ticket there; a PR a person closes
   without a merge moves it back to `status.started` with a comment, and briar never takes
   it again.
-- `jira.<PROJ>.repos: ["*"]`: every repo the token can push to (GitLab Developer or more,
-  merge requests on; GitHub push, not archived) with activity in the last 90 days, read
-  from the code host once a day, joins the listed repos for the ticket choice.
+- `jira.<PROJ>.repos: ["*"]`: the repos where the token owner opened a PR or MR in the
+  last 90 days, plus any other repo the token can push to (GitLab Developer or more, merge
+  requests on; GitHub push, not archived) with activity in that time that the ticket names
+  by its path or its name, read from the code host once a day, join the listed repos for the
+  ticket choice.
 - `serve.verify_by_repo`: the verify commands of one repo; the others use `verify`.
   A repo with no commands at all relies on the MR CI only.
 - `serve.max_new_per_day`: at most that many new tickets a company starts in one UTC

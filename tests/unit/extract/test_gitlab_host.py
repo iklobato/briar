@@ -143,6 +143,18 @@ class TestActiveRepos:
         assert query["last_activity_after"].endswith("T00:00:00Z")
 
 
+class TestOwnRepos:
+    def test_the_projects_of_the_recent_merge_requests_of_the_token_owner(self) -> None:
+        """Decision R10 of the autonomous serve: the repos where the owner had an MR lately."""
+        rows = [{"references": {"full": "acme/platform/app!7"}}, {"references": {"full": "acme/infra!3"}}, {"references": {"full": "acme/platform/app!9"}}]
+        host = Host.of({"/merge_requests": rows})
+
+        found = host.host().own_repos(ACTIVE_DAYS)
+
+        path, query = host.calls()[-1]
+        assert (found, path, query["scope"], query["created_after"].endswith("T00:00:00Z")) == (["acme/platform/app", "acme/infra"], "/merge_requests", "created_by_me", True)
+
+
 class TestUsualReviewers:
     """Decision D2 of the autonomous serve: the reviewers of the recent merged MRs, most
     frequent first, without the token owner (real sub-infra: 30 of 30 merged MRs had reviewers)."""
