@@ -171,7 +171,7 @@ companies:
       bash: [git, make, pytest]       # optional: the programs the agent may run (replaces the default list)
       review_bots: ["coderabbitai[bot]"]   # optional: bots whose PR comments briar answers
       allowed_domains: [pypi.org]     # optional: what the bash of the agent may reach; none by default
-      status: {started: In Progress, review: In Review}   # optional; no names: no move
+      status: {started: In Progress, review: In Review, done: Done}   # optional; no names: no move
       branch: "briar/{key}"           # optional
       title: "{key}: {title}"         # optional
 ```
