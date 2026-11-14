@@ -411,3 +411,4 @@ class TestServeCompanies:
         (company,) = ServeCompanies(Path("runbooks"), {}).load()
 
         assert company.knowledge_file() == tmp_path.resolve() / "knowledge" / "knowledge" / "acme.md"
+        assert company.index_file() == tmp_path.resolve() / "knowledge" / "knowledge" / "acme" / "index.md"

@@ -13,6 +13,8 @@ import json
 import os
 import sys
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from functools import partial
 from pathlib import Path
 from typing import ClassVar, Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -24,7 +26,7 @@ from briar.errors import CliError
 from briar.extract import EXTRACTORS
 from briar.extract.base import ExtractedSection, KnowledgeExtractor, StepStopped
 from briar.extract.canonical import SHARED_CONCEPTS, OptionConcept, _ReplaceDefaultAppend, apply_canonical
-from briar.extract.composer import KnowledgeComposer, render_markdown
+from briar.extract.topics import KnowledgeWriter, TopicFiles
 from briar.settings import BriarSettings
 from briar.storage import KnowledgeRef, make_store
 
@@ -364,10 +366,8 @@ class CommandExtract(Command):
         outcome.sections.append(section)
 
     def _write_blob(self, root: str, company: str, outcome: ExtractRun) -> KnowledgeRef:
-        """Merge the run into the stored blob and write it back. Sections of extractors
-        that did not run stay."""
+        """Merge the run into the stored blob and write it back, then the topic files and the index
+        beside it. Sections of extractors that did not run stay."""
         store = make_store("file", file_root=Path(root))
-        blob_name = f"knowledge:{company}"
-        fresh = render_markdown(company=company, sections=outcome.sections)
-        merged = KnowledgeComposer.merge_markdown(company=company, existing=store.get(blob_name), fresh=fresh, refreshed=outcome.refreshed)
-        return store.put(blob_name, merged, category="knowledge")
+        topics = TopicFiles(store, Path(root) / "knowledge" / company, partial(datetime.now, timezone.utc))
+        return KnowledgeWriter(store, topics).write(company, outcome.sections, outcome.refreshed)

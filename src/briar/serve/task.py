@@ -140,6 +140,8 @@ class Plan:
     steps: Tuple[str, ...] = ()
     tests: Tuple[str, ...] = ()
     risks: Tuple[str, ...] = ()
+    # The topics of the knowledge the agent read before it planned, so a person sees what it knew.
+    sources: Tuple[str, ...] = ()
     # False for a ticket with nothing to change in the repo (an operations ticket, decision D1).
     needs_code: bool = True
 
@@ -150,6 +152,7 @@ class Plan:
             "steps": {"type": "array", "items": {"type": "string"}},
             "tests": {"type": "array", "items": {"type": "string"}},
             "risks": {"type": "array", "items": {"type": "string"}},
+            "sources": {"type": "array", "items": {"type": "string"}},
             "needs_code": {"type": "boolean"},
         },
         "required": ["summary", "steps", "needs_code"],
@@ -160,11 +163,17 @@ class Plan:
         found = answer.structured
         if not found:
             return cls(answer.text.strip() or "(the agent gave no plan)")
-        steps, tests, risks = (tuple(str(entry) for entry in found.get(name, [])) for name in ("steps", "tests", "risks"))
-        return cls(str(found.get("summary", "")), steps=steps, tests=tests, risks=risks, needs_code=bool(found.get("needs_code", True)))
+        steps, tests, risks, sources = (tuple(str(entry) for entry in found.get(name, [])) for name in ("steps", "tests", "risks", "sources"))
+        return cls(str(found.get("summary", "")), steps=steps, tests=tests, risks=risks, sources=sources, needs_code=bool(found.get("needs_code", True)))
 
     def markdown(self) -> str:
-        parts = [self.summary, self._list("Steps", self.steps), self._list("Tests", self.tests), self._list("Risks", self.risks)]
+        parts = [
+            self.summary,
+            self._list("Steps", self.steps),
+            self._list("Tests", self.tests),
+            self._list("Risks", self.risks),
+            self._list("Sources read", self.sources),
+        ]
         return "\n\n".join(part for part in parts if part)
 
     def _list(self, heading: str, entries: Tuple[str, ...]) -> str:
@@ -288,7 +297,13 @@ class AgentSteps:
 
     async def _ask(self, prompt: str, schema: Mapping[str, Any], access: Access) -> AgentAnswer:
         company = self._context.company
-        values = {"company": company.name, "repo": self._context.item.repo, "knowledge": self._known(company.knowledge_file()), "state": self._known(company.state_file())}
+        values = {
+            "company": company.name,
+            "repo": self._context.item.repo,
+            "knowledge": self._known(company.knowledge_file()),
+            "index": self._known(company.index_file()),
+            "state": self._known(company.state_file()),
+        }
         request = AgentRequest(prompt, Prompts().text("system", values), self._context.worktree, self._budget.left_usd(), schema, access)
         answer = await self._agent.ask(request)
         self._budget.spend(answer)

@@ -87,6 +87,17 @@ class TestHappyPath:
         assert "We need feature.txt" in plan.prompt
         assert "+done" in review.prompt
 
+    def test_the_agent_is_pointed_to_the_index_of_topics_when_there_is_one(self, setups: Setups) -> None:
+        setup = setups.make({})
+        index = setup.company.index_file()
+        index.parent.mkdir(parents=True, exist_ok=True)
+        index.write_text("# Knowledge index\n")
+        agent = ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()])
+
+        setup.work_on(agent, Items().jira())
+
+        assert str(index) in agent.requests[0].system_prompt
+
     def test_a_github_issue_is_closed_by_the_pr_and_not_moved(self, setups: Setups) -> None:
         setup = setups.make({"repos": ["acme/app"]})
 
