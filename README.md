@@ -143,6 +143,11 @@ cat ./knowledge/knowledge/myteam.md
 That is a plain markdown file on your disk: the facts of your repo in one
 place, ready to give to any AI tool.
 
+<img src="https://raw.githubusercontent.com/iklobato/briar/v2/docs/demo/01-first-steps.gif" alt="A terminal: briar init writes the settings, briar doctor shows every check as ok, briar extract reads three kinds of facts, and head prints the first lines of the knowledge file" width="800">
+
+*The GIFs in this README run briar on its own repo, `iklobato/briar`, so the names
+differ from the examples in the text.*
+
 `briar extract -h` lists all 23 extractors. Good ones to add next:
 `code-hotspots` (the files that change the most), `codebase-conventions` (your
 test runner, linter and formatter) and `stale-prs` (open PRs nobody touched
@@ -304,6 +309,8 @@ briar serve runbooks               # runs until you press Ctrl+C
 
 A schedule writes its whole file each time, so list in it every extractor you
 want to keep. For a quick test use `every: "minute"`, and set it back after.
+
+<img src="https://raw.githubusercontent.com/iklobato/briar/v2/docs/demo/03-keep-facts-fresh.gif" alt="A terminal: briar serve runs a schedule that reads three kinds of facts and writes the knowledge file, twice, a minute apart, then stops on Ctrl+C" width="800">
 
 ## Commands
 
