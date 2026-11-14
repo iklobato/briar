@@ -1173,21 +1173,19 @@ Found in spec 003 (`briar serve`, 2026-11-11):
 
 ## 6. What is missing or open
 
-- The version on `v2` is `2.0.0.dev0` (2026-11-13), so an install from `v2` says what it
-  is. The release workflow on `main` (`.github/workflows/release.yml`, "Bump patch
-  version") reads a plain `X.Y.Z` and publishes the next patch: with `2.0.0.dev0` it stops
-  at `int("dev0")`. Before `v2` merges into `main`, decide how 2.0.0 is published (set the
-  version the bump turns into 2.0.0, or let the workflow publish a version as written).
-  The update notice compares plain `X.Y.Z` only: a `dev` version gets no notice, so `v2`
-  users are not told to "upgrade" to the next 1.x.
+- The version on `v2` is `2.0.0rc1` (2026-11-14). The release workflow asks PyPI first
+  ("Decide the version", PR #128): a version PyPI does not have is published as written (a
+  release candidate becomes a GitHub pre-release and does not move the Docker `latest`);
+  a final `X.Y.Z` PyPI already has gets the old patch bump; a pre-release PyPI already has
+  is not published again. The update notice compares plain `X.Y.Z` only: an `rc` version
+  gets no notice, so `v2` users are not told to "upgrade" to the next 1.x.
 - `extract` is still argparse: its 3 flags do not tab-complete. Its
   `[extract]` values are not type-checked and a runbook still uses the
   1.x option names, until spec 004 (D32).
 - Startup: spec 002 left it about 60 ms slower than 1.x (section 4); after
   spec 006, `import briar.cli` is faster than 1.x (679 ms against 1,130 ms,
   section 2, part 5).
-- The README has no GIF or diagram until they are redone for 2.0
-  (section 5, item 6).
+- The README and `docs/guide/` are written for 2.0 (four lessons, GIFs, diagrams; PR #129).
 - `briar doctor --format json` changed shape (F2): a script that read the
   1.x list of checks breaks.
 - The scheduled extracts of `briar serve` have no failure alert until Apprise (C20, K4).
