@@ -14,6 +14,7 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Added
 
+- Release workflow: a version PyPI does not have yet (for example `2.0.0rc1`) is published as it is, tagged, and marked a pre-release on GitHub and Docker (`latest` does not move); a final version PyPI already has still gets its patch bump. A pre-release PyPI already has ends the run green without publishing again.
 - `serve.format` and `serve.format_by_repo`: commands that format the worktree before each
   commit, so the formatter of the repo always wins; the self-review no longer asks for a
   format the formatter would undo (a real run spent all its fix loops on it).

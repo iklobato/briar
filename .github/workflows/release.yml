@@ -36,6 +36,44 @@ jobs:
           git fetch origin main
           git reset --hard origin/main
 
+      # Decide what to ship BEFORE any test or build. A version PyPI does not have yet (a
+      # release candidate set by hand in pyproject.toml, or the final one) is published as it is;
+      # a final X.Y.Z PyPI already has gets its patch bumped, as before; a pre-release PyPI
+      # already has is not published again, and the run ends green (a docs push to main after
+      # the rc must not turn it red). If PyPI cannot answer, stop: never guess.
+      - name: Decide the version
+        id: version
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import os, pathlib, re, urllib.error, urllib.request
+
+          txt = pathlib.Path("pyproject.toml").read_text()
+          found = re.search(r'^version = "([^"]+)"', txt, flags=re.M)
+          if not found:
+              raise SystemExit("version not found in pyproject.toml")
+          current = found.group(1)
+          base = os.environ.get("PYPI_URL", "https://pypi.org/pypi/briar-cli")
+          try:
+              urllib.request.urlopen(f"{base}/{current}/json", timeout=30).close()
+              on_pypi = True
+          except urllib.error.HTTPError as error:
+              if error.code != 404:
+                  raise SystemExit(f"PyPI answered {error.code}: not guessing whether {current} exists")
+              on_pypi = False
+          prerelease = re.search(r"(a|b|rc|\.dev)\d*$", current) is not None
+          bump, publish, nxt = False, True, current
+          if on_pypi and prerelease:
+              publish = False
+          elif on_pypi:
+              major, minor, patch = (int(x) for x in current.split("."))
+              nxt, bump = f"{major}.{minor}.{patch + 1}", True
+          print(f"current={current}")
+          print(f"next={nxt}")
+          print(f"bump={str(bump).lower()}")
+          print(f"publish={str(publish).lower()}")
+          print(f"prerelease={str(prerelease).lower()}")
+          PY
+
       # Test gate on the exact code about to ship: a unit-test regression
       # aborts the run BEFORE the version bump, so a broken build never
       # reaches PyPI. release.yml previously published with no test run.
@@ -43,6 +81,7 @@ jobs:
       # produced this push; black/ruff/mypy are not yet repo-clean, so they
       # are enforced per-file in review, not as a release gate.)
       - name: Test gate (unit suite)
+        if: steps.version.outputs.publish == 'true'
         run: |
           uv sync --extra test
           uv run pytest -n auto -ra --strict-markers -m "not integration"
@@ -51,26 +90,20 @@ jobs:
       # `git pull --rebase` (in the commit/tag/push step) doesn't abort on
       # "unstaged changes". The bump below is the only intended edit.
       - name: Discard gate working-tree churn
+        if: steps.version.outputs.publish == 'true'
         run: git checkout -- uv.lock || true
 
-      - name: Bump patch version in pyproject.toml
-        id: bump
+      - name: Write the bumped version
+        if: steps.version.outputs.publish == 'true' && steps.version.outputs.bump == 'true'
         run: |
-          python - <<'PY' >> "$GITHUB_OUTPUT"
-          import re, pathlib
+          python - <<'PY'
+          import pathlib, re
           p = pathlib.Path("pyproject.toml")
-          txt = p.read_text()
-          m = re.search(r'^version = "([^"]+)"', txt, flags=re.M)
-          if not m:
-              raise SystemExit("version not found in pyproject.toml")
-          major, minor, patch = (int(x) for x in m.group(1).split("."))
-          nxt = f"{major}.{minor}.{patch + 1}"
-          p.write_text(re.sub(r'^version = "[^"]+"', f'version = "{nxt}"', txt, count=1, flags=re.M))
-          print(f"current={m.group(1)}")
-          print(f"next={nxt}")
+          p.write_text(re.sub(r'^version = "[^"]+"', 'version = "${{ steps.version.outputs.next }}"', p.read_text(), count=1, flags=re.M))
           PY
 
       - name: Build sdist and wheel
+        if: steps.version.outputs.publish == 'true'
         run: uv build
 
       # Push commit + tag BEFORE uploading to PyPI. The push is the
@@ -79,12 +112,15 @@ jobs:
       # rebase still loses after retries, we abort — no orphaned PyPI
       # wheels, no half-released versions.
       - name: Commit, tag, push (with rebase-retry)
+        if: steps.version.outputs.publish == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pyproject.toml
-          git commit -m "chore(release): v${{ steps.bump.outputs.next }}"
-          git tag "v${{ steps.bump.outputs.next }}"
+          if [ "${{ steps.version.outputs.bump }}" = "true" ]; then
+            git add pyproject.toml
+            git commit -m "chore(release): v${{ steps.version.outputs.next }}"
+          fi
+          git tag "v${{ steps.version.outputs.next }}"
           for attempt in 1 2 3; do
             if git pull --rebase origin main && git push origin HEAD:main; then
               echo "push succeeded on attempt $attempt"
@@ -97,7 +133,7 @@ jobs:
             echo "push attempt $attempt lost the race; rebasing and retrying"
             sleep 5
           done
-          git push origin "v${{ steps.bump.outputs.next }}"
+          git push origin "v${{ steps.version.outputs.next }}"
 
       # `skip-existing: true` is belt-and-suspenders. The push gate
       # above should already prevent two runs from racing to the same
@@ -105,6 +141,7 @@ jobs:
       # but never committed the bump, this lets a manual re-run
       # recover instead of hard-failing.
       - name: Publish to PyPI
+        if: steps.version.outputs.publish == 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
@@ -118,33 +155,41 @@ jobs:
       # uv-build output at the bumped version) so PyPI and the image never
       # drift. Requires repo secrets DOCKERHUB_USERNAME + DOCKERHUB_TOKEN.
       - name: Log in to Docker Hub
+        if: steps.version.outputs.publish == 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Set up Docker Buildx
+        if: steps.version.outputs.publish == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Build and push image
+        if: steps.version.outputs.publish == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
+          # `latest` only for a final version: a release candidate must not move it.
           tags: |
-            iklob1/briar:${{ steps.bump.outputs.next }}
-            iklob1/briar:latest
+            iklob1/briar:${{ steps.version.outputs.next }}
+            ${{ steps.version.outputs.prerelease == 'false' && 'iklob1/briar:latest' || '' }}
 
       # Last, so a Release only appears once PyPI and Docker both have the
       # version. Skipped if one exists already (e.g. a manual re-run).
       - name: Create GitHub Release
+        if: steps.version.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: v${{ steps.bump.outputs.next }}
+          TAG: v${{ steps.version.outputs.next }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
         run: |
           if gh release view "$TAG" > /dev/null 2>&1; then
             echo "release $TAG exists"
             exit 0
           fi
-          gh release create "$TAG" --verify-tag --generate-notes \
+          flag=""
+          if [ "$PRERELEASE" = "true" ]; then flag="--prerelease"; fi
+          gh release create "$TAG" --verify-tag --generate-notes $flag \
             --title "$TAG"
