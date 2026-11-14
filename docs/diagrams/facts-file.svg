@@ -1,0 +1,41 @@
+<svg viewBox="0 0 1200 470" xmlns="http://www.w3.org/2000/svg" width="1200" height="470" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img">
+  <title>What is inside the facts file: one section per kind of fact, for example merged pull requests, releases and CI health, written as plain markdown.</title>
+  <rect x="0.5" y="0.5" width="1199" height="469" rx="10" fill="#1a1a1a" stroke="#333"/>
+
+  <rect x="20" y="20" width="700" height="430" rx="10" fill="#0d1117" stroke="#444"/>
+  <rect x="20" y="20" width="700" height="40" rx="10" fill="#262626"/>
+  <text x="40" y="46" font-size="16" fill="#e5e5e5" font-family="ui-monospace, Menlo, Consolas, monospace">knowledge/knowledge/myteam.md</text>
+
+  <g font-size="17" font-family="ui-monospace, Menlo, Consolas, monospace" fill="#e5e5e5">
+    <text x="40" y="92" font-weight="700" fill="#fff"># Briar knowledge base: myteam</text>
+
+    <text x="40" y="132" font-weight="700" fill="#c4b5fd">## PR archaeology</text>
+    <text x="40" y="160">- merged PR sample: 100</text>
+    <text x="40" y="186">- median time-to-merge: 0.18h</text>
+
+    <text x="40" y="226" font-weight="700" fill="#c4b5fd">## Release cadence</text>
+    <text x="40" y="254">- releases sampled: 25</text>
+    <text x="40" y="280">- latest: v1.1.101</text>
+
+    <text x="40" y="320" font-weight="700" fill="#c4b5fd">## CI health</text>
+    <text x="40" y="348">- completed runs: 100</text>
+    <text x="40" y="374">- pass rate: 0.93</text>
+    <text x="40" y="400">- flaky workflows: 1 (Tests)</text>
+    <text x="40" y="432" fill="#a3a3a3">... one section for each kind of fact you ask for</text>
+  </g>
+
+  <g font-size="18" fill="#e5e5e5">
+    <path d="M 740 132 L 770 132" stroke="#8b5cf6" stroke-width="3"/>
+    <text x="780" y="124" font-weight="600" fill="#fff">One section</text>
+    <text x="780" y="148" fill="#cbc3d7">for each kind of fact</text>
+
+    <path d="M 740 254 L 770 254" stroke="#8b5cf6" stroke-width="3"/>
+    <text x="780" y="246" font-weight="600" fill="#fff">Real numbers</text>
+    <text x="780" y="270" fill="#cbc3d7">read from your repo</text>
+
+    <path d="M 740 374 L 770 374" stroke="#8b5cf6" stroke-width="3"/>
+    <text x="780" y="366" font-weight="600" fill="#fff">Plain text</text>
+    <text x="780" y="390" fill="#cbc3d7">read it yourself, or hand</text>
+    <text x="780" y="414" fill="#cbc3d7">it to any AI tool</text>
+  </g>
+</svg>

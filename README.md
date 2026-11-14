@@ -2,197 +2,87 @@
 
 # briar
 
-**A command-line tool that reads your team tools and writes what it learns
-into plain files, and can also work your tickets for you: plan, code, open
-the pull request, and answer the review.**
+**Your repo and your team, written into one plain file. And a helper that turns your tickets into pull requests.**
 
 [![PyPI](https://img.shields.io/pypi/v/briar-cli)](https://pypi.org/project/briar-cli/)
 [![Python](https://img.shields.io/pypi/pyversions/briar-cli)](https://pypi.org/project/briar-cli/)
-[![Downloads](https://img.shields.io/pypi/dm/briar-cli)](https://pypi.org/project/briar-cli/)
-[![Docker pulls](https://img.shields.io/docker/pulls/iklob1/briar)](https://hub.docker.com/r/iklob1/briar)
-[![Tests](https://github.com/iklobato/briar/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/iklobato/briar/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/github/license/iklobato/briar)](https://github.com/iklobato/briar/blob/main/LICENSE)
 
-[What it does](#what-briar-does) · [Install](#install) · [First steps](#first-steps-your-first-10-minutes) · [Let briar work a ticket](#let-briar-work-a-ticket) · [Commands](#commands) · [If something goes wrong](#if-something-goes-wrong) · [Manuals](https://github.com/iklobato/briar/blob/main/agents/README.md) · [Changelog](https://github.com/iklobato/briar/blob/main/CHANGELOG.md)
+[How it works](#how-it-works) · [Install](#install) · [Lessons](#learn-it-in-4-lessons) · [Commands](#the-4-commands) · [Problems](#when-something-goes-wrong)
+
+<img src="https://raw.githubusercontent.com/iklobato/briar/v2/docs/demo/hero.gif" alt="A terminal: one briar extract command reads a repo, and head prints the facts file it wrote" width="800">
 
 </div>
 
-## What briar does
+## How it works
 
-briar is a program you run in your terminal. It has two jobs, and you can
-use one without the other.
+briar runs in your terminal. It has two jobs. You can use one without the other.
 
-**Job 1: learn how your team works.** An AI assistant can write code, but
-it does not know your team: which tests you run, how fast pull requests (PRs)
-get merged, who reviews what, how often CI passes. So it guesses, and you fix
-its guesses. `briar extract` reads your tools (GitHub, GitLab or Bitbucket,
-Jira or Linear, AWS, GCP or Azure, Fireflies meeting notes) and writes the
-facts into a plain markdown file on your computer. Any AI tool that reads
-files can use it, and so can you. briar calls these facts "knowledge".
+<img src="https://raw.githubusercontent.com/iklobato/briar/v2/docs/diagrams/how-it-works.svg" alt="briar extract reads your tools and writes one facts file. briar serve does a ticket and opens a pull request that you review and merge." width="900">
 
-**Job 2: work your tickets.** `briar serve` watches the tickets assigned to
-you. For each one it writes a plan, has a Claude agent write the code in its
-own copy of your repo, runs your checks, opens a draft PR, waits for CI, asks
-the usual reviewers, and answers their comments. It never merges: a person
-does that.
-
-| I want to... | Use | It costs |
+| I want to... | Run | It costs |
 |---|---|---|
-| See facts about my repo and team in one file | `briar extract` | nothing (no AI is used) |
-| Have briar do a ticket for me | `briar serve` | money for the AI model, within a limit you set |
+| See facts about my repo and team in one file | `briar extract` | Nothing. No AI is used. |
+| Have briar do a ticket for me | `briar serve` | AI model money, up to a limit you set. |
 
-briar runs on your computer. There is no briar server and no account. It
-talks only to the services you set up, and your tokens stay in a file on your
-machine.
-
-## What you need
-
-- A terminal and **Python 3.10 or later**.
-- A **GitHub token** (or a login for the tool you use). Both jobs need one.
-  [Logins](#logins) says how to get each.
-- For `briar serve` only: a **Claude login** (`ANTHROPIC_API_KEY`, or
-  `CLAUDE_CODE_OAUTH_TOKEN`), and either macOS, or Linux with `bubblewrap` and
-  `socat` installed. The agent runs inside a sandbox, and briar will not start
-  without one.
+**Everything runs on your computer.** There is no briar server and no account. Your tokens stay in a file on your machine. briar never merges: a person does that.
 
 ## Install
 
+You need Python 3.10 or later.
+
 ```bash
-pip install briar-cli
+pip install "git+https://github.com/iklobato/briar@v2"
 briar --version
 ```
 
-> **Heads up:** version 2.0 is not on PyPI yet, and `pip install briar-cli`
-> gives the older 1.x, which has different commands. Until 2.0 is published,
-> install it from GitHub (the Docker image below is also 1.x until then):
-> `pip install "git+https://github.com/iklobato/briar@v2"`
+> **Heads up:** `pip install briar-cli` gives the older 1.x, which has different commands, until 2.0 is on PyPI. The Docker image is also 1.x until then.
 
-The base install covers GitHub, GitLab, Bitbucket, AWS, Jira, Linear and
-Fireflies. For GCP and Azure, add the extras:
+Other ways: `pip install 'briar-cli[all]'` (adds GCP and Azure) or `docker run --rm iklob1/briar --version`.
 
-```bash
-pip install 'briar-cli[all]'      # or [gcp], or [azure]
-```
+## Learn it in 4 lessons
 
-Or skip the install and use the Docker image:
+Each lesson has the real commands and a short video. [Open the guide](https://github.com/iklobato/briar/blob/v2/docs/guide/README.md).
 
-```bash
-docker run --rm iklob1/briar --version
-```
+### Lesson 1. Learn your repo (5 minutes, free)
 
-## First steps: your first 10 minutes
-
-This path needs only a GitHub token and costs nothing. It ends with a file of
-facts about your repo.
-
-**1. Get a GitHub token and give it to briar.** If you use the GitHub CLI
-`gh`, this one line is enough for now. `myteam` is just a label you pick:
+You need `gh` logged in, or a GitHub token. `myteam` is only a label you pick.
 
 ```bash
 export BRIAR_MYTEAM_GITHUB_TOKEN=$(gh auth token)
-```
-
-No `gh`? Create a token at
-<https://github.com/settings/personal-access-tokens/new> (read access is
-enough for this part) and put it in a file only you can read:
-
-```bash
-mkdir -p ~/.config/briar && chmod 700 ~/.config/briar
-printf 'BRIAR_MYTEAM_GITHUB_TOKEN=%s\n' "<your token>" >> ~/.config/briar/secrets.env
-chmod 600 ~/.config/briar/secrets.env
-```
-
-**2. Go into a repo you can read, and let briar set itself up.**
-
-```bash
 cd path/to/your-repo
 briar init --company myteam
-```
-
-`init` finds your GitHub owner and repo from `git remote get-url origin` and
-writes two files: `.briar.toml` (your settings) and `runbooks/myteam.yaml`
-(an example runbook, used later). After this, no command needs `--repo`.
-
-**3. Check that everything is ready.**
-
-```bash
 briar doctor
 ```
 
-It prints your settings and where each came from, then checks Python, the
-settings file, the git remote and every login you set up, live. `ok` means
-ready. `fail` says exactly what to fix. `warn` means briar could not reach
-the source.
+<img src="https://raw.githubusercontent.com/iklobato/briar/v2/docs/demo/lesson1-setup.gif" alt="A terminal: briar init writes the settings, briar doctor shows every check as ok" width="800">
 
-**4. Collect three kinds of facts.**
+`init` writes your settings. `doctor` checks them. `ok` means ready.
 
 ```bash
 briar extract --include pr-archaeology --include release-cadence --include ci-health
-```
-
-`extract` checks the logins first, then reads your merged PRs
-(`pr-archaeology`), your releases (`release-cadence`) and your last 100 CI
-runs (`ci-health`), and sums them up.
-
-**5. Read what it saved.**
-
-```bash
 cat ./knowledge/knowledge/myteam.md
 ```
 
-That is a plain markdown file on your disk: the facts of your repo in one
-place, ready to give to any AI tool.
+<img src="https://raw.githubusercontent.com/iklobato/briar/v2/docs/demo/lesson1-collect.gif" alt="A terminal: briar extract reads three kinds of facts, then the facts file is listed and read" width="800">
 
-<img src="https://raw.githubusercontent.com/iklobato/briar/v2/docs/demo/01-first-steps.gif" alt="A terminal: briar init writes the settings, briar doctor shows every check as ok, briar extract reads three kinds of facts, and head prints the first lines of the knowledge file" width="800">
+You now have a plain markdown file of facts about your repo: merged pull requests, releases and CI health.
 
-*The GIFs in this README run briar on its own repo, `iklobato/briar`, so the names
-differ from the examples in the text.*
+<img src="https://raw.githubusercontent.com/iklobato/briar/v2/docs/diagrams/facts-file.svg" alt="The facts file: one section for each kind of fact, with real numbers" width="900">
 
-`briar extract -h` lists all 23 extractors. Good ones to add next:
-`code-hotspots` (the files that change the most), `codebase-conventions` (your
-test runner, linter and formatter) and `stale-prs` (open PRs nobody touched
-for a while). Running `extract` again only replaces the sections of the
-extractors that ran, so the facts you already have stay. `briar extract` with
-no `--include` runs all 23, which takes a few minutes.
+[Full lesson 1](https://github.com/iklobato/briar/blob/v2/docs/guide/1-learn-your-repo.md), with the token steps, Jira and what to try next.
 
-### With Jira too
+### Lesson 2. Let briar do an issue (15 minutes, costs a few cents)
 
-Say where your Jira site is, and add a Jira login next to the GitHub token:
-
-```bash
-printf 'company = "acme"\n[auth.jira]\nsite = "acme.atlassian.net"\n[extract.active-tickets]\ntracker = "jira"\nprojects = ["ACME"]\n' >> .briar.toml
-printf 'BRIAR_ACME_JIRA_EMAIL=%s\nBRIAR_ACME_JIRA_TOKEN=%s\n' \
-    "<Atlassian email>" "<Atlassian API token>" >> ~/.config/briar/secrets.env
-briar doctor          # checks both logins, live
-briar extract --company acme --repo acme-co/acme-app --include active-tickets
-```
-
-## Let briar work a ticket
-
-This is job 2. Start small and safe: one GitHub issue, one repo, a low limit.
-It uses the AI model, so it costs money. In our own tests a small ticket cost
-between US$ 0.08 and US$ 0.25.
-
-**1. Give briar a token that can write, and a Claude login.** The GitHub token
-needs read and write on Contents, Pull requests and Issues.
+You need a repo where you can push and where CI passes on a pull request. Give briar a GitHub token that can write (Contents, Pull requests, Issues) and a Claude login. Then make a tiny issue and assign it to yourself:
 
 ```bash
 printf 'BRIAR_MYTEAM_GITHUB_TOKEN=%s\nANTHROPIC_API_KEY=%s\n' \
     "<GitHub token with write access>" "<Claude API key>" >> ~/.config/briar/secrets.env
-```
-
-**2. Make a small issue and assign it to yourself.** `serve` only takes
-tickets assigned to the owner of the token. Pick something tiny, like a
-sentence in a doc:
-
-```bash
 gh issue create --assignee @me --title "Fix the typo in the README" --body "The word receive is spelled recieve in the install section."
 ```
 
-Note the issue number it prints (say, `12`).
-
-**3. Write a small runbook.** Replace `runbooks/myteam.yaml` with this, and use
-your own repo and issue number:
+Tell briar what it may do in `runbooks/myteam.yaml`. Use your own repo, issue number and test command:
 
 ```yaml
 version: 1
@@ -200,97 +90,32 @@ companies:
   myteam:
     serve:
       repos: [acme-co/acme-app]          # where briar may work
-      only: [acme-co/acme-app#12]        # first run: touch this one issue only
+      only: [acme-co/acme-app#12]        # first run: this one issue only
       model: claude-sonnet-5-5
-      max_usd: 5                         # most it may spend on one ticket
-      max_loops: 3                       # most fix attempts on one ticket
+      max_usd: 5                         # most it may spend on one issue
+      max_loops: 3                       # most fix attempts
       ci_wait_minutes: 30                # how long it waits for your CI
       max_review_rounds: 3               # most review rounds on one PR
-      max_new_per_day: 1                 # new tickets it may start per day
+      max_new_per_day: 1                 # new issues it may start per day
       verify: ["pytest -q"]              # the check it runs before it opens a PR
 ```
 
-`verify` is the command that tells briar the change works. Use your own test
-command. The `init` runbook has a `serve:` block with `model` and the limits
-commented out on purpose: briar will not guess how much money to spend.
-
-**4. Check, then start.**
-
 ```bash
-briar doctor --runbooks runbooks     # checks the runbook, the logins and the sandbox, without starting
-briar serve runbooks                 # starts watching
+briar doctor --runbooks runbooks    # checks everything. Starts nothing.
+briar serve runbooks                # starts. Press Ctrl+C to stop.
 ```
 
-**What you will see.** The log also has a line for every GitHub call; these lines
-tell the story (`briar serve runbooks 2>&1 | grep serve:` shows only them):
+<img src="https://raw.githubusercontent.com/iklobato/briar/v2/docs/diagrams/ticket-life.svg" alt="The life of a ticket: you assign an issue, briar posts a plan, the agent writes code, your checks run, a draft pull request opens, you review and merge" width="900">
 
-```text
-serve: myteam: picked acme-co/acme-app#12 for acme-co/acme-app: <why it picked it>
-serve: issue-12 is planned
-serve: issue-12 is pr-open https://github.com/acme-co/acme-app/pull/13
-serve: issue-12 is done https://github.com/acme-co/acme-app/pull/13 US$ 0.15 of 5.0, 0 of 3 fix loops
-```
+<img src="https://raw.githubusercontent.com/iklobato/briar/v2/docs/demo/lesson2-serve.gif" alt="A terminal: briar serve picks one issue, plans it, opens a pull request, waits for CI and marks it ready" width="800">
 
-**What happens behind the scenes:**
+*A real run on a tiny repo, [iklobato/briar-demo](https://github.com/iklobato/briar-demo): about a minute and a half, US$ 0.09.*
 
-- briar asks the agent for a plan and posts it as a comment on the issue.
-- It makes a new branch `briar/issue-12` in its own copy of your repo (your own
-  files are never touched), has the agent write the change, and runs `verify`.
-  If a check fails, the agent fixes it, up to `max_loops` times.
-- It pushes the branch and opens a **draft** pull request that says
-  `Closes #12`, then waits for your CI. If CI fails, the agent gets the failed
-  log and fixes it.
-- When CI passes it marks the PR **ready** and asks the two people who usually
-  review that repo.
-- When someone comments on the PR, briar reads the comment, changes the code or
-  answers why not, and replies in the thread.
+You get a pull request for a person to review and merge. briar never merges, never force pushes and never spends more than the `max_usd` you set. [Full lesson 2](https://github.com/iklobato/briar/blob/v2/docs/guide/2-work-an-issue.md) has the logins, the runbook and the limits.
 
-<img src="https://raw.githubusercontent.com/iklobato/briar/v2/docs/demo/02-serve-an-issue.gif" alt="A terminal: briar doctor checks the runbook, briar serve picks one issue, plans it, opens a pull request, waits for CI, marks it ready, and stops on Ctrl+C; gh pr list shows the pull request" width="800">
+### Lesson 3. Keep the facts fresh (5 minutes, free)
 
-*A real run on a tiny repo, [iklobato/briar-demo](https://github.com/iklobato/briar-demo).
-It took about a minute and a half and cost US$ 0.09; the waits with no output are cut in the GIF.*
-
-**You get:** a PR ready for a person to review and merge. Check it like any
-other PR.
-
-**What briar never does:** it never merges, never force pushes, and never
-spends more than `max_usd` on one ticket. Nothing leaves its sandbox except
-what the runbook allows. If it cannot finish, it stops, writes a report of why on the ticket (and on the
-draft PR, when it already made one), and never picks that ticket up again by
-itself.
-
-`serve` keeps running until you press Ctrl+C. It checks for new work every 5
-minutes by default (`poll_minutes`), so a quiet log is normal. Run only one
-`serve` per runbook folder.
-
-**Read what it did.** Every poll, briar rewrites a daily report at
-`./knowledge/reports/YYYY-MM-DD.md` (the folder you ran `serve` from): what is
-waiting for a merge, which tasks stopped and why, what the day cost, and what a
-poll skipped. Open it instead of the log.
-
-**Add brakes before you leave it alone.** In the `serve:` block:
-
-```yaml
-      max_new_per_day: 3        # new tickets it may start per day
-      max_usd_per_day: 10       # when the day spend reaches this, no NEW ticket starts
-                                # (tickets and reviews already open go on)
-      format: ["ruff format ."] # your formatter; briar runs it before every commit
-```
-
-To keep it running when you close the terminal, see "Run it unattended" in
-[serve.md](https://github.com/iklobato/briar/blob/main/agents/serve.md): a
-macOS LaunchAgent, and Jira by API token instead of a browser cookie.
-
-When this works, remove `only` and let it choose among all the tickets
-assigned to you. [serve.md](https://github.com/iklobato/briar/blob/main/agents/serve.md)
-covers Jira tickets, GitLab, the usual reviewers, limits per day and how it
-chooses.
-
-### Keep the facts fresh
-
-The same `serve` command can also refresh your knowledge file on a schedule,
-so nobody has to type `extract` every day. A runbook with no `serve:` block
-runs only its schedules:
+Put a schedule in a runbook (`runbooks/myteam.yaml`) and `briar serve runbooks` refreshes the facts file for you:
 
 ```yaml
 version: 1
@@ -300,153 +125,56 @@ companies:
       - task: extractors
         every: "day at 03:17"
         extract:
-          - name: pr-archaeology
-            args: {pr_repo: [acme-co/acme-app]}
-          - name: release-cadence
-            args: {release_repo: [acme-co/acme-app]}
           - name: ci-health
             args: {cihealth_repo: [acme-co/acme-app]}
 ```
 
-```bash
-briar doctor --runbooks runbooks   # checks the runbook and its logins, without starting
-briar serve runbooks               # runs until you press Ctrl+C
+<img src="https://raw.githubusercontent.com/iklobato/briar/v2/docs/demo/lesson3-schedule.gif" alt="A terminal: briar serve runs a schedule that rewrites the facts file twice, a minute apart, then stops on Ctrl+C" width="800">
+
+[Full lesson 3](https://github.com/iklobato/briar/blob/v2/docs/guide/3-keep-facts-fresh.md).
+
+### Lesson 4. Let it run alone (10 minutes)
+
+Set a daily limit, read the daily report, and keep `serve` running when you close the terminal.
+
+```yaml
+      max_new_per_day: 3        # new issues it may start per day
+      max_usd_per_day: 10       # when the day cost reaches this, no NEW issue starts
 ```
 
-A schedule writes its whole file each time, so list in it every extractor you
-want to keep. For a quick test use `every: "minute"`, and set it back after.
+Every poll, briar rewrites `./knowledge/reports/YYYY-MM-DD.md`: what waits for a merge, what stopped and why, and what the day cost. [Full lesson 4](https://github.com/iklobato/briar/blob/v2/docs/guide/4-run-it-alone.md).
 
-<img src="https://raw.githubusercontent.com/iklobato/briar/v2/docs/demo/03-keep-facts-fresh.gif" alt="A terminal: briar serve runs a schedule that reads three kinds of facts and writes the knowledge file, twice, a minute apart, then stops on Ctrl+C" width="800">
-
-## Commands
-
-briar has 4 commands. Each one has a manual in
-[`agents/`](https://github.com/iklobato/briar/blob/main/agents/README.md).
+## The 4 commands
 
 | Command | What it does | Manual |
 |---|---|---|
-| `briar extract` | Runs extractors and saves what they find in one knowledge file. | [extract.md](https://github.com/iklobato/briar/blob/main/agents/extract.md) |
-| `briar serve` | Works your assigned tickets from the runbooks in a folder, and runs their scheduled extracts. | [serve.md](https://github.com/iklobato/briar/blob/main/agents/serve.md), [runbooks.md](https://github.com/iklobato/briar/blob/main/agents/runbooks.md) |
-| `briar init` | Writes a starter `.briar.toml` and an example runbook in your repo. | [setup.md](https://github.com/iklobato/briar/blob/main/agents/setup.md) |
-| `briar doctor` | Shows each setting and where it came from, then checks your setup (and a folder of runbooks with `--runbooks`). | [setup.md](https://github.com/iklobato/briar/blob/main/agents/setup.md) |
+| `briar init` | Writes your settings and an example runbook. | [setup.md](https://github.com/iklobato/briar/blob/v2/agents/setup.md) |
+| `briar doctor` | Shows your settings and checks that everything is ready. | [setup.md](https://github.com/iklobato/briar/blob/v2/agents/setup.md) |
+| `briar extract` | Reads your tools and writes the facts file. | [extract.md](https://github.com/iklobato/briar/blob/v2/agents/extract.md) |
+| `briar serve` | Works your assigned tickets, and runs your schedules. | [serve.md](https://github.com/iklobato/briar/blob/v2/agents/serve.md) |
 
-1.x also had `briar auth` and `briar runbook`. 2.0 removed them: write the
-logins by hand (below), and use `briar serve DIR` for the schedules.
+Settings, login names and every flag: [reference](https://github.com/iklobato/briar/blob/v2/docs/guide/reference.md).
 
-Recipes that chain these commands are in
-[flows.md](https://github.com/iklobato/briar/blob/main/agents/flows.md).
+## When something goes wrong
 
-Three flags work with every command, anywhere on the line:
+Run `briar doctor` first. It names what is wrong and how to fix it.
 
-| Flag | What it does |
+| You see | Do this |
 |---|---|
-| `--format table\|json` | Output shape, for `doctor`. |
-| `--verbose`, `-v` | Debug logs on stderr. |
-| `--version`, `-V` | Print the version and exit. |
+| `the login check failed` | The line below names the missing variable. Set it in `secrets.env`. |
+| `HTTP 401` or `Bad credentials` | The token is wrong or expired. Make a new one. |
+| `no agent sandbox: install ...` | On Linux, install `bubblewrap` and `socat`. macOS has one. |
+| An issue ends `blocked` | Read the comment that starts `briar stopped:`. It says why. |
 
-### Settings in `.briar.toml`
-
-`briar extract` takes only three flags: `--company`, `--include` and
-`--repo`. Everything else goes in `.briar.toml`, the settings file that
-`briar init` writes at the top of your repo:
-
-```toml
-company = "acme"
-
-[repo]
-owner = "acme-co"
-repo = "acme-app"
-provider = "github"
-
-# For every extractor
-[extract]
-max = 50
-since_days = 30
-
-# For one extractor
-[extract.active-tickets]
-tracker = "jira"
-projects = ["ACME"]
-
-# Login choices; the secrets go in secrets.env (see Logins below)
-[auth.jira]
-site = "acme.atlassian.net"
-```
-
-A value for one extractor wins over the value in `[extract]`. A key briar
-does not know stops the run and says what to fix. `briar extract -h` lists
-every key with its default, and `briar doctor` shows which settings briar
-found and where.
-
-### Logins
-
-You write the secrets yourself, in the environment or in
-`~/.config/briar/secrets.env` (`/etc/briar/secrets.env` on a server, or the
-path in `$BRIAR_SECRETS_FILE`), one `NAME=value` per line, readable by you
-only. `ACME` is your company name in capital letters:
-
-| Source | Names | Also in the config |
-|---|---|---|
-| GitHub | `BRIAR_ACME_GITHUB_TOKEN` (a fine-grained token; `briar serve` needs read and write on Contents, Pull requests and Issues) | nothing |
-| GitLab | `BRIAR_ACME_GITLAB_TOKEN` (`briar serve` needs the `api` scope) | nothing |
-| Jira | `BRIAR_ACME_JIRA_EMAIL`, `BRIAR_ACME_JIRA_TOKEN` (or `BRIAR_ACME_JIRA_COOKIE`) | `site` under `[auth.jira]` |
-| Bitbucket | `BRIAR_ACME_BITBUCKET_EMAIL`, `BRIAR_ACME_BITBUCKET_TOKEN` (or an access token, or a cookie) | `workspace` under `[auth.bitbucket]` |
-| Linear | `BRIAR_ACME_LINEAR_API_KEY` | nothing |
-| Fireflies | `BRIAR_ACME_FIREFLIES_API_KEY` | nothing |
-| AWS, GCP, Azure | nothing: log in with their own CLI | `profile`, `config_dir` and `project`, `tenant` and `subscription` |
-| The `briar serve` agent | `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` | the `serve:` block of the runbook |
-
-`briar doctor` checks them. Every method and the 1.x names are in
-[logins.md](https://github.com/iklobato/briar/blob/main/agents/logins.md).
-
-## If something goes wrong
-
-Start with `briar doctor` (or `briar doctor --runbooks runbooks` for `serve`):
-it names what is wrong and how to fix it.
-
-| What you see | What it means | What to do |
-|---|---|---|
-| `the login check failed` and a list | A login is missing or refused. Each line names the variable. | Set that variable in `secrets.env`, then run `briar doctor` again. |
-| `HTTP 401` or `Bad credentials` | The token is wrong, expired, or for another account. | Create a new token and replace it. |
-| `Field required` when reading a runbook | The `serve:` block needs `model` and the limits, and has no default. | Fill in `model`, `max_usd`, `max_loops`, `ci_wait_minutes`, `max_review_rounds`. |
-| `no agent sandbox: install ...` | `serve` found no sandbox. | macOS has one built in. On Linux, install `bubblewrap` and `socat`. |
-| `no model login` | `serve` has no Claude login. | Set `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`. |
-| `another briar serve runs on the company` | A second `serve` uses the same folder. | Stop the other one first. |
-| A ticket ends `blocked`, and the issue gets a comment starting `briar stopped:` | briar hit a limit or a failure and stopped on purpose. The comment says why. | Read the reason. The common ones: a limit was reached (raise it or make the ticket smaller), or your `verify` command fails even without briar (fix that first). |
-| `command not found` in a `blocked` report | A program your `verify` command runs is not on the PATH of the process. | Add its folder to the `PATH` of the shell or service that runs `serve`. |
-| `serve` prints nothing for minutes | It is waiting for the next check, or has nothing to do. | Normal. It checks every 5 minutes by default. |
-
-## Words you will see
-
-| Word | What it means |
-|---|---|
-| extractor | A reader for one kind of fact, like "merged PRs" or "CI runs". |
-| knowledge | The facts briar saved. One markdown file per team, like `knowledge:myteam`. |
-| runbook | A YAML file that says which extractors to run and how often, and how `serve` may work tickets. |
-| ticket | A task in Jira, or an issue on GitHub. |
-| PR | Pull request: a proposed change to a repo. On GitLab it is called a merge request (MR). |
-| CI | The checks that run on every PR (tests, lint). |
-| sandbox | A locked box the agent runs in, so it can only touch its own copy of the repo. |
+More errors and the words briar uses: [problems and words](https://github.com/iklobato/briar/blob/v2/docs/guide/problems.md).
 
 ## Telemetry
 
-briar sends nothing by default. To help fix bugs, turn on error reports
-with `telemetry = "errors-only"` in `.briar.toml` (or
-`BRIAR_TELEMETRY=errors-only`), or error reports and usage counts with
-`full`. `DO_NOT_TRACK=1` turns it off whatever else says. `briar doctor`
-shows the current choice and where it came from. Even when it is on, no
-prompts, file contents, ticket keys, repo names, paths or secret values
-leave your machine. 1.x sent by default; 2.0 ignores the choice 1.x saved,
-so turn it on again if you want it.
+briar sends nothing by default. To help fix bugs you can turn on error reports with `telemetry = "errors-only"` in `.briar.toml`. `DO_NOT_TRACK=1` turns it off whatever else says. Even when it is on, no prompts, file contents, ticket keys, repo names, paths or secrets leave your machine. Details in the [reference](https://github.com/iklobato/briar/blob/v2/docs/guide/reference.md).
 
 ## Contributing
 
-Bug reports and PRs are welcome: open an
-[issue](https://github.com/iklobato/briar/issues) or read
-[CONTRIBUTING.md](https://github.com/iklobato/briar/blob/main/CONTRIBUTING.md)
-first. [CHANGELOG.md](https://github.com/iklobato/briar/blob/main/CHANGELOG.md)
-lists what each version changed, including everything 2.0 removed. If
-briar helps you, a star on GitHub helps other people find it.
+Bug reports and pull requests are welcome. Open an [issue](https://github.com/iklobato/briar/issues) or read [CONTRIBUTING.md](https://github.com/iklobato/briar/blob/main/CONTRIBUTING.md). [CHANGELOG.md](https://github.com/iklobato/briar/blob/main/CHANGELOG.md) lists what each version changed. If briar helps you, a star on GitHub helps other people find it.
 
 ## License
 
