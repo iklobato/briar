@@ -143,6 +143,11 @@ cat ./knowledge/knowledge/myteam.md
 That is a plain markdown file on your disk: the facts of your repo in one
 place, ready to give to any AI tool.
 
+<img src="https://raw.githubusercontent.com/iklobato/briar/v2/docs/demo/01-first-steps.gif" alt="A terminal: briar init writes the settings, briar doctor shows every check as ok, briar extract reads three kinds of facts, and head prints the first lines of the knowledge file" width="800">
+
+*The GIFs in this README run briar on its own repo, `iklobato/briar`, so the names
+differ from the examples in the text.*
+
 `briar extract -h` lists all 23 extractors. Good ones to add next:
 `code-hotspots` (the files that change the most), `codebase-conventions` (your
 test runner, linter and formatter) and `stale-prs` (open PRs nobody touched
@@ -216,7 +221,8 @@ briar doctor --runbooks runbooks     # checks the runbook, the logins and the sa
 briar serve runbooks                 # starts watching
 ```
 
-**What you will see** (the log, one line per step):
+**What you will see.** The log also has a line for every GitHub call; these lines
+tell the story (`briar serve runbooks 2>&1 | grep serve:` shows only them):
 
 ```text
 serve: myteam: picked acme-co/acme-app#12 for acme-co/acme-app: <why it picked it>
@@ -238,6 +244,11 @@ serve: issue-12 is done https://github.com/acme-co/acme-app/pull/13 US$ 0.15 of 
   review that repo.
 - When someone comments on the PR, briar reads the comment, changes the code or
   answers why not, and replies in the thread.
+
+<img src="https://raw.githubusercontent.com/iklobato/briar/v2/docs/demo/02-serve-an-issue.gif" alt="A terminal: briar doctor checks the runbook, briar serve picks one issue, plans it, opens a pull request, waits for CI, marks it ready, and stops on Ctrl+C; gh pr list shows the pull request" width="800">
+
+*A real run on a tiny repo, [iklobato/briar-demo](https://github.com/iklobato/briar-demo).
+It took about a minute and a half and cost US$ 0.09; the waits with no output are cut in the GIF.*
 
 **You get:** a PR ready for a person to review and merge. Check it like any
 other PR.
@@ -304,6 +315,8 @@ briar serve runbooks               # runs until you press Ctrl+C
 
 A schedule writes its whole file each time, so list in it every extractor you
 want to keep. For a quick test use `every: "minute"`, and set it back after.
+
+<img src="https://raw.githubusercontent.com/iklobato/briar/v2/docs/demo/03-keep-facts-fresh.gif" alt="A terminal: briar serve runs a schedule that reads three kinds of facts and writes the knowledge file, twice, a minute apart, then stops on Ctrl+C" width="800">
 
 ## Commands
 
