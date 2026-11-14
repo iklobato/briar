@@ -105,7 +105,7 @@ them); extract is in scope as the scheduled run the flow depends on.
 | ID | L | Step | Precondition | Action | Expected | Automation |
 |---|---|---|---|---|---|---|
 | G1 | U | now | build verified | task | branch pushed, draft MR/PR opened, ticket comment with the link, move to `status.review` | exists: happy path tests |
-| G2 | I | 4 | GitLab fake: merged results pipeline on the merge commit of head and target | CI wait | passed/failed read from that pipeline | exists (unit): `test_a_merged_results_pipeline_*`; new on the fake |
+| G2 | I | 4 | GitLab fake: merged results pipeline on the merge commit of head and target | CI wait | passed/failed read from that pipeline | exists: `test_a_merged_results_pipeline_*` (unit), `test_a_failed_merged_results_pipeline_reaches_the_agent_and_the_fix_goes_green` (fake) |
 | G3 | I | 4 | GitLab fake: pipeline of an older head | CI wait | pending | exists (unit); new on the fake |
 | G4 | U | now | CI failed | task | the failed job log goes to the agent; fix, verify, push; one loop counted | exists |
 | G5 | U | now | CI pending past `ci_wait_minutes` on a draft PR | task | `blocked` with the report; never retaken | exists: X1 tests; done live in round 3 |
@@ -176,4 +176,4 @@ The soak passes when (a), (b) and (c) all hold. Any failure becomes a fix with a
 
 ## F-GL. GitLab network fake (build before step 4)
 
-A local HTTP fake of the GitLab REST paths serve uses: merge requests (create, update, single, list by source branch), notes and discussions, pipelines (including merged results refs), commits (parents), branches, members, approvals and reviewers. With it, cases G2, G3, H1 to H4 and I3 to I5 run whole in CI for `code_host: gitlab`.
+Built: `tests/unit/serve/gitlab_server.py` (`GitlabServer`, at the `GitlabRest` seam, with state; no HTTP layer needed) and `tests/unit/serve/test_gitlab_flow.py`. It covers the GitLab REST paths serve uses: merge requests (create, update, single, list by source branch), notes and discussions, pipelines (including merged results refs), commits (parents), branches, members, approvals and reviewers. With it, cases G2, G3, H1 to H4 and I3 to I5 run whole in CI for `code_host: gitlab`.
