@@ -49,6 +49,7 @@ SELECTION = 0.04
 STEP = 0.1
 TASKS = 3
 WAIT_SECONDS = 2
+DAY_ONE = "2030-01-01"
 DAY_ONE_NOON = dt.datetime(2030, 1, 1, 12, 0, tzinfo=dt.timezone.utc)
 DAY_TWO_START = dt.datetime(2030, 1, 2, 0, 0, 5, tzinfo=dt.timezone.utc)
 # What the first three steps of a ticket book, with the default cost of a step.
@@ -90,6 +91,24 @@ class Elsewhere:
 
     def spend(self, company: ServeCompany, amount: float, day: str) -> None:
         asyncio.run(company.state.add_spend(self.entry(), day, amount))
+
+
+class Shape:
+    """What a grant of a company holds, without the day it was granted on: `TestGrantDay` pins that."""
+
+    def of(self, grant: Optional[Grant]) -> Optional[Tuple[float, float]]:
+        return None if grant is None else (grant.amount, grant.held)
+
+
+class TestGrantDay:
+    """Audit 6: a grant carries the UTC day it was made on, also when the call returns after midnight."""
+
+    def test_a_grant_and_an_offer_carry_the_day_they_were_made_on(self, tmp_path: Path) -> None:
+        company = Companies(tmp_path / "knowledge").company({**Settings().block([]), "max_usd_per_day": CAP})
+        with time_machine.travel(DAY_ONE_NOON, tick=False):
+            granted, offered = asyncio.run(company.grant(THIRD)), company.offer(THIRD)
+
+        assert (granted.day, offered is not None and offered.day) == (DAY_ONE, DAY_ONE)
 
 
 class TestDayCap:
@@ -225,20 +244,20 @@ class TestOnACompany:
         company = self.company(tmp_path)
         Elsewhere().spend(company, CAP - DAY_LEFT, WorkDay().today())
 
-        assert asyncio.run(company.grant(TICKET)) == Grant(DAY_LEFT, DAY_LEFT)
+        assert Shape().of(asyncio.run(company.grant(TICKET))) == (DAY_LEFT, DAY_LEFT)
 
     def test_spend_of_another_day_does_not_count(self, tmp_path: Path) -> None:
         company = self.company(tmp_path)
         Elsewhere().spend(company, PLENTY, "2026-01-01")
 
-        assert asyncio.run(company.grant(TICKET)) == Grant(TICKET, TICKET)
+        assert Shape().of(asyncio.run(company.grant(TICKET))) == (TICKET, TICKET)
 
     def test_the_third_task_waits_for_both_and_then_gets_its_whole_ticket(self, tmp_path: Path) -> None:
         """What each call really spent is booked before its reservation is released. While the second still holds its
         share the third does not take what is left (4.7): it waits, and it never pauses with the booked spend this low."""
         company = self.company(tmp_path)
 
-        async def scenario() -> Tuple[bool, Grant]:
+        async def scenario() -> Tuple[bool, Optional[Tuple[float, float]]]:
             first = await company.grant(TICKET)
             second = await company.grant(TICKET)
             third = asyncio.ensure_future(company.grant(TICKET))
@@ -248,9 +267,9 @@ class TestOnACompany:
             waiting = not third.done()
             await company.state.add_spend(Elsewhere().entry(), WorkDay().today(), REAL_COST)
             company.day.release(second)
-            return waiting, await asyncio.wait_for(third, timeout=1)
+            return waiting, Shape().of(await asyncio.wait_for(third, timeout=1))
 
-        assert asyncio.run(scenario()) == (True, Grant(TICKET, TICKET))
+        assert asyncio.run(scenario()) == (True, (TICKET, TICKET))
 
     def test_the_company_is_capped_once_the_booked_spend_reaches_the_cap(self, tmp_path: Path) -> None:
         company = self.company(tmp_path)
@@ -380,7 +399,7 @@ class TestReservationIsReleased:
 
         setup.work_on(BrokenAgent([]), Items().jira())
 
-        assert self.room_left(setup) == Grant(TICKET, TICKET)
+        assert Shape().of(self.room_left(setup)) == (TICKET, TICKET)
 
     def test_when_the_booking_fails(self, setups: Setups, monkeypatch: pytest.MonkeyPatch) -> None:
         setup = setups.make({"max_usd_per_day": TICKET})
@@ -392,7 +411,7 @@ class TestReservationIsReleased:
 
         setup.work_on(ScriptedAgent([Plans().plan()]), Items().jira())
 
-        assert self.room_left(setup) == Grant(TICKET, TICKET)
+        assert Shape().of(self.room_left(setup)) == (TICKET, TICKET)
 
 
 class TestRealRunbook:
@@ -411,7 +430,7 @@ class TestRealRunbook:
 
         (company,) = ServeCompanies(Path("runbooks"), {}).load()
 
-        assert (company.settings.max_usd_per_day, asyncio.run(company.grant(TICKET))) == (RUNBOOK_CAP, Grant(RUNBOOK_CAP, RUNBOOK_CAP))
+        assert (company.settings.max_usd_per_day, Shape().of(asyncio.run(company.grant(TICKET)))) == (RUNBOOK_CAP, (RUNBOOK_CAP, RUNBOOK_CAP))
 
 
 class TestPauseWithAPr:

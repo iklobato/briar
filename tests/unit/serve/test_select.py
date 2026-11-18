@@ -8,7 +8,7 @@ import asyncio
 from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 import pytest
 
@@ -214,7 +214,7 @@ class TestSelectionAndTheDayCap:
     """Decision B11 (PR B): the selector call is under the day cap, and its cost is booked to the day where the call
     returns, whether or not a ticket is taken (a failed call or an empty pick used to spend and not count)."""
 
-    def pick(self, company: ServeCompany, agent: PickingAgent) -> List[WorkItem]:
+    def pick(self, company: ServeCompany, agent: PickingAgent) -> Optional[List[WorkItem]]:
         return asyncio.run(Selector(agent, company).pick([Tickets().plain("ENG-1")], SLOTS, {}))
 
     def capped(self, tmp_path: Path, cap: float) -> ServeCompany:
@@ -239,7 +239,7 @@ class TestSelectionAndTheDayCap:
         asyncio.run(company.state.add_loose(WorkDay().today(), DAY_CAP))
         agent = PickingAgent([])
 
-        assert (self.pick(company, agent), agent.requests) == ([], [])
+        assert (self.pick(company, agent), agent.requests) == (None, [])
 
     def test_the_selector_grant_is_the_smaller_of_max_usd_and_the_day_left(self, tmp_path: Path) -> None:
         agent = PickingAgent([])
@@ -252,12 +252,12 @@ class TestSelectionAndTheDayCap:
         """Room for two tickets of 5 and a bit: two calls in flight leave less than the selector needs, and a poll must not stall."""
         company, agent = self.capped(tmp_path, ROOM_FOR_TWO), PickingAgent([])
 
-        async def scenario() -> List[WorkItem]:
+        async def scenario() -> Optional[List[WorkItem]]:
             await company.grant(company.settings.max_usd)
             await company.grant(company.settings.max_usd)
             return await Selector(agent, company).pick([Tickets().plain("ENG-1")], SLOTS, {})
 
-        assert (asyncio.run(scenario()), agent.requests) == ([], [])
+        assert (asyncio.run(scenario()), agent.requests) == (None, [])
 
     def test_a_failed_call_is_booked_to_the_day_too(self, tmp_path: Path) -> None:
         company = Setup(tmp_path).company()

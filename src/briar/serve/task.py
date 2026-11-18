@@ -353,10 +353,11 @@ class AgentSteps:
 
     def _day_stop(self, answer: AgentAnswer, grant: Grant, ticket_left: float) -> None:
         """Decision B13: the SDK stopped the call at its grant and the DAY was the smaller limit, so the task pauses
-        (it is not blocked: a costly day is not the fault of the ticket)."""
+        (it is not blocked: a costly day is not the fault of the ticket). The day that closes is the one the call was granted
+        on: a call that crosses midnight must not close the next day (audit 6)."""
         if answer.reason == "error_max_budget_usd" and grant.amount < ticket_left:
             company = self._context.company
-            company.day.exhaust(WorkDay().today())
+            company.day.exhaust(grant.day)
             raise DayPause(f"the daily cap max_usd_per_day of US$ {company.settings.max_usd_per_day:g} is reached")
 
     def _values(self) -> Mapping[str, str]:

@@ -19,10 +19,12 @@ class DayPause(Exception):
 @dataclass(frozen=True)
 class Grant:
     """What one agent call may spend: `amount` is its `max_budget_usd`, and `held` is what the day keeps
-    reserved for it until the call is booked (0 when the cap is off)."""
+    reserved for it until the call is booked (0 when the cap is off). `day` is the UTC day it was granted on, set by
+    `ServeCompany`: a call that crosses midnight closes the day it was granted on, not the one it returns on."""
 
     amount: float
     held: float
+    day: str = ""
 
 
 class DayCap:

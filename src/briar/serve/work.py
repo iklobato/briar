@@ -158,12 +158,14 @@ class ServeCompany:
     async def grant(self, ticket_left: float) -> Grant:
         """The budget of one agent call: its whole `ticket_left` when it fits in the day, minus what the calls in flight
         hold; the day left when no other call is in flight; else it waits for one to end. It raises `DayPause` when the
-        spend booked today reaches the cap (decisions B11, B12, B19)."""
-        return await self.day.grant(self.settings.max_usd_per_day, self.spent_today, ticket_left)
+        spend booked today reaches the cap (decisions B11, B12, B19). The grant carries the day it was made on."""
+        granted = await self.day.grant(self.settings.max_usd_per_day, self.spent_today, ticket_left)
+        return replace(granted, day=WorkDay().today())
 
     def offer(self, ticket_left: float) -> Optional[Grant]:
         """Like `grant`, but never waits: None when other calls hold the room (a poll must not stall on it)."""
-        return self.day.offer(self.settings.max_usd_per_day, self.spent_today, ticket_left)
+        granted = self.day.offer(self.settings.max_usd_per_day, self.spent_today, ticket_left)
+        return replace(granted, day=WorkDay().today()) if granted is not None else None
 
     def capped(self) -> bool:
         """The spend booked today is at `max_usd_per_day` (0 is off): nothing that needs the model may start (decision B13)."""
