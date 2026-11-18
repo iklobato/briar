@@ -71,6 +71,8 @@ them); extract is in scope as the scheduled run the flow depends on.
 | D1 | U | 2 | no `serve.only`; 12 open assigned tickets | one cycle | all 12 are candidates; statuses in `not_workable` (Blocked, In Review) are dropped | new |
 | D2 | U | 2 | 5 tickets started today for the company | next cycle with free slots | no new ticket starts; open tasks and review rounds still run; the report says the limit hit | new |
 | D3 | U | 2 | the day changes (UTC) | next cycle | the count resets; new tickets start again | new |
+| D7 | U | 2 | the spend booked today is at `max_usd_per_day` | next cycle | nothing that needs the model starts (no resumed ticket, review round, ready PR or selector call); merged and closed PRs are still recorded; one note in the report | new (`TestDayGate`) |
+| D8 | U | 2 | three tasks in parallel, `max_usd_per_day` below `max_parallel` x `max_usd` | each call asks for the whole ticket | the third waits for a release and does not pause; it pauses only when the booked spend reaches the cap | new (`test_day_cap.py`) |
 | D4 | U | now | a ticket with an open human MR citing its key | cycle | skipped with one log line, no write (N6) | exists: open MR rule tests |
 | D5 | U | now | an Epic among the candidates | cycle | may be picked (no type filter, decision C5); then the silent plan decides | exists (selector), new for the Epic path |
 | D6 | R | 2 | sandbox with the 12 seeded tickets | 48 h soak | at most 5 new a day; In Review ticket never taken; N6 ticket skipped | new (soak) |

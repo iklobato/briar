@@ -258,7 +258,15 @@ only in the private site repo.
   every agent call by `WorkState.add_spend`); `max_loops` stays per run. A ticket that spends it is
   `BLOCKED` with a `money_stop` (`cap`, `resume_to`, `drafted`), and `BudgetReopen` brings it back
   when `max_usd` is above `cap` and the spend fits (the runbook is read once: restart `serve`).
-  `max_usd_per_day` still stops only new tickets.
+  `max_usd_per_day` is a hard cap (decisions B11 to B14): each call gets `min(ticket left, day left -
+  reserved)` through `ServeCompany.grant` and `serve/day.py` `DayCap` (the booked spend is the entries
+  plus `WorkBook.loose_by_day`, where the selector books its cost when its call returns, and a pick
+  that becomes a task moves it to its entry). A call with no room waits while the booked spend is
+  under the cap; `DayPause` (not a `CliError`, so the routine does not block on it) is raised only at
+  the cap. A pause leaves the status and writes nothing on the ticket or the PR; with a PR it drops
+  unverified edits. `CompanyWatch._capped` stops dispatching model work (merged and closed still
+  go). A round paused after its replies sets `WorkEntry.ci_paused`; `WorkFinder._pull` brings it back
+  as a `ci_only` review item (no round counted, no reply repeated).
 - **`serve` rule sets** (decisions Q1 to Q23 in `docs/decisions/2026-11-18-serve-quality-rules.md`):
   `serve.rules` / `serve.rules_by_repo` turn on sets from `src/briar/prompts/rule_sets/<name>.md`
   (`## Baseline` for the system prompt, `## Review` for the self review; parsed strictly by

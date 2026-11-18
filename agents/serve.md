@@ -134,6 +134,28 @@ money discards what was never verified (it never reaches the PR), makes the PR a
 why in a comment, and gives the round back (only when no reply was posted yet); when the
 ticket goes on, briar marks the PR ready again, unless a person had left it a draft.
 
+### The daily cap
+
+`max_usd_per_day` is a hard cap on everything briar spends on the model in one UTC day: every
+agent call of every task (review rounds and ready PRs included) and the call of the selector.
+Each call may spend at most the smaller of what its ticket and the day have left, minus what
+the calls in flight hold, so the day cannot pass the cap by a whole ticket for each parallel
+task. A call with no room waits for another call to end while the spend booked today is under
+the cap. The SDK checks the budget between turns, so one call can pass its grant a little: the
+day can pass the cap by at most one call for each running task.
+
+When the spend booked today reaches the cap, the tasks **pause**. Nothing is written on the
+ticket or the PR, the ticket keeps its status and its worktree, and what was never verified is
+dropped when a PR exists. The tasks go on after 00:00 UTC, or after you raise `max_usd_per_day`
+and restart `briar serve`. While the cap holds, a poll starts nothing that needs the model (a
+merged or closed PR is still recorded) and the daily report says so once. This is not a stop
+like the `max_usd` one: the ticket is not `blocked`.
+
+A review round that the day stopped after it posted its replies only has the CI wait left.
+After the pause briar runs the CI wait (and the CI fix) again, and it does not repeat a reply
+or ask a reviewer again. What the selector spent counts in the day even when no ticket is
+taken; the report shows it on its own line.
+
 ## Use it when
 
 - You want briar to pick up tickets assigned to its account, on a server.
@@ -185,7 +207,7 @@ companies:
       only: [ENG-7, acme/web#12]      # optional: when set, only these tickets are candidates
       max_parallel: 3                 # optional
       max_new_per_day: 5              # optional: new tickets started per UTC day (0, the default, is no limit)
-      max_usd_per_day: 10             # optional: US$ the tasks may spend per UTC day before no NEW ticket starts (0: no cap)
+      max_usd_per_day: 10             # optional: hard cap on the US$ spent in a UTC day; at the cap tasks pause (0: no cap)
       poll_minutes: 5                 # optional
       verify: ["make lint", "make test"]
       verify_by_repo:                 # optional: a repo's own verify commands (others use `verify`)
@@ -361,7 +383,7 @@ and the pipeline of the pushed commit for the CI wait.
 
 `serve` writes a daily report for each company to `<knowledge root>/reports/YYYY-MM-DD.md`,
 rewritten every poll: what waits for a merge, what stopped and why, what the day cost, and
-what a poll skipped (a dead chat login, the `max_new_per_day` limit). Read it instead of the
+what a poll skipped (a dead chat login, the `max_new_per_day` limit, the daily cap). Read it instead of the
 log. A failed chat (Slack) login never stops `serve`: the start check shows it as a warning,
 and a poll skips the chat asks that time.
 
