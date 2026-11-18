@@ -29,6 +29,16 @@ class WorkStatus(str, Enum):
     CLOSED = "closed"
 
 
+class MoneyStop(BaseModel):
+    """Why a ticket is blocked for money (decisions B9, B10): the `max_usd` it stopped at, the
+    status it goes back to when the maintainer raises that cap, and whether briar made its PR a
+    draft (so briar, and nobody else, marks it ready again)."""
+
+    cap: float
+    resume_to: str
+    drafted: bool = False
+
+
 class WorkEntry(BaseModel):
     """One ticket briar took."""
 
@@ -58,6 +68,9 @@ class WorkEntry(BaseModel):
     reminded: bool = False
     # What the task spent on the model per UTC day, US$ (the daily report and `max_usd_per_day`).
     spent_by_day: Dict[str, float] = Field(default_factory=dict)
+    # Set when the task stopped because the ticket spent its `max_usd`; the one stop a person lifts
+    # by raising `max_usd` and restarting `serve` (decision B10).
+    money_stop: Optional[MoneyStop] = None
 
     # A ticket in one of these is not taken again; one found or planned when `serve`
     # stopped is taken again and picks up its worktree.
@@ -70,6 +83,10 @@ class WorkEntry(BaseModel):
 
     def watched(self) -> bool:
         return bool(self.pr) and self.status.value in self.WATCHED
+
+    def spent_total(self) -> float:
+        """What the ticket has spent on the model over every run of it (decisions B2, B3)."""
+        return sum(self.spent_by_day.values())
 
 
 class WorkBook(BaseModel):
@@ -121,7 +138,19 @@ class WorkState:
 
     async def record(self, entry: WorkEntry) -> None:
         async with self._lock:
-            self._store.put(self.blob_name(), self.book().with_entry(entry).model_dump_json(indent=self.INDENT), category="work")
+            self._save(self.book().with_entry(entry))
+
+    async def add_spend(self, fresh: WorkEntry, day: str, cost: float) -> None:
+        """Book `cost` on `day` for the ticket of `fresh`, in the entry the state holds or, when
+        it holds none yet, in `fresh` (decision B5: saved after every agent call)."""
+        async with self._lock:
+            book = self.book()
+            known = book.entry(fresh.key) or fresh
+            spent = {**known.spent_by_day, day: known.spent_by_day.get(day, 0.0) + cost}
+            self._save(book.with_entry(known.model_copy(update={"spent_by_day": spent})))
+
+    def _save(self, book: WorkBook) -> None:
+        self._store.put(self.blob_name(), book.model_dump_json(indent=self.INDENT), category="work")
 
 
-__all__ = ["WorkBook", "WorkEntry", "WorkSource", "WorkState", "WorkStatus"]
+__all__ = ["MoneyStop", "WorkBook", "WorkEntry", "WorkSource", "WorkState", "WorkStatus"]

@@ -24,7 +24,7 @@ from briar.serve.select import Choice, Selector
 from briar.serve.task import ServeCache, TaskContext, TaskPrep
 from briar.serve.report import DailyReport
 from briar.serve.state import WorkBook
-from briar.serve.work import BaseDrift, ReviewReminders, ServeCompany, WorkDay, WorkFinder, WorkItem, WorkKind, WorkSources
+from briar.serve.work import BaseDrift, BudgetReopen, ReviewReminders, ServeCompany, WorkDay, WorkFinder, WorkItem, WorkKind, WorkSources
 
 
 class Routine(Protocol):
@@ -106,6 +106,7 @@ class CompanyWatch:
         stop the other companies and the tasks that are running."""
         sources = WorkSources(self._company.logins, self._company.settings.code_host)
         drift = BaseDrift(self._company, sources, ServeCache(os.environ).root())
+        await BudgetReopen(self._company).apply()
         try:
             items: List[WorkItem] = await asyncio.to_thread(WorkFinder(self._company, sources, drift).find)
         except self.POLL_FAILURES as failure:

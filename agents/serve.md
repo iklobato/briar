@@ -101,17 +101,38 @@ and `docs/decisions/2026-11-11-briar-2-review-routine.md`.
 
 ## Limits
 
-Each task has the `max_usd`, `max_loops` and `ci_wait_minutes` of its company, and
-each PR at most `max_review_rounds` review rounds (a round that only merges the base
-counts). When one hits, briar stops the task, pushes the work so far, opens the PR as a draft (or
-turns the open one into a draft) with a report, and comments the same report on the
-ticket. The ticket is `blocked` in the state; briar does not take it again.
+`max_usd` is the most one **ticket** spends in total: the plan, the build, the CI fixes,
+every review round and every restart share it. What a run spent is saved after every agent
+call, so a restart does not give the ticket a new `max_usd`. `max_loops` and
+`ci_wait_minutes` count in each run of a task, and each PR gets at most
+`max_review_rounds` review rounds (a round that only merges the base counts).
+
+When one hits, briar stops the task, pushes the work so far, opens the PR as a draft (or
+turns the open one into a draft) and comments a report on the PR and on the ticket. A new
+draft has the plan as its body; the report is a comment. The ticket is `blocked` in the
+state; briar does not take it again.
 
 ```text
 briar stopped: max_loops (5) reached while fixing: the verify commands. Spent US$ 1.20 of 5.0, 6 of 5 fix loops.
 ```
 
 A git, GitHub or Jira failure in the middle of a task stops it the same way.
+
+### When a ticket runs out of money
+
+A ticket that spent its `max_usd` stops with `money_stop` in its state entry (the `max_usd` it
+stopped at, the status it was in, and whether briar made its PR a draft). It is the one stop
+you can lift:
+
+1. Raise `max_usd` in the runbook.
+2. Restart `briar serve` (the runbook is read once, when it starts).
+
+On each poll a ticket that stopped for money, whose spend is below the new `max_usd` and
+whose `max_usd` is higher than the one it stopped at, goes back to where it was. A ticket
+stopped before its PR was ready goes on in the same draft. A review round that ran out of
+money discards what was never verified (it never reaches the PR), makes the PR a draft, says
+why in a comment, and gives the round back (only when no reply was posted yet); when the
+ticket goes on, briar marks the PR ready again, unless a person had left it a draft.
 
 ## Use it when
 
@@ -150,7 +171,7 @@ companies:
       jira: {site: acme.atlassian.net}
     serve:
       model: claude-sonnet-4-5        # required: the model of the agent
-      max_usd: 5                      # required: the most one task spends
+      max_usd: 5                      # required: the most one ticket spends in total, over all of its runs
       max_loops: 5                    # required: the most fix loops of one task
       ci_wait_minutes: 60             # required: the longest wait for CI
       max_review_rounds: 5            # required: the most review rounds of one PR
