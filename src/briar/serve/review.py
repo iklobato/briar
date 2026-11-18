@@ -66,19 +66,19 @@ class ReviewRun:
         self._context = context
         self._steps = steps
         self._flow = flow
-        # The commit a stop for money goes back to: the start of the round, then what was pushed (B6, B18).
-        self._safe = ""
         # The replies of the round are posted, so a stop for money does not give the round back (B7, B18).
         self._replied = False
         # Briar made this PR a draft when the ticket ran out of money, so briar marks it ready again (B6).
         self._drafted = False
+        # The CI has not passed for this PR yet (a day pause in its wait, or a draft of briar), so even a round that changes
+        # no code waits for it before it clears the marker or marks the PR ready (audit 3 and 4).
+        self._owes_ci = False
         # The status the PR had before the round counted itself, which a pause of the day cap puts back (B13).
         self._previous: Optional[WorkStatus] = None
 
     async def work(self) -> None:
         resumed = self._context.item.ci_only
         start = await (self._resume() if resumed else self._start())
-        self._safe = start
         # A resumed wait comes after the replies: a stop gives no round back, because none was counted.
         self._replied = resumed
         try:
@@ -97,14 +97,20 @@ class ReviewRun:
 
     async def _paused(self) -> None:
         """Decision B13: the day cap pauses the round (the routine writes the note). What was never verified goes back to
-        `_safe`. Before the replies the round is given back and the status comes back; after them, only the CI wait is
-        left, so the entry says so and the finder emits it again when the day has room."""
-        context = self._context
-        await asyncio.to_thread(context.checkout.discard, context.worktree, self._safe)
+        what the origin has. Before the replies the round is given back and the status comes back; after them, only the CI
+        wait is left, so the entry says so and the finder emits it again when the day has room."""
+        await self._back_to_the_origin()
         if self._replied:
             await self._flow.record(WorkStatus.PR_OPEN, {"ci_paused": True})
             return
         await self._flow.record(self._previous or WorkStatus.PR_OPEN, {"rounds": self._rounds_kept()})
+
+    async def _back_to_the_origin(self) -> None:
+        """Decisions B6, B18: a stop drops every local commit and edit and goes back to the pushed head, which the origin ref
+        follows after each push (the CI fix pushes too, so a head kept at the start of the round went stale: audit 12)."""
+        context = self._context
+        pushed = await asyncio.to_thread(context.checkout.pushed, context.worktree, context.branch)
+        await asyncio.to_thread(context.checkout.discard, context.worktree, pushed)
 
     async def _round(self, start: str) -> None:
         item = self._context.item
@@ -122,7 +128,7 @@ class ReviewRun:
 
     async def _finished(self, start: str, head: str) -> None:
         saved = {"answered": self._answered()}
-        if head == start:
+        if head == start and not self._owes_ci:
             await self._done(saved)
             return
         # Saved before the CI wait: a stop there must not answer the same comments again.
@@ -143,7 +149,7 @@ class ReviewRun:
         is blocked for money. A round with no reply is given back."""
         context = self._context
         host, item = context.sources.code_host(), context.item
-        await asyncio.to_thread(context.checkout.discard, context.worktree, self._safe)
+        await self._back_to_the_origin()
         already = (await asyncio.to_thread(host.pull_state, item.repo, item.pr)).draft
         if not already:
             await asyncio.to_thread(host.make_draft, item.repo, item.pr)
@@ -171,18 +177,24 @@ class ReviewRun:
         if rounds >= limit:
             raise LimitHit(f"max_review_rounds ({limit}) reached on PR #{self._context.item.pr}")
         self._drafted = self._made_a_draft(known)
+        self._owes_ci = self._owed(known)
         self._previous = known.status if known is not None else WorkStatus.PR_OPEN
         await self._flow.record(WorkStatus.PR_OPEN, {"rounds": rounds + 1})
         return await self._head()
 
     async def _resume(self) -> str:
-        """Decision B13: the head to go back to for a paused CI wait. No round is counted."""
+        """Decision B13: the head of a paused CI wait. No round is counted."""
         known = self._context.company.state.book().entry(self._context.item.key)
         self._drafted = self._made_a_draft(known)
+        self._owes_ci = self._owed(known)
         return await self._head()
 
     def _made_a_draft(self, known: Optional[WorkEntry]) -> bool:
         return known is not None and known.money_stop is not None and known.money_stop.drafted
+
+    def _owed(self, known: Optional[WorkEntry]) -> bool:
+        """A day pause in the CI wait left the CI fix owed, and a draft of briar was never marked ready on a green CI."""
+        return (known is not None and known.ci_paused) or self._drafted
 
     async def _merged(self) -> List[str]:
         """V6: merge the base; the agent resolves what conflicts. A merge that cannot be
@@ -213,7 +225,6 @@ class ReviewRun:
         await self._flow.verified("fix the verify commands")
         await self._flow.reviewed(self._plan(), f"{start}..HEAD")
         await self._flow.push()
-        self._safe = await self._head()
 
     def _plan(self) -> Plan:
         """What the round had to do, for the self-review."""

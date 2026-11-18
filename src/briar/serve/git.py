@@ -9,6 +9,7 @@ command."""
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shlex
@@ -79,6 +80,7 @@ class Remote:
 class RepoCheckout:
     """The clone of one repo in `cache` and the worktrees of its tasks."""
 
+    LOG: ClassVar[logging.Logger] = logging.getLogger(__name__)
     # The token file is readable by its owner only.
     SECRET_MODE = 0o600
     # The tail of a failed git output kept in the error.
@@ -137,10 +139,23 @@ class RepoCheckout:
         (a lost state) before it changed anything, and the next review round fast forwards it."""
         self._git(["checkout", "-B", branch, f"origin/{branch}"], path, "")
 
+    def pushed(self, path: Path, branch: str) -> str:
+        """The commit the origin has for `branch`. A push of this process moves the tracking ref (it pushes to the remote
+        named `origin`), and `update` fetches at the start of a task, so this is the pushed head without a fetch."""
+        return self._git(["rev-parse", f"origin/{branch}"], path, "").output.strip()
+
     def sync(self, path: Path, branch: str) -> None:
-        """Bring the worktree to `origin/<branch>` (a reviewer may have pushed a suggestion);
-        only a fast forward, so work of briar is never lost."""
-        self._git(["merge", "--ff-only", f"origin/{branch}"], path, "")
+        """After this the worktree is on `origin/<branch>` (a reviewer may have pushed a suggestion). A worktree that is only
+        behind fast forwards. A commit only the worktree has is work of a run that stopped before it pushed: it was never
+        verified or reviewed with the rest, so the origin is the truth and the worktree is reset to it, with a warning.
+        The fast forward alone cannot be the check: with a worktree that is only ahead it says `Already up to date`."""
+        self._shell.program(["git", "merge", "--ff-only", f"origin/{branch}"], path)
+        remote = self.pushed(path, branch)
+        if self.head(path) == remote:
+            return
+        lost = self._git(["rev-list", "--count", f"origin/{branch}..HEAD"], path, "").output.strip()
+        self.LOG.warning("serve: the worktree of %s differs from origin/%s: reset to it, dropping %s commit(s) that are not on the origin", branch, branch, lost)
+        self.discard(path, remote)
 
     def merge(self, path: Path, base: str, identity: GitIdentity) -> List[str]:
         """Merge `origin/<base>` into the worktree (V6): no file when it merged clean, else

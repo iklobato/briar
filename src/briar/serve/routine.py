@@ -83,13 +83,14 @@ class ServeRoutine:
 
     async def _paused(self, item: WorkItem, context: TaskContext, pause: DayPause) -> None:
         """Decision B13: the day cap pauses the task. Nothing is written on the ticket or the PR and the status stays as it
-        was; the loop brings the task back when the day has room. With a PR, the uncommitted edits go (the next `sync` is a
-        fast forward only and would fail on a dirty tree). The head may hold a commit that was not pushed yet; that is safe,
-        because every push goes through `TaskFlow.verified` first. A ticket with no PR keeps its edits."""
+        was; the loop brings the task back when the day has room. With a PR, the worktree goes back to what the origin has:
+        `TaskFlow.verified` commits BEFORE it verifies, so the head can hold a commit that failed verify and was never
+        pushed, and a reviewer push on the branch would then make the next sync diverge (audit 1). A ticket with no PR
+        keeps its edits."""
         known = self._company.state.book().entry(item.key)
         if known is not None and known.pr:
-            head = await asyncio.to_thread(context.checkout.head, context.worktree)
-            await asyncio.to_thread(context.checkout.discard, context.worktree, head)
+            pushed = await asyncio.to_thread(context.checkout.pushed, context.worktree, context.branch)
+            await asyncio.to_thread(context.checkout.discard, context.worktree, pushed)
         text = f"{item.ref()} paused: {pause}; it goes on tomorrow (UTC) or when the cap is raised"
         if self._company.note(text):
             self.LOG.info("serve: %s: %s", self._company.name, text)

@@ -439,8 +439,13 @@ class WorkFinder:
         if entry.ci_paused:
             # Decision B13: a round the day cap paused after its replies; new comments (above) win, one round waits for CI too.
             return WorkItem(WorkKind.REVIEW, entry.key, entry.source, entry.repo, entry.title, pr=entry.pr, ci_only=True)
-        unfinished = pull.draft and entry.status is WorkStatus.PR_OPEN
-        return WorkItem(WorkKind.READY, entry.key, entry.source, entry.repo, entry.title, pr=entry.pr) if unfinished else None
+        return WorkItem(WorkKind.READY, entry.key, entry.source, entry.repo, entry.title, pr=entry.pr) if self._unfinished(entry, pull) else None
+
+    def _unfinished(self, entry: WorkEntry, pull: PullState) -> bool:
+        """A draft that briar has to finish: one it opened and never marked ready (`serve` stopped in the CI wait), or one it made
+        at a stop for money. A PR that was ready and is a draft with no such stop was made a draft by a person (decision B6)."""
+        briar_draft = not entry.ready_at or (entry.money_stop is not None and entry.money_stop.drafted)
+        return pull.draft and entry.status is WorkStatus.PR_OPEN and briar_draft
 
 
 class BaseDrift:
