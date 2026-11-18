@@ -253,6 +253,12 @@ only in the private site repo.
     `tests/unit/fake_logins.py` `Fixes` builds the expected login hint (it
     reads `secrets_path()` at call time, set per test by the autouse
     `BRIAR_SECRETS_FILE` fixture).
+- **`serve` rule sets** (decisions Q1 to Q23 in `docs/decisions/2026-11-18-serve-quality-rules.md`):
+  `serve.rules` / `serve.rules_by_repo` turn on sets from `src/briar/prompts/rule_sets/<name>.md`
+  (`## Baseline` for the system prompt, `## Review` for the self review; parsed strictly by
+  `RuleFile` in `serve/rules.py`). Off by default; `code` is skipped in a worktree with no
+  `pyproject.toml`. `RuleBook.of(settings)` is the one way to build the book (a real `serve` and the
+  test fake use it). Do not put sets in `src/briar/prompts/rules/`: it holds 8 dead 1.x files.
 - **Docker image** (`iklob1/briar`): has `git`, `gh`, `bubblewrap` and `socat`
   (the agent sandbox of `briar serve`; not tested in a container),
   `safe.directory '*'`, `gh` also linked at `/usr/local/bin/gh` and

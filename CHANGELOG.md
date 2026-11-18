@@ -14,6 +14,11 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Added
 
+- Rule sets for `briar serve`: `serve.rules` and `serve.rules_by_repo` turn on sets of coding rules
+  that briar adds to what the agent reads (the short text goes in the system prompt of every call,
+  the checklist in the self review). One set ships, `code` (the Python style rules); it is left out
+  of a repo with no Python project. Off by default, so nothing changes until a runbook asks. A name
+  that is not a set stops `serve` at load. Decisions: `docs/decisions/2026-11-18-serve-quality-rules.md`.
 - `briar extract` also writes `knowledge/<company>/index.md` and one file for each topic beside the single knowledge file (which is unchanged). `briar serve` points the agent to the index, and the plan comment lists the topics the agent read (`Sources read`).
 - Release workflow: a version PyPI does not have yet (for example `2.0.0rc1`) is published as it is, tagged, and marked a pre-release on GitHub and Docker (`latest` does not move); a final version PyPI already has still gets its patch bump. A pre-release PyPI already has ends the run green without publishing again.
 - `serve.format` and `serve.format_by_repo`: commands that format the worktree before each
