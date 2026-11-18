@@ -19,7 +19,7 @@ In the `serve:` block of your runbook:
 
 | Limit | What it stops |
 |---|---|
-| `max_usd` | Spending on one issue |
+| `max_usd` | Spending on one issue, in total over all of its runs |
 | `max_loops` | Fix attempts on one issue |
 | `max_new_per_day` | How many new issues start in one day |
 | `max_usd_per_day` | Spending in one day (UTC) |

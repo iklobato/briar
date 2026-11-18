@@ -253,6 +253,12 @@ only in the private site repo.
     `tests/unit/fake_logins.py` `Fixes` builds the expected login hint (it
     reads `secrets_path()` at call time, set per test by the autouse
     `BRIAR_SECRETS_FILE` fixture).
+- **`serve` spend caps** (decisions B2 to B10 and B18 in `docs/decisions/2026-11-18-serve-spend-caps.md`):
+  `max_usd` is the total of one ticket over all of its runs (`WorkEntry.spent_total()`, saved after
+  every agent call by `WorkState.add_spend`); `max_loops` stays per run. A ticket that spends it is
+  `BLOCKED` with a `money_stop` (`cap`, `resume_to`, `drafted`), and `BudgetReopen` brings it back
+  when `max_usd` is above `cap` and the spend fits (the runbook is read once: restart `serve`).
+  `max_usd_per_day` still stops only new tickets.
 - **`serve` rule sets** (decisions Q1 to Q23 in `docs/decisions/2026-11-18-serve-quality-rules.md`):
   `serve.rules` / `serve.rules_by_repo` turn on sets from `src/briar/prompts/rule_sets/<name>.md`
   (`## Baseline` for the system prompt, `## Review` for the self review; parsed strictly by

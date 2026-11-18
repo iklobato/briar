@@ -127,6 +127,15 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Changed
 
+- `serve.max_usd` is now the total one ticket may spend over all of its runs (the plan, the
+  build, the CI fixes, every review round and every restart), not a new amount for each run.
+  What a run spent is saved after every agent call, so a kill or a restart no longer gives
+  the ticket a whole `max_usd` again, and a call is refused when nothing is left. A runbook
+  that relied on the old meaning may see more tickets stop. A ticket that spent it stops
+  `blocked` with a `money_stop` in its state entry; raise `max_usd` and restart `briar serve`
+  and it goes on, in the same draft PR. A review round that runs out of money discards what
+  it never verified, makes the PR a draft, says why on it and gives the round back. A draft
+  PR opened by a stop has the plan as its body, and the report is a comment.
 - `briar serve` chooses which assigned tickets to start (spec 008 PR 1). It drops
   the tickets in a `not_workable` status (default `Blocked`, `In Review`) or with
   an open blocker (Jira `Blocks` links, GitHub issue dependencies), scores the rest

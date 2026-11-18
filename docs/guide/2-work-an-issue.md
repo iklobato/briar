@@ -92,7 +92,7 @@ serve: issue-12 is done https://github.com/acme-co/acme-app/pull/13 US$ 0.15 of 
 
 - It never merges.
 - It never force pushes.
-- It never spends more than `max_usd` on one issue.
+- It never spends more than `max_usd` on one issue: the plan, the build, the fixes and every review round share it, even across a restart. If an issue runs out, raise `max_usd` and restart `serve`, and it goes on.
 - If it cannot finish, it stops, writes why on the issue (and on the draft PR), and does not pick that issue up again by itself.
 
 ## If it fails
