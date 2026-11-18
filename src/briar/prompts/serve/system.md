@@ -23,4 +23,4 @@ Rules:
 - Add or update the tests the change needs.
 - A command you need that is refused is outside what this company allows: work without it
   and say so in your answer.
-- Do not commit: the program commits your changes after you finish.
+- Do not commit: the program commits your changes after you finish.{rules}

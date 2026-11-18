@@ -175,6 +175,11 @@ class ServeSettings(_Strict):
     # the repo always wins, so the self-review cannot ask for a format it undoes.
     format: List[str] = Field(default_factory=list)
     format_by_repo: Dict[str, List[str]] = Field(default_factory=dict)
+    # Rule sets turned on for a company, and for one repo (decisions Q3, Q9 of
+    # `docs/decisions/2026-11-18-serve-quality-rules.md`). Off by default; a repo that is listed
+    # does not also get the company list, as with `verify_by_repo`.
+    rules: List[str] = Field(default_factory=list)
+    rules_by_repo: Dict[str, List[str]] = Field(default_factory=dict)
     bash: List[str] = Field(default_factory=list)
     priority_labels: List[str] = Field(default_factory=list)
     # Bot logins whose PR comments briar answers (V1); people need write access.
@@ -197,6 +202,7 @@ class ServeSettings(_Strict):
     PROJECT_KEY: ClassVar["re.Pattern[str]"] = re.compile(r"^[A-Z][A-Z0-9_]*$")
     DOMAIN: ClassVar["re.Pattern[str]"] = re.compile(r"^(\*\.)?[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$")
     BOT_LOGIN: ClassVar["re.Pattern[str]"] = re.compile(r"^[A-Za-z0-9-]+\[bot\]$")
+    RULE_SET: ClassVar["re.Pattern[str]"] = re.compile(r"^[a-z][a-z0-9-]*$")
 
     @field_validator("jira", mode="before")
     @classmethod
@@ -233,6 +239,18 @@ class ServeSettings(_Strict):
         if bad:
             raise PydanticCustomError("bad_only", "`only` takes ticket keys (ENG-12, owner/repo#7): {keys}", {"keys": ", ".join(bad)})
         return self
+
+    @model_validator(mode="after")
+    def _check_rule_names(self) -> "ServeSettings":
+        listed = [*self.rules, *(name for names in self.rules_by_repo.values() for name in names)]
+        bad = [name or "(empty)" for name in listed if not self.RULE_SET.match(name)]
+        if bad:
+            raise PydanticCustomError("bad_rule_name", "not a rule set name (lower case letters, digits and dashes): {names}", {"names": ", ".join(bad)})
+        return self
+
+    def rules_for(self, repo: str) -> List[str]:
+        """The rule sets of a task in `repo`."""
+        return self.rules_by_repo.get(repo, self.rules)
 
     def verify_for(self, repo: str) -> List[str]:
         """The verify commands of a task in `repo`."""

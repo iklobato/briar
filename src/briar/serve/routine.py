@@ -54,6 +54,7 @@ class ServeRoutine:
         on_pull = item.kind is not WorkKind.TICKET
         context = await asyncio.to_thread(self._prep.review_context if on_pull else self._prep.context, self._company, item)
         budget = await self._budget(item)
+        self._told_rules(context)
         steps = AgentSteps(self._agents(context), context, budget)
         parts = TaskParts(context, steps, TaskFlow(context, steps, budget))
         try:
@@ -65,6 +66,14 @@ class ServeRoutine:
         except self.UNEXPECTED as bug:
             self.LOG.exception("serve: task %s failed with an unexpected error", item.ref())
             await parts.flow.blocked(f"{type(bug).__name__}: {bug}")
+
+    def _told_rules(self, context: TaskContext) -> None:
+        """One line per task that has rule sets turned on: the sets in force and the ones left out, so
+        a run shows what applied (decision Q4)."""
+        rules = self._company.rules.for_task(context.item.repo, context.worktree)
+        if rules.sets or rules.skipped:
+            used, left_out = ", ".join(rules.used) or "none", ", ".join(rules.skipped) or "none"
+            self.LOG.info("serve: %s: rules in force: %s; left out: %s", context.item.ref(), used, left_out)
 
     def _money_stop(self, item: WorkItem) -> MoneyStop:
         """Decision B9: the cap the ticket stopped at, and the status it goes back to when the

@@ -266,7 +266,7 @@ class TestPrompts:
     def test_every_prompt_file_ships_and_fills_in(self, name: str) -> None:
         values = {
             key: f"<{key}>"
-            for key in ("company", "repo", "knowledge", "index", "state", "key", "title", "description", "plan", "verify", "what", "details", "diff", "comments", "earlier")
+            for key in ("company", "repo", "knowledge", "index", "state", "key", "title", "description", "plan", "verify", "what", "details", "diff", "comments", "earlier", "rules")
         }
 
         text = Prompts().text(name, values)
@@ -274,3 +274,5 @@ class TestPrompts:
         assert ("{" in text, "}" in text) == (False, False)
         assert ("<key>" in text) is (name != "system")
         assert ("<index>" in text) is (name == "system")
+        # The rule sets (decision Q4) reach the system prompt of every call and the self-review prompt.
+        assert ("<rules>" in text) is (name in ("system", "review"))

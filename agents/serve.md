@@ -192,6 +192,9 @@ companies:
         acme/infra: ["terraform fmt -check -recursive"]
       format_by_repo:                 # optional: commands that format the worktree before each commit
         acme/infra: ["terraform fmt -recursive"]   # (`format: [...]` is the default for the other repos)
+      rules: [code]                   # optional: the rule sets of briar to turn on for every repo (off by default; see "Rule sets")
+      rules_by_repo:                  # optional: the sets for one repo (replaces `rules` for that repo)
+        acme/infra: []                # no sets for this repo
       bash: [git, make, pytest]       # optional: the programs the agent may run (replaces the default list)
       review_bots: ["coderabbitai[bot]"]   # optional: bots whose PR comments briar answers
       allowed_domains: [pypi.org]     # optional: what the bash of the agent may reach; none by default
@@ -207,6 +210,29 @@ A missing required key, an unknown key, a bad `owner/repo` or Jira key, or a blo
 with neither `repos` nor `jira` stops the load with exit code 1.
 A Jira project with no repo, or the 1.x form `jira: {ENG: acme/app}`, stops it too:
 the message says to write `jira.ENG: {repos: [acme/app]}`.
+
+## Rule sets
+
+By default the agent follows the conventions of the repo it works in and nothing else. A rule
+set is a short list of coding rules that briar adds to what the agent reads, so the code it
+writes follows rules you chose. A set is turned on for a company with `rules`, or for one repo
+with `rules_by_repo` (a repo that is listed gets only its own list). Nothing is on unless the
+runbook says so.
+
+One set ships with briar: `code`, the Python style rules (every function in a class, small
+methods, type hints, specific exceptions, no magic numbers and so on). `code` is left out of a
+task whose repo has no Python project (no `pyproject.toml` in its root), and the log says so:
+`serve: issue-7: rules in force: none; left out: code: no Python manifest`.
+
+When a set is on:
+
+- its short text goes in the system prompt, so every agent call (plan, build, fix, review, answers) has it;
+- its checklist goes in the self review, which judges only the lines the change adds and rejects only a clear violation;
+- in the lines the agent adds or changes the rules win over the habits of the file; code the ticket does not touch stays as it is.
+
+A rejection by the self review is a fix loop, so it counts in `max_loops` and `max_usd`. A name that
+is not a set stops `serve` at load with the list of the known names, and `briar doctor --runbooks DIR`
+shows it as a failure.
 
 ## How serve chooses its tickets
 

@@ -14,6 +14,7 @@ from briar.errors import CliError
 from briar.extract._provider import ReviewComment
 from briar.serve.agent import Access, AgentAnswer, AgentRequest, AgentRunner
 from briar.serve.git import GitIdentity, RepoCheckout, Shell
+from briar.serve.rules import TaskRules
 from briar.serve.state import WorkSource
 from briar.serve.work import BranchName, ServeCompany, WorkDay, WorkItem, WorkSources
 
@@ -290,7 +291,8 @@ class AgentSteps:
 
     async def review(self, plan: Plan, diff: str, asked: Sequence[str]) -> Review:
         earlier = "\n".join(f"- {finding}" for finding in asked) or "- (none: this is the first round)"
-        prompt = Prompts().text("review", {**self._fields(), "plan": plan.markdown(), "diff": diff[: self.DIFF_LIMIT], "earlier": earlier})
+        values = {**self._fields(), "plan": plan.markdown(), "diff": diff[: self.DIFF_LIMIT], "earlier": earlier, "rules": self._rules().review_block()}
+        prompt = Prompts().text("review", values)
         return Review.from_answer(await self._ask(prompt, Review.SCHEMA, Access.READ))
 
     def _listed(self, comment: ReviewComment) -> str:
@@ -303,6 +305,11 @@ class AgentSteps:
 
     def _verify(self) -> str:
         return "\n".join(f"- `{command}`" for command in self._context.company.settings.verify_for(self._context.item.repo)) or "- (no verify commands set)"
+
+    def _rules(self) -> TaskRules:
+        """The rule sets the runbook turns on for the repo of this task (decision Q4): in the system
+        prompt of every call, and the checklist in the self review."""
+        return self._context.company.rules.for_task(self._context.item.repo, self._context.worktree)
 
     def _known(self, path: Path) -> str:
         """A real run sent the agent to read files that did not exist yet."""
@@ -323,6 +330,7 @@ class AgentSteps:
             "knowledge": self._known(company.knowledge_file()),
             "index": self._known(company.index_file()),
             "state": self._known(company.state_file()),
+            "rules": self._rules().baseline_block(),
         }
         request = AgentRequest(prompt, Prompts().text("system", values), self._context.worktree, self._budget.left_usd(), schema, access)
         answer = await self._agent.ask(request)
