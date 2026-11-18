@@ -17,9 +17,9 @@ from briar.serve.agent import AgentAnswer, AgentRequest
 from briar.serve.flow import TaskFlow
 from briar.serve.git import Shell
 from briar.serve.routine import ServeRoutine
-from briar.serve.state import WorkSource
+from briar.serve.state import WorkEntry, WorkSource, WorkStatus
 from briar.serve.task import TaskPrep
-from briar.serve.work import ServeCompany, WorkItem, WorkKind
+from briar.serve.work import ServeCompany, WorkDay, WorkItem, WorkKind
 from tests.unit.serve.fakes import Companies, FakeStyle
 
 ISSUE = 7
@@ -101,6 +101,31 @@ class BrokenAgent(ScriptedAgent):
         if not self.steps:
             raise TypeError("'NoneType' object is not subscriptable")
         return await super().ask(request)
+
+
+class Killed(BaseException):
+    """The process dies (kill -9, a power cut): not an `Exception`, so no `except` of briar
+    catches it and nothing after the call runs."""
+
+
+class KilledAgent(ScriptedAgent):
+    """Plays its steps, then the process dies."""
+
+    async def ask(self, request: AgentRequest) -> AgentAnswer:
+        if not self.steps:
+            raise Killed()
+        return await super().ask(request)
+
+
+class Entries:
+    """Entries of the state as an earlier run of `serve` left them."""
+
+    def planned(self, spent: float) -> WorkEntry:
+        """ENG-1 taken again after a stop: planned, the plan posted, `spent` US$ already paid today."""
+        return WorkEntry(
+            key="ENG-1", source=WorkSource.JIRA, repo="acme/app", title="Add the feature", status=WorkStatus.PLANNED,
+            plan="Add the feature file", spent_by_day={WorkDay().today(): spent},
+        )  # fmt: skip
 
 
 class Plans:
@@ -256,6 +281,10 @@ class Setup:
 
     def entry(self, key: str) -> Any:
         return self.company.state.book().entry(key)
+
+    def save(self, entry: WorkEntry) -> None:
+        """Leave `entry` in the state, as an earlier run of `serve` did."""
+        asyncio.run(self.company.state.record(entry))
 
 
 class Setups:

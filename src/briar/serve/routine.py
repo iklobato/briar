@@ -17,7 +17,7 @@ from briar.serve.review import ReviewRun
 from briar.serve.state import WorkStatus
 from briar.serve.task import AgentSteps, Budget, TaskContext, TaskPrep
 from briar.serve.ticket import TicketRun
-from briar.serve.work import ServeCompany, WorkItem, WorkKind
+from briar.serve.work import ServeCompany, WorkDay, WorkItem, WorkKind
 
 
 @dataclass(frozen=True)
@@ -53,7 +53,7 @@ class ServeRoutine:
             return
         on_pull = item.kind is not WorkKind.TICKET
         context = await asyncio.to_thread(self._prep.review_context if on_pull else self._prep.context, self._company, item)
-        budget = Budget(self._company.settings.max_usd, self._company.settings.max_loops, [item.selection_cost])
+        budget = await self._budget(item)
         steps = AgentSteps(self._agents(context), context, budget)
         parts = TaskParts(context, steps, TaskFlow(context, steps, budget))
         try:
@@ -63,6 +63,15 @@ class ServeRoutine:
         except self.UNEXPECTED as bug:
             self.LOG.exception("serve: task %s failed with an unexpected error", item.ref())
             await parts.flow.blocked(f"{type(bug).__name__}: {bug}")
+
+    async def _budget(self, item: WorkItem) -> Budget:
+        """Decisions B2, B3: what the earlier runs of the ticket spent counts against `max_usd`;
+        the pick of the selector is booked here, once, when the ticket is first taken."""
+        state, settings = self._company.state, self._company.settings
+        if item.selection_cost:
+            await state.add_spend(item.entry(), WorkDay().today(), item.selection_cost)
+        known = state.book().entry(item.key)
+        return Budget(settings.max_usd, settings.max_loops, [known.spent_total() if known is not None else 0.0])
 
     async def _run(self, item: WorkItem, parts: TaskParts) -> None:
         if item.kind is WorkKind.REVIEW:

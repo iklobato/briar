@@ -71,6 +71,10 @@ class WorkEntry(BaseModel):
     def watched(self) -> bool:
         return bool(self.pr) and self.status.value in self.WATCHED
 
+    def spent_total(self) -> float:
+        """What the ticket has spent on the model over every run of it (decisions B2, B3)."""
+        return sum(self.spent_by_day.values())
+
 
 class WorkBook(BaseModel):
     """Every ticket of one company, by key."""
@@ -121,7 +125,19 @@ class WorkState:
 
     async def record(self, entry: WorkEntry) -> None:
         async with self._lock:
-            self._store.put(self.blob_name(), self.book().with_entry(entry).model_dump_json(indent=self.INDENT), category="work")
+            self._save(self.book().with_entry(entry))
+
+    async def add_spend(self, fresh: WorkEntry, day: str, cost: float) -> None:
+        """Book `cost` on `day` for the ticket of `fresh`, in the entry the state holds or, when
+        it holds none yet, in `fresh` (decision B5: saved after every agent call)."""
+        async with self._lock:
+            book = self.book()
+            known = book.entry(fresh.key) or fresh
+            spent = {**known.spent_by_day, day: known.spent_by_day.get(day, 0.0) + cost}
+            self._save(book.with_entry(known.model_copy(update={"spent_by_day": spent})))
+
+    def _save(self, book: WorkBook) -> None:
+        self._store.put(self.blob_name(), book.model_dump_json(indent=self.INDENT), category="work")
 
 
 __all__ = ["WorkBook", "WorkEntry", "WorkSource", "WorkState", "WorkStatus"]

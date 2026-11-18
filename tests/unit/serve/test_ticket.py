@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -14,7 +15,21 @@ from briar.extract._provider import BranchPull, CiState
 from briar.serve.flow import TaskFlow
 from briar.serve.state import WorkStatus
 from briar.serve.work import WorkDay
-from tests.unit.serve.ticket_fakes import ISSUE, BrokenAgent, FakeGithubSide, Files, Items, Plans, ScriptedAgent, Setups, Step
+from tests.unit.serve.ticket_fakes import (
+    ISSUE,
+    BrokenAgent,
+    Entries,
+    FakeGithubSide,
+    Files,
+    Items,
+    Killed,
+    KilledAgent,
+    Plans,
+    ScriptedAgent,
+    Setup,
+    Setups,
+    Step,
+)
 
 PR = FakeGithubSide.NUMBER
 # Verify commands that pass on the base, as a test suite does (a base that fails stops the task).
@@ -25,6 +40,14 @@ TWO_STEPS = 2
 THREE_STEPS = 3
 MAX_USD = 5.0
 STEP_COST = 0.1
+# What a ticket has spent when it is taken again: it can pay two more steps of 0.3 only if the
+# second one is allowed to cross `max_usd` (a call is paid before the cap is checked).
+ALMOST_ALL = 4.6
+THIRD_OF_LEFT = 0.3
+BUILD_COST = 0.5
+SELECTION_COST = 0.02
+# A spend well under `max_usd`, so a resumed ticket still has money.
+SOME_SPEND = 2.0
 THIRD_STEP, FOURTH_STEP = 2, 3
 # The text in a recorded (repo, number, text) comment.
 TEXT = 2
@@ -200,13 +223,64 @@ class TestSpendOfTheDay:
 
     def test_a_resumed_task_adds_to_what_it_spent_before(self, setups: Setups) -> None:
         setup = setups.make({})
-        setup.work_on(ScriptedAgent([Plans().plan(), Step(cost=MAX_USD)]), Items().jira())
+        setup.work_on(ScriptedAgent([Plans().plan(), Step(cost=SOME_SPEND)]), Items().jira())
         before = setup.entry("ENG-1").spent_by_day[WorkDay().today()]
         asyncio.run(setup.company.state.record(setup.entry("ENG-1").model_copy(update={"status": WorkStatus.PLANNED})))
 
         setup.work_on(ScriptedAgent([Step(writes=Files().feature()), Plans().approved()]), Items().jira())
 
         assert setup.entry("ENG-1").spent_by_day[WorkDay().today()] == pytest.approx(before + TWO_STEPS * STEP_COST)
+
+
+class TestOneBudgetPerTicket:
+    """Decisions B2, B3, B5 of `docs/decisions/2026-11-18-serve-spend-caps.md`: `max_usd` is the
+    total of one ticket, over every run of it, and what a call cost is saved before the next call."""
+
+    def spent(self, setup: Setup) -> float:
+        return sum(setup.entry("ENG-1").spent_by_day.values())
+
+    def test_a_resumed_ticket_stops_at_max_usd_in_total(self, setups: Setups) -> None:
+        setup = setups.make({})
+        setup.save(Entries().planned(spent=ALMOST_ALL))
+        review = replace(Plans().approved(), cost=THIRD_OF_LEFT)
+        agent = ScriptedAgent([Step(writes=Files().feature(), cost=THIRD_OF_LEFT), review])
+
+        setup.work_on(agent, Items().jira())
+
+        assert [request.access.value for request in agent.requests] == ["edit", "read"]
+        assert setup.entry("ENG-1").status is WorkStatus.BLOCKED
+        assert self.spent(setup) == pytest.approx(ALMOST_ALL + TWO_STEPS * THIRD_OF_LEFT)
+
+    def test_a_ticket_already_at_max_usd_asks_the_agent_nothing(self, setups: Setups) -> None:
+        setup = setups.make({})
+        setup.save(Entries().planned(spent=MAX_USD))
+        agent = ScriptedAgent([])
+
+        setup.work_on(agent, Items().jira())
+
+        assert agent.requests == []
+        entry = setup.entry("ENG-1")
+        assert entry.status is WorkStatus.BLOCKED
+        assert entry.report.startswith("briar stopped: the task spent its max_usd of 5.0")
+
+    def test_a_kill_keeps_the_cost_of_the_calls_before_it(self, setups: Setups) -> None:
+        """B5: the spend was saved only when the status changed, so a kill in the build lost it
+        and the restart began with the whole `max_usd` again."""
+        setup = setups.make({})
+        agent = KilledAgent([Plans().plan(), Step(writes=Files().feature(), cost=BUILD_COST)])
+
+        with pytest.raises(Killed):
+            setup.work_on(agent, Items().jira())
+
+        assert self.spent(setup) == pytest.approx(STEP_COST + BUILD_COST)
+
+    def test_the_selection_cost_is_booked_once(self, setups: Setups) -> None:
+        setup = setups.make({})
+        item = replace(Items().jira(), selection_cost=SELECTION_COST)
+
+        setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()]), item)
+
+        assert self.spent(setup) == pytest.approx(SELECTION_COST + THREE_STEPS * STEP_COST)
 
 
 class TestUsualReviewers:
@@ -481,7 +555,7 @@ class TestNoDoubleWork:
         """Real run, 2026-11-13 (test plan A6): serve was killed after the plan; on restart it
         asked the agent for a new plan (paid twice) and built that one, not the plan on the ticket."""
         setup = setups.make({})
-        setup.work_on(ScriptedAgent([Plans().plan(), Step(cost=MAX_USD)]), Items().jira())
+        setup.work_on(ScriptedAgent([Plans().plan(), Step(cost=SOME_SPEND)]), Items().jira())
         asyncio.run(setup.company.state.record(setup.entry("ENG-1").model_copy(update={"status": WorkStatus.PLANNED})))
         second = ScriptedAgent([Step(writes=Files().feature()), Plans().approved()])
 
