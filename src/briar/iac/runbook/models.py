@@ -164,6 +164,10 @@ class ServeSettings(_Strict):
     # the selector: at the cap the tasks pause until tomorrow (UTC) or until the cap is raised.
     # 0 is no cap (decisions B11 to B14).
     max_usd_per_day: float = Field(default=0, ge=0)
+    # How long one agent call (a task step or the selector) may run before `serve` gives up on it: the task is
+    # blocked with that report (a selector call counts as failed). A call that never answers would otherwise
+    # keep its share of the day for ever. 30 is a placeholder: no run measured the time of one call.
+    call_minutes: int = Field(default=30, ge=1)
     # GitHub repos to work in: an open issue there assigned to the token owner is a ticket.
     repos: List[str] = Field(default_factory=list)
     # Jira project key -> the repos its tickets may be built in (spec 008 N5, N7).
@@ -204,6 +208,10 @@ class ServeSettings(_Strict):
     DOMAIN: ClassVar["re.Pattern[str]"] = re.compile(r"^(\*\.)?[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$")
     BOT_LOGIN: ClassVar["re.Pattern[str]"] = re.compile(r"^[A-Za-z0-9-]+\[bot\]$")
     RULE_SET: ClassVar["re.Pattern[str]"] = re.compile(r"^[a-z][a-z0-9-]*$")
+    SECONDS_PER_MINUTE: ClassVar[int] = 60
+
+    def call_seconds(self) -> float:
+        return float(self.call_minutes * self.SECONDS_PER_MINUTE)
 
     @field_validator("jira", mode="before")
     @classmethod

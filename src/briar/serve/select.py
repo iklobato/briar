@@ -155,11 +155,20 @@ class Selector:
         """The call, and its cost booked to `day` where it returns, before the reservation of the day goes: a failed call
         or an empty pick spent money too (decision B11). A pick that becomes a task moves the cost to its entry."""
         try:
-            answer = await self._agent.ask(request)
+            answer = await self._timed(request)
             await self._company.state.add_loose(day, answer.cost_usd)
         finally:
             self._company.day.release(grant)
         return answer
+
+    async def _timed(self, request: AgentRequest) -> AgentAnswer:
+        """Audit 9: the selector is awaited inside the poll, so a call that never answers would freeze the polling of the whole
+        company. It is cut after `call_minutes` and counts as a failed call (its cost is not known, so none is booked)."""
+        settings = self._company.settings
+        try:
+            return await asyncio.wait_for(self._agent.ask(request), settings.call_seconds())
+        except asyncio.TimeoutError:
+            return AgentAnswer("", {}, 0.0, failed=True, reason=f"no answer within call_minutes ({settings.call_minutes})")
 
 
 class Shortlist:

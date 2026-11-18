@@ -5,6 +5,7 @@ answer; S18 to S20)."""
 
 from __future__ import annotations
 
+import asyncio
 import importlib.resources
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -347,9 +348,19 @@ class AgentSteps:
         return answer
 
     async def _answered(self, request: AgentRequest) -> AgentAnswer:
-        answer = await self._agent.ask(request)
+        answer = await self._timed(request)
         await self._booked(answer)
         return answer
+
+    async def _timed(self, request: AgentRequest) -> AgentAnswer:
+        """Audit 9: a call that never answers must not hold its share of the day for ever. It is cut after `call_minutes` and the
+        task is blocked with that report. What the cut call cost is not known, so it is not booked (the grant bounds it). The
+        timeout is caught by its asyncio name: on Python 3.10 it is not the builtin `TimeoutError`, and would escape `EXPECTED`."""
+        settings = self._context.company.settings
+        try:
+            return await asyncio.wait_for(self._agent.ask(request), settings.call_seconds())
+        except asyncio.TimeoutError as slow:
+            raise LimitHit(f"the agent did not answer within call_minutes ({settings.call_minutes})") from slow
 
     def _day_stop(self, answer: AgentAnswer, grant: Grant, ticket_left: float) -> None:
         """Decision B13: the SDK stopped the call at its grant and the DAY was the smaller limit, so the task pauses
