@@ -4,6 +4,7 @@ prompts of the agent. No network: real git against a local origin and a scripted
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 from typing import Any, Dict
@@ -14,7 +15,7 @@ from briar.errors import CliError
 from briar.iac.runbook.models import ServeSettings
 from briar.serve.rules import PythonWorktree, RuleBook, RuleFile, ShippedRules
 from briar.serve.task import Prompts
-from briar.serve.work import ServeCompanies
+from briar.serve.work import ServeCompanies, WorkItem
 from tests.unit.serve.fakes import Companies
 from tests.unit.serve.ticket_fakes import Files, Items, Plans, ScriptedAgent, Setup, Setups, Step
 
@@ -36,6 +37,8 @@ FENCED = "## Baseline\nExample:\n```\n## Review\nnot a heading\n```\n## Review\n
 GOLDEN = Path(__file__).parent / "golden"
 HEADER = "Rules turned on for this repo"
 PRECEDENCE = "never reject a line for following a rule"
+LEGACY_REVIEW = "a rule break that was already in the file before the change is not a finding"
+LEGACY_BASELINE = "a rule break that was already in the file is not yours to fix"
 PYPROJECT = "[project]\nname = 'demo'\n"
 SET_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
 # What the review of `code` must carry: briar has no hook and no gate, and these are the rules the
@@ -113,8 +116,19 @@ class TestRuleBook:
         with pytest.raises(CliError, match=r"unknown rule set `nope`.*known: code"):
             RuleBook.of(Blocks().settings({"rules": ["nope"]}))
 
+    def test_a_runbook_that_names_no_set_does_not_read_the_shipped_folder(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """With the rules off nothing here can fail, so a broken folder never stops a `serve` that does not use it."""
+
+        def broken(self: ShippedRules) -> Dict[str, Any]:
+            raise AssertionError("the shipped folder was read")
+
+        monkeypatch.setattr(ShippedRules, "sets", broken)
+
+        for extra in ({}, {"rules": []}, {"rules_by_repo": {"acme/app": []}}):
+            assert RuleBook.of(Blocks().settings(extra)).names_for("acme/app") == []
+
     def test_an_unknown_name_in_a_repo_list_stops_the_load_too(self) -> None:
-        with pytest.raises(CliError, match=r"unknown rule set `nope`"):
+        with pytest.raises(CliError, match=r"unknown rule set `nope` in `rules_by_repo\.acme/app`"):
             RuleBook.of(Blocks().settings({"rules_by_repo": {"acme/app": ["nope"]}}))
 
     def test_no_sets_give_empty_blocks(self, tmp_path: Path) -> None:
@@ -131,6 +145,14 @@ class TestRuleBook:
         assert rules.used == ("code",)
         assert HEADER in rules.baseline_block() and code.baseline in rules.baseline_block()
         assert PRECEDENCE in rules.review_block() and code.review in rules.review_block()
+
+    def test_a_rule_break_that_was_already_there_is_not_a_finding(self, tmp_path: Path) -> None:
+        """Q10: the rules win in the lines the change adds; an old method that gains two lines is not to be refactored."""
+        (tmp_path / "pyproject.toml").write_text(PYPROJECT)
+
+        rules = RuleBook.of(Blocks().settings({"rules": ["code"]})).for_task("acme/app", tmp_path)
+
+        assert LEGACY_REVIEW in rules.review_block().lower() and LEGACY_BASELINE in rules.baseline_block().lower()
 
     def test_code_is_skipped_in_a_worktree_with_no_python_manifest(self, tmp_path: Path) -> None:
         rules = RuleBook.of(Blocks().settings({"rules": ["code"]})).for_task("acme/app", tmp_path)
@@ -169,7 +191,8 @@ class TestPromptsAreUnchangedWithNoRules:
     @pytest.mark.parametrize("name", ["system", "review"])
     def test_a_prompt_is_the_text_it_was_in_v2(self, name: str) -> None:
         """The golden files are the prompts of `briar/v2` before `{rules}`: with nothing turned on
-        every agent call is byte for byte what it was."""
+        every agent call is byte for byte what it was. Change a golden file only when `system.md`
+        or `review.md` change on purpose."""
         golden = (GOLDEN / f"{name}.md").read_text().format_map(Blocks().values(""))
 
         assert Prompts().text(name, Blocks().values("")) == golden
@@ -214,15 +237,39 @@ class TestAgentCalls:
     def ticket_of_a_python_repo(self, setups: Setups, extra: Dict[str, Any]) -> ScriptedAgent:
         setup = setups.make(extra)
         setup.origin.push_commit("main", {"pyproject.toml": PYPROJECT})
-        return self.worked_by(setup)
+        return self.worked_by(setup, Items().jira())
 
     def ticket_of_a_repo_with_no_manifest(self, setups: Setups, extra: Dict[str, Any]) -> ScriptedAgent:
-        return self.worked_by(setups.make(extra))
+        return self.worked_by(setups.make(extra), Items().jira())
 
-    def worked_by(self, setup: Setup) -> ScriptedAgent:
+    def worked_by(self, setup: Setup, item: WorkItem) -> ScriptedAgent:
         agent = ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()])
-        setup.work_on(agent, Items().jira())
+        setup.work_on(agent, item)
         return agent
+
+    def test_the_log_says_which_rules_were_left_out(self, setups: Setups, caplog: pytest.LogCaptureFixture) -> None:
+        """The line `agents/serve.md` shows: a GitHub issue is `issue-7` in the log."""
+        caplog.set_level(logging.INFO, logger="briar.serve.routine")
+
+        self.worked_by(setups.make({"rules": ["code"]}), Items().issue())
+
+        assert "serve: issue-7: rules in force: none; left out: code: no Python manifest" in caplog.text
+
+    def test_the_log_says_which_rules_were_in_force(self, setups: Setups, caplog: pytest.LogCaptureFixture) -> None:
+        caplog.set_level(logging.INFO, logger="briar.serve.routine")
+        setup = setups.make({"rules": ["code"]})
+        setup.origin.push_commit("main", {"pyproject.toml": PYPROJECT})
+
+        self.worked_by(setup, Items().issue())
+
+        assert "serve: issue-7: rules in force: code; left out: none" in caplog.text
+
+    def test_with_no_rules_the_log_says_nothing_about_them(self, setups: Setups, caplog: pytest.LogCaptureFixture) -> None:
+        caplog.set_level(logging.INFO, logger="briar.serve.routine")
+
+        self.worked_by(setups.make({}), Items().issue())
+
+        assert "rules in force" not in caplog.text
 
     def test_every_call_and_the_review_get_the_rules(self, setups: Setups) -> None:
         agent = self.ticket_of_a_python_repo(setups, {"rules": ["code"]})

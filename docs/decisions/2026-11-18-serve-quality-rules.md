@@ -112,6 +112,9 @@ Not for briar: the status line, session summary, instincts, skill indexes, the S
 - Public text with the maintainer opinions in it: each PR needs the maintainer to read it (Q12).
 - A user set is text that goes into the system prompt. It is the user own file, so it is trusted, but a wrong one can make the agent worse. The `doctor` view (Q21) is the only guard.
 - Q13 delays the release candidate.
+- **Open, not decided (Q24): a person against a rule.** In a review round a person can ask for a change that breaks a rule that is on. The agent makes it, the self review rejects it, and the round can loop until `max_loops`. Nothing above says who wins. Decide before the A/B.
+- A mistyped repo name in `rules_by_repo` is ignored without a word, as `verify_by_repo` already does. The `briar doctor` view of PR 2 (Q21) is where to say it.
+- In PR 1 the unknown name error says where the name came from (`rules` or `rules_by_repo.<repo>`).
 
 ## Left to the spec
 

@@ -115,11 +115,13 @@ class TaskRules:
     with one, so an empty block leaves the prompt as it was."""
 
     BASELINE_HEADER: ClassVar[str] = (
-        "Rules turned on for this repo. In the lines you add or change they win over the habits of the file you edit; code you do not touch stays as it is."
+        "Rules turned on for this repo. In the lines you add or change they win over the habits of the file you edit; "
+        "code you do not touch stays as it is, and a rule break that was already in the file is not yours to fix."
     )
     REVIEW_HEADER: ClassVar[str] = (
         "These rules are turned on for this repo. When a rule below and the habit of the file disagree on a line the diff adds, the rule wins: "
-        "never reject a line for following a rule, and never ask to undo it. Judge only the lines the diff adds. "
+        "never reject a line for following a rule, and never ask to undo it. Judge only the lines the diff adds or changes. "
+        "A rule break that was already in the file before the change is not a finding, even in a method the change touches. "
         "Reject only a clear violation, with at most 10 findings and nothing that is only a matter of taste."
     )
 
@@ -154,7 +156,11 @@ class RuleBook:
 
     @classmethod
     def of(cls, settings: ServeSettings) -> "RuleBook":
-        """The book of a runbook company; a name that is not a set stops `serve` at load."""
+        """The book of a runbook company; a name that is not a set stops `serve` at load. A runbook that
+        names no set gets the empty book without reading the folder of the shipped sets, so with the
+        rules off nothing here can fail."""
+        if not settings.rules and not any(settings.rules_by_repo.values()):
+            return cls.empty()
         book = cls(ShippedRules().sets(), tuple(settings.rules), {repo: tuple(names) for repo, names in settings.rules_by_repo.items()})
         book.require()
         return book
@@ -168,10 +174,11 @@ class RuleBook:
         return list(self._by_repo.get(repo, self._default))
 
     def require(self) -> None:
-        wanted = [*self._default, *(name for names in self._by_repo.values() for name in names)]
-        unknown = [name for name in dict.fromkeys(wanted) if name not in self._sets]
+        wanted = [("rules", name) for name in self._default] + [(f"rules_by_repo.{repo}", name) for repo, names in self._by_repo.items() for name in names]
+        unknown = [(where, name) for where, name in wanted if name not in self._sets]
         if unknown:
-            raise RuleError(f"serve: unknown rule set `{unknown[0]}` in `rules`; known: {', '.join(sorted(self._sets))}")
+            where, name = unknown[0]
+            raise RuleError(f"serve: unknown rule set `{name}` in `{where}`; known: {', '.join(sorted(self._sets))}")
 
     def for_task(self, repo: str, worktree: Path) -> TaskRules:
         names = self.names_for(repo)
