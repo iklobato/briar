@@ -14,17 +14,23 @@ from briar.errors import CliError
 from briar.extract._provider import ReviewComment
 from briar.serve.agent import Access, AgentAnswer, AgentRequest, AgentRunner
 from briar.serve.git import GitIdentity, RepoCheckout, Shell
+from briar.serve.rules import TaskRules
 from briar.serve.state import WorkSource
-from briar.serve.work import BranchName, ServeCompany, WorkItem, WorkSources
+from briar.serve.work import BranchName, ServeCompany, WorkDay, WorkItem, WorkSources
 
 
 class LimitHit(CliError):
     """A limit of the task hit (S23); the message is the report."""
 
 
+class BudgetExhausted(LimitHit):
+    """The ticket spent its `max_usd` (decision B2): the one limit a person can lift, by raising it."""
+
+
 @dataclass(frozen=True)
 class Budget:
-    """The money and the fix loops one task has left (S23)."""
+    """The money and the fix loops one task has left (S23). `spent` starts at what the earlier
+    runs of the ticket spent (decision B2); `loops` starts at zero in every run (B4)."""
 
     max_usd: float
     max_loops: int
@@ -34,10 +40,18 @@ class Budget:
     def left_usd(self) -> float:
         return self.max_usd - self.spent[0]
 
+    def require(self) -> None:
+        """No call with nothing left: the SDK would get a `max_budget_usd` of zero."""
+        if self.left_usd() <= 0:
+            raise BudgetExhausted(self._report())
+
     def spend(self, answer: AgentAnswer) -> None:
         self.spent[0] += answer.cost_usd
         if answer.reason == "error_max_budget_usd" or self.left_usd() <= 0:
-            raise LimitHit(f"the task spent its max_usd of {self.max_usd}")
+            raise BudgetExhausted(self._report())
+
+    def _report(self) -> str:
+        return f"the task spent its max_usd of {self.max_usd}"
 
     def next_loop(self, why: str) -> None:
         self.loops[0] += 1
@@ -277,7 +291,8 @@ class AgentSteps:
 
     async def review(self, plan: Plan, diff: str, asked: Sequence[str]) -> Review:
         earlier = "\n".join(f"- {finding}" for finding in asked) or "- (none: this is the first round)"
-        prompt = Prompts().text("review", {**self._fields(), "plan": plan.markdown(), "diff": diff[: self.DIFF_LIMIT], "earlier": earlier})
+        values = {**self._fields(), "plan": plan.markdown(), "diff": diff[: self.DIFF_LIMIT], "earlier": earlier, "rules": self._rules().review_block()}
+        prompt = Prompts().text("review", values)
         return Review.from_answer(await self._ask(prompt, Review.SCHEMA, Access.READ))
 
     def _listed(self, comment: ReviewComment) -> str:
@@ -291,25 +306,53 @@ class AgentSteps:
     def _verify(self) -> str:
         return "\n".join(f"- `{command}`" for command in self._context.company.settings.verify_for(self._context.item.repo)) or "- (no verify commands set)"
 
+    def _rules(self) -> TaskRules:
+        """The rule sets the runbook turns on for the repo of this task (decision Q4): in the system
+        prompt of every call, and the checklist in the self review."""
+        return self._context.company.rules.for_task(self._context.item.repo, self._context.worktree)
+
     def _known(self, path: Path) -> str:
         """A real run sent the agent to read files that did not exist yet."""
         return str(path) if path.exists() else "(none yet)"
 
+    async def _booked(self, answer: AgentAnswer) -> None:
+        """Decision B5: what a call cost is saved before any limit can stop the task, so a kill
+        or a restart finds it."""
+        item = self._context.item
+        await self._context.company.state.add_spend(item.entry(), WorkDay().today(), answer.cost_usd)
+
     async def _ask(self, prompt: str, schema: Mapping[str, Any], access: Access) -> AgentAnswer:
         company = self._context.company
+        self._budget.require()
         values = {
             "company": company.name,
             "repo": self._context.item.repo,
             "knowledge": self._known(company.knowledge_file()),
             "index": self._known(company.index_file()),
             "state": self._known(company.state_file()),
+            "rules": self._rules().baseline_block(),
         }
         request = AgentRequest(prompt, Prompts().text("system", values), self._context.worktree, self._budget.left_usd(), schema, access)
         answer = await self._agent.ask(request)
+        await self._booked(answer)
         self._budget.spend(answer)
         if answer.failed:
             raise LimitHit(f"the agent stopped: {answer.reason or 'no reason given'}")
         return answer
 
 
-__all__ = ["AgentSteps", "Answers", "Budget", "CommentAnswer", "LimitHit", "Plan", "Prompts", "Review", "ServeCache", "TaskContext", "TaskPrep", "TaskRefs"]
+__all__ = [
+    "AgentSteps",
+    "Answers",
+    "Budget",
+    "BudgetExhausted",
+    "CommentAnswer",
+    "LimitHit",
+    "Plan",
+    "Prompts",
+    "Review",
+    "ServeCache",
+    "TaskContext",
+    "TaskPrep",
+    "TaskRefs",
+]

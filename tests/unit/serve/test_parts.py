@@ -16,7 +16,7 @@ from briar.extract._provider import CiState
 from briar.extract._providers.github import CiStates, GithubProvider
 from briar.serve.agent import AgentAnswer
 from briar.serve.git import GitFailed, GitIdentity, Remote, RepoCheckout, Shell
-from briar.serve.task import Budget, LimitHit, Plan, Prompts, Review
+from briar.serve.task import Budget, BudgetExhausted, LimitHit, Plan, Prompts, Review
 from tests.unit.serve.ticket_fakes import LocalOrigin
 
 TOKEN = "PLACEHOLDER-not-a-secret"
@@ -45,6 +45,25 @@ class TestGit:
         assert "+x" in checkout.diff(worktree, "main")
         log = Shell().line("git log -1 --format=%an/%ae/%s", worktree).output.strip()
         assert log == "octo/octo@users.noreply.github.com/ENG-1: add"
+
+    def test_a_discard_puts_the_worktree_back_on_a_commit_and_removes_what_is_new(self, tmp_path: Path) -> None:
+        """Decision B6: edits that were never verified must not reach a PR under review."""
+        origin = LocalOrigin(tmp_path)
+        checkout = RepoCheckout(Shell(), tmp_path / "cache", Remote("acme/app", f"file://{origin.create()}"))
+        checkout.update(TOKEN)
+        worktree = checkout.worktree("briar/ENG-1", "main", tmp_path / "cache" / "wt")
+        safe = checkout.head(worktree)
+        (worktree / "README.md").write_text("changed\n")
+        (worktree / "new.txt").write_text("new\n")
+        checkout.commit_all(worktree, "ENG-1: unverified", GitIdentity("octo"))
+        (worktree / "later.txt").write_text("later\n")
+
+        checkout.discard(worktree, safe)
+
+        assert checkout.head(worktree) == safe
+        assert Shell().line("git status --porcelain", worktree).output == ""
+        assert (worktree / "README.md").read_text() == "app\n"
+        assert not (worktree / "new.txt").exists()
 
     def test_two_tasks_of_one_repo_clone_and_add_worktrees_at_once(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Validation run on the click copy: with `max_parallel: 2` the second task failed with
@@ -212,6 +231,28 @@ class TestBudget:
         with pytest.raises(LimitHit):
             Budget(MAX_USD, 1).spend(AgentAnswer("", {}, 0.0, failed=True, reason="error_max_budget_usd"))
 
+    def test_a_stop_for_money_is_told_from_another_limit(self) -> None:
+        """Decision B9: only a stop for money can be lifted by raising `max_usd`."""
+        with pytest.raises(BudgetExhausted):
+            Budget(MAX_USD, 1, [HALF_USD]).spend(AgentAnswer("", {}, HALF_USD))
+        with pytest.raises(BudgetExhausted):
+            Budget(MAX_USD, 1).spend(AgentAnswer("", {}, 0.0, failed=True, reason="error_max_budget_usd"))
+        with pytest.raises(LimitHit) as loops:
+            Budget(MAX_USD, 0).next_loop("CI")
+        assert not isinstance(loops.value, BudgetExhausted)
+
+    def test_a_call_is_refused_when_nothing_is_left(self) -> None:
+        Budget(MAX_USD, 1, [HALF_USD]).require()
+
+        with pytest.raises(BudgetExhausted, match=r"^the task spent its max_usd of 1.0$"):
+            Budget(MAX_USD, 1, [MAX_USD]).require()
+
+    def test_the_fix_loops_start_at_zero_in_every_run_whatever_the_ticket_spent(self) -> None:
+        """Decision B4: `max_loops` stays per run; only the money is the total of the ticket."""
+        budget = Budget(MAX_USD, 1, [HALF_USD])
+
+        assert (budget.loops, budget.left_usd()) == ([0], HALF_USD)
+
     def test_one_loop_too_many_stops(self) -> None:
         budget = Budget(MAX_USD, 1)
         budget.next_loop("verify")
@@ -225,7 +266,7 @@ class TestPrompts:
     def test_every_prompt_file_ships_and_fills_in(self, name: str) -> None:
         values = {
             key: f"<{key}>"
-            for key in ("company", "repo", "knowledge", "index", "state", "key", "title", "description", "plan", "verify", "what", "details", "diff", "comments", "earlier")
+            for key in ("company", "repo", "knowledge", "index", "state", "key", "title", "description", "plan", "verify", "what", "details", "diff", "comments", "earlier", "rules")
         }
 
         text = Prompts().text(name, values)
@@ -233,3 +274,5 @@ class TestPrompts:
         assert ("{" in text, "}" in text) == (False, False)
         assert ("<key>" in text) is (name != "system")
         assert ("<index>" in text) is (name == "system")
+        # The rule sets (decision Q4) reach the system prompt of every call and the self-review prompt.
+        assert ("<rules>" in text) is (name in ("system", "review"))

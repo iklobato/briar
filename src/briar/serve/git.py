@@ -180,6 +180,13 @@ class RepoCheckout:
                 continue
             (path / name).unlink(missing_ok=True)
 
+    def discard(self, path: Path, sha: str) -> None:
+        """Put the worktree back on `sha`: commits after it, a merge in progress, edits and files
+        git did not know are gone (decision B6). Only in the cache folder of briar, where each
+        task has its own worktree: never a folder of the person."""
+        self._git(["reset", "--hard", sha], path, "")
+        self._git(["clean", "-fd"], path, "")
+
     def commit_all(self, path: Path, message: str, identity: GitIdentity) -> bool:
         """Commit every change of the worktree; False when there was nothing to commit."""
         self._git(["add", "-A"], path, "")

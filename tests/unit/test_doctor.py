@@ -145,6 +145,15 @@ class TestRunbookChecks:
 
         assert (line.name, line.status, "companies.acme.serve.model" in line.detail) == ("runbooks", FAIL, True)
 
+    def test_an_unknown_rule_set_fails_with_the_known_names(self, tmp_path: Path) -> None:
+        """Rule sets (decision Q20): `serve` stops at load on a name that is not a set, and so does the doctor."""
+        folder = Folders(tmp_path).write(Folders.SERVE + "      rules: [nope]\n")
+
+        (line,) = RunbookChecks(folder).checks()
+
+        assert (line.name, line.status) == ("runbooks", FAIL)
+        assert "unknown rule set `nope` in `rules`; known: code" in line.detail
+
     def test_the_option_reaches_doctor(self, cli: Callable[..., SimpleNamespace], tmp_path: Path) -> None:
         run = cli("--format", "json", "doctor", "--runbooks", str(tmp_path / "missing"))
 

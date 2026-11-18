@@ -6,15 +6,30 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from briar.extract._provider import BranchPull, CiState
 from briar.serve.flow import TaskFlow
-from briar.serve.state import WorkStatus
-from briar.serve.work import WorkDay
-from tests.unit.serve.ticket_fakes import ISSUE, BrokenAgent, FakeGithubSide, Files, Items, Plans, ScriptedAgent, Setups, Step
+from briar.serve.state import MoneyStop, WorkStatus
+from briar.serve.work import BudgetReopen, Marker, WorkDay
+from tests.unit.serve.ticket_fakes import (
+    ISSUE,
+    BrokenAgent,
+    Entries,
+    FakeGithubSide,
+    Files,
+    Items,
+    Killed,
+    KilledAgent,
+    Plans,
+    ScriptedAgent,
+    Setup,
+    Setups,
+    Step,
+)
 
 PR = FakeGithubSide.NUMBER
 # Verify commands that pass on the base, as a test suite does (a base that fails stops the task).
@@ -25,6 +40,16 @@ TWO_STEPS = 2
 THREE_STEPS = 3
 MAX_USD = 5.0
 STEP_COST = 0.1
+# What a ticket has spent when it is taken again: it can pay two more steps of 0.3 only if the
+# second one is allowed to cross `max_usd` (a call is paid before the cap is checked).
+ALMOST_ALL = 4.6
+THIRD_OF_LEFT = 0.3
+BUILD_COST = 0.5
+SELECTION_COST = 0.02
+# A spend well under `max_usd`, so a resumed ticket still has money.
+SOME_SPEND = 2.0
+# The `max_usd` after the maintainer raised it.
+RAISED_USD = 8.0
 THIRD_STEP, FOURTH_STEP = 2, 3
 # The text in a recorded (repo, number, text) comment.
 TEXT = 2
@@ -200,13 +225,119 @@ class TestSpendOfTheDay:
 
     def test_a_resumed_task_adds_to_what_it_spent_before(self, setups: Setups) -> None:
         setup = setups.make({})
-        setup.work_on(ScriptedAgent([Plans().plan(), Step(cost=MAX_USD)]), Items().jira())
+        setup.work_on(ScriptedAgent([Plans().plan(), Step(cost=SOME_SPEND)]), Items().jira())
         before = setup.entry("ENG-1").spent_by_day[WorkDay().today()]
         asyncio.run(setup.company.state.record(setup.entry("ENG-1").model_copy(update={"status": WorkStatus.PLANNED})))
 
         setup.work_on(ScriptedAgent([Step(writes=Files().feature()), Plans().approved()]), Items().jira())
 
         assert setup.entry("ENG-1").spent_by_day[WorkDay().today()] == pytest.approx(before + TWO_STEPS * STEP_COST)
+
+
+class TestOneBudgetPerTicket:
+    """Decisions B2, B3, B5 of `docs/decisions/2026-11-18-serve-spend-caps.md`: `max_usd` is the
+    total of one ticket, over every run of it, and what a call cost is saved before the next call."""
+
+    def spent(self, setup: Setup) -> float:
+        return sum(setup.entry("ENG-1").spent_by_day.values())
+
+    def test_a_resumed_ticket_stops_at_max_usd_in_total(self, setups: Setups) -> None:
+        setup = setups.make({})
+        setup.save(Entries().planned(spent=ALMOST_ALL))
+        review = replace(Plans().approved(), cost=THIRD_OF_LEFT)
+        agent = ScriptedAgent([Step(writes=Files().feature(), cost=THIRD_OF_LEFT), review])
+
+        setup.work_on(agent, Items().jira())
+
+        assert [request.access.value for request in agent.requests] == ["edit", "read"]
+        assert setup.entry("ENG-1").status is WorkStatus.BLOCKED
+        assert self.spent(setup) == pytest.approx(ALMOST_ALL + TWO_STEPS * THIRD_OF_LEFT)
+
+    def test_a_ticket_already_at_max_usd_asks_the_agent_nothing(self, setups: Setups) -> None:
+        setup = setups.make({})
+        setup.save(Entries().planned(spent=MAX_USD))
+        agent = ScriptedAgent([])
+
+        setup.work_on(agent, Items().jira())
+
+        assert agent.requests == []
+        entry = setup.entry("ENG-1")
+        assert entry.status is WorkStatus.BLOCKED
+        assert entry.report.startswith("briar stopped: the task spent its max_usd of 5.0")
+
+    def test_a_kill_keeps_the_cost_of_the_calls_before_it(self, setups: Setups) -> None:
+        """B5: the spend was saved only when the status changed, so a kill in the build lost it
+        and the restart began with the whole `max_usd` again."""
+        setup = setups.make({})
+        agent = KilledAgent([Plans().plan(), Step(writes=Files().feature(), cost=BUILD_COST)])
+
+        with pytest.raises(Killed):
+            setup.work_on(agent, Items().jira())
+
+        assert self.spent(setup) == pytest.approx(STEP_COST + BUILD_COST)
+
+    def test_the_selection_cost_is_booked_once(self, setups: Setups) -> None:
+        setup = setups.make({})
+        item = replace(Items().jira(), selection_cost=SELECTION_COST)
+
+        setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()]), item)
+
+        assert self.spent(setup) == pytest.approx(SELECTION_COST + THREE_STEPS * STEP_COST)
+
+
+class TestStopForMoney:
+    """Decisions B8, B9, B10: a ticket that runs out of money before its PR is ready stops with
+    a draft, says why in the state, and goes on in the same draft once `max_usd` is raised."""
+
+    def stopped(self, setups: Setups) -> Setup:
+        """ENG-1 had spent 4.6 of 5.0; the build and the self-review cost 0.3 each."""
+        setup = setups.make({})
+        setup.save(Entries().planned(spent=ALMOST_ALL))
+        review = replace(Plans().approved(), cost=THIRD_OF_LEFT)
+
+        setup.work_on(ScriptedAgent([Step(writes=Files().feature(), cost=THIRD_OF_LEFT), review]), Items().jira())
+        return setup
+
+    def test_the_state_says_the_ticket_stopped_for_money(self, setups: Setups) -> None:
+        setup = self.stopped(setups)
+
+        entry = setup.entry("ENG-1")
+
+        assert (entry.status, entry.money_stop) == (WorkStatus.BLOCKED, MoneyStop(cap=MAX_USD, resume_to="planned"))
+
+    def test_the_draft_opens_with_the_plan_and_the_report_is_a_comment(self, setups: Setups) -> None:
+        """Decision B8: no host verb edits the body of a PR, so the body is the right one from the start."""
+        github = self.stopped(setups).sources.github_side
+
+        (_, draft), (repo, number, text) = github.pulls[0], github.comments[0]
+
+        assert draft.draft is True
+        assert "Add the feature file" in draft.body and "Ticket: ENG-1" in draft.body and "briar stopped" not in draft.body
+        assert (repo, number) == ("acme/app", PR)
+        assert text.startswith("briar stopped: the task spent its max_usd of 5.0")
+
+    def test_a_stop_that_is_not_about_money_leaves_no_money_stop(self, setups: Setups) -> None:
+        setup = setups.make({})
+
+        setup.work_on(ScriptedAgent([Plans().plan(), Step()]), Items().jira())
+
+        entry = setup.entry("ENG-1")
+        assert (entry.status, entry.money_stop) == (WorkStatus.BLOCKED, None)
+
+    def test_the_ticket_goes_on_in_its_draft_after_the_cap_is_raised(self, setups: Setups) -> None:
+        setup = self.stopped(setups)
+        github = setup.sources.github_side
+        github.branch_pulls["briar/ENG-1"] = BranchPull(PR, open=True, merged=False, draft=True)
+        raised = setup.raised(RAISED_USD)
+        assert asyncio.run(BudgetReopen(raised.company).apply()) == ["ENG-1"]
+
+        raised.work_on(ScriptedAgent([Step(writes={"more.txt": "more\n"}), Plans().approved()]), Items().jira())
+
+        assert len(github.pulls) == 1
+        assert github.readies == [PR]
+        entry = raised.entry("ENG-1")
+        assert (entry.status, entry.money_stop, entry.pr) == (WorkStatus.DONE, None, PR)
+        assert raised.sources.tracker_side.moves == [("ENG-1", "In Review")]
 
 
 class TestUsualReviewers:
@@ -305,7 +436,7 @@ class TestLoops:
         setup.work_on(agent, Items().jira())
 
         assert (len(agent.requests), setup.entry("ENG-1").status) == (TWO_STEPS, WorkStatus.BLOCKED)
-        assert setup.sources.github_side.pulls[0][1].body.startswith("briar stopped: the verify commands fail on origin/main too, before any change")
+        assert setup.sources.github_side.comments[-1][TEXT].startswith("briar stopped: the verify commands fail on origin/main too, before any change")
 
     def test_verify_checks_the_commit_not_the_files_git_ignores(self, setups: Setups) -> None:
         """A file the agent leaves that git ignores passes verify in its folder but is not
@@ -358,7 +489,7 @@ class TestLoops:
 
 
 class TestLimits:
-    """S23: on a limit, push, a draft PR with the report, the report on the ticket."""
+    """S23: on a limit, push, a draft PR with the report as a comment, the report on the ticket."""
 
     def test_a_self_review_that_never_approves_says_what_it_still_asks(self, setups: Setups) -> None:
         """Real run, 2026-11-12: the report said only "max_loops reached while fixing: the self-review"."""
@@ -367,7 +498,7 @@ class TestLimits:
 
         setup.work_on(ScriptedAgent(steps), Items().jira())
 
-        assert setup.sources.github_side.pulls[0][1].body.endswith("The self-review still asks for:\n- a.py: add a test")
+        assert "The self-review still asks for:\n- a.py: add a test" in setup.sources.github_side.comments[-1][TEXT]
 
     def test_verify_that_never_passes_hits_max_loops(self, setups: Setups) -> None:
         setup = setups.make({"max_loops": 1, "verify": [NO_OTHER]})
@@ -377,7 +508,7 @@ class TestLimits:
         github, tracker = setup.sources.github_side, setup.sources.tracker_side
         assert github.pulls[0][1].draft is True
         expected = "briar stopped: max_loops (1) reached while fixing: the verify commands. Spent US$ 0.30 of 5.0, 2 of 1 fix loops."
-        assert (github.pulls[0][1].body, tracker.comments[-1][1]) == (expected, expected)
+        assert (github.comments[-1][TEXT], tracker.comments[-1][1]) == (Marker().mark(expected), expected)
         assert setup.entry("ENG-1").status is WorkStatus.BLOCKED
 
     def test_ci_that_never_ends_hits_the_ci_wait(self, setups: Setups, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -481,7 +612,7 @@ class TestNoDoubleWork:
         """Real run, 2026-11-13 (test plan A6): serve was killed after the plan; on restart it
         asked the agent for a new plan (paid twice) and built that one, not the plan on the ticket."""
         setup = setups.make({})
-        setup.work_on(ScriptedAgent([Plans().plan(), Step(cost=MAX_USD)]), Items().jira())
+        setup.work_on(ScriptedAgent([Plans().plan(), Step(cost=SOME_SPEND)]), Items().jira())
         asyncio.run(setup.company.state.record(setup.entry("ENG-1").model_copy(update={"status": WorkStatus.PLANNED})))
         second = ScriptedAgent([Step(writes=Files().feature()), Plans().approved()])
 

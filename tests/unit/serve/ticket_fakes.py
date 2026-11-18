@@ -4,22 +4,22 @@ edits files by script, and GitHub and Jira that record what briar writes."""
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, ClassVar, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
 import pytest
 
 from briar.auth.check import LoginRejected
-from briar.extract._provider import BranchPull, CiFailure, CiState, PullRequestDraft, ThreadReply
+from briar.extract._provider import BranchPull, CiFailure, CiState, PullRequestDraft, PullState, ThreadReply
 from briar.extract._tracker import Ticket
 from briar.serve.agent import AgentAnswer, AgentRequest
 from briar.serve.flow import TaskFlow
 from briar.serve.git import Shell
 from briar.serve.routine import ServeRoutine
-from briar.serve.state import WorkSource
+from briar.serve.state import WorkEntry, WorkSource, WorkStatus
 from briar.serve.task import TaskPrep
-from briar.serve.work import ServeCompany, WorkItem, WorkKind
+from briar.serve.work import ServeCompany, WorkDay, WorkItem, WorkKind
 from tests.unit.serve.fakes import Companies, FakeStyle
 
 ISSUE = 7
@@ -103,6 +103,31 @@ class BrokenAgent(ScriptedAgent):
         return await super().ask(request)
 
 
+class Killed(BaseException):
+    """The process dies (kill -9, a power cut): not an `Exception`, so no `except` of briar
+    catches it and nothing after the call runs."""
+
+
+class KilledAgent(ScriptedAgent):
+    """Plays its steps, then the process dies."""
+
+    async def ask(self, request: AgentRequest) -> AgentAnswer:
+        if not self.steps:
+            raise Killed()
+        return await super().ask(request)
+
+
+class Entries:
+    """Entries of the state as an earlier run of `serve` left them."""
+
+    def planned(self, spent: float) -> WorkEntry:
+        """ENG-1 taken again after a stop: planned, the plan posted, `spent` US$ already paid today."""
+        return WorkEntry(
+            key="ENG-1", source=WorkSource.JIRA, repo="acme/app", title="Add the feature", status=WorkStatus.PLANNED,
+            plan="Add the feature file", spent_by_day={WorkDay().today(): spent},
+        )  # fmt: skip
+
+
 class Plans:
     def plan(self) -> Step:
         return Step(structured={"summary": "Add the feature file", "steps": ["write feature.txt"], "tests": ["test -f feature.txt"]})
@@ -135,6 +160,10 @@ class FakeGithubSide:
     refusals: List[str] = field(default_factory=list)
     # The PRs that already exist for a branch (`branch_pull`).
     branch_pulls: Dict[str, BranchPull] = field(default_factory=dict)
+    # The PRs a person left as a draft.
+    person_drafts: Set[int] = field(default_factory=set)
+    # The PRs briar made a draft and did not mark ready since.
+    drafted_now: Set[int] = field(default_factory=set)
     login_source: ClassVar[str] = "github"
     NUMBER: ClassVar[int] = 41
 
@@ -147,6 +176,10 @@ class FakeGithubSide:
     def default_branch(self, repo: str) -> str:
         return "main"
 
+    def pull_state(self, repo: str, number: int) -> PullState:
+        """Every PR is open and clean; a draft is one a person made or one briar made and did not mark ready."""
+        return PullState(True, False, False, "main", draft=number in self.person_drafts or number in self.drafted_now)
+
     def open_pull(self, repo: str, draft: PullRequestDraft) -> int:
         if self.refusals:
             raise LoginRejected(self.refusals[0])
@@ -158,9 +191,11 @@ class FakeGithubSide:
 
     def make_draft(self, repo: str, number: int) -> None:
         self.drafts.append(number)
+        self.drafted_now.add(number)
 
     def make_ready(self, repo: str, number: int) -> None:
         self.readies.append(number)
+        self.drafted_now.discard(number)
 
     def usual_reviewers(self, repo: str, count: int) -> List[str]:
         return self.usual.get(repo, [])[:count]
@@ -256,6 +291,15 @@ class Setup:
 
     def entry(self, key: str) -> Any:
         return self.company.state.book().entry(key)
+
+    def save(self, entry: WorkEntry) -> None:
+        """Leave `entry` in the state, as an earlier run of `serve` did."""
+        asyncio.run(self.company.state.record(entry))
+
+    def raised(self, max_usd: float) -> "Setup":
+        """The same setup after the maintainer raised `max_usd` in the runbook and restarted `serve`."""
+        settings = self.company.settings.model_copy(update={"max_usd": max_usd})
+        return replace(self, company=replace(self.company, settings=settings))
 
 
 class Setups:

@@ -144,3 +144,36 @@ class TestOnly:
 
         with pytest.raises(ValidationError, match=r"`only` takes ticket keys \(ENG-12, owner/repo#7\): eng-5, acme/app"):
             ServeSettings.model_validate(block)
+
+
+class TestRules:
+    """Decisions Q3, Q9 of `docs/decisions/2026-11-18-serve-quality-rules.md`: rule sets are off
+    unless the runbook turns them on, for a company or for one repo."""
+
+    def block(self, extra: Dict[str, Any]) -> Dict[str, Any]:
+        return {**Required().block(), "repos": ["acme/app", "acme/other"], **extra}
+
+    def test_off_by_default(self) -> None:
+        settings = ServeSettings.model_validate(self.block({}))
+
+        assert (settings.rules, settings.rules_by_repo, settings.rules_for("acme/app")) == ([], {}, [])
+
+    def test_a_company_list_and_a_list_for_one_repo(self) -> None:
+        settings = ServeSettings.model_validate(self.block({"rules": ["code", "tests"], "rules_by_repo": {"acme/other": ["scope"]}}))
+
+        assert (settings.rules_for("acme/app"), settings.rules_for("acme/other")) == (["code", "tests"], ["scope"])
+
+    def test_the_list_of_a_repo_replaces_the_company_list(self) -> None:
+        """Same shape as `verify_by_repo`: a repo that is listed does not also get the company list."""
+        settings = ServeSettings.model_validate(self.block({"rules": ["code"], "rules_by_repo": {"acme/other": []}}))
+
+        assert settings.rules_for("acme/other") == []
+
+    @pytest.mark.parametrize("name", ["Code", "my set", "1code", "code_set", ""])
+    def test_a_name_that_is_not_a_rule_set_name_stops_the_load(self, name: str) -> None:
+        with pytest.raises(ValidationError, match=r"not a rule set name \(lower case letters, digits and dashes\)"):
+            ServeSettings.model_validate(self.block({"rules": [name]}))
+
+    def test_a_bad_name_in_a_repo_list_stops_the_load_too(self) -> None:
+        with pytest.raises(ValidationError, match=r"not a rule set name"):
+            ServeSettings.model_validate(self.block({"rules_by_repo": {"acme/app": ["Bad Name"]}}))

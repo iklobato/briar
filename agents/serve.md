@@ -101,17 +101,38 @@ and `docs/decisions/2026-11-11-briar-2-review-routine.md`.
 
 ## Limits
 
-Each task has the `max_usd`, `max_loops` and `ci_wait_minutes` of its company, and
-each PR at most `max_review_rounds` review rounds (a round that only merges the base
-counts). When one hits, briar stops the task, pushes the work so far, opens the PR as a draft (or
-turns the open one into a draft) with a report, and comments the same report on the
-ticket. The ticket is `blocked` in the state; briar does not take it again.
+`max_usd` is the most one **ticket** spends in total: the plan, the build, the CI fixes,
+every review round and every restart share it. What a run spent is saved after every agent
+call, so a restart does not give the ticket a new `max_usd`. `max_loops` and
+`ci_wait_minutes` count in each run of a task, and each PR gets at most
+`max_review_rounds` review rounds (a round that only merges the base counts).
+
+When one hits, briar stops the task, pushes the work so far, opens the PR as a draft (or
+turns the open one into a draft) and comments a report on the PR and on the ticket. A new
+draft has the plan as its body; the report is a comment. The ticket is `blocked` in the
+state; briar does not take it again.
 
 ```text
 briar stopped: max_loops (5) reached while fixing: the verify commands. Spent US$ 1.20 of 5.0, 6 of 5 fix loops.
 ```
 
 A git, GitHub or Jira failure in the middle of a task stops it the same way.
+
+### When a ticket runs out of money
+
+A ticket that spent its `max_usd` stops with `money_stop` in its state entry (the `max_usd` it
+stopped at, the status it was in, and whether briar made its PR a draft). It is the one stop
+you can lift:
+
+1. Raise `max_usd` in the runbook.
+2. Restart `briar serve` (the runbook is read once, when it starts).
+
+On each poll a ticket that stopped for money, whose spend is below the new `max_usd` and
+whose `max_usd` is higher than the one it stopped at, goes back to where it was. A ticket
+stopped before its PR was ready goes on in the same draft. A review round that ran out of
+money discards what was never verified (it never reaches the PR), makes the PR a draft, says
+why in a comment, and gives the round back (only when no reply was posted yet); when the
+ticket goes on, briar marks the PR ready again, unless a person had left it a draft.
 
 ## Use it when
 
@@ -150,7 +171,7 @@ companies:
       jira: {site: acme.atlassian.net}
     serve:
       model: claude-sonnet-4-5        # required: the model of the agent
-      max_usd: 5                      # required: the most one task spends
+      max_usd: 5                      # required: the most one ticket spends in total, over all of its runs
       max_loops: 5                    # required: the most fix loops of one task
       ci_wait_minutes: 60             # required: the longest wait for CI
       max_review_rounds: 5            # required: the most review rounds of one PR
@@ -171,6 +192,9 @@ companies:
         acme/infra: ["terraform fmt -check -recursive"]
       format_by_repo:                 # optional: commands that format the worktree before each commit
         acme/infra: ["terraform fmt -recursive"]   # (`format: [...]` is the default for the other repos)
+      rules: [code]                   # optional: the rule sets of briar to turn on for every repo (off by default; see "Rule sets")
+      rules_by_repo:                  # optional: the sets for one repo (replaces `rules` for that repo)
+        acme/infra: []                # no sets for this repo
       bash: [git, make, pytest]       # optional: the programs the agent may run (replaces the default list)
       review_bots: ["coderabbitai[bot]"]   # optional: bots whose PR comments briar answers
       allowed_domains: [pypi.org]     # optional: what the bash of the agent may reach; none by default
@@ -186,6 +210,29 @@ A missing required key, an unknown key, a bad `owner/repo` or Jira key, or a blo
 with neither `repos` nor `jira` stops the load with exit code 1.
 A Jira project with no repo, or the 1.x form `jira: {ENG: acme/app}`, stops it too:
 the message says to write `jira.ENG: {repos: [acme/app]}`.
+
+## Rule sets
+
+By default the agent follows the conventions of the repo it works in and nothing else. A rule
+set is a short list of coding rules that briar adds to what the agent reads, so the code it
+writes follows rules you chose. A set is turned on for a company with `rules`, or for one repo
+with `rules_by_repo` (a repo that is listed gets only its own list). Nothing is on unless the
+runbook says so.
+
+One set ships with briar: `code`, the Python style rules (every function in a class, small
+methods, type hints, specific exceptions, no magic numbers and so on). `code` is left out of a
+task whose repo has no Python project (no `pyproject.toml` in its root), and the log says so:
+`serve: issue-7: rules in force: none; left out: code: no Python manifest`.
+
+When a set is on:
+
+- its short text goes in the system prompt, so every agent call (plan, build, fix, review, answers) has it;
+- its checklist goes in the self review, which judges only the lines the change adds and rejects only a clear violation;
+- in the lines the agent adds or changes the rules win over the habits of the file; code the ticket does not touch stays as it is.
+
+A rejection by the self review is a fix loop, so it counts in `max_loops` and `max_usd`. A name that
+is not a set stops `serve` at load with the list of the known names, and `briar doctor --runbooks DIR`
+shows it as a failure.
 
 ## How serve chooses its tickets
 

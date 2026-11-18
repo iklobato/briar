@@ -27,6 +27,7 @@ from briar.extract._tracker import Ticket
 from briar.iac.runbook.models import CodeHostKind, JiraProject, ServeSettings
 from briar.serve.git import RepoCheckout, Shell
 from briar.serve.host import GithubStyle, GitlabStyle, HostStyle
+from briar.serve.rules import RuleBook
 from briar.serve.state import WorkBook, WorkEntry, WorkSource, WorkState, WorkStatus
 from briar.storage import make_store
 
@@ -129,6 +130,9 @@ class ServeCompany:
     state: WorkState
     # The knowledge store folder: the blob `knowledge:<name>` and the state `work:<name>`.
     root: Path = Path("knowledge")
+    # The rule sets the runbook turns on (decisions Q3, Q9 of docs/decisions/2026-11-18-serve-quality-rules.md):
+    # empty unless it says so, and then every prompt is what it was.
+    rules: RuleBook = field(default_factory=RuleBook.empty, compare=False)
     # Day -> (the repos of the owner PRs, every active pushable repo) found that day (read once a day).
     found_repos: Dict[str, Tuple[Tuple[str, ...], Tuple[str, ...]]] = field(default_factory=dict, compare=False)
     # Day -> what the polls of that day skipped or hit (a dead chat, the day limit), for the
@@ -301,6 +305,39 @@ class ReviewReminders:
         mentions = " ".join(f"@{name}" for name in entry.reviewers)
         host.comment(entry.repo, entry.pr, Marker().mark(f"{mentions} this has been ready for review for 2 days; could you take a look?"))
         self.LOG.info("serve: %s: reminded %s to review", entry.key, ", ".join(entry.reviewers))
+
+
+class BudgetReopen:
+    """Decision B10: a ticket that stopped for money comes back when the maintainer raised
+    `max_usd` above the cap it stopped at (and restarted `serve`, which reads the runbook once)
+    and the money it spent still fits. Without the cap test, a stop where the SDK ended a call
+    for its own budget with the total under `max_usd` would come back, pay and stop on every poll."""
+
+    LOG: ClassVar[logging.Logger] = logging.getLogger(__name__)
+
+    def __init__(self, company: ServeCompany) -> None:
+        self._company = company
+
+    async def apply(self) -> List[str]:
+        """Put each such ticket back in the status it stopped in; the keys of the ones that came back."""
+        reopened: List[str] = []
+        for entry in list(self._company.state.book().entries.values()):
+            status = self._back(entry)
+            if status is None:
+                continue
+            await self._company.state.record(entry.model_copy(update={"status": status}))
+            note = f"{entry.key}: max_usd is now {self._company.settings.max_usd}, so the ticket goes on"
+            self.LOG.info("serve: %s: %s", self._company.name, note)
+            self._company.notes.setdefault(WorkDay().today(), []).append(note)
+            reopened.append(entry.key)
+        return reopened
+
+    def _back(self, entry: WorkEntry) -> Optional[WorkStatus]:
+        """The status a stopped ticket goes back to, or None when it stays stopped."""
+        stop, limit = entry.money_stop, self._company.settings.max_usd
+        if entry.status is not WorkStatus.BLOCKED or stop is None:
+            return None
+        return WorkStatus(stop.resume_to) if limit > stop.cap and entry.spent_total() < limit else None
 
 
 class WorkFinder:
@@ -564,10 +601,11 @@ class ServeCompanies:
         # Absolute: the agent runs in the worktree, where a path relative to here points nowhere.
         root = Path(entry.knowledge.root or "./knowledge").resolve()
         state = WorkState(make_store("file", file_root=root), name, asyncio.Lock())
-        return ServeCompany(name, entry.serve, CompanyLogins(scope, entry.auth, self._environ), state, root)
+        return ServeCompany(name, entry.serve, CompanyLogins(scope, entry.auth, self._environ), state, root, RuleBook.of(entry.serve))
 
 
 __all__ = [
+    "BudgetReopen",
     "ReviewReminders",
     "ActiveRepos",
     "WorkDay",

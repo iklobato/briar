@@ -17,7 +17,7 @@ from briar.extract._tracker import Ticket
 from briar.serve.loop import CompanyWatch, TaskSlots, WatchWork
 from briar.serve.select import Choice, Selector
 from briar.serve.state import WorkState
-from briar.serve.state import WorkEntry, WorkSource, WorkStatus
+from briar.serve.state import MoneyStop, WorkEntry, WorkSource, WorkStatus
 from briar.serve.work import ServeCompany, WorkDay, WorkItem, WorkKind
 from tests.unit.serve.fakes import Companies, FakeJira, FakeSources, Tickets
 from tests.unit.serve.test_select import PickingAgent
@@ -28,6 +28,11 @@ DAY_CAP = 10.0
 # A big spend on another day: it must not count against today.
 OTHER_DAY_SPEND = 100.0
 FIVE_TASKS = 5
+# A ticket that stopped for money at `max_usd` 5 after spending 5.1, and the `max_usd` after a raise.
+CAP_AT_STOP = 5.0
+SPENT_AT_STOP = 5.1
+RAISED_USD = 8.0
+PR = 41
 
 
 @dataclass(frozen=True)
@@ -248,6 +253,25 @@ class TestDailyMoneyLimit:
         agent = PickingAgent([{"key": "ENG-1", "repo": "acme/app", "reason": "the only ticket"}])
 
         assert self._cycle(company, agent) == 1
+
+
+class TestReopenInTheCycle:
+    """Decision B10: every poll brings back the tickets whose cap was raised, before it finds the work."""
+
+    def test_a_poll_brings_back_a_ticket_that_stopped_for_money(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("briar.serve.loop.WorkSources", lambda logins, kind: FakeSources())
+        company = Companies(tmp_path / "knowledge").company({"repos": ["acme/app"], "max_usd": RAISED_USD})
+        stopped = WorkEntry(
+            key="ENG-1", source=WorkSource.JIRA, repo="acme/app", title="stopped", status=WorkStatus.BLOCKED, pr=PR,
+            spent_by_day={WorkDay().today(): SPENT_AT_STOP}, money_stop=MoneyStop(cap=CAP_AT_STOP, resume_to="pr-open", drafted=True),
+        )  # fmt: skip
+        asyncio.run(company.state.record(stopped))
+        slots = TaskSlots(asyncio.Semaphore(TWO_SLOTS), set(), set())
+        watch = CompanyWatch(company, slots, WatchWork(RecordingRoutine(company.state), Choice(Selector(PickingAgent([]), company), company)))
+
+        asyncio.run(watch.cycle())
+
+        assert company.state.book().entry("ENG-1").status is WorkStatus.PR_OPEN
 
 
 class TestState:

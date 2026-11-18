@@ -15,6 +15,11 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 ### Added
 
 - `iac-terraform` extractor: the Terraform of a repo (roots, backends, providers, modules, variable files) read through the GitLab or GitHub API. It never writes a secret value: variable files give names only, and secret-looking names and credential-looking values show `(set)`.
+- Rule sets for `briar serve`: `serve.rules` and `serve.rules_by_repo` turn on sets of coding rules
+  that briar adds to what the agent reads (the short text goes in the system prompt of every call,
+  the checklist in the self review). One set ships, `code` (the Python style rules); it is left out
+  of a repo with no Python project. Off by default, so nothing changes until a runbook asks. A name
+  that is not a set stops `serve` at load. Decisions: `docs/decisions/2026-11-18-serve-quality-rules.md`.
 - `briar extract` also writes `knowledge/<company>/index.md` and one file for each topic beside the single knowledge file (which is unchanged). `briar serve` points the agent to the index, and the plan comment lists the topics the agent read (`Sources read`).
 - Release workflow: a version PyPI does not have yet (for example `2.0.0rc1`) is published as it is, tagged, and marked a pre-release on GitHub and Docker (`latest` does not move); a final version PyPI already has still gets its patch bump. A pre-release PyPI already has ends the run green without publishing again.
 - `serve.format` and `serve.format_by_repo`: commands that format the worktree before each
@@ -123,6 +128,15 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Changed
 
+- `serve.max_usd` is now the total one ticket may spend over all of its runs (the plan, the
+  build, the CI fixes, every review round and every restart), not a new amount for each run.
+  What a run spent is saved after every agent call, so a kill or a restart no longer gives
+  the ticket a whole `max_usd` again, and a call is refused when nothing is left. A runbook
+  that relied on the old meaning may see more tickets stop. A ticket that spent it stops
+  `blocked` with a `money_stop` in its state entry; raise `max_usd` and restart `briar serve`
+  and it goes on, in the same draft PR. A review round that runs out of money discards what
+  it never verified, makes the PR a draft, says why on it and gives the round back. A draft
+  PR opened by a stop has the plan as its body, and the report is a comment.
 - `briar serve` chooses which assigned tickets to start (spec 008 PR 1). It drops
   the tickets in a `not_workable` status (default `Blocked`, `In Review`) or with
   an open blocker (Jira `Blocks` links, GitHub issue dependencies), scores the rest

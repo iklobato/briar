@@ -13,6 +13,7 @@ from briar.extract._provider import PullState, ReviewComment
 from briar.extract._tracker import Ticket
 from briar.iac.runbook.models import ServeSettings
 from briar.serve.git import GitIdentity, Remote
+from briar.serve.rules import RuleBook
 from briar.serve.state import WorkState
 from briar.serve.work import ServeCompany
 from briar.storage import make_store
@@ -191,4 +192,5 @@ class Companies:
 
     def company(self, extra: Dict[str, Any]) -> ServeCompany:
         state = WorkState(make_store("file", file_root=self._root), "acme", asyncio.Lock())
-        return ServeCompany("acme", self.settings(extra), FakeLogins().logins(), state, self._root)
+        settings = self.settings(extra)
+        return ServeCompany("acme", settings, FakeLogins().logins(), state, self._root, RuleBook.of(settings))

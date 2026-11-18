@@ -1298,8 +1298,9 @@ Found in spec 003 (`briar serve`, 2026-11-11):
   the GitHub REST limit of 5,000 an hour for a user token (J16, other
   sources not measured). Watch the rate limit when a company has many repos
   and a short `every:`.
-- **`briar serve` spends model money** (S23, S24): at most `max_usd` per task,
-  and a PR can take `max_review_rounds` rounds of `max_usd` each. There is no
+- **`briar serve` spends model money** (S23, S24): at most `max_usd` per ticket
+  in total (the plan, the build, the CI fixes, every review round and every restart share it; the
+  spend is saved after every agent call). There is no
   measured cost of one ticket yet (section 5, item 6). The cost of each agent
   call is in `AgentAnswer.cost_usd`; the stop report says the total.
 - **`briar serve` acts as the owner of the PAT** (S2, S9): every issue assigned to
