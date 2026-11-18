@@ -23,6 +23,10 @@ PR = FakeGithubSide.NUMBER
 # The `max_usd` of the tests, and what the maintainer raises it to.
 MAX_USD = 5.0
 RAISED_USD = 10.0
+# A raise that is above the cap the ticket stopped at but leaves little money, and one more
+# step that spends more than that little.
+SMALL_RAISE_USD = 5.6
+ONE_MORE_STEP = 0.5
 SHORT_SHA = 7
 LAST_TWO = 2
 # The text in a recorded (repo, number, text) comment.
@@ -279,6 +283,23 @@ class TestStopForMoney:
         entry = raised.entry("ENG-1")
         assert (entry.status, entry.rounds, entry.money_stop) == (WorkStatus.DONE, 1, None)
         assert raised.sources.github_side.readies == [*ready_before, PR]
+
+    def test_a_second_stop_after_a_small_raise_still_remembers_that_briar_drafted_the_pr(self, opened: Opened) -> None:
+        """The PR is already briar own draft at the second stop: without the memory it would stay a draft for good."""
+        setup, reviews = self.drained(opened)[0], Reviews()
+        item, github = reviews.item([reviews.inline()]), setup.sources.github_side
+        ready_before = list(github.readies)
+        small = setup.raised(SMALL_RAISE_USD)
+        asyncio.run(BudgetReopen(small.company).apply())
+        small.work_on(ScriptedAgent([Step(structured=reviews.answers([]), cost=ONE_MORE_STEP)]), item)
+        assert small.entry("ENG-1").money_stop == MoneyStop(cap=SMALL_RAISE_USD, resume_to="pr-open", drafted=True)
+        big = small.raised(RAISED_USD)
+        asyncio.run(BudgetReopen(big.company).apply())
+
+        big.work_on(ScriptedAgent([Step(structured=reviews.answers([]))]), item)
+
+        assert (big.entry("ENG-1").status, big.entry("ENG-1").money_stop) == (WorkStatus.DONE, None)
+        assert github.readies == [*ready_before, PR]
 
     def test_a_pr_a_person_left_as_a_draft_is_not_marked_ready_after_the_stop(self, opened: Opened) -> None:
         """Only briar own draft is marked ready again: the person made this one."""

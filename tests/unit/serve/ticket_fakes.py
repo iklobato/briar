@@ -162,6 +162,8 @@ class FakeGithubSide:
     branch_pulls: Dict[str, BranchPull] = field(default_factory=dict)
     # The PRs a person left as a draft.
     person_drafts: Set[int] = field(default_factory=set)
+    # The PRs briar made a draft and did not mark ready since.
+    drafted_now: Set[int] = field(default_factory=set)
     login_source: ClassVar[str] = "github"
     NUMBER: ClassVar[int] = 41
 
@@ -175,8 +177,8 @@ class FakeGithubSide:
         return "main"
 
     def pull_state(self, repo: str, number: int) -> PullState:
-        """Every PR is open and clean; the ones in `person_drafts` are drafts a person made."""
-        return PullState(True, False, False, "main", draft=number in self.person_drafts)
+        """Every PR is open and clean; a draft is one a person made or one briar made and did not mark ready."""
+        return PullState(True, False, False, "main", draft=number in self.person_drafts or number in self.drafted_now)
 
     def open_pull(self, repo: str, draft: PullRequestDraft) -> int:
         if self.refusals:
@@ -189,9 +191,11 @@ class FakeGithubSide:
 
     def make_draft(self, repo: str, number: int) -> None:
         self.drafts.append(number)
+        self.drafted_now.add(number)
 
     def make_ready(self, repo: str, number: int) -> None:
         self.readies.append(number)
+        self.drafted_now.discard(number)
 
     def usual_reviewers(self, repo: str, count: int) -> List[str]:
         return self.usual.get(repo, [])[:count]

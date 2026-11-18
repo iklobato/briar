@@ -118,9 +118,11 @@ class ReviewRun:
         context = self._context
         host, item = context.sources.code_host(), context.item
         await asyncio.to_thread(context.checkout.discard, context.worktree, self._safe)
-        drafted = not (await asyncio.to_thread(host.pull_state, item.repo, item.pr)).draft
-        if drafted:
+        already = (await asyncio.to_thread(host.pull_state, item.repo, item.pr)).draft
+        if not already:
             await asyncio.to_thread(host.make_draft, item.repo, item.pr)
+        # A draft briar made at an earlier stop stays briar own until a round ends (a second stop after a small raise).
+        drafted = self._drafted or not already
         text = f"briar stopped: {stop}. Spent {self._flow.spent()}. A person continues, or raises max_usd in the runbook and restarts `briar serve`."
         await asyncio.to_thread(host.comment, item.repo, item.pr, Marker().mark(text))
         money = MoneyStop(cap=context.company.settings.max_usd, resume_to=WorkStatus.PR_OPEN.value, drafted=drafted)

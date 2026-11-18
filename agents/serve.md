@@ -131,8 +131,8 @@ On each poll a ticket that stopped for money, whose spend is below the new `max_
 whose `max_usd` is higher than the one it stopped at, goes back to where it was. A ticket
 stopped before its PR was ready goes on in the same draft. A review round that ran out of
 money discards what was never verified (it never reaches the PR), makes the PR a draft, says
-why in a comment, and gives the round back; when the ticket goes on, briar marks the PR
-ready again, unless a person had left it a draft.
+why in a comment, and gives the round back (only when no reply was posted yet); when the
+ticket goes on, briar marks the PR ready again, unless a person had left it a draft.
 
 ## Use it when
 
