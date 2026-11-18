@@ -14,6 +14,7 @@ from briar.auth.check import LoginRejected
 from briar.extract._provider import BranchPull, CiFailure, CiState, PullRequestDraft, PullState, ThreadReply
 from briar.extract._tracker import Ticket
 from briar.serve.agent import AgentAnswer, AgentRequest
+from briar.serve.day import DayCap
 from briar.serve.flow import TaskFlow
 from briar.serve.git import Shell
 from briar.serve.routine import ServeRoutine
@@ -302,9 +303,10 @@ class Setup:
         return replace(self, company=replace(self.company, settings=settings))
 
     def day_capped(self, cap: float) -> "Setup":
-        """The same setup with `max_usd_per_day` set to `cap` (the maintainer changed it and restarted `serve`)."""
+        """The same setup with `max_usd_per_day` set to `cap`: the maintainer changed it and restarted `serve`, so what the
+        process held in memory (the calls in flight, a day marked as spent) starts empty."""
         settings = self.company.settings.model_copy(update={"max_usd_per_day": cap})
-        return replace(self, company=replace(self.company, settings=settings))
+        return replace(self, company=replace(self.company, settings=settings, day=DayCap()))
 
 
 class Setups:

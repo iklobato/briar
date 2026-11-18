@@ -27,6 +27,8 @@ TODAY = date(2026, 11, 12)
 SELECTION_COST = 0.04
 # A day cap below `max_usd` (5): the selector grant is the day left, here the whole cap.
 DAY_CAP = 2.0
+# A day cap with room for two tickets of `max_usd` 5 and two dollars more.
+ROOM_FOR_TWO = 12.0
 TOP = 5
 SLOTS = 2
 MANY = 7
@@ -61,6 +63,17 @@ class PickingAgent:
     async def ask(self, request: AgentRequest) -> AgentAnswer:
         self.requests.append(request)
         return AgentAnswer("", {"picks": self.picks}, SELECTION_COST)
+
+
+@dataclass(frozen=True)
+class FailingAgent:
+    """The selector model that fails after it spent money."""
+
+    requests: List[AgentRequest] = field(default_factory=list)
+
+    async def ask(self, request: AgentRequest) -> AgentAnswer:
+        self.requests.append(request)
+        return AgentAnswer("", {}, SELECTION_COST, failed=True, reason="error_during_execution")
 
 
 class Setup:
@@ -234,6 +247,25 @@ class TestSelectionAndTheDayCap:
         self.pick(self.capped(tmp_path, DAY_CAP), agent)
 
         assert agent.requests[0].max_usd == DAY_CAP
+
+    def test_the_selector_skips_the_poll_instead_of_waiting_when_other_calls_hold_the_room(self, tmp_path: Path) -> None:
+        """Room for two tickets of 5 and a bit: two calls in flight leave less than the selector needs, and a poll must not stall."""
+        company, agent = self.capped(tmp_path, ROOM_FOR_TWO), PickingAgent([])
+
+        async def scenario() -> List[WorkItem]:
+            await company.grant(company.settings.max_usd)
+            await company.grant(company.settings.max_usd)
+            return await Selector(agent, company).pick([Tickets().plain("ENG-1")], SLOTS, {})
+
+        assert (asyncio.run(scenario()), agent.requests) == ([], [])
+
+    def test_a_failed_call_is_booked_to_the_day_too(self, tmp_path: Path) -> None:
+        company = Setup(tmp_path).company()
+        failed = FailingAgent()
+
+        picked = asyncio.run(Selector(failed, company).pick([Tickets().plain("ENG-1")], SLOTS, {}))
+
+        assert (picked, company.state.book().loose_by_day) == ([], {WorkDay().today(): SELECTION_COST})
 
 
 class TestChoice:

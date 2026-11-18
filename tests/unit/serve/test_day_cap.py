@@ -9,7 +9,7 @@ import asyncio
 import datetime as dt
 from dataclasses import replace
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import pytest
 import time_machine
@@ -21,9 +21,9 @@ from briar.serve.git import Shell
 from briar.serve.routine import ServeRoutine
 from briar.serve.state import WorkBook, WorkEntry, WorkSource, WorkStatus
 from briar.serve.task import TaskContext
-from briar.serve.work import ServeCompany, WorkDay, WorkItem
+from briar.serve.work import ServeCompanies, ServeCompany, WorkDay, WorkItem
 from tests.unit.serve.fakes import Companies
-from tests.unit.serve.ticket_fakes import FakeGithubSide, Files, Items, Plans, ScriptedAgent, Settings, Setup, Setups, Step
+from tests.unit.serve.ticket_fakes import BrokenAgent, FakeGithubSide, Files, Items, Plans, ScriptedAgent, Settings, Setup, Setups, Step
 
 CAP = 10.0
 TICKET = 5.0
@@ -33,6 +33,17 @@ PLENTY = 100.0
 DAY_LEFT = 2.0
 # What one call really costs, below its grant.
 REAL_COST = 0.3
+# The `max_usd_per_day` of the runbook of `TestRealRunbook`.
+RUNBOOK_CAP = 3.0
+# The tickets left of two calls in flight that leave 0.3 of a cap of 10, and a ticket of 3.3 (three of them hold 9.9).
+ALMOST_FIVE = 4.9
+JUST_UNDER = 4.8
+THIRD = 3.3
+# Loop turns that let a waiting task wake and wait again.
+SETTLE = 3
+# A call the SDK stops a hair under its grant, and a cap that fits the plan call and leaves 0.05.
+HAIR = 0.01
+AFTER_PLAN = 0.15
 # What the selector call cost, and the default cost of one scripted step.
 SELECTION = 0.04
 STEP = 0.1
@@ -51,6 +62,14 @@ PR = FakeGithubSide.NUMBER
 STOP = "error_max_budget_usd"
 MESSAGE = "the daily cap max_usd_per_day of US$ 10 is reached"
 PAUSED = f"ENG-1 paused: {MESSAGE}; it goes on tomorrow (UTC) or when the cap is raised"
+
+
+class Settled:
+    """Lets the other tasks of the loop run until they wait again."""
+
+    async def loop(self) -> None:
+        for _ in range(SETTLE):
+            await asyncio.sleep(0)
 
 
 class Booked:
@@ -149,6 +168,52 @@ class TestDayCap:
 
         assert asyncio.run(scenario()) == Grant(CAP, CAP)
 
+    def test_a_call_does_not_take_the_scraps_that_calls_in_flight_leave(self) -> None:
+        """Cap 10 with 4.9 and 4.8 in flight: a third call would get 0.3, which the SDK stops early while the booked spend is
+        far under the cap, so the task would pause and say the day cap was hit. It waits for a release instead."""
+
+        async def scenario() -> Tuple[bool, Grant]:
+            cap, booked = DayCap(), Booked(0.0)
+            first = await cap.grant(CAP, booked, ALMOST_FIVE)
+            second = await cap.grant(CAP, booked, JUST_UNDER)
+            third = asyncio.ensure_future(cap.grant(CAP, booked, TICKET))
+            await Settled().loop()
+            waiting = not third.done()
+            cap.release(first)
+            cap.release(second)
+            return waiting, await asyncio.wait_for(third, timeout=1)
+
+        assert asyncio.run(scenario()) == (True, Grant(TICKET, TICKET))
+
+    def test_an_offer_is_none_while_calls_in_flight_hold_the_room_and_never_waits(self) -> None:
+        async def scenario() -> Optional[Grant]:
+            cap, booked = DayCap(), Booked(0.0)
+            await cap.grant(CAP, booked, TICKET)
+            await cap.grant(CAP, booked, TICKET)
+            return cap.offer(CAP, booked, TICKET)
+
+        assert asyncio.run(scenario()) is None
+
+    def test_an_offer_raises_when_the_booked_spend_is_at_the_cap(self) -> None:
+        with pytest.raises(DayPause) as stop:
+            DayCap().offer(CAP, Booked(CAP), TICKET)
+
+        assert str(stop.value) == MESSAGE
+
+    def test_float_residue_never_leaves_a_waiting_call_with_nobody_to_wake_it(self) -> None:
+        """Three calls of 3.3 hold 9.9 of 10, the fourth waits; releasing all three must wake it with a whole grant."""
+
+        async def scenario() -> Grant:
+            cap, booked = DayCap(), Booked(0.0)
+            held = [await cap.grant(CAP, booked, THIRD) for _ in range(TASKS)]
+            fourth = asyncio.ensure_future(cap.grant(CAP, booked, THIRD))
+            await Settled().loop()
+            for grant in held:
+                cap.release(grant)
+            return await asyncio.wait_for(fourth, timeout=1)
+
+        assert asyncio.run(scenario()) == Grant(THIRD, THIRD)
+
 
 class TestOnACompany:
     """The grant of a company reads the spend booked today in its state."""
@@ -168,22 +233,24 @@ class TestOnACompany:
 
         assert asyncio.run(company.grant(TICKET)) == Grant(TICKET, TICKET)
 
-    def test_three_tasks_run_without_a_pause_and_the_third_gets_the_rest_after_a_release(self, tmp_path: Path) -> None:
-        """What the first call really spent is booked before its reservation is released."""
+    def test_the_third_task_waits_for_both_and_then_gets_its_whole_ticket(self, tmp_path: Path) -> None:
+        """What each call really spent is booked before its reservation is released. While the second still holds its
+        share the third does not take what is left (4.7): it waits, and it never pauses with the booked spend this low."""
         company = self.company(tmp_path)
 
-        async def scenario() -> Grant:
+        async def scenario() -> Tuple[bool, Grant]:
             first = await company.grant(TICKET)
-            await company.grant(TICKET)
+            second = await company.grant(TICKET)
             third = asyncio.ensure_future(company.grant(TICKET))
-            await asyncio.sleep(0)
             await company.state.add_spend(Elsewhere().entry(), WorkDay().today(), REAL_COST)
             company.day.release(first)
-            return await asyncio.wait_for(third, timeout=1)
+            await Settled().loop()
+            waiting = not third.done()
+            await company.state.add_spend(Elsewhere().entry(), WorkDay().today(), REAL_COST)
+            company.day.release(second)
+            return waiting, await asyncio.wait_for(third, timeout=1)
 
-        grant = asyncio.run(scenario())
-
-        assert (grant.amount, grant.held) == (pytest.approx(CAP - REAL_COST - TICKET), pytest.approx(CAP - REAL_COST - TICKET))
+        assert asyncio.run(scenario()) == (True, Grant(TICKET, TICKET))
 
     def test_the_company_is_capped_once_the_booked_spend_reaches_the_cap(self, tmp_path: Path) -> None:
         company = self.company(tmp_path)
@@ -269,6 +336,82 @@ class TestTicketPause:
             setup.work_on(ScriptedAgent(steps), Items().jira())
 
         assert setup.entry("ENG-1").status is WorkStatus.DONE
+
+
+class TestTheDayIsSpent:
+    """The SDK may stop a call a hair under its grant: the booked spend then stays under the cap, and the gate must still close."""
+
+    def test_a_call_stopped_a_hair_under_the_day_grant_still_closes_the_gate(self, setups: Setups) -> None:
+        setup = setups.make({"max_usd_per_day": TINY})
+
+        setup.work_on(ScriptedAgent([Step(cost=TINY - HAIR, failed=True, reason=STOP)]), Items().jira())
+
+        assert (setup.company.capped(), setup.company.spent_today()) == (True, TINY)
+
+    def test_a_new_day_opens_the_gate_again(self, setups: Setups) -> None:
+        setup = setups.make({"max_usd_per_day": TINY})
+        with time_machine.travel(DAY_ONE_NOON, tick=True):
+            setup.work_on(ScriptedAgent([Step(cost=TINY - HAIR, failed=True, reason=STOP)]), Items().jira())
+
+        with time_machine.travel(DAY_TWO_START, tick=True):
+            assert setup.company.capped() is False
+
+
+class TestPauseWithNoPr:
+    def test_the_half_built_edits_stay_for_the_next_run(self, setups: Setups) -> None:
+        """A ticket with no PR yet keeps what the build wrote: the plan call booked 0.1 and the cap leaves 0.05 for the build."""
+        setup = setups.make({}).day_capped(AFTER_PLAN)
+        build = Step(writes={"wip.txt": "half\n"}, cost=LITTLE, failed=True, reason=STOP)
+
+        setup.work_on(ScriptedAgent([Plans().plan(), build]), Items().jira())
+
+        worktree = setup.cache / "worktrees" / "acme" / "briar__ENG-1"
+        assert ((worktree / "wip.txt").read_text(), setup.entry("ENG-1").status) == ("half\n", WorkStatus.PLANNED)
+
+
+class TestReservationIsReleased:
+    """A reservation outlives nothing: with a cap of one ticket a leak would leave no room for the next call."""
+
+    def room_left(self, setup: Setup) -> object:
+        return setup.company.offer(TICKET)
+
+    def test_when_the_agent_raises(self, setups: Setups) -> None:
+        setup = setups.make({"max_usd_per_day": TICKET})
+
+        setup.work_on(BrokenAgent([]), Items().jira())
+
+        assert self.room_left(setup) == Grant(TICKET, TICKET)
+
+    def test_when_the_booking_fails(self, setups: Setups, monkeypatch: pytest.MonkeyPatch) -> None:
+        setup = setups.make({"max_usd_per_day": TICKET})
+
+        async def disk_full(fresh: WorkEntry, day: str, cost: float) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr(setup.company.state, "add_spend", disk_full)
+
+        setup.work_on(ScriptedAgent([Plans().plan()]), Items().jira())
+
+        assert self.room_left(setup) == Grant(TICKET, TICKET)
+
+
+class TestRealRunbook:
+    """The `max_usd_per_day` of a runbook reaches the grant through the real loader."""
+
+    RUNBOOK = (
+        "version: 1\ncompanies:\n  acme:\n    knowledge:\n      store: file\n      name: knowledge:acme\n"
+        "    serve:\n      repos: [acme/app]\n      model: claude-test\n      max_usd: 5\n      max_loops: 1\n"
+        "      ci_wait_minutes: 1\n      max_review_rounds: 1\n      max_usd_per_day: 3\n"
+    )
+
+    def test_the_cap_of_the_runbook_cuts_the_grant_of_a_lone_call(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        (tmp_path / "runbooks").mkdir()
+        (tmp_path / "runbooks" / "acme.yaml").write_text(self.RUNBOOK)
+        monkeypatch.chdir(tmp_path)
+
+        (company,) = ServeCompanies(Path("runbooks"), {}).load()
+
+        assert (company.settings.max_usd_per_day, asyncio.run(company.grant(TICKET))) == (RUNBOOK_CAP, Grant(RUNBOOK_CAP, RUNBOOK_CAP))
 
 
 class TestPauseWithAPr:

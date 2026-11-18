@@ -148,19 +148,27 @@ class ServeCompany:
     # The reservations of the agent calls in flight under `max_usd_per_day` (decisions B11, B12); in memory.
     day: DayCap = field(default_factory=DayCap, compare=False)
 
-    def booked_today(self) -> float:
-        """What the tasks and the selector spent today, as the state booked it (decision B5)."""
-        return self.state.book().spent_on(WorkDay().today())
+    def spent_today(self) -> float:
+        """What the tasks and the selector spent today, as the state booked it (decision B5). Once a call was stopped at
+        the day grant it is the whole cap: the SDK may stop a call a hair under it, and the day is spent all the same."""
+        today = WorkDay().today()
+        booked = self.state.book().spent_on(today)
+        return max(booked, self.settings.max_usd_per_day) if self.day.exhausted(today) else booked
 
     async def grant(self, ticket_left: float) -> Grant:
-        """The budget of one agent call: the smaller of what the ticket and the day have left, minus what the calls in
-        flight hold. It waits while the booked spend is under the cap and raises `DayPause` at the cap (decisions B11, B12)."""
-        return await self.day.grant(self.settings.max_usd_per_day, self.booked_today, ticket_left)
+        """The budget of one agent call: its whole `ticket_left` when it fits in the day, minus what the calls in flight
+        hold; the day left when no other call is in flight; else it waits for one to end. It raises `DayPause` when the
+        spend booked today reaches the cap (decisions B11, B12, B19)."""
+        return await self.day.grant(self.settings.max_usd_per_day, self.spent_today, ticket_left)
+
+    def offer(self, ticket_left: float) -> Optional[Grant]:
+        """Like `grant`, but never waits: None when other calls hold the room (a poll must not stall on it)."""
+        return self.day.offer(self.settings.max_usd_per_day, self.spent_today, ticket_left)
 
     def capped(self) -> bool:
         """The spend booked today is at `max_usd_per_day` (0 is off): nothing that needs the model may start (decision B13)."""
         cap = self.settings.max_usd_per_day
-        return bool(cap) and self.booked_today() >= cap
+        return bool(cap) and self.spent_today() >= cap
 
     def note(self, text: str) -> bool:
         """Put `text` in the daily report once for the day; False when it is there already (every poll repeats it)."""

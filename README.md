@@ -111,7 +111,7 @@ briar serve runbooks                # starts. Press Ctrl+C to stop.
 
 *A real run on a tiny repo, [iklobato/briar-demo](https://github.com/iklobato/briar-demo): about a minute and a half, US$ 0.09.*
 
-You get a pull request for a person to review and merge. briar never merges, never force pushes and never spends more than the `max_usd` you set on an issue (or the `max_usd_per_day` you set on a day, if you set one). [Full lesson 2](https://github.com/iklobato/briar/blob/v2/docs/guide/2-work-an-issue.md) has the logins, the runbook and the limits.
+You get a pull request for a person to review and merge. briar never merges, never force pushes and never spends more than the `max_usd` you set on an issue. If you set `max_usd_per_day`, the same holds for a whole day, give or take the call that is running when the cap is reached. [Full lesson 2](https://github.com/iklobato/briar/blob/v2/docs/guide/2-work-an-issue.md) has the logins, the runbook and the limits.
 
 ### Lesson 3. Keep the facts fresh (5 minutes, free)
 

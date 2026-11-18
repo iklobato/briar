@@ -115,7 +115,7 @@ class Selector:
             return []
         shortlist = list(ranked[: self.SHORTLIST])
         system = Prompts().text("select", {"company": self._company.name, "slots": str(free)})
-        grant = await self._granted()
+        grant = self._granted()
         if grant is None:
             return []
         day = WorkDay().today()
@@ -129,13 +129,17 @@ class Selector:
             return []
         return [replace(item, selection_day=day) for item in Picks(shortlist, answer, self._company.name).items(free)]
 
-    async def _granted(self) -> Optional[Grant]:
-        """Decision B11: the selector is under the day cap, and does not run when the booked spend is at it."""
+    def _granted(self) -> Optional[Grant]:
+        """Decision B11: the selector is under the day cap. It never waits (a poll must not stall on calls in flight): with no
+        room, or with the booked spend at the cap, it does not run this poll and the next poll asks again."""
         try:
-            return await self._company.grant(self._company.settings.max_usd)
+            granted = self._company.offer(self._company.settings.max_usd)
         except DayPause as capped:
             self.LOG.info("serve: %s: the selector did not run: %s", self._company.name, capped)
             return None
+        if granted is None:
+            self.LOG.info("serve: %s: the selector did not run: other calls hold the room left in the day", self._company.name)
+        return granted
 
     async def _call(self, request: AgentRequest, day: str) -> AgentAnswer:
         """The call, and its cost booked to `day` where it returns, before the reservation of the day goes: a failed call

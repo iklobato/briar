@@ -140,8 +140,9 @@ ticket goes on, briar marks the PR ready again, unless a person had left it a dr
 agent call of every task (review rounds and ready PRs included) and the call of the selector.
 Each call may spend at most the smaller of what its ticket and the day have left, minus what
 the calls in flight hold, so the day cannot pass the cap by a whole ticket for each parallel
-task. A call with no room waits for another call to end while the spend booked today is under
-the cap. The SDK checks the budget between turns, so one call can pass its grant a little: the
+task. A call whose whole ticket does not fit waits for another call to end; it is cut to what the
+day has left only when no other call is running, so it is never cut to the scraps that others
+leave. The SDK checks the budget between turns, so one call can pass its grant a little: the
 day can pass the cap by at most one call for each running task.
 
 When the spend booked today reaches the cap, the tasks **pause**. Nothing is written on the
