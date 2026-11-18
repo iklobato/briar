@@ -9,13 +9,13 @@ answered comments. A round that changes nothing only replies."""
 from __future__ import annotations
 
 import asyncio
-from typing import Dict, List, Sequence
+from typing import Any, Dict, List, Mapping, Sequence
 
 from briar.errors import CliError
 from briar.extract._provider import CommentKind, ReviewComment, ThreadReply
 from briar.serve.flow import TaskFlow
-from briar.serve.state import WorkStatus
-from briar.serve.task import AgentSteps, Answers, LimitHit, Plan, TaskContext
+from briar.serve.state import MoneyStop, WorkStatus
+from briar.serve.task import AgentSteps, Answers, BudgetExhausted, LimitHit, Plan, TaskContext
 from briar.serve.work import Marker
 
 
@@ -65,34 +65,86 @@ class ReviewRun:
         self._context = context
         self._steps = steps
         self._flow = flow
+        # The commit a stop for money goes back to: the start of the round, then what was pushed (B6, B18).
+        self._safe = ""
+        # The replies of the round are posted, so a stop for money does not give the round back (B7, B18).
+        self._replied = False
+        # Briar made this PR a draft when the ticket ran out of money, so briar marks it ready again (B6).
+        self._drafted = False
 
     async def work(self) -> None:
         start = await self._start()
+        self._safe = start
+        try:
+            await self._round(start)
+        except BudgetExhausted as stop:
+            await self._out_of_money(stop)
+
+    async def _round(self, start: str) -> None:
         item = self._context.item
         merged = await self._merged() if item.conflict else []
         answers = await self._steps.answer(item.comments) if item.comments else Answers({})
         await asyncio.to_thread(self._flow.commit, "answer the review")
-        head = await asyncio.to_thread(self._context.checkout.head, self._context.worktree)
+        head = await self._head()
         if head != start:
             await self._checked(start)
-            head = await asyncio.to_thread(self._context.checkout.head, self._context.worktree)
+            head = await self._head()
         commit = head[: self.SHORT_SHA] if head != start else ""
         await asyncio.to_thread(ReviewReplies(self._context, answers, commit).post, merged)
+        self._replied = True
+        await self._finished(start, head)
+
+    async def _finished(self, start: str, head: str) -> None:
+        saved = {"answered": self._answered()}
+        if head == start:
+            await self._done(saved)
+            return
         # Saved before the CI wait: a stop there must not answer the same comments again.
-        await self._flow.record(WorkStatus.PR_OPEN if head != start else WorkStatus.DONE, {"answered": self._answered()})
-        if head != start:
-            await self._flow.ci(item.pr)
-            await self._flow.record(WorkStatus.DONE, {})
+        await self._flow.record(WorkStatus.PR_OPEN, saved)
+        await self._flow.ci(self._context.item.pr)
+        await self._done({})
+
+    async def _done(self, changes: Mapping[str, Any]) -> None:
+        """The round is over. A PR briar made a draft for a stop for money is marked ready first (B6)."""
+        item = self._context.item
+        if self._drafted:
+            await asyncio.to_thread(self._context.sources.code_host().make_ready, item.repo, item.pr)
+        await self._flow.record(WorkStatus.DONE, {**changes, "money_stop": None})
+
+    async def _out_of_money(self, stop: BudgetExhausted) -> None:
+        """Decisions B6, B7, B18: what was never verified goes (back to the start of the round, or
+        to what was pushed), the PR becomes a draft with a comment that says why, and the ticket
+        is blocked for money. A round with no reply is given back."""
+        context = self._context
+        host, item = context.sources.code_host(), context.item
+        await asyncio.to_thread(context.checkout.discard, context.worktree, self._safe)
+        drafted = not (await asyncio.to_thread(host.pull_state, item.repo, item.pr)).draft
+        if drafted:
+            await asyncio.to_thread(host.make_draft, item.repo, item.pr)
+        text = f"briar stopped: {stop}. Spent {self._flow.spent()}. A person continues, or raises max_usd in the runbook and restarts `briar serve`."
+        await asyncio.to_thread(host.comment, item.repo, item.pr, Marker().mark(text))
+        money = MoneyStop(cap=context.company.settings.max_usd, resume_to=WorkStatus.PR_OPEN.value, drafted=drafted)
+        await self._flow.record(WorkStatus.BLOCKED, {"report": text, "rounds": self._rounds_kept(), "money_stop": money})
+
+    def _rounds_kept(self) -> int:
+        known = self._context.company.state.book().entry(self._context.item.key)
+        counted = known.rounds if known is not None else 0
+        return counted if self._replied else max(counted - 1, 0)
+
+    async def _head(self) -> str:
+        return await asyncio.to_thread(self._context.checkout.head, self._context.worktree)
 
     async def _start(self) -> str:
-        """V11: count the round, or stop when the PR had `max_review_rounds` already."""
+        """V11: count the round, or stop when the PR had `max_review_rounds` already. It also
+        reads whether briar made this PR a draft for a stop for money (B6)."""
         known = self._context.company.state.book().entry(self._context.item.key)
         rounds = known.rounds if known is not None else 0
         limit = self._context.company.settings.max_review_rounds
         if rounds >= limit:
             raise LimitHit(f"max_review_rounds ({limit}) reached on PR #{self._context.item.pr}")
+        self._drafted = known is not None and known.money_stop is not None and known.money_stop.drafted
         await self._flow.record(WorkStatus.PR_OPEN, {"rounds": rounds + 1})
-        return await asyncio.to_thread(self._context.checkout.head, self._context.worktree)
+        return await self._head()
 
     async def _merged(self) -> List[str]:
         """V6: merge the base; the agent resolves what conflicts. A merge that cannot be
@@ -123,6 +175,7 @@ class ReviewRun:
         await self._flow.verified("fix the verify commands")
         await self._flow.reviewed(self._plan(), f"{start}..HEAD")
         await self._flow.push()
+        self._safe = await self._head()
 
     def _plan(self) -> Plan:
         """What the round had to do, for the self-review."""

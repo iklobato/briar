@@ -16,9 +16,9 @@ from datetime import datetime, timezone
 from typing import ClassVar, List, Optional
 
 from briar.errors import CliError
-from briar.extract._provider import PullRequestDraft
-from briar.serve.flow import TaskFlow, TicketSide
-from briar.serve.state import WorkSource, WorkStatus
+from briar.extract._provider import BranchPull, PullRequestDraft
+from briar.serve.flow import PullBody, TaskFlow, TicketSide
+from briar.serve.state import WorkStatus
 from briar.serve.task import AgentSteps, LimitHit, Plan, TaskContext
 
 
@@ -61,7 +61,7 @@ class TicketRun:
         await self._flow.ci(number)
         await asyncio.to_thread(self._context.sources.code_host().make_ready, self._context.item.repo, number)
         reviewers = await asyncio.to_thread(self._ask_reviewers, number)
-        await self._flow.record(WorkStatus.DONE, {"ready_at": datetime.now(timezone.utc).isoformat(), "reviewers": reviewers})
+        await self._flow.record(WorkStatus.DONE, {"ready_at": datetime.now(timezone.utc).isoformat(), "reviewers": reviewers, "money_stop": None})
 
     def _ask_reviewers(self, number: int) -> List[str]:
         """Decision D2: the usual reviewers of the repo are asked, so a ready PR does not wait
@@ -85,12 +85,22 @@ class TicketRun:
         found = await asyncio.to_thread(self._context.sources.code_host().branch_pull, self._context.item.repo, self._context.branch)
         if found is None:
             return False
+        if self._own_draft(found):
+            await asyncio.to_thread(self._context.checkout.adopt, self._context.worktree, self._context.branch)
+            return False
         status = WorkStatus.PR_OPEN if found.open else (WorkStatus.MERGED if found.merged else WorkStatus.CLOSED)
         status = WorkStatus.BLOCKED if found.open and found.draft else status
         if found.open:
             await asyncio.to_thread(self._context.checkout.adopt, self._context.worktree, self._context.branch)
         await self._flow.record(status, {"pr": found.number})
         return True
+
+    def _own_draft(self, found: BranchPull) -> bool:
+        """Decision B10: the open draft is the one briar made when the ticket ran out of money and
+        the state recorded it, so the task goes on in it (a draft the state does not know is a
+        person's to decide)."""
+        known = self._context.company.state.book().entry(self._context.item.key)
+        return found.open and known is not None and known.money_stop is not None and known.pr == found.number
 
     async def _kept_quiet(self, plan: Plan) -> bool:
         """Decision D1: a plan with no code change (an operations ticket) gets no comment, no
@@ -117,6 +127,9 @@ class TicketRun:
         side.move(self._context.item, self._context.company.settings.status.started)
 
     def _open(self, plan: Plan) -> int:
+        known = self._context.company.state.book().entry(self._context.item.key)
+        if known is not None and known.money_stop is not None and known.pr:
+            return known.pr
         draft = PullRequestDraft(self._context.branch, self._context.base, self._context.title, self._body(plan), draft=True)
         return int(self._context.sources.code_host().open_pull(self._context.item.repo, draft))
 
@@ -126,9 +139,7 @@ class TicketRun:
         side.move(self._context.item, self._context.company.settings.status.review)
 
     def _body(self, plan: Plan) -> str:
-        item = self._context.item
-        closes = f"\n\nCloses #{item.number()}" if item.source is WorkSource.GITHUB else f"\n\nTicket: {item.key}"
-        return f"{plan.markdown()}{closes}\n\nBuilt by briar (spent {self._flow.spent()})."
+        return PullBody(self._context.item, self._flow.spent()).of(plan.markdown())
 
 
 __all__ = ["TicketRun"]

@@ -4,14 +4,14 @@ edits files by script, and GitHub and Jira that record what briar writes."""
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, ClassVar, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
 import pytest
 
 from briar.auth.check import LoginRejected
-from briar.extract._provider import BranchPull, CiFailure, CiState, PullRequestDraft, ThreadReply
+from briar.extract._provider import BranchPull, CiFailure, CiState, PullRequestDraft, PullState, ThreadReply
 from briar.extract._tracker import Ticket
 from briar.serve.agent import AgentAnswer, AgentRequest
 from briar.serve.flow import TaskFlow
@@ -160,6 +160,8 @@ class FakeGithubSide:
     refusals: List[str] = field(default_factory=list)
     # The PRs that already exist for a branch (`branch_pull`).
     branch_pulls: Dict[str, BranchPull] = field(default_factory=dict)
+    # The PRs a person left as a draft.
+    person_drafts: Set[int] = field(default_factory=set)
     login_source: ClassVar[str] = "github"
     NUMBER: ClassVar[int] = 41
 
@@ -171,6 +173,10 @@ class FakeGithubSide:
 
     def default_branch(self, repo: str) -> str:
         return "main"
+
+    def pull_state(self, repo: str, number: int) -> PullState:
+        """Every PR is open and clean; the ones in `person_drafts` are drafts a person made."""
+        return PullState(True, False, False, "main", draft=number in self.person_drafts)
 
     def open_pull(self, repo: str, draft: PullRequestDraft) -> int:
         if self.refusals:
@@ -285,6 +291,11 @@ class Setup:
     def save(self, entry: WorkEntry) -> None:
         """Leave `entry` in the state, as an earlier run of `serve` did."""
         asyncio.run(self.company.state.record(entry))
+
+    def raised(self, max_usd: float) -> "Setup":
+        """The same setup after the maintainer raised `max_usd` in the runbook and restarted `serve`."""
+        settings = self.company.settings.model_copy(update={"max_usd": max_usd})
+        return replace(self, company=replace(self.company, settings=settings))
 
 
 class Setups:

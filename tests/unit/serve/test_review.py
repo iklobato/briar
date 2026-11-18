@@ -5,19 +5,24 @@ what briar writes. Each test starts after the ticket routine opened PR 41 on
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Sequence
+import asyncio
+from pathlib import Path
+from typing import Any, Dict, List, Sequence, Tuple
 
 import pytest
 
 from briar.extract._provider import CiState, CommentKind, ReviewComment, ThreadReply
 from briar.serve.flow import TaskFlow
 from briar.serve.git import Shell
-from briar.serve.state import WorkSource, WorkStatus
+from briar.serve.state import MoneyStop, WorkSource, WorkStatus
 from briar.serve.task import Answers
-from briar.serve.work import Marker, WorkItem, WorkKind
+from briar.serve.work import BudgetReopen, Marker, WorkItem, WorkKind
 from tests.unit.serve.ticket_fakes import FakeGithubSide, Files, Items, Plans, ScriptedAgent, Setup, Setups, Step
 
 PR = FakeGithubSide.NUMBER
+# The `max_usd` of the tests, and what the maintainer raises it to.
+MAX_USD = 5.0
+RAISED_USD = 10.0
 SHORT_SHA = 7
 LAST_TWO = 2
 # The text in a recorded (repo, number, text) comment.
@@ -204,6 +209,98 @@ class TestLimits:
         assert (agent.requests, github.drafts, entry.status) == ([], [PR], WorkStatus.BLOCKED)
         assert entry.report.startswith(f"briar stopped: max_review_rounds (1) reached on PR #{PR}.")
         assert setup.sources.tracker_side.comments[-1][1] == entry.report
+
+
+class TestStopForMoney:
+    """Decisions B6, B7, B18: a round that runs out of money keeps what was never verified out of
+    the PR under review, says so on the PR, and is done after `max_usd` is raised."""
+
+    def worktree(self, setup: Setup) -> Path:
+        return setup.cache / "worktrees" / "acme" / "briar__ENG-1"
+
+    def drained(self, opened: Opened) -> Tuple[Setup, str]:
+        """A round whose answer spends the whole `max_usd` and leaves edits in the worktree."""
+        setup, reviews = opened.make({}), Reviews()
+        head = opened.head(setup)
+        step = Step(writes={"feature.txt": "unverified\n", "new.txt": "new\n"}, structured=reviews.answers([]), cost=MAX_USD)
+
+        setup.work_on(ScriptedAgent([step]), reviews.item([reviews.inline()]))
+        return setup, head
+
+    def test_what_was_never_verified_is_discarded_and_nothing_is_pushed(self, opened: Opened) -> None:
+        setup, head = self.drained(opened)
+        worktree = self.worktree(setup)
+
+        assert opened.head(setup) == head
+        assert Shell().line("git status --porcelain", worktree).output == ""
+        assert (worktree / "feature.txt").read_text() == "done\n"
+        assert not (worktree / "new.txt").exists()
+
+    def test_the_pr_becomes_a_draft_and_says_why(self, opened: Opened) -> None:
+        github = self.drained(opened)[0].sources.github_side
+
+        assert (github.drafts, github.replies) == ([PR], [])
+        assert github.comments[-1][TEXT].startswith("briar stopped: the task spent its max_usd of 5.0")
+        assert github.comments[-1][TEXT].endswith(Marker.TEXT)
+
+    def test_the_state_says_the_round_stopped_for_money_and_gives_the_round_back(self, opened: Opened) -> None:
+        entry = self.drained(opened)[0].entry("ENG-1")
+
+        assert (entry.status, entry.rounds, entry.answered) == (WorkStatus.BLOCKED, 0, {})
+        assert entry.money_stop == MoneyStop(cap=MAX_USD, resume_to="pr-open", drafted=True)
+
+    def test_a_stop_after_the_push_keeps_the_pushed_work_and_the_round(self, opened: Opened) -> None:
+        """B18: the replies are posted and the answers saved before the CI wait; only the fix of CI is discarded."""
+        setup, reviews = opened.make({}), Reviews()
+        before = opened.head(setup)
+        setup.sources.github_side.ci[:] = [CiState.FAILED]
+        rows = [{"id": "inline:1", "changed": True, "reply": "Added."}]
+        answer = Step(writes={"feature.txt": "done, see ENG-1\n"}, structured=reviews.answers(rows))
+        agent = ScriptedAgent([answer, Plans().approved(), Step(writes={"other.txt": "x\n"}, cost=MAX_USD)])
+
+        setup.work_on(agent, reviews.item([reviews.inline()]))
+
+        worktree, entry = self.worktree(setup), setup.entry("ENG-1")
+        assert opened.head(setup) != before
+        assert Shell().line("git rev-parse HEAD", worktree).output.strip() == opened.head(setup)
+        assert not (worktree / "other.txt").exists()
+        assert (entry.status, entry.rounds, entry.answered) == (WorkStatus.BLOCKED, 1, {"inline:1": "t1"})
+        assert (len(setup.sources.github_side.replies), entry.money_stop) == (1, MoneyStop(cap=MAX_USD, resume_to="pr-open", drafted=True))
+
+    def test_the_round_is_done_and_the_pr_ready_after_the_cap_is_raised(self, opened: Opened) -> None:
+        setup, _ = self.drained(opened)
+        raised, reviews = setup.raised(RAISED_USD), Reviews()
+        ready_before = list(setup.sources.github_side.readies)
+        assert asyncio.run(BudgetReopen(raised.company).apply()) == ["ENG-1"]
+        answer = Step(structured=reviews.answers([{"id": "inline:1", "changed": False, "reply": "It is fine."}]))
+
+        raised.work_on(ScriptedAgent([answer]), reviews.item([reviews.inline()]))
+
+        entry = raised.entry("ENG-1")
+        assert (entry.status, entry.rounds, entry.money_stop) == (WorkStatus.DONE, 1, None)
+        assert raised.sources.github_side.readies == [*ready_before, PR]
+
+    def test_a_pr_a_person_left_as_a_draft_is_not_marked_ready_after_the_stop(self, opened: Opened) -> None:
+        """Only briar own draft is marked ready again: the person made this one."""
+        setup, reviews = opened.make({}), Reviews()
+        setup.sources.github_side.person_drafts.add(PR)
+        step = Step(structured=reviews.answers([]), cost=MAX_USD)
+        setup.work_on(ScriptedAgent([step]), reviews.item([reviews.inline()]))
+        raised, ready_before = setup.raised(RAISED_USD), list(setup.sources.github_side.readies)
+        asyncio.run(BudgetReopen(raised.company).apply())
+
+        raised.work_on(ScriptedAgent([Step(structured=reviews.answers([]))]), reviews.item([reviews.inline()]))
+
+        assert setup.entry("ENG-1").money_stop is None
+        assert (setup.sources.github_side.drafts, raised.sources.github_side.readies) == ([], ready_before)
+
+    def test_a_pr_that_briar_did_not_draft_is_never_marked_ready_by_a_round(self, opened: Opened) -> None:
+        setup, reviews = opened.make({}), Reviews()
+        ready_before = list(setup.sources.github_side.readies)
+
+        setup.work_on(ScriptedAgent([Step(structured=reviews.answers([]))]), reviews.item([reviews.inline()]))
+
+        assert setup.sources.github_side.readies == ready_before
 
 
 class TestTicketAfterTheEnd:

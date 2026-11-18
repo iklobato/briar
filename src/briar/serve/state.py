@@ -29,6 +29,16 @@ class WorkStatus(str, Enum):
     CLOSED = "closed"
 
 
+class MoneyStop(BaseModel):
+    """Why a ticket is blocked for money (decisions B9, B10): the `max_usd` it stopped at, the
+    status it goes back to when the maintainer raises that cap, and whether briar made its PR a
+    draft (so briar, and nobody else, marks it ready again)."""
+
+    cap: float
+    resume_to: str
+    drafted: bool = False
+
+
 class WorkEntry(BaseModel):
     """One ticket briar took."""
 
@@ -58,6 +68,9 @@ class WorkEntry(BaseModel):
     reminded: bool = False
     # What the task spent on the model per UTC day, US$ (the daily report and `max_usd_per_day`).
     spent_by_day: Dict[str, float] = Field(default_factory=dict)
+    # Set when the task stopped because the ticket spent its `max_usd`; the one stop a person lifts
+    # by raising `max_usd` and restarting `serve` (decision B10).
+    money_stop: Optional[MoneyStop] = None
 
     # A ticket in one of these is not taken again; one found or planned when `serve`
     # stopped is taken again and picks up its worktree.
@@ -140,4 +153,4 @@ class WorkState:
         self._store.put(self.blob_name(), book.model_dump_json(indent=self.INDENT), category="work")
 
 
-__all__ = ["WorkBook", "WorkEntry", "WorkSource", "WorkState", "WorkStatus"]
+__all__ = ["MoneyStop", "WorkBook", "WorkEntry", "WorkSource", "WorkState", "WorkStatus"]

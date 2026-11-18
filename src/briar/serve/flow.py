@@ -11,12 +11,12 @@ import logging
 import re
 import time
 from pathlib import PurePosixPath
-from typing import Any, ClassVar, FrozenSet, List, Mapping
+from typing import Any, ClassVar, FrozenSet, List, Mapping, Optional
 
 from briar.errors import CliError
 from briar.extract._provider import CiState, PullRequestDraft
 from briar.serve.git import Shell
-from briar.serve.state import WorkSource, WorkStatus
+from briar.serve.state import MoneyStop, WorkEntry, WorkSource, WorkStatus
 from briar.serve.task import AgentSteps, Budget, LimitHit, Plan, TaskContext
 from briar.serve.work import Marker, WorkItem, WorkSources
 
@@ -62,6 +62,18 @@ class TicketSide:
         """Only Jira has a status to move; no name in the runbook: no move."""
         if status and item.source is WorkSource.JIRA:
             self._sources.jira().move(item.key, status)
+
+
+class PullBody:
+    """The body of the PR of a task: its plan, what the PR closes, and what the task cost."""
+
+    def __init__(self, item: WorkItem, spent: str) -> None:
+        self._item = item
+        self._spent = spent
+
+    def of(self, plan: str) -> str:
+        closes = f"\n\nCloses #{self._item.number()}" if self._item.source is WorkSource.GITHUB else f"\n\nTicket: {self._item.key}"
+        return f"{plan}{closes}\n\nBuilt by briar (spent {self._spent})."
 
 
 class TaskFlow:
@@ -130,23 +142,26 @@ class TaskFlow:
     async def push(self) -> None:
         await asyncio.to_thread(self._context.checkout.push, self._context.worktree, self._context.branch, self._context.token)
 
-    async def blocked(self, report: str) -> None:
-        """S23: push what there is, a draft PR with the report, the report on the ticket.
-        The ticket is blocked even when posting fails (else the next cycle would redo it,
-        and pay again): the failure joins the report in the state and the log."""
+    async def blocked(self, report: str, stop: Optional[MoneyStop] = None) -> None:
+        """S23: push what there is, a draft PR, the report on the PR and on the ticket. The
+        ticket is blocked even when posting fails (else the next cycle would redo it, and pay
+        again): the failure joins the report in the state and the log. `stop` says the ticket
+        ran out of money, so raising `max_usd` can bring it back (decision B10); every other stop
+        clears it."""
         head, _, detail = report.partition("\n\n")
         text = f"briar stopped: {head}. Spent {self._budget.summary()}." + (f"\n\n{detail}" if detail else "")
         known = self._context.company.state.book().entry(self._context.item.key)
         number = known.pr if known is not None else 0
         try:
-            number = await asyncio.to_thread(self._draft, text)
+            number = await asyncio.to_thread(self._draft)
+            await asyncio.to_thread(self._report_on_pull, number, text)
         except CliError as failure:
             text = f"{text} The draft PR failed: {failure}."
         try:
             await asyncio.to_thread(TicketSide(self._context.sources).comment, self._context.item, text)
         except CliError as failure:
             text = f"{text} The ticket comment failed: {failure}."
-        await self.record(WorkStatus.BLOCKED, {"pr": number, "report": text})
+        await self.record(WorkStatus.BLOCKED, {"pr": number, "report": text, "money_stop": stop})
 
     async def record(self, status: WorkStatus, changes: Mapping[str, Any]) -> None:
         """Write the entry of the task with `status` and `changes`, keeping what the state
@@ -197,8 +212,10 @@ class TaskFlow:
         await self.verified("fix CI")
         await self.push()
 
-    def _draft(self, text: str) -> int:
-        """The PR of the task as a draft with the report: the open one, or a new one."""
+    def _draft(self) -> int:
+        """The PR of the task as a draft: the open one, or a new one (0 when there is nothing to
+        show). A new one opens with the plan as its body, so it is right when the task goes on
+        after a stop for money (decision B8); the report goes in a comment."""
         known = self._context.company.state.book().entry(self._context.item.key)
         self.commit("work so far")
         if not (known and known.pr) and not self.changed():
@@ -207,10 +224,17 @@ class TaskFlow:
         github = self._context.sources.code_host()
         if known is not None and known.pr:
             github.make_draft(self._context.item.repo, known.pr)
-            github.comment(self._context.item.repo, known.pr, Marker().mark(text))
             return known.pr
-        draft = PullRequestDraft(self._context.branch, self._context.base, self._context.title, text, draft=True)
-        return int(github.open_pull(self._context.item.repo, draft))
+        return int(github.open_pull(self._context.item.repo, self._new_draft(known)))
+
+    def _new_draft(self, known: Optional[WorkEntry]) -> PullRequestDraft:
+        plan = known.plan if known is not None and known.plan else self._context.title
+        body = PullBody(self._context.item, self.spent()).of(plan)
+        return PullRequestDraft(self._context.branch, self._context.base, self._context.title, body, draft=True)
+
+    def _report_on_pull(self, number: int, text: str) -> None:
+        if number:
+            self._context.sources.code_host().comment(self._context.item.repo, number, Marker().mark(text))
 
     async def _base_passes(self) -> None:
         """A verify that fails on the base too is no failure of the change (a real run: a
@@ -246,4 +270,4 @@ class TaskFlow:
         return f"\n\ngit ignores these files of your folder, so they are not in the commit: {', '.join(ignored)}" if ignored else ""
 
 
-__all__ = ["TaskFlow", "TicketSide"]
+__all__ = ["PullBody", "TaskFlow", "TicketSide"]

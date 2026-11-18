@@ -7,17 +7,19 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
 
 import pytest
 
+from briar.extract._provider import CommentKind, ReviewComment
 from briar.extract._providers.gitlab_host import GitlabHost
 from briar.serve.flow import TaskFlow
 from briar.serve.git import Shell
 from briar.serve.host import GitlabStyle
 from briar.serve.routine import ServeRoutine
-from briar.serve.state import WorkStatus
+from briar.serve.state import MoneyStop, WorkSource, WorkStatus
 from briar.serve.task import TaskPrep
-from briar.serve.work import ServeCompany
+from briar.serve.work import ServeCompany, WorkItem, WorkKind
 from tests.unit.fake_logins import FakeLogins
 from tests.unit.serve.fakes import Companies
 from tests.unit.serve.gitlab_server import GitlabServer, PipelinePlan
@@ -25,6 +27,8 @@ from tests.unit.serve.ticket_fakes import FakeTrackerSide, Files, Items, LocalOr
 
 FAKE_TOKEN = "PLACEHOLDER-not-a-secret"
 FIRST_MR = 1
+# The `max_usd` of the test runbook.
+MAX_USD = 5.0
 # The agent call that fixes a failed CI: plan, build, self-review, then the fix.
 CI_FIX_CALL = 3
 TWO_PUSHED_HEADS = 2
@@ -59,9 +63,9 @@ class GitlabSetup:
     server: GitlabServer
     cache: Path
 
-    def work_on(self, agent: ScriptedAgent) -> None:
+    def work_on(self, agent: ScriptedAgent, item: Optional[WorkItem] = None) -> None:
         prep = TaskPrep(self.sources, Shell(), self.cache)  # type: ignore[arg-type]  # a structural stand-in for WorkSources, as RoutineSources is
-        asyncio.run(ServeRoutine(self.company, lambda context: agent, prep).work_on(Items().jira()))
+        asyncio.run(ServeRoutine(self.company, lambda context: agent, prep).work_on(item or Items().jira()))
 
 
 class GitlabSetups:
@@ -81,6 +85,26 @@ class GitlabSetups:
 @pytest.fixture
 def gitlab(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> GitlabSetups:
     return GitlabSetups(tmp_path, monkeypatch)
+
+
+class TestReviewStopOnGitlab:
+    """Decision B6 on the host of the real runs: a round that runs out of money pushes nothing,
+    drafts the merge request and says why in a note."""
+
+    def test_a_round_that_runs_out_of_money_drafts_the_merge_request_and_says_why(self, gitlab: GitlabSetups) -> None:
+        setup = gitlab.make(PipelinePlan())
+        setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()]))
+        pushed = len(setup.server.heads)
+        comment = ReviewComment(id="2", author="bob", body="please add a test", kind=CommentKind.CONVERSATION, association="OWNER", updated_at="t2")
+        item = WorkItem(WorkKind.REVIEW, "ENG-1", WorkSource.JIRA, "acme/app", "Add the feature", pr=FIRST_MR, comments=(comment,))
+
+        setup.work_on(ScriptedAgent([Step(writes={"feature.txt": "unverified\n"}, structured={"answers": []}, cost=MAX_USD)]), item)
+
+        assert len(setup.server.heads) == pushed
+        assert setup.server.merge_requests[FIRST_MR]["title"].startswith("Draft:")
+        assert setup.server.notes[FIRST_MR][-1].startswith("briar stopped: the task spent its max_usd of 5.0")
+        entry = setup.company.state.book().entry("ENG-1")
+        assert (entry.status, entry.money_stop) == (WorkStatus.BLOCKED, MoneyStop(cap=MAX_USD, resume_to="pr-open", drafted=True))
 
 
 class TestTicketOnGitlab:

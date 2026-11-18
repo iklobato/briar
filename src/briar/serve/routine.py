@@ -14,8 +14,8 @@ from briar.errors import CliError
 from briar.serve.agent import AgentRunner
 from briar.serve.flow import TaskFlow, TicketSide
 from briar.serve.review import ReviewRun
-from briar.serve.state import WorkStatus
-from briar.serve.task import AgentSteps, Budget, TaskContext, TaskPrep
+from briar.serve.state import MoneyStop, WorkStatus
+from briar.serve.task import AgentSteps, Budget, BudgetExhausted, TaskContext, TaskPrep
 from briar.serve.ticket import TicketRun
 from briar.serve.work import ServeCompany, WorkDay, WorkItem, WorkKind
 
@@ -58,11 +58,20 @@ class ServeRoutine:
         parts = TaskParts(context, steps, TaskFlow(context, steps, budget))
         try:
             await self._run(item, parts)
+        except BudgetExhausted as stop:
+            await parts.flow.blocked(str(stop), self._money_stop(item))
         except self.EXPECTED as stop:
             await parts.flow.blocked(str(stop) or type(stop).__name__)
         except self.UNEXPECTED as bug:
             self.LOG.exception("serve: task %s failed with an unexpected error", item.ref())
             await parts.flow.blocked(f"{type(bug).__name__}: {bug}")
+
+    def _money_stop(self, item: WorkItem) -> MoneyStop:
+        """Decision B9: the cap the ticket stopped at, and the status it goes back to when the
+        maintainer raises `max_usd` (the one it had when it ran out)."""
+        known = self._company.state.book().entry(item.key)
+        status = known.status if known is not None else WorkStatus.FOUND
+        return MoneyStop(cap=self._company.settings.max_usd, resume_to=status.value)
 
     async def _budget(self, item: WorkItem) -> Budget:
         """Decisions B2, B3: what the earlier runs of the ticket spent counts against `max_usd`;
