@@ -8,23 +8,30 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 
 import pytest
 
 from briar.auth.check import SourceUnreachable
+from briar.extract._provider import CommentKind, PullState, ReviewComment
 from briar.extract._tracker import Ticket
 from briar.serve.loop import CompanyWatch, TaskSlots, WatchWork
 from briar.serve.select import Choice, Selector
 from briar.serve.state import WorkState
 from briar.serve.state import MoneyStop, WorkEntry, WorkSource, WorkStatus
 from briar.serve.work import ServeCompany, WorkDay, WorkItem, WorkKind
-from tests.unit.serve.fakes import Companies, FakeJira, FakeSources, Tickets
+from tests.unit.serve.fakes import Companies, FakeGithub, FakeJira, FakeSources, Tickets
 from tests.unit.serve.test_select import PickingAgent
 
 TWO_SLOTS = 2
+THREE_SLOTS = 3
+THREE_POLLS = 3
+# The merged PR of `TestDayGate`.
+MERGED_PR = 13
 # The US$ a day cap of `TestDailyMoneyLimit`.
 DAY_CAP = 10.0
+# What the gate says once for the day when the booked spend is at the cap.
+GATE_NOTE = "the daily cap max_usd_per_day of US$ 10 is reached: nothing that needs the model runs until tomorrow (UTC)"
 # A big spend on another day: it must not count against today.
 OTHER_DAY_SPEND = 100.0
 FIVE_TASKS = 5
@@ -223,8 +230,8 @@ class TestDailyLimit:
 
 
 class TestDailyMoneyLimit:
-    """Decision R9: `max_usd_per_day` stops only NEW tickets; tasks and review rounds that are
-    already open go on, so nothing is left half done."""
+    """Decisions B11 and B13 (PR B): with the spend booked today at `max_usd_per_day` no ticket starts and
+    nothing that needs the model runs (the cap is hard; see `TestDayGate`)."""
 
     def _company(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spent_today: float) -> ServeCompany:
         jira = FakeJira({"ENG": [Tickets().jira("ENG-1", "High", "2026-01-03")]})
@@ -245,14 +252,78 @@ class TestDailyMoneyLimit:
         agent = PickingAgent([{"key": "ENG-1", "repo": "acme/app", "reason": "the only ticket"}])
 
         assert (self._cycle(company, agent), agent.requests) == (0, [])
-        assert "serve: acme: US$ 10.00 spent today (max_usd_per_day 10.0): no new ticket until tomorrow (UTC)" in caplog.text
-        assert company.notes[WorkDay().today()] == ["US$ 10.00 spent today (max_usd_per_day 10.0): no new ticket until tomorrow (UTC)"]
+        assert f"serve: acme: {GATE_NOTE}" in caplog.text
+        assert company.notes[WorkDay().today()] == [GATE_NOTE]
 
     def test_a_day_under_the_cap_and_spend_of_other_days_do_not_stop_a_ticket(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         company = self._company(tmp_path, monkeypatch, DAY_CAP - 1)
         agent = PickingAgent([{"key": "ENG-1", "repo": "acme/app", "reason": "the only ticket"}])
 
         assert self._cycle(company, agent) == 1
+
+
+class KeyRoutine:
+    """Records the kind and the key of every task a poll dispatches."""
+
+    def __init__(self) -> None:
+        self.dispatched: List[Tuple[WorkKind, str]] = []
+
+    async def work_on(self, item: WorkItem) -> None:
+        self.dispatched.append((item.kind, item.key))
+
+
+class TestDayGate:
+    """Decisions B11 and B13 (PR B): with the BOOKED spend at the cap, nothing that needs the model is dispatched, so no
+    poll fetches a clone and builds a worktree for a task that would pause at its first call. A merged or closed PR
+    only needs the state, so it is still recorded."""
+
+    def watch(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spent: float) -> Tuple[ServeCompany, KeyRoutine, CompanyWatch, TaskSlots]:
+        today = WorkDay().today()
+        review = ReviewComment(id="1", author="ann", body="rename this", kind=CommentKind.INLINE, association="MEMBER", updated_at="t1")
+        github = FakeGithub(comments={("acme/app", PR): [review]}, pulls={("acme/app", MERGED_PR): PullState(False, True, False, "main")})
+        jira = FakeJira({"ENG": [Tickets().jira("ENG-7", "High", "2026-01-03")]})
+        monkeypatch.setattr("briar.serve.loop.WorkSources", lambda logins, kind: FakeSources(github, jira_adapter=jira))
+        company = Companies(tmp_path / "knowledge").company({"jira": {"ENG": {"repos": ["acme/app"]}}, "max_usd_per_day": DAY_CAP})
+        rows = [
+            ("ENG-9", WorkStatus.DONE, 0, {today: spent}),
+            ("ENG-8", WorkStatus.DONE, PR, {}),
+            ("ENG-7", WorkStatus.PLANNED, 0, {}),
+            ("ENG-6", WorkStatus.DONE, MERGED_PR, {}),
+        ]
+        for key, status, pr, spent_by_day in rows:
+            entry = WorkEntry(key=key, source=WorkSource.JIRA, repo="acme/app", title=key, status=status, pr=pr, spent_by_day=spent_by_day)
+            asyncio.run(company.state.record(entry))
+        routine, slots = KeyRoutine(), TaskSlots(asyncio.Semaphore(THREE_SLOTS), set(), set())
+        return company, routine, CompanyWatch(company, slots, WatchWork(routine, Choice(Selector(PickingAgent([]), company), company))), slots
+
+    def polls(self, watch: CompanyWatch, slots: TaskSlots, count: int) -> None:
+        async def scenario() -> None:
+            for _ in range(count):
+                await watch.cycle()
+                await slots.drain()
+
+        asyncio.run(scenario())
+
+    def test_a_poll_at_the_cap_dispatches_only_what_needs_no_model(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _, routine, watch, slots = self.watch(tmp_path, monkeypatch, DAY_CAP)
+
+        self.polls(watch, slots, 1)
+
+        assert routine.dispatched == [(WorkKind.MERGED, "ENG-6")]
+
+    def test_a_poll_under_the_cap_dispatches_the_review_the_resumed_ticket_and_the_merge(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _, routine, watch, slots = self.watch(tmp_path, monkeypatch, DAY_CAP - 1)
+
+        self.polls(watch, slots, 1)
+
+        assert sorted(routine.dispatched, key=str) == sorted([(WorkKind.REVIEW, "ENG-8"), (WorkKind.TICKET, "ENG-7"), (WorkKind.MERGED, "ENG-6")], key=str)
+
+    def test_many_polls_at_the_cap_leave_one_note_for_the_day(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        company, _, watch, slots = self.watch(tmp_path, monkeypatch, DAY_CAP)
+
+        self.polls(watch, slots, THREE_POLLS)
+
+        assert company.notes[WorkDay().today()] == [GATE_NOTE]
 
 
 class TestReopenInTheCycle:

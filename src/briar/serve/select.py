@@ -16,6 +16,7 @@ from briar.extract._tracker import Ticket
 from briar.iac.runbook.models import ServeSettings
 from briar.serve.agent import Access, AgentAnswer, AgentRequest, AgentRunner
 from briar.serve.chat import ChatAsks, ChatReader
+from briar.serve.day import DayPause, Grant
 from briar.serve.task import Prompts
 from briar.serve.work import ServeCompany, WorkDay, WorkItem
 
@@ -114,12 +115,34 @@ class Selector:
             return []
         shortlist = list(ranked[: self.SHORTLIST])
         system = Prompts().text("select", {"company": self._company.name, "slots": str(free)})
-        request = AgentRequest(Shortlist(shortlist, talk).text(), system, self._company.root, self._company.settings.max_usd, self.SCHEMA, Access.ANSWER)
-        answer = await self._agent.ask(request)
+        grant = await self._granted()
+        if grant is None:
+            return []
+        day = WorkDay().today()
+        request = AgentRequest(Shortlist(shortlist, talk).text(), system, self._company.root, grant.amount, self.SCHEMA, Access.ANSWER)
+        try:
+            answer = await self._call(request, day)
+        finally:
+            self._company.day.release(grant)
         if answer.failed:
             self.LOG.error("serve: the selector failed: %s", answer.reason)
             return []
-        return Picks(shortlist, answer, self._company.name).items(free)
+        return [replace(item, selection_day=day) for item in Picks(shortlist, answer, self._company.name).items(free)]
+
+    async def _granted(self) -> Optional[Grant]:
+        """Decision B11: the selector is under the day cap, and does not run when the booked spend is at it."""
+        try:
+            return await self._company.grant(self._company.settings.max_usd)
+        except DayPause as capped:
+            self.LOG.info("serve: %s: the selector did not run: %s", self._company.name, capped)
+            return None
+
+    async def _call(self, request: AgentRequest, day: str) -> AgentAnswer:
+        """The call, and its cost booked to `day` where it returns, before the reservation of the day goes: a failed call
+        or an empty pick spent money too (decision B11). A pick that becomes a task moves the cost to its entry."""
+        answer = await self._agent.ask(request)
+        await self._company.state.add_loose(day, answer.cost_usd)
+        return answer
 
 
 class Shortlist:

@@ -71,6 +71,9 @@ class WorkEntry(BaseModel):
     # Set when the task stopped because the ticket spent its `max_usd`; the one stop a person lifts
     # by raising `max_usd` and restarting `serve` (decision B10).
     money_stop: Optional[MoneyStop] = None
+    # Set when the day cap paused the CI wait of a review round after its replies were posted (decision B13,
+    # PR B): nothing else brings that round back, so the finder emits it again until it is done.
+    ci_paused: bool = False
 
     # A ticket in one of these is not taken again; one found or planned when `serve`
     # stopped is taken again and picks up its worktree.
@@ -93,6 +96,9 @@ class WorkBook(BaseModel):
     """Every ticket of one company, by key."""
 
     entries: Dict[str, WorkEntry] = Field(default_factory=dict)
+    # What the selector spent on each UTC day on calls that did not become a ticket (yet): a failed call, an empty
+    # pick, a pick whose task has not started (decision B11, PR B). The day cap counts it.
+    loose_by_day: Dict[str, float] = Field(default_factory=dict)
 
     def taken(self, key: str) -> bool:
         return key in self.entries and self.entries[key].taken()
@@ -101,15 +107,15 @@ class WorkBook(BaseModel):
         return self.entries.get(key)
 
     def with_entry(self, entry: WorkEntry) -> "WorkBook":
-        return WorkBook(entries={**self.entries, entry.key: entry})
+        return self.model_copy(update={"entries": {**self.entries, entry.key: entry}})
 
     def started_on(self, day: str) -> int:
         """How many tickets briar took on `day` (decision D3)."""
         return sum(1 for entry in self.entries.values() if entry.started == day)
 
     def spent_on(self, day: str) -> float:
-        """What every task of the company spent on the model on `day`, US$ (decision R9)."""
-        return sum(entry.spent_by_day.get(day, 0.0) for entry in self.entries.values())
+        """What every task of the company and the selector spent on the model on `day`, US$ (decisions R9, B11)."""
+        return sum(entry.spent_by_day.get(day, 0.0) for entry in self.entries.values()) + self.loose_by_day.get(day, 0.0)
 
     def watched(self) -> List[WorkEntry]:
         """The PRs briar still reads: open, and not blocked (V3)."""
@@ -148,6 +154,25 @@ class WorkState:
             known = book.entry(fresh.key) or fresh
             spent = {**known.spent_by_day, day: known.spent_by_day.get(day, 0.0) + cost}
             self._save(book.with_entry(known.model_copy(update={"spent_by_day": spent})))
+
+    async def add_loose(self, day: str, cost: float) -> None:
+        """Book what the selector spent on `day`, when its call returns (decision B11): the cost counts in the day
+        before anyone knows whether a ticket is taken."""
+        async with self._lock:
+            book = self.book()
+            loose = {**book.loose_by_day, day: book.loose_by_day.get(day, 0.0) + cost}
+            self._save(book.model_copy(update={"loose_by_day": loose}))
+
+    async def claim_selection(self, fresh: WorkEntry, day: str, cost: float) -> None:
+        """A pick became a task: its `cost` moves from the loose spend of `day` to the entry (decision B2: the pick
+        counts in the ticket total). One lock hold, so the day total does not change and nothing is counted twice."""
+        async with self._lock:
+            book = self.book()
+            known = book.entry(fresh.key) or fresh
+            spent = {**known.spent_by_day, day: known.spent_by_day.get(day, 0.0) + cost}
+            loose = {**book.loose_by_day, day: max(book.loose_by_day.get(day, 0.0) - cost, 0.0)}
+            moved = book.with_entry(known.model_copy(update={"spent_by_day": spent}))
+            self._save(moved.model_copy(update={"loose_by_day": loose}))
 
     def _save(self, book: WorkBook) -> None:
         self._store.put(self.blob_name(), book.model_dump_json(indent=self.INDENT), category="work")

@@ -235,6 +235,28 @@ class TestReviewFinder:
 
         assert [(item.kind, item.pr) for item in items] == [(WorkKind.READY, PR_NUMBER)]
 
+    def test_a_round_the_day_cap_paused_in_its_ci_wait_is_found_to_wait_for_it_again(self, companies: Companies) -> None:
+        """Decision B13 (PR B): the replies are posted and the PR is not a draft, so nothing else brings the round back."""
+        company = Watched(companies).company({}, {"ci_paused": True})
+
+        items = WorkFinder(company, FakeSources(FakeGithub(), jira_adapter=FakeJira({"ENG": []}))).find()
+
+        assert [(item.kind, item.pr, item.ci_only, item.comments) for item in items] == [(WorkKind.REVIEW, PR_NUMBER, True, ())]
+
+    def test_a_new_comment_wins_over_the_paused_wait(self, companies: Companies) -> None:
+        """One normal round waits for the CI too, so the paused wait is not emitted twice."""
+        company = Watched(companies).company({}, {"ci_paused": True})
+        github = FakeGithub(comments={("acme/app", PR_NUMBER): [Comments().of("1", "MEMBER", "rename this")]})
+
+        items = WorkFinder(company, FakeSources(github, jira_adapter=FakeJira({"ENG": []}))).find()
+
+        assert [(item.kind, item.ci_only, [comment.id for comment in item.comments]) for item in items] == [(WorkKind.REVIEW, False, ["1"])]
+
+    def test_a_pr_with_no_pause_and_no_news_is_not_found(self, companies: Companies) -> None:
+        company = Watched(companies).company({}, {})
+
+        assert WorkFinder(company, FakeSources(FakeGithub(), jira_adapter=FakeJira({"ENG": []}))).find() == []
+
     def test_a_draft_pr_of_a_finished_task_is_left_to_people(self, companies: Companies) -> None:
         """A person turned a `done` PR back into a draft: briar does not mark it ready again."""
         company = Watched(companies).company({}, {})

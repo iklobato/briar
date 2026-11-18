@@ -301,6 +301,11 @@ class Setup:
         settings = self.company.settings.model_copy(update={"max_usd": max_usd})
         return replace(self, company=replace(self.company, settings=settings))
 
+    def day_capped(self, cap: float) -> "Setup":
+        """The same setup with `max_usd_per_day` set to `cap` (the maintainer changed it and restarted `serve`)."""
+        settings = self.company.settings.model_copy(update={"max_usd_per_day": cap})
+        return replace(self, company=replace(self.company, settings=settings))
+
 
 class Setups:
     def __init__(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -6,13 +6,14 @@ answer; S18 to S20)."""
 from __future__ import annotations
 
 import importlib.resources
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, ClassVar, List, Mapping, Sequence, Tuple
 
 from briar.errors import CliError
 from briar.extract._provider import ReviewComment
 from briar.serve.agent import Access, AgentAnswer, AgentRequest, AgentRunner
+from briar.serve.day import DayPause, Grant
 from briar.serve.git import GitIdentity, RepoCheckout, Shell
 from briar.serve.rules import TaskRules
 from briar.serve.state import WorkSource
@@ -45,10 +46,17 @@ class Budget:
         if self.left_usd() <= 0:
             raise BudgetExhausted(self._report())
 
-    def spend(self, answer: AgentAnswer) -> None:
-        self.spent[0] += answer.cost_usd
+    def add(self, cost: float) -> None:
+        self.spent[0] += cost
+
+    def check(self, answer: AgentAnswer) -> None:
+        """The SDK stop `error_max_budget_usd` is the ticket cap here; `AgentSteps._ask` tells the day cap first (decision B13)."""
         if answer.reason == "error_max_budget_usd" or self.left_usd() <= 0:
             raise BudgetExhausted(self._report())
+
+    def spend(self, answer: AgentAnswer) -> None:
+        self.add(answer.cost_usd)
+        self.check(answer)
 
     def _report(self) -> str:
         return f"the task spent its max_usd of {self.max_usd}"
@@ -322,9 +330,36 @@ class AgentSteps:
         await self._context.company.state.add_spend(item.entry(), WorkDay().today(), answer.cost_usd)
 
     async def _ask(self, prompt: str, schema: Mapping[str, Any], access: Access) -> AgentAnswer:
-        company = self._context.company
         self._budget.require()
-        values = {
+        ticket_left = self._budget.left_usd()
+        request = AgentRequest(prompt, Prompts().text("system", self._values()), self._context.worktree, ticket_left, schema, access)
+        grant = await self._context.company.grant(ticket_left)
+        try:
+            answer = await self._answered(replace(request, max_usd=grant.amount))
+        finally:
+            # After the booking, so the booked spend plus what is in flight never under counts (decision B12).
+            self._context.company.day.release(grant)
+        self._budget.add(answer.cost_usd)
+        self._day_stop(answer, grant, ticket_left)
+        self._budget.check(answer)
+        if answer.failed:
+            raise LimitHit(f"the agent stopped: {answer.reason or 'no reason given'}")
+        return answer
+
+    async def _answered(self, request: AgentRequest) -> AgentAnswer:
+        answer = await self._agent.ask(request)
+        await self._booked(answer)
+        return answer
+
+    def _day_stop(self, answer: AgentAnswer, grant: Grant, ticket_left: float) -> None:
+        """Decision B13: the SDK stopped the call at its grant and the DAY was the smaller limit, so the task pauses
+        (it is not blocked: a costly day is not the fault of the ticket)."""
+        if answer.reason == "error_max_budget_usd" and grant.amount < ticket_left:
+            raise DayPause(f"the daily cap max_usd_per_day of US$ {self._context.company.settings.max_usd_per_day:g} is reached")
+
+    def _values(self) -> Mapping[str, str]:
+        company = self._context.company
+        return {
             "company": company.name,
             "repo": self._context.item.repo,
             "knowledge": self._known(company.knowledge_file()),
@@ -332,13 +367,6 @@ class AgentSteps:
             "state": self._known(company.state_file()),
             "rules": self._rules().baseline_block(),
         }
-        request = AgentRequest(prompt, Prompts().text("system", values), self._context.worktree, self._budget.left_usd(), schema, access)
-        answer = await self._agent.ask(request)
-        await self._booked(answer)
-        self._budget.spend(answer)
-        if answer.failed:
-            raise LimitHit(f"the agent stopped: {answer.reason or 'no reason given'}")
-        return answer
 
 
 __all__ = [

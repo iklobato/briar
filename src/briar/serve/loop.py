@@ -92,6 +92,8 @@ class CompanyWatch:
 
     LOG: ClassVar[logging.Logger] = logging.getLogger(__name__)
     SECONDS_PER_MINUTE = 60
+    # What needs no model call, so the day cap does not hold it (B13).
+    NO_MODEL: ClassVar[Tuple[WorkKind, ...]] = (WorkKind.MERGED, WorkKind.CLOSED)
     # What one failed poll raises: an adapter error (`CliError`) or the network.
     POLL_FAILURES: ClassVar[Tuple[Type[Exception], ...]] = (CliError, OSError, RuntimeError, ValueError, LookupError)
 
@@ -113,8 +115,9 @@ class CompanyWatch:
             self.LOG.error("serve: %s: the poll failed, trying again next poll: %s", self._company.name, failure)
             return 0
         await ReviewReminders(self._company, sources).send()
-        pulls = [item for item in items if item.kind is not WorkKind.TICKET]
-        started = sum(self._slots.dispatch(item, self._work.routine) for item in pulls) + await self._tickets(items)
+        capped = self._capped()
+        pulls = [item for item in items if item.kind is not WorkKind.TICKET and (item.kind in self.NO_MODEL or not capped)]
+        started = sum(self._slots.dispatch(item, self._work.routine) for item in pulls) + (0 if capped else await self._tickets(items))
         self.LOG.info("serve: %s: %d found, %d started", self._company.name, len(items), started)
         await asyncio.to_thread(DailyReport(self._company, sources).write)
         return started
@@ -130,10 +133,21 @@ class CompanyWatch:
             self.LOG.info("serve: %s: picked %s for %s: %s", self._company.name, item.key, item.repo, item.reason)
         return sum(self._slots.dispatch(item, self._work.routine) for item in [*resumed, *picked])
 
+    def _capped(self) -> bool:
+        """Decisions B11 and B13 (PR B): with the spend booked today at `max_usd_per_day`, nothing that needs the model is
+        dispatched (a resumed ticket, a review round, a ready PR, the selector): it would only fetch a clone and build a
+        worktree for a task that pauses at its first call. A merged or closed PR needs the state only, so it still goes.
+        Calls in flight are not counted here: they hold their share and will be booked."""
+        if not self._company.capped():
+            return False
+        cap = self._company.settings.max_usd_per_day
+        self._noted(f"the daily cap max_usd_per_day of US$ {cap:g} is reached: nothing that needs the model runs until tomorrow (UTC)")
+        return True
+
     def _left_today(self, book: WorkBook, fresh: List[WorkItem]) -> int:
-        """Decisions D3 and R9: the new tickets the company may still start this UTC day, by
-        `max_new_per_day` and by `max_usd_per_day`."""
-        return min(len(fresh), self._by_count(book, fresh), self._by_money(book, fresh))
+        """Decision D3: the new tickets the company may still start this UTC day, by `max_new_per_day`.
+        The money cap is the gate of `cycle` (B11, B13)."""
+        return min(len(fresh), self._by_count(book, fresh))
 
     def _by_count(self, book: WorkBook, fresh: List[WorkItem]) -> int:
         limit = self._company.settings.max_new_per_day
@@ -144,18 +158,10 @@ class CompanyWatch:
             self._noted(f"{started} new ticket(s) started today (max_new_per_day {limit}): no new ticket until tomorrow (UTC)")
         return max(limit - started, 0)
 
-    def _by_money(self, book: WorkBook, fresh: List[WorkItem]) -> int:
-        cap = self._company.settings.max_usd_per_day
-        spent = book.spent_on(WorkDay().today())
-        if not cap or spent < cap:
-            return len(fresh)
-        if fresh:
-            self._noted(f"US$ {spent:.2f} spent today (max_usd_per_day {cap}): no new ticket until tomorrow (UTC)")
-        return 0
-
     def _noted(self, note: str) -> None:
-        self.LOG.info("serve: %s: %s", self._company.name, note)
-        self._company.notes.setdefault(WorkDay().today(), []).append(note)
+        """One note for each day: a poll repeats the same note while the cap holds, in the log and in the report."""
+        if self._company.note(note):
+            self.LOG.info("serve: %s: %s", self._company.name, note)
 
     async def watch(self) -> None:
         while True:
