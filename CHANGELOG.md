@@ -14,6 +14,7 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Added
 
+- `iac-terraform` extractor: the Terraform of a repo (roots, backends, providers, modules, variable files) read through the GitLab or GitHub API. It never writes a secret value: variable files give names only, and secret-looking names and credential-looking values show `(set)`.
 - Rule sets for `briar serve`: `serve.rules` and `serve.rules_by_repo` turn on sets of coding rules
   that briar adds to what the agent reads (the short text goes in the system prompt of every call,
   the checklist in the self review). One set ships, `code` (the Python style rules); it is left out

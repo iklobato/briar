@@ -12,7 +12,7 @@ You, Claude Code or any other agent read this file. The 2.0 ticket
 pipeline (spec 003) will read it too.
 
 Each source is handled by an extractor (a small plugin that reads one
-kind of data). There are 23 of them. You pick them with `--include`. The
+kind of data). There are 24 of them. You pick them with `--include`. The
 command line has only three flags (`--company`, `--include`, `--repo`);
 every other value goes in `.briar.toml` (see "Settings" below).
 Since 1.1.82 a run updates only the sections of the extractors it ran
@@ -135,7 +135,7 @@ it from a runbook with `config: {inventory: "true"}` (see
 [runbooks.md](runbooks.md)). 1.x also had `--out-json`, `--merge-claude-md`
 and `--blob-name`; 2.0 removed them (decision C13).
 
-## The 23 extractors
+## The 24 extractors
 
 Each extractor adds one section to the blob. Set its values in
 `.briar.toml` under `[extract.<name>]` (the keys are in "Settings"), then
@@ -210,6 +210,7 @@ max = 100
 Code and tooling:
 
 - `codebase-conventions`: detects the language, test runner, linter, formatter and migration tool from files like `pyproject.toml` or `package.json`. The agent runs these tools before it pushes.
+- `iac-terraform`: reads the Terraform of the repos you list: the roots (where it is applied: backend and variable files), the providers, the modules with source and version, and the folders that are only modules. It reads through the host API, one file at a time, variable files first. **It never writes a secret value:** a variable file lists variable names only, a name that looks like a secret is marked `(secret)`, a setting with a secret name or a credential-shaped value shows `(set)`, and a password inside a module URL is cut out. A Terraform map, list or heredoc is shown as `(complex)`, not parsed. `max_files` (default 400, a placeholder not yet fixed from data) limits the files read per repo and the section says when it cut; a real run read about 0.9 seconds per file. Repos with no Terraform give no section.
 - `test-discipline`: shows the ratio of test files to source files, and source files with no obvious test.
 - `todo-density`: counts `TODO`, `FIXME` and `HACK` markers and lists the files with the most. It reads one page of code search, so treat it as a sample.
 
@@ -384,6 +385,7 @@ Every `[extract.<name>]` key, its default and its allowed values (built
 from the code; a test fails when this table and the code differ):
 
 <!-- BEGIN extract-keys -->
+
 | Extractor | Key | Default | Allowed values |
 |---|---|---|---|
 | `active-tickets` | `projects` | `[]` |  |
@@ -416,6 +418,8 @@ from the code; a test fails when this table and the code differ):
 | `dependency-health` | `max` | `200` |  |
 | `dependency-health` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `github-deployments` | `provider` | `"github"` | github, bitbucket, gitlab |
+| `iac-terraform` | `max_files` | `400` |  |
+| `iac-terraform` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `meeting-digest` | `attendee_allow` | `[]` |  |
 | `meeting-digest` | `jira_projects` | `[]` |  |
 | `meeting-digest` | `max` | `25` |  |
@@ -456,6 +460,7 @@ from the code; a test fails when this table and the code differ):
 | `todo-density` | `max` | `200` |  |
 | `todo-density` | `provider` | `"github"` | github, bitbucket, gitlab |
 | `todo-density` | `top_n` | `10` |  |
+
 <!-- END extract-keys -->
 
 ## What you see when it runs
