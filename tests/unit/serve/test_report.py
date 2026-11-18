@@ -14,6 +14,8 @@ from tests.unit.serve.fakes import Companies, FakeSources
 
 PR_NUMBER = 12
 SPENT_DONE, SPENT_BLOCKED, SPENT_YESTERDAY = 0.45, 0.25, 9.0
+# What the selector spent today on picks that never became a ticket.
+SPENT_LOOSE = 0.2
 
 
 class Entries:
@@ -46,6 +48,16 @@ class TestDailyReport:
         assert "more detail" not in text
         assert "US$ 0.70 on 2 ticket(s)" in text
         assert "- the chat was skipped: slack auth.test: invalid_auth" in text
+
+    def test_the_spent_line_counts_what_the_selector_spent_with_no_ticket_to_show_for_it(self, tmp_path: Path) -> None:
+        """Decision B11 (PR B): the day cap counts that spend, so the report counts it too."""
+        company = Companies(tmp_path / "knowledge").company({"jira": {"ENG": {"repos": ["acme/app"]}}})
+        Entries().record(company)
+        asyncio.run(company.state.add_loose(WorkDay().today(), SPENT_LOOSE))
+
+        text = DailyReport(company, FakeSources()).write().read_text()
+
+        assert "US$ 0.70 on 2 ticket(s), and US$ 0.20 on the selector with no ticket." in text
 
     def test_two_polls_rewrite_the_file_instead_of_adding_to_it(self, tmp_path: Path) -> None:
         company = Companies(tmp_path / "knowledge").company({"jira": {"ENG": {"repos": ["acme/app"]}}})

@@ -9,12 +9,13 @@ answered comments. A round that changes nothing only replies."""
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, List, Mapping, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from briar.errors import CliError
 from briar.extract._provider import CommentKind, ReviewComment, ThreadReply
+from briar.serve.day import DayPause
 from briar.serve.flow import TaskFlow
-from briar.serve.state import MoneyStop, WorkStatus
+from briar.serve.state import MoneyStop, WorkEntry, WorkStatus
 from briar.serve.task import AgentSteps, Answers, BudgetExhausted, LimitHit, Plan, TaskContext
 from briar.serve.work import Marker
 
@@ -71,14 +72,39 @@ class ReviewRun:
         self._replied = False
         # Briar made this PR a draft when the ticket ran out of money, so briar marks it ready again (B6).
         self._drafted = False
+        # The status the PR had before the round counted itself, which a pause of the day cap puts back (B13).
+        self._previous: Optional[WorkStatus] = None
 
     async def work(self) -> None:
-        start = await self._start()
+        resumed = self._context.item.ci_only
+        start = await (self._resume() if resumed else self._start())
         self._safe = start
+        # A resumed wait comes after the replies: a stop gives no round back, because none was counted.
+        self._replied = resumed
         try:
-            await self._round(start)
+            await (self._waited() if resumed else self._round(start))
         except BudgetExhausted as stop:
             await self._out_of_money(stop)
+        except DayPause:
+            await self._paused()
+            raise
+
+    async def _waited(self) -> None:
+        """Decision B13: the CI wait and the CI fix of a round the day cap paused after its replies. No reply is posted again
+        and nobody is asked again."""
+        await self._flow.ci(self._context.item.pr)
+        await self._done({})
+
+    async def _paused(self) -> None:
+        """Decision B13: the day cap pauses the round (the routine writes the note). What was never verified goes back to
+        `_safe`. Before the replies the round is given back and the status comes back; after them, only the CI wait is
+        left, so the entry says so and the finder emits it again when the day has room."""
+        context = self._context
+        await asyncio.to_thread(context.checkout.discard, context.worktree, self._safe)
+        if self._replied:
+            await self._flow.record(WorkStatus.PR_OPEN, {"ci_paused": True})
+            return
+        await self._flow.record(self._previous or WorkStatus.PR_OPEN, {"rounds": self._rounds_kept()})
 
     async def _round(self, start: str) -> None:
         item = self._context.item
@@ -109,7 +135,7 @@ class ReviewRun:
         item = self._context.item
         if self._drafted:
             await asyncio.to_thread(self._context.sources.code_host().make_ready, item.repo, item.pr)
-        await self._flow.record(WorkStatus.DONE, {**changes, "money_stop": None})
+        await self._flow.record(WorkStatus.DONE, {**changes, "money_stop": None, "ci_paused": False})
 
     async def _out_of_money(self, stop: BudgetExhausted) -> None:
         """Decisions B6, B7, B18: what was never verified goes (back to the start of the round, or
@@ -144,9 +170,19 @@ class ReviewRun:
         limit = self._context.company.settings.max_review_rounds
         if rounds >= limit:
             raise LimitHit(f"max_review_rounds ({limit}) reached on PR #{self._context.item.pr}")
-        self._drafted = known is not None and known.money_stop is not None and known.money_stop.drafted
+        self._drafted = self._made_a_draft(known)
+        self._previous = known.status if known is not None else WorkStatus.PR_OPEN
         await self._flow.record(WorkStatus.PR_OPEN, {"rounds": rounds + 1})
         return await self._head()
+
+    async def _resume(self) -> str:
+        """Decision B13: the head to go back to for a paused CI wait. No round is counted."""
+        known = self._context.company.state.book().entry(self._context.item.key)
+        self._drafted = self._made_a_draft(known)
+        return await self._head()
+
+    def _made_a_draft(self, known: Optional[WorkEntry]) -> bool:
+        return known is not None and known.money_stop is not None and known.money_stop.drafted
 
     async def _merged(self) -> List[str]:
         """V6: merge the base; the agent resolves what conflicts. A merge that cannot be

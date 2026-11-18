@@ -16,7 +16,7 @@ from briar.serve.flow import TaskFlow
 from briar.serve.git import Shell
 from briar.serve.state import MoneyStop, WorkSource, WorkStatus
 from briar.serve.task import Answers
-from briar.serve.work import BudgetReopen, Marker, WorkItem, WorkKind
+from briar.serve.work import BudgetReopen, Marker, WorkDay, WorkItem, WorkKind
 from tests.unit.serve.ticket_fakes import FakeGithubSide, Files, Items, Plans, ScriptedAgent, Setup, Setups, Step
 
 PR = FakeGithubSide.NUMBER
@@ -27,6 +27,16 @@ RAISED_USD = 10.0
 # step that spends more than that little.
 SMALL_RAISE_USD = 5.6
 ONE_MORE_STEP = 0.5
+# The day caps of `TestDayPause`: the ticket phase books 0.3 and the answer and self review 0.2 more; the
+# cap leaves 0.05 for the call that gets stopped; a bigger cap for the second pause; and what a stopped call spends.
+AFTER_THE_TICKET = 0.35
+AFTER_THE_ANSWER = 0.55
+STILL_LITTLE = 0.6
+LITTLE = 0.05
+# The first round and the second round of the ticket after a new comment.
+SECOND_ROUND = 2
+CAP = 10.0
+STOP = "error_max_budget_usd"
 SHORT_SHA = 7
 LAST_TWO = 2
 # The text in a recorded (repo, number, text) comment.
@@ -50,6 +60,10 @@ class Reviews:
 
     def conflicted(self) -> WorkItem:
         return WorkItem(WorkKind.REVIEW, "ENG-1", WorkSource.JIRA, "acme/app", "Add the feature", pr=PR, conflict=True)
+
+    def resumed(self) -> WorkItem:
+        """The CI wait of a round that the day cap paused after its replies (decision B13, PR B): no comments, no conflict."""
+        return WorkItem(WorkKind.REVIEW, "ENG-1", WorkSource.JIRA, "acme/app", "Add the feature", pr=PR, ci_only=True)
 
     def answers(self, rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         return {"answers": rows}
@@ -322,6 +336,125 @@ class TestStopForMoney:
         setup.work_on(ScriptedAgent([Step(structured=reviews.answers([]))]), reviews.item([reviews.inline()]))
 
         assert setup.sources.github_side.readies == ready_before
+
+
+class TestDayPause:
+    """Decision B13, PR B: the DAY cap pauses a round (it does not block the ticket, draft the PR or comment on it).
+    What was never verified goes; before the replies the round is given back; after them, only the CI wait is left."""
+
+    def worktree(self, setup: Setup) -> Path:
+        return setup.cache / "worktrees" / "acme" / "briar__ENG-1"
+
+    def note(self, cap: float) -> str:
+        return f"ENG-1 paused: the daily cap max_usd_per_day of US$ {cap:g} is reached; it goes on tomorrow (UTC) or when the cap is raised"
+
+    def stopped_before_the_replies(self, setup: Setup) -> Setup:
+        """The answer call is stopped by the day grant: the ticket booked 0.3, so a cap of 0.35 leaves 0.05."""
+        reviews, capped = Reviews(), setup.day_capped(AFTER_THE_TICKET)
+        step = Step(writes={"feature.txt": "unverified\n", "new.txt": "new\n"}, structured=reviews.answers([]), cost=LITTLE, failed=True, reason=STOP)
+
+        capped.work_on(ScriptedAgent([step]), reviews.item([reviews.inline()]))
+        return capped
+
+    def before_the_replies(self, opened: Opened) -> Tuple[Setup, str]:
+        setup = opened.make({})
+        head = opened.head(setup)
+        return self.stopped_before_the_replies(setup), head
+
+    def after_the_replies(self, opened: Opened) -> Setup:
+        """Replies posted and the fix pushed, then the CI fix is stopped by the day grant (0.55 cap, 0.5 booked)."""
+        setup, reviews = opened.make({}), Reviews()
+        setup.sources.github_side.ci[:] = [CiState.FAILED]
+        capped = setup.day_capped(AFTER_THE_ANSWER)
+        rows = [{"id": "inline:1", "changed": True, "reply": "Added."}]
+        answer = Step(writes={"feature.txt": "done, see ENG-1\n"}, structured=reviews.answers(rows))
+        fix = Step(writes={"other.txt": "x\n"}, cost=LITTLE, failed=True, reason=STOP)
+
+        capped.work_on(ScriptedAgent([answer, Plans().approved(), fix]), reviews.item([reviews.inline()]))
+        return capped
+
+    def test_before_the_replies_what_was_never_verified_is_dropped_and_nothing_is_pushed(self, opened: Opened) -> None:
+        setup, head = self.before_the_replies(opened)
+        worktree = self.worktree(setup)
+
+        assert opened.head(setup) == head
+        assert Shell().line("git status --porcelain", worktree).output == ""
+        assert not (worktree / "new.txt").exists()
+
+    def test_before_the_replies_the_round_is_given_back_and_the_status_comes_back(self, opened: Opened) -> None:
+        entry = self.before_the_replies(opened)[0].entry("ENG-1")
+
+        assert (entry.status, entry.rounds, entry.answered, entry.money_stop, entry.ci_paused) == (WorkStatus.DONE, 0, {}, None, False)
+
+    def test_a_pause_writes_nothing_on_the_pr_and_leaves_one_note(self, opened: Opened) -> None:
+        setup = opened.make({})
+        before = list(setup.sources.github_side.comments)
+        paused = self.stopped_before_the_replies(setup)
+        github = paused.sources.github_side
+
+        assert (github.replies, github.drafts, github.comments[: len(before)]) == ([], [], before)
+        assert paused.company.notes[WorkDay().today()] == [self.note(AFTER_THE_TICKET)]
+
+    def test_after_the_replies_the_round_is_kept_and_the_entry_waits_for_its_ci(self, opened: Opened) -> None:
+        setup = self.after_the_replies(opened)
+
+        entry = setup.entry("ENG-1")
+
+        assert (entry.status, entry.rounds, entry.answered, entry.ci_paused) == (WorkStatus.PR_OPEN, 1, {"inline:1": "t1"}, True)
+        assert (len(setup.sources.github_side.replies), setup.sources.github_side.drafts) == (1, [])
+
+    def test_after_the_replies_the_unverified_ci_fix_is_dropped_back_to_the_pushed_head(self, opened: Opened) -> None:
+        setup = self.after_the_replies(opened)
+        worktree = self.worktree(setup)
+
+        assert Shell().line("git rev-parse HEAD", worktree).output.strip() == opened.head(setup)
+        assert not (worktree / "other.txt").exists()
+
+    def test_the_ci_wait_is_resumed_once_the_cap_is_raised_without_repeating_a_reply_or_asking_again(self, opened: Opened) -> None:
+        paused = self.after_the_replies(opened)
+        raised, github = paused.day_capped(CAP), paused.sources.github_side
+        github.ci[:] = [CiState.PASSED]
+        replies, readies, asked = len(github.replies), list(github.readies), list(github.asked)
+
+        raised.work_on(ScriptedAgent([]), Reviews().resumed())
+
+        entry = raised.entry("ENG-1")
+        assert (entry.status, entry.rounds, entry.ci_paused) == (WorkStatus.DONE, 1, False)
+        assert (len(github.replies), github.readies, github.asked) == (replies, readies, asked)
+
+    def test_a_second_pause_in_the_resumed_wait_keeps_the_marker_and_does_not_count_a_round(self, opened: Opened) -> None:
+        paused = self.after_the_replies(opened)
+        again, github = paused.day_capped(STILL_LITTLE), paused.sources.github_side
+        github.ci[:] = [CiState.FAILED]
+        fix = Step(writes={"other.txt": "x\n"}, cost=LITTLE, failed=True, reason=STOP)
+
+        again.work_on(ScriptedAgent([fix]), Reviews().resumed())
+
+        entry = again.entry("ENG-1")
+        assert (entry.status, entry.rounds, entry.ci_paused) == (WorkStatus.PR_OPEN, 1, True)
+        assert not (self.worktree(again) / "other.txt").exists()
+
+    def test_the_ticket_cap_inside_the_resumed_wait_blocks_without_giving_a_round_back(self, opened: Opened) -> None:
+        paused = self.after_the_replies(opened)
+        uncapped, github = paused.day_capped(0.0), paused.sources.github_side
+        github.ci[:] = [CiState.FAILED]
+        fix = Step(cost=MAX_USD, failed=True, reason=STOP)
+
+        uncapped.work_on(ScriptedAgent([fix]), Reviews().resumed())
+
+        entry = uncapped.entry("ENG-1")
+        assert (entry.status, entry.rounds) == (WorkStatus.BLOCKED, 1)
+
+    def test_new_comments_while_the_wait_is_paused_are_answered_by_a_normal_round_that_clears_the_marker(self, opened: Opened) -> None:
+        paused, reviews = self.after_the_replies(opened), Reviews()
+        raised = paused.day_capped(CAP)
+        raised.sources.github_side.ci[:] = [CiState.PASSED]
+        answer = Step(structured=reviews.answers([{"id": "conversation:2", "changed": False, "reply": "It is fine."}]))
+
+        raised.work_on(ScriptedAgent([answer]), reviews.item([reviews.talk()]))
+
+        entry = raised.entry("ENG-1")
+        assert (entry.status, entry.rounds, entry.ci_paused) == (WorkStatus.DONE, SECOND_ROUND, False)
 
 
 class TestTicketAfterTheEnd:

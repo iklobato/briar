@@ -25,9 +25,16 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 - `serve.format` and `serve.format_by_repo`: commands that format the worktree before each
   commit, so the formatter of the repo always wins; the self-review no longer asks for a
   format the formatter would undo (a real run spent all its fix loops on it).
-- `serve.max_usd_per_day`: when the tasks of a company have spent that many US$ on the
-  model in one UTC day, no new ticket starts until the next day; open tasks and review
-  rounds go on. 0, the default, is no cap.
+- `serve.max_usd_per_day` is a hard cap on what a company spends on the model in one UTC day,
+  for every agent call (new, resumed and review work, ready PRs, and the selector). Each call
+  may spend at most the smaller of what its ticket and the day have left, minus what the calls
+  in flight hold, and a call with no room waits for one to end. When the spend booked today
+  reaches the cap the tasks pause (they are not blocked): nothing is written on the ticket or
+  the PR, and they go on after 00:00 UTC or when the cap is raised and `serve` restarted. A
+  poll at the cap starts nothing that needs the model. A review round stopped after its replies
+  waits for CI again later, without repeating a reply. What the selector spent now counts in the
+  day even when no ticket is taken, and the daily report writes a note once for each day.
+  0, the default, is no cap. Before this a day could pass the cap by up to `max_parallel` x `max_usd`.
 - `briar serve` writes a daily report per company, `<knowledge root>/reports/YYYY-MM-DD.md`,
   rewritten every poll: what waits for a merge, what stopped and why, what the day cost and
   what a poll skipped. Each state entry keeps its spend per UTC day.

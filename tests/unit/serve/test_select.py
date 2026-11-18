@@ -19,12 +19,16 @@ from briar.serve.agent import Access, AgentAnswer, AgentRequest
 from briar.serve.chat import ChatMessage, ChatReader
 from briar.serve.select import Choice, Score, Selector, Shortlist, Workable
 from briar.serve.state import WorkSource
-from briar.serve.work import ServeCompany, WorkItem, WorkKind
+from briar.serve.work import ServeCompany, WorkDay, WorkItem, WorkKind
 from tests.unit.serve.chat_fakes import FakeChat
 from tests.unit.serve.fakes import Companies
 
 TODAY = date(2026, 11, 12)
 SELECTION_COST = 0.04
+# A day cap below `max_usd` (5): the selector grant is the day left, here the whole cap.
+DAY_CAP = 2.0
+# A day cap with room for two tickets of `max_usd` 5 and two dollars more.
+ROOM_FOR_TWO = 12.0
 TOP = 5
 SLOTS = 2
 MANY = 7
@@ -59,6 +63,17 @@ class PickingAgent:
     async def ask(self, request: AgentRequest) -> AgentAnswer:
         self.requests.append(request)
         return AgentAnswer("", {"picks": self.picks}, SELECTION_COST)
+
+
+@dataclass(frozen=True)
+class FailingAgent:
+    """The selector model that fails after it spent money."""
+
+    requests: List[AgentRequest] = field(default_factory=list)
+
+    async def ask(self, request: AgentRequest) -> AgentAnswer:
+        self.requests.append(request)
+        return AgentAnswer("", {}, SELECTION_COST, failed=True, reason="error_during_execution")
 
 
 class Setup:
@@ -193,6 +208,64 @@ class DeadChat:
 
     def talk(self, items: Any, asks: Any) -> Any:
         raise LoginRejected("slack auth.test: invalid_auth")
+
+
+class TestSelectionAndTheDayCap:
+    """Decision B11 (PR B): the selector call is under the day cap, and its cost is booked to the day where the call
+    returns, whether or not a ticket is taken (a failed call or an empty pick used to spend and not count)."""
+
+    def pick(self, company: ServeCompany, agent: PickingAgent) -> List[WorkItem]:
+        return asyncio.run(Selector(agent, company).pick([Tickets().plain("ENG-1")], SLOTS, {}))
+
+    def capped(self, tmp_path: Path, cap: float) -> ServeCompany:
+        return Companies(tmp_path).company({"jira": {"ENG": {"repos": ["acme/app", "acme/api"]}}, "max_usd_per_day": cap})
+
+    def test_the_cost_is_booked_to_the_day_even_when_nothing_is_picked(self, tmp_path: Path) -> None:
+        company = Setup(tmp_path).company()
+
+        self.pick(company, PickingAgent([]))
+
+        assert company.state.book().loose_by_day == {WorkDay().today(): SELECTION_COST}
+
+    def test_a_pick_carries_the_day_its_cost_was_booked_on(self, tmp_path: Path) -> None:
+        company = Setup(tmp_path).company()
+
+        [item] = self.pick(company, PickingAgent([{"key": "ENG-1", "repo": "acme/app", "reason": "the only ticket"}]))
+
+        assert (item.selection_cost, item.selection_day) == (SELECTION_COST, WorkDay().today())
+
+    def test_the_selector_makes_no_call_once_the_booked_spend_is_at_the_cap(self, tmp_path: Path) -> None:
+        company = self.capped(tmp_path, DAY_CAP)
+        asyncio.run(company.state.add_loose(WorkDay().today(), DAY_CAP))
+        agent = PickingAgent([])
+
+        assert (self.pick(company, agent), agent.requests) == ([], [])
+
+    def test_the_selector_grant_is_the_smaller_of_max_usd_and_the_day_left(self, tmp_path: Path) -> None:
+        agent = PickingAgent([])
+
+        self.pick(self.capped(tmp_path, DAY_CAP), agent)
+
+        assert agent.requests[0].max_usd == DAY_CAP
+
+    def test_the_selector_skips_the_poll_instead_of_waiting_when_other_calls_hold_the_room(self, tmp_path: Path) -> None:
+        """Room for two tickets of 5 and a bit: two calls in flight leave less than the selector needs, and a poll must not stall."""
+        company, agent = self.capped(tmp_path, ROOM_FOR_TWO), PickingAgent([])
+
+        async def scenario() -> List[WorkItem]:
+            await company.grant(company.settings.max_usd)
+            await company.grant(company.settings.max_usd)
+            return await Selector(agent, company).pick([Tickets().plain("ENG-1")], SLOTS, {})
+
+        assert (asyncio.run(scenario()), agent.requests) == ([], [])
+
+    def test_a_failed_call_is_booked_to_the_day_too(self, tmp_path: Path) -> None:
+        company = Setup(tmp_path).company()
+        failed = FailingAgent()
+
+        picked = asyncio.run(Selector(failed, company).pick([Tickets().plain("ENG-1")], SLOTS, {}))
+
+        assert (picked, company.state.book().loose_by_day) == ([], {WorkDay().today(): SELECTION_COST})
 
 
 class TestChoice:

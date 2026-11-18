@@ -12,6 +12,7 @@ from typing import Callable, ClassVar, Tuple, Type
 
 from briar.errors import CliError
 from briar.serve.agent import AgentRunner
+from briar.serve.day import DayPause
 from briar.serve.flow import TaskFlow, TicketSide
 from briar.serve.review import ReviewRun
 from briar.serve.state import MoneyStop, WorkStatus
@@ -56,9 +57,14 @@ class ServeRoutine:
         budget = await self._budget(item)
         self._told_rules(context)
         steps = AgentSteps(self._agents(context), context, budget)
-        parts = TaskParts(context, steps, TaskFlow(context, steps, budget))
+        await self._guarded(item, TaskParts(context, steps, TaskFlow(context, steps, budget)))
+
+    async def _guarded(self, item: WorkItem, parts: TaskParts) -> None:
+        """Run the task. A pause of the day cap leaves it as it was (B13); a limit or a failure stops it with its report (S23)."""
         try:
             await self._run(item, parts)
+        except DayPause as pause:
+            await self._paused(item, parts.context, pause)
         except BudgetExhausted as stop:
             await parts.flow.blocked(str(stop), self._money_stop(item))
         except self.EXPECTED as stop:
@@ -75,6 +81,19 @@ class ServeRoutine:
             used, left_out = ", ".join(rules.used) or "none", ", ".join(rules.skipped) or "none"
             self.LOG.info("serve: %s: rules in force: %s; left out: %s", context.item.ref(), used, left_out)
 
+    async def _paused(self, item: WorkItem, context: TaskContext, pause: DayPause) -> None:
+        """Decision B13: the day cap pauses the task. Nothing is written on the ticket or the PR and the status stays as it
+        was; the loop brings the task back when the day has room. With a PR, the uncommitted edits go (the next `sync` is a
+        fast forward only and would fail on a dirty tree). The head may hold a commit that was not pushed yet; that is safe,
+        because every push goes through `TaskFlow.verified` first. A ticket with no PR keeps its edits."""
+        known = self._company.state.book().entry(item.key)
+        if known is not None and known.pr:
+            head = await asyncio.to_thread(context.checkout.head, context.worktree)
+            await asyncio.to_thread(context.checkout.discard, context.worktree, head)
+        text = f"{item.ref()} paused: {pause}; it goes on tomorrow (UTC) or when the cap is raised"
+        if self._company.note(text):
+            self.LOG.info("serve: %s: %s", self._company.name, text)
+
     def _money_stop(self, item: WorkItem) -> MoneyStop:
         """Decision B9: the cap the ticket stopped at, and the status it goes back to when the
         maintainer raises `max_usd` (the one it had when it ran out)."""
@@ -87,7 +106,7 @@ class ServeRoutine:
         the pick of the selector is booked here, once, when the ticket is first taken."""
         state, settings = self._company.state, self._company.settings
         if item.selection_cost:
-            await state.add_spend(item.entry(), WorkDay().today(), item.selection_cost)
+            await state.claim_selection(item.entry(), item.selection_day or WorkDay().today(), item.selection_cost)
         known = state.book().entry(item.key)
         return Budget(settings.max_usd, settings.max_loops, [known.spent_total() if known is not None else 0.0])
 

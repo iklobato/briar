@@ -111,7 +111,7 @@ briar serve runbooks                # starts. Press Ctrl+C to stop.
 
 *A real run on a tiny repo, [iklobato/briar-demo](https://github.com/iklobato/briar-demo): about a minute and a half, US$ 0.09.*
 
-You get a pull request for a person to review and merge. briar never merges, never force pushes and never spends more than the `max_usd` you set. [Full lesson 2](https://github.com/iklobato/briar/blob/v2/docs/guide/2-work-an-issue.md) has the logins, the runbook and the limits.
+You get a pull request for a person to review and merge. briar never merges, never force pushes and never spends more than the `max_usd` you set on an issue. If you set `max_usd_per_day`, the same holds for a whole day, give or take the call that is running when the cap is reached. [Full lesson 2](https://github.com/iklobato/briar/blob/v2/docs/guide/2-work-an-issue.md) has the logins, the runbook and the limits.
 
 ### Lesson 3. Keep the facts fresh (5 minutes, free)
 
@@ -139,7 +139,7 @@ Set a daily limit, read the daily report, and keep `serve` running when you clos
 
 ```yaml
       max_new_per_day: 3        # new issues it may start per day
-      max_usd_per_day: 10       # when the day cost reaches this, no NEW issue starts
+      max_usd_per_day: 10       # hard cap on the cost of a UTC day: at the cap, tasks pause until tomorrow
 ```
 
 Every poll, briar rewrites `./knowledge/reports/YYYY-MM-DD.md`: what waits for a merge, what stopped and why, and what the day cost. [Full lesson 4](https://github.com/iklobato/briar/blob/v2/docs/guide/4-run-it-alone.md).

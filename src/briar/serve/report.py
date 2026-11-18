@@ -45,7 +45,10 @@ class DailyReport:
 
     def _spent(self, entries: List[WorkEntry], day: str) -> str:
         spent = [entry.spent_by_day[day] for entry in entries if day in entry.spent_by_day]
-        return f"US$ {sum(spent):.2f} on {len(spent)} ticket(s)."
+        loose = self._company.state.book().loose_by_day.get(day, 0.0)
+        line = f"US$ {sum(spent):.2f} on {len(spent)} ticket(s)"
+        # Decision B11 (PR B): the day cap counts what the selector spent with no ticket to show for it, so the report does too.
+        return f"{line}, and US$ {loose:.2f} on the selector with no ticket." if loose else f"{line}."
 
     def _waiting(self, entry: WorkEntry) -> str:
         url = self._sources.style().pull_url(entry.repo, entry.pr)

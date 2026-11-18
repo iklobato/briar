@@ -12,8 +12,8 @@ In the `serve:` block of your runbook:
 
 ```yaml
       max_new_per_day: 3        # new issues it may start per day
-      max_usd_per_day: 10       # when the day cost reaches this, no NEW issue starts
-                                # (issues and reviews already open go on)
+      max_usd_per_day: 10       # hard cap on the cost of a UTC day: at the cap, tasks pause
+                                # and go on tomorrow, or when you raise it and restart `serve`
       format: ["ruff format ."] # your formatter; briar runs it before every commit
 ```
 
@@ -22,7 +22,7 @@ In the `serve:` block of your runbook:
 | `max_usd` | Spending on one issue, in total over all of its runs |
 | `max_loops` | Fix attempts on one issue |
 | `max_new_per_day` | How many new issues start in one day |
-| `max_usd_per_day` | Spending in one day (UTC) |
+| `max_usd_per_day` | Spending in one day (UTC), for every task and for the selector: at the cap tasks pause, they are not blocked |
 
 When you trust it, remove `only` and let briar choose among all the issues assigned to you.
 

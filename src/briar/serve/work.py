@@ -25,6 +25,7 @@ from briar.errors import CliError
 from briar.extract._provider import CommentKind, PullState, ReviewComment
 from briar.extract._tracker import Ticket
 from briar.iac.runbook.models import CodeHostKind, JiraProject, ServeSettings
+from briar.serve.day import DayCap, Grant
 from briar.serve.git import RepoCheckout, Shell
 from briar.serve.host import GithubStyle, GitlabStyle, HostStyle
 from briar.serve.rules import RuleBook
@@ -83,6 +84,12 @@ class WorkItem:
     ticket: Optional[Ticket] = None
     reason: str = ""
     selection_cost: float = 0.0
+    # The UTC day the selector call was booked on (decision B11, PR B): the cost moves from that day of the
+    # loose spend to the entry when the task starts.
+    selection_day: str = ""
+    # A review round the day cap paused in its CI wait, after the replies were posted (decision B13, PR B):
+    # only the CI wait and the CI fix run again, no round is counted and nothing is posted twice.
+    ci_only: bool = False
 
     def order(self) -> Tuple[int, int, str]:
         """The PRs first (S14), then the rank of the priority, then the oldest."""
@@ -138,6 +145,38 @@ class ServeCompany:
     # Day -> what the polls of that day skipped or hit (a dead chat, the day limit), for the
     # daily report (decision F1).
     notes: Dict[str, List[str]] = field(default_factory=dict, compare=False)
+    # The reservations of the agent calls in flight under `max_usd_per_day` (decisions B11, B12); in memory.
+    day: DayCap = field(default_factory=DayCap, compare=False)
+
+    def spent_today(self) -> float:
+        """What the tasks and the selector spent today, as the state booked it (decision B5). Once a call was stopped at
+        the day grant it is the whole cap: the SDK may stop a call a hair under it, and the day is spent all the same."""
+        today = WorkDay().today()
+        booked = self.state.book().spent_on(today)
+        return max(booked, self.settings.max_usd_per_day) if self.day.exhausted(today) else booked
+
+    async def grant(self, ticket_left: float) -> Grant:
+        """The budget of one agent call: its whole `ticket_left` when it fits in the day, minus what the calls in flight
+        hold; the day left when no other call is in flight; else it waits for one to end. It raises `DayPause` when the
+        spend booked today reaches the cap (decisions B11, B12, B19)."""
+        return await self.day.grant(self.settings.max_usd_per_day, self.spent_today, ticket_left)
+
+    def offer(self, ticket_left: float) -> Optional[Grant]:
+        """Like `grant`, but never waits: None when other calls hold the room (a poll must not stall on it)."""
+        return self.day.offer(self.settings.max_usd_per_day, self.spent_today, ticket_left)
+
+    def capped(self) -> bool:
+        """The spend booked today is at `max_usd_per_day` (0 is off): nothing that needs the model may start (decision B13)."""
+        cap = self.settings.max_usd_per_day
+        return bool(cap) and self.spent_today() >= cap
+
+    def note(self, text: str) -> bool:
+        """Put `text` in the daily report once for the day; False when it is there already (every poll repeats it)."""
+        notes = self.notes.setdefault(WorkDay().today(), [])
+        if text in notes:
+            return False
+        notes.append(text)
+        return True
 
     def knowledge_file(self) -> Path:
         return self.root / "knowledge" / f"{self.name}.md"
@@ -397,6 +436,9 @@ class WorkFinder:
         conflict = pull.conflict or (self._drift is not None and self._drift.conflicts(entry, pull))
         if new or conflict:
             return WorkItem(WorkKind.REVIEW, entry.key, entry.source, entry.repo, entry.title, pr=entry.pr, comments=tuple(new), conflict=conflict)
+        if entry.ci_paused:
+            # Decision B13: a round the day cap paused after its replies; new comments (above) win, one round waits for CI too.
+            return WorkItem(WorkKind.REVIEW, entry.key, entry.source, entry.repo, entry.title, pr=entry.pr, ci_only=True)
         unfinished = pull.draft and entry.status is WorkStatus.PR_OPEN
         return WorkItem(WorkKind.READY, entry.key, entry.source, entry.repo, entry.title, pr=entry.pr) if unfinished else None
 
