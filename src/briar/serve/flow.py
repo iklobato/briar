@@ -15,6 +15,7 @@ from typing import Any, ClassVar, FrozenSet, List, Mapping, Optional
 
 from briar.errors import CliError
 from briar.extract._provider import CiState, PullRequestDraft
+from briar.serve.base_ci import BaseCi
 from briar.serve.clean import SecretGate
 from briar.serve.git import Shell
 from briar.serve.state import MoneyStop, WorkEntry, WorkSource, WorkStatus
@@ -210,6 +211,7 @@ class TaskFlow:
     async def _fix_ci(self, number: int) -> None:
         self._budget.next_loop("CI")
         failures = await asyncio.to_thread(self._context.sources.code_host().list_ci_failures, self._context.item.repo, number)
+        await BaseCi(self._context).stops(failures)
         details = "\n\n".join(f"{failure.job} / {failure.step} ({failure.url}):\n{failure.log_tail}" for failure in failures)
         style = self._context.sources.style()
         await self._steps.fix(f"CI fails on the {style.noun()} #{number} ({style.pull_url(self._context.item.repo, number)})", details or "(no failure log was found)")
