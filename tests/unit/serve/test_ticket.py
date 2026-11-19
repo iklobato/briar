@@ -62,7 +62,8 @@ class TestHappyPath:
 
         setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()]), Items().jira())
 
-        lines = [record.getMessage().strip() for record in caplog.records if " is " in record.getMessage()]
+        # Only the lines of the flow: another logger (the review ask of the ticket run says "is off") may be at INFO in the same process.
+        lines = [record.getMessage().strip() for record in caplog.records if record.name == "briar.serve.flow" and " is " in record.getMessage()]
         link = f"https://github.com/acme/app/pull/{PR}"
         assert [line.split(" US$")[0] for line in lines] == ["serve: ENG-1 is planned", f"serve: ENG-1 is pr-open {link}", f"serve: ENG-1 is done {link}"]
 
