@@ -59,8 +59,6 @@ class SecretScan:
             if hunk is not None:
                 number, header = int(hunk.group(1)), False
                 continue
-            if header:
-                continue
             if row.startswith(self.ADDED):
                 yield path, number, row[1:]
             number += 1 if row[:1] in (self.ADDED, self.CONTEXT) else 0
