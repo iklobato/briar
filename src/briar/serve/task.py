@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.resources
+import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, ClassVar, List, Mapping, Sequence, Tuple
@@ -271,6 +272,18 @@ class Prompts:
         return template.format_map(values)
 
 
+class Fenced:
+    """Text written by people (a ticket) between fences, so it cannot pass for the rest of a prompt (decision P36 of the production
+    plan). A run of the fence inside the text is broken with spaces, so the text cannot close its own fence."""
+
+    FENCE: ClassVar[str] = "~~~"
+    RUN: ClassVar["re.Pattern[str]"] = re.compile(r"~{3,}")
+
+    def text(self, label: str, body: str) -> str:
+        safe = self.RUN.sub(lambda found: " ".join(found.group()), body)
+        return f"{self.FENCE}{label}\n{safe}\n{self.FENCE}"
+
+
 class AgentSteps:
     """The agent calls of one task, each one paid from the budget."""
 
@@ -283,7 +296,8 @@ class AgentSteps:
         self._budget = budget
 
     async def plan(self) -> Plan:
-        prompt = Prompts().text("plan", {**self._fields(), "description": self._context.description or "(no description)"})
+        title, description = self._context.item.title, self._context.description or "(no description)"
+        prompt = Prompts().text("plan", {"key": self._context.item.ref(), "ticket": Fenced().text("ticket", f"{title}\n\n{description}")})
         return Plan.from_answer(await self._ask(prompt, Plan.SCHEMA, Access.READ))
 
     async def build(self, plan: Plan) -> None:

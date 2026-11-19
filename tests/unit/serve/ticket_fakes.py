@@ -227,10 +227,12 @@ class FakeTrackerSide:
     refused_prefixes: List[str] = field(default_factory=list)
     # Statuses the workflow has no transition to from where the ticket is.
     refused_moves: List[str] = field(default_factory=list)
+    # The description of the ticket the agent reads.
+    description: str = "We need feature.txt"
 
     def get_ticket(self, project: str, key: str) -> Ticket:
         return Ticket(
-            key=key, title="Add the feature", reporter="", assignee="", status="", kind="", priority="", created_at="", description="We need feature.txt"
+            key=key, title="Add the feature", reporter="", assignee="", status="", kind="", priority="", created_at="", description=self.description
         )
 
     def comment(self, key: str, text: str) -> None:
