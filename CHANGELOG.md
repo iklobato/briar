@@ -139,7 +139,9 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
   build, the CI fixes, every review round and every restart), not a new amount for each run.
   What a run spent is saved after every agent call, so a kill or a restart no longer gives
   the ticket a whole `max_usd` again, and a call is refused when nothing is left. A runbook
-  that relied on the old meaning may see more tickets stop. A ticket that spent it stops
+  that relied on the old meaning may see more tickets stop: a PR that is done, whose lifetime
+  spend already passed `max_usd`, is made a draft with a comment at its next human review comment.
+  A ticket that spent it stops
   `blocked` with a `money_stop` in its state entry; raise `max_usd` and restart `briar serve`
   and it goes on, in the same draft PR. A review round that runs out of money discards what
   it never verified, makes the PR a draft, says why on it and gives the round back. A draft
@@ -247,6 +249,14 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Fixed
 
+- `briar serve`, after the spend caps (an audit of them found these):
+  - A pause or a stop on a PR now goes back to what the origin has. Before it kept the head, which can hold a commit that failed verify and was never pushed; a reviewer push then made the next sync diverge and the task failed on every poll with no note. A worktree that differs from the origin is reset to it with a warning that counts the dropped commits.
+  - A draft that a person made after the PR was ready is no longer marked ready by briar (it finishes only a draft it opened or one it made at a stop for money).
+  - A review round that follows a day pause in the CI wait, or a PR briar made a draft, waits for the CI even when it changes no code, so a red CI no longer gets a ready mark or loses its owed fix.
+  - A selector that did not run because the day had no room is asked again on a later poll. Before it was never asked again for that shortlist, not even the next UTC day.
+  - A call that crosses 00:00 UTC and is cut by its day grant closes the day it was granted on, not the whole next day; a selector cut at its day grant closes the day too.
+  - An error in the state write of a poll no longer ends `serve` for every company: the whole poll is under the guard.
+- New `serve.call_minutes` (default 30, a placeholder): an agent call that does not answer is cut, the task is blocked with that reason and the share of the day it held goes back.
 - A bug inside a `briar serve` task (a `TypeError` or `AttributeError` of briar or of a
   library) now stops the task `blocked` with its report and logs the traceback. Before,
   the task was planned, posted and paid for again every poll.

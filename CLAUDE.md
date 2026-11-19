@@ -267,6 +267,15 @@ only in the private site repo.
   unverified edits. `CompanyWatch._capped` stops dispatching model work (merged and closed still
   go). A round paused after its replies sets `WorkEntry.ci_paused`; `WorkFinder._pull` brings it back
   as a `ci_only` review item (no round counted, no reply repeated).
+  Hardening of the three PRs (decisions B25 to B30): a pause or a stop on a PR discards to
+  `RepoCheckout.pushed` (`origin/<branch>`), never to HEAD (`TaskFlow.verified` commits before it
+  verifies); `RepoCheckout.sync` leaves HEAD equal to `origin/<branch>` (a reset with a warning when
+  the worktree is ahead or diverged); `WorkFinder._unfinished` emits READY only for a draft briar made;
+  `ReviewRun._owes_ci` makes a round wait for CI after a day pause or for a briar draft;
+  `Selector.pick` returns `None` when it did not run and `Choice` keeps a fingerprint only after a call
+  ran; `Grant.day` is the UTC day a call was granted on (what `exhaust` closes); `CompanyWatch.cycle`
+  guards the whole poll; `serve.call_minutes` (default 30, a placeholder) cuts an agent call
+  (`ServeSettings.call_seconds`), caught as `asyncio.TimeoutError` (not the builtin on Python 3.10).
 - **`serve` rule sets** (decisions Q1 to Q23 in `docs/decisions/2026-11-18-serve-quality-rules.md`):
   `serve.rules` / `serve.rules_by_repo` turn on sets from `src/briar/prompts/rule_sets/<name>.md`
   (`## Baseline` for the system prompt, `## Review` for the self review; parsed strictly by
