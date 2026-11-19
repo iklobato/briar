@@ -42,8 +42,7 @@ class TicketRun:
             return
         await asyncio.to_thread(self._announce, plan)
         await self._flow.record(WorkStatus.PLANNED, {"plan": plan.markdown()})
-        await self._steps.build(plan)
-        await self._flow.verified("build the plan")
+        await self._built(plan)
         if not await asyncio.to_thread(self._flow.changed):
             # A real run (2026-11-13): an operations ticket got an empty MR.
             raise LimitHit(f"the plan needs no change of the code in {self._context.item.repo}: the agent changed nothing (the plan above says why)")
@@ -54,6 +53,18 @@ class TicketRun:
         await self._flow.record(WorkStatus.PR_OPEN, {"pr": number})
         await asyncio.to_thread(self._published, number)
         await self.finish(number)
+
+    async def _built(self, plan: Plan) -> None:
+        """The build and its verify. Audit 10: the entry says when the build call returned, so a task that comes back after a pause in
+        the verify or the self review does not pay for the build again. A stop inside the build leaves the flag unset (the draft a stop
+        makes commits `work so far`, so a commit alone does not say the build ended), and that build runs again on the kept work. A
+        branch with no work of its own (the cache was cleared) is built again too."""
+        state, key = self._context.company.state, self._context.item.key
+        known = state.book().entry(key)
+        if known is None or not known.built or not await asyncio.to_thread(self._flow.changed):
+            await self._steps.build(plan)
+            await state.record((state.book().entry(key) or self._context.item.entry()).model_copy(update={"built": True}))
+        await self._flow.verified("build the plan")
 
     async def finish(self, number: int) -> None:
         """Wait for CI on the draft PR, then mark it ready; also run for a PR left a draft
@@ -91,6 +102,10 @@ class TicketRun:
         if self._own_draft(found):
             await asyncio.to_thread(self._context.checkout.adopt, self._context.worktree, self._context.branch)
             return False
+        if self._taken(found):
+            await asyncio.to_thread(self._context.checkout.adopt, self._context.worktree, self._context.branch)
+            await self._flow.record(WorkStatus.DONE, {"pr": found.number, "money_stop": None})
+            return True
         status = WorkStatus.PR_OPEN if found.open else (WorkStatus.MERGED if found.merged else WorkStatus.CLOSED)
         status = WorkStatus.BLOCKED if found.open and found.draft else status
         if found.open:
@@ -102,6 +117,14 @@ class TicketRun:
         """Decision B10: the open draft is the one briar made when the ticket ran out of money and
         the state recorded it, so the task goes on in it (a draft the state does not know is a
         person's to decide)."""
+        return self._stopped_here(found) and found.draft
+
+    def _taken(self, found: BranchPull) -> bool:
+        """Decision P39 (audit 8): the PR briar stopped at is open and no longer a draft: a person marked it ready, so it is
+        theirs. The task pushes nothing more into it; review comments are still answered."""
+        return self._stopped_here(found) and not found.draft
+
+    def _stopped_here(self, found: BranchPull) -> bool:
         known = self._context.company.state.book().entry(self._context.item.key)
         return found.open and known is not None and known.money_stop is not None and known.pr == found.number
 

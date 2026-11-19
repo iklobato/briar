@@ -331,7 +331,8 @@ class TestStopForMoney:
         raised = setup.raised(RAISED_USD)
         assert asyncio.run(BudgetReopen(raised.company).apply()) == ["ENG-1"]
 
-        raised.work_on(ScriptedAgent([Step(writes={"more.txt": "more\n"}), Plans().approved()]), Items().jira())
+        # The build ended before the self review stopped for money, so it is not paid for again (audit 10).
+        raised.work_on(ScriptedAgent([Plans().approved()]), Items().jira())
 
         assert len(github.pulls) == 1
         assert github.readies == [PR]
