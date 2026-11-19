@@ -130,7 +130,18 @@ class TestClaudeAgent:
         asyncio.run(ClaudeAgent("claude-test", guard, SandboxRoom((), tmp_path / "tools")).ask(AgentRequest("build", "s", tmp_path, MAX_USD)))
 
         options = sdk.options[0]
-        assert (options.env, options.add_dirs, (tmp_path / "tools").is_dir()) == ({"XDG_CACHE_HOME": str(tmp_path / "tools")}, [str(tmp_path / "tools")], True)
+        assert (options.env["XDG_CACHE_HOME"], options.add_dirs, (tmp_path / "tools").is_dir()) == (str(tmp_path / "tools"), [str(tmp_path / "tools")], True)
+
+    def test_the_sdk_gets_three_minutes_to_start_the_cli(self, guard: BashGuard, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """WP3: on 2026-11-19 the CLI did not answer the first request of the SDK within its 60 seconds, and the SDK raised a plain
+        `Exception` that ended `serve`. The project rules forbid catching that, so the wait for the start is made longer instead
+        (the SDK reads this variable in milliseconds, with 60 seconds as the floor)."""
+        sdk = SdkQuery(Results().message("success", {}))
+        monkeypatch.setattr("claude_agent_sdk.query", sdk.query)
+
+        asyncio.run(ClaudeAgent("claude-test", guard, SandboxRoom((), tmp_path / "tools")).ask(AgentRequest("build", "s", tmp_path, MAX_USD)))
+
+        assert sdk.options[0].env["CLAUDE_CODE_STREAM_CLOSE_TIMEOUT"] == "180000"
 
     def test_a_spent_budget_is_a_failed_answer_with_its_reason(self, guard: BashGuard, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         message = Results().message("error_max_budget_usd", {})
@@ -157,6 +168,9 @@ class TestBashGuard:
         "command, refusal",
         [
             ("pytest -q", ""),
+            # Real run, 2026-11-18: `sed` was refused six times in one ticket.
+            ("sed -n 1,5p README.md", ""),
+            ("sed -i s/a/b/ notes.txt && rm -rf build", "forbidden in briar serve: 'rm -rf' (push, PR and comments are done by briar)"),
             ("git status && make test", ""),
             ('echo "a; b" | grep a', ""),
             ("git push origin main", "forbidden in briar serve: 'git push' (push, PR and comments are done by briar)"),
