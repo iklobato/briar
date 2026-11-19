@@ -62,6 +62,17 @@ class TestAPrAPersonTook:
         assert (entry.status, entry.money_stop, entry.pr) == (WorkStatus.DONE, None, PR)
         assert (agent.requests, Origin().head(raised), raised.sources.github_side.readies) == ([], before, [])
 
+    def test_the_worktree_is_left_on_the_branch_of_the_pr_with_what_a_reviewer_pushed(self, setups: Setups) -> None:
+        """So the next review round starts from the branch of the PR, as for any adopted PR."""
+        raised = Stopped().raised(setups)
+        raised.sources.github_side.branch_pulls[BRANCH] = BranchPull(PR, open=True, merged=False, draft=False)
+        asyncio.run(BudgetReopen(raised.company).apply())
+        raised.origin.push_commit(BRANCH, {"from-the-reviewer.txt": "x\n"})
+
+        raised.work_on(ScriptedAgent([]), Items().jira())
+
+        assert (raised.cache / "worktrees" / "acme" / "briar__ENG-1" / "from-the-reviewer.txt").exists()
+
     def test_review_comments_on_it_are_still_answered(self, setups: Setups) -> None:
         raised = Stopped().raised(setups)
         raised.sources.github_side.branch_pulls[BRANCH] = BranchPull(PR, open=True, merged=False, draft=False)
