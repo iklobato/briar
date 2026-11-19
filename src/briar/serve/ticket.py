@@ -67,6 +67,9 @@ class TicketRun:
         """Decision D2: the usual reviewers of the repo are asked, so a ready PR does not wait
         for a person to pick them. A refused ask is logged; the PR stays ready."""
         item, host = self._context.item, self._context.sources.code_host()
+        if not self._context.company.settings.ask_reviewers:
+            self.LOG.info("serve: %s: the review ask is off (serve.ask_reviewers); nobody was asked to review", item.ref())
+            return []
         try:
             reviewers: List[str] = list(host.usual_reviewers(item.repo, self.REVIEWERS))
             if not reviewers:

@@ -156,6 +156,8 @@ class ServeSettings(_Strict):
     max_loops: int = Field(ge=1)
     ci_wait_minutes: int = Field(ge=1)
     max_review_rounds: int = Field(ge=1)
+    # Seconds `serve` waits for a CI that has not started before it decides the repo has none (a placeholder: 4 and 5 s were seen on two PRs).
+    ci_grace_seconds: int = Field(default=60, ge=0)
     max_parallel: int = Field(default=3, ge=1)
     poll_minutes: int = Field(default=5, ge=1)
     # New tickets a company may start in one UTC day; 0 is no limit (decision D3).
@@ -189,6 +191,9 @@ class ServeSettings(_Strict):
     priority_labels: List[str] = Field(default_factory=list)
     # Bot logins whose PR comments briar answers (V1); people need write access.
     review_bots: List[str] = Field(default_factory=list)
+    # A ready PR asks the usual reviewers of the repo to review it (decision D2). Off by default (decision P35 of the production plan): the ask
+    # notifies real colleagues, so the runbook has to say so.
+    ask_reviewers: bool = False
     # The domains the sandboxed bash of the agent may reach (V13); none by default.
     allowed_domains: List[str] = Field(default_factory=list)
     status: StatusNames = Field(default_factory=StatusNames)

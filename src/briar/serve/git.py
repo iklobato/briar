@@ -220,6 +220,18 @@ class RepoCheckout:
         """`git diff <revisions>`: `origin/main...HEAD` for a ticket, `<sha>..HEAD` for a round."""
         return self._git(["diff", revisions], path, "").output
 
+    def unpushed_base(self, path: Path, branch: str, base: str) -> str:
+        """The commit a push of `branch` builds on: its head on the origin, or the point where it left `origin/<base>` when the origin
+        has no such branch yet. `<this>..HEAD` is what the push adds."""
+        remote = self._shell.program(["git", "rev-parse", "--verify", "--quiet", f"origin/{branch}"], path)
+        if remote.ok():
+            return remote.output.strip()
+        return self._git(["merge-base", f"origin/{base}", "HEAD"], path, "").output.strip()
+
+    def rewind(self, path: Path, onto: str) -> None:
+        """Move HEAD to `onto` and keep every change staged: the commits since then become one when they are committed again."""
+        self._git(["reset", "--soft", onto], path, "")
+
     def head(self, path: Path) -> str:
         return self._git(["rev-parse", "HEAD"], path, "").output.strip()
 

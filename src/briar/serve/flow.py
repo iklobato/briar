@@ -15,6 +15,7 @@ from typing import Any, ClassVar, FrozenSet, List, Mapping, Optional
 
 from briar.errors import CliError
 from briar.extract._provider import CiState, PullRequestDraft
+from briar.serve.clean import SecretGate
 from briar.serve.git import Shell
 from briar.serve.state import MoneyStop, WorkEntry, WorkSource, WorkStatus
 from briar.serve.task import AgentSteps, Budget, LimitHit, Plan, TaskContext
@@ -80,9 +81,8 @@ class TaskFlow:
     """The shared steps of one task of a company."""
 
     LOG: ClassVar[logging.Logger] = logging.getLogger(__name__)
-    # Seconds between two looks at CI, and before "no check at all" means no CI.
+    # Seconds between two looks at CI. How long "no check at all" is waited for before it means no CI is `serve.ci_grace_seconds`.
     CI_POLL_SECONDS = 30
-    CI_GRACE_SECONDS = 60
     SECONDS_PER_MINUTE = 60
     # The tail of a failed verify output the agent gets.
     OUTPUT_TAIL = 4000
@@ -111,7 +111,7 @@ class TaskFlow:
         started = time.monotonic()
         while True:
             state = await asyncio.to_thread(self._context.sources.code_host().ci_state, self._context.item.repo, number)
-            if state is CiState.PASSED or (state is CiState.NONE and time.monotonic() - started > self.CI_GRACE_SECONDS):
+            if state is CiState.PASSED or (state is CiState.NONE and time.monotonic() - started > self._context.company.settings.ci_grace_seconds):
                 return
             if state is CiState.FAILED:
                 await self._fix_ci(number)
@@ -140,7 +140,11 @@ class TaskFlow:
         return self._budget.summary()
 
     async def push(self) -> None:
+        await self._gate().clean()
         await asyncio.to_thread(self._context.checkout.push, self._context.worktree, self._context.branch, self._context.token)
+
+    def _gate(self) -> SecretGate:
+        return SecretGate(self._context, self._steps, self._budget, self.verified, self.commit)
 
     async def blocked(self, report: str, stop: Optional[MoneyStop] = None) -> None:
         """S23: push what there is, a draft PR, the report on the PR and on the ticket. The
@@ -220,6 +224,8 @@ class TaskFlow:
         self.commit("work so far")
         if not (known and known.pr) and not self.changed():
             return 0
+        if self._gate().hits():
+            raise LimitHit("nothing was pushed or opened: the work so far adds what looks like a secret")
         self._context.checkout.push(self._context.worktree, self._context.branch, self._context.token)
         github = self._context.sources.code_host()
         if known is not None and known.pr:

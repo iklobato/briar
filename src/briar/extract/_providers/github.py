@@ -251,8 +251,13 @@ class GithubProvider(RepositoryProvider):
         merged = [pull for pull in pulls if pull.get("merged_at")][: self.RECENT_MERGED]
         owner = self.who_am_i()
         reviews = [review for pull in merged for review in GithubFailures().answer(partial(self._api().get_paginated, f"/repos/{repo}/pulls/{pull['number']}/reviews"))]
-        seen = Counter(str((review.get("user") or {}).get("login") or "") for review in reviews)
+        people = [review.get("user") or {} for review in reviews if not self._bot(review.get("user") or {})]
+        seen = Counter(str(user.get("login") or "") for user in people)
         return [name for name, _ in seen.most_common() if name and name != owner][:count]
+
+    def _bot(self, user: Dict[str, Any]) -> bool:
+        """A bot is never a usual reviewer: GitHub does not keep it as a requested reviewer (decision P35)."""
+        return user.get("type") == "Bot" or str(user.get("login") or "").endswith("[bot]")
 
     def request_review(self, repo: str, number: int, reviewers: List[str]) -> None:
         _validate_repo(repo)

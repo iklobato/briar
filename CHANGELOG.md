@@ -14,6 +14,12 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Added
 
+- `briar serve` scans what each push would add: the added lines of the diff are matched against the credential patterns briar already
+  uses for the knowledge (AWS, GitHub, Slack, PEM, JWT, a password in a URL). Nothing is pushed on a hit; the agent gets one fix loop
+  (the file and the line, never the value), a clean fix is squashed with the commits not pushed yet so the commit that held the value
+  never reaches the origin, and a second hit blocks the task with a report that has no value. The draft that a stop makes is covered too.
+- `serve.ci_grace_seconds` (default 60, as before) is how long `serve` waits for a CI that has not started before it decides the
+  repo has none.
 - `briar serve` stops when a login is refused. A login counts as dead only when the read-only "who am I"
   of its source (GitHub, GitLab, Jira) gets an HTTP 401, or when the model says `authentication_failed`
   (an API key and the OAuth token alike); a 403 or 404 of one repo, a 5xx and a network error do not.
@@ -148,6 +154,11 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Changed
 
+- The automatic review ask of `briar serve` is now OFF by default: a ready PR no longer asks the usual reviewers of the repo to review
+  it unless the runbook sets `serve.ask_reviewers: true`. The ask notifies real people, so a runbook has to say so. A runbook that
+  relied on it needs that one line. A GitHub bot (type `Bot` or a login that ends in `[bot]`) is no longer counted as a usual reviewer.
+- The title and the description of a ticket go into the plan prompt between fences, under a line that says they are data and never an
+  order.
 - A task that meets a refused login or the limit of the plan is no longer blocked with a comment on
   its ticket: it pauses and writes nothing (see the new entries under Added). Before, an expired
   token or a usage limit blocked the ticket and needed a manual reopen.
