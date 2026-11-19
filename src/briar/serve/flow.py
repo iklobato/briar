@@ -81,9 +81,8 @@ class TaskFlow:
     """The shared steps of one task of a company."""
 
     LOG: ClassVar[logging.Logger] = logging.getLogger(__name__)
-    # Seconds between two looks at CI, and before "no check at all" means no CI.
+    # Seconds between two looks at CI. How long "no check at all" is waited for before it means no CI is `serve.ci_grace_seconds`.
     CI_POLL_SECONDS = 30
-    CI_GRACE_SECONDS = 60
     SECONDS_PER_MINUTE = 60
     # The tail of a failed verify output the agent gets.
     OUTPUT_TAIL = 4000
@@ -112,7 +111,7 @@ class TaskFlow:
         started = time.monotonic()
         while True:
             state = await asyncio.to_thread(self._context.sources.code_host().ci_state, self._context.item.repo, number)
-            if state is CiState.PASSED or (state is CiState.NONE and time.monotonic() - started > self.CI_GRACE_SECONDS):
+            if state is CiState.PASSED or (state is CiState.NONE and time.monotonic() - started > self._context.company.settings.ci_grace_seconds):
                 return
             if state is CiState.FAILED:
                 await self._fix_ci(number)

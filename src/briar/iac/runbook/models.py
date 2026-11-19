@@ -156,6 +156,8 @@ class ServeSettings(_Strict):
     max_loops: int = Field(ge=1)
     ci_wait_minutes: int = Field(ge=1)
     max_review_rounds: int = Field(ge=1)
+    # Seconds `serve` waits for a CI that has not started before it decides the repo has none (a placeholder: 4 and 5 s were seen on two PRs).
+    ci_grace_seconds: int = Field(default=60, ge=0)
     max_parallel: int = Field(default=3, ge=1)
     poll_minutes: int = Field(default=5, ge=1)
     # New tickets a company may start in one UTC day; 0 is no limit (decision D3).
