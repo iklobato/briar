@@ -90,6 +90,8 @@ class Selector:
     LOG: ClassVar[logging.Logger] = logging.getLogger(__name__)
     SHORTLIST = 5
     NONE = "none"
+    # What the SDK says when it stops a call at its `max_budget_usd`.
+    BUDGET_STOP = "error_max_budget_usd"
     SCHEMA: ClassVar[Mapping[str, Any]] = {
         "type": "object",
         "properties": {
@@ -109,29 +111,37 @@ class Selector:
         self._agent = agent
         self._company = company
 
-    async def pick(self, ranked: Sequence[WorkItem], free: int, talk: Mapping[str, Sequence[str]]) -> List[WorkItem]:
-        """`talk`: the chat threads of each ticket of the shortlist (PR 2, C4), shown as data."""
+    async def pick(self, ranked: Sequence[WorkItem], free: int, talk: Mapping[str, Sequence[str]]) -> Optional[List[WorkItem]]:
+        """`talk`: the chat threads of each ticket of the shortlist (PR 2, C4), shown as data. None means the model was not
+        asked (no room in the day, or the day is spent): `Choice` must ask again on a later poll. A list, empty or not,
+        means the call ran, also when it failed."""
         if free <= 0 or not ranked:
             return []
         shortlist = list(ranked[: self.SHORTLIST])
-        system = Prompts().text("select", {"company": self._company.name, "slots": str(free)})
         grant = self._granted()
         if grant is None:
-            return []
+            return None
         day = WorkDay().today()
-        request = AgentRequest(Shortlist(shortlist, talk).text(), system, self._company.root, grant.amount, self.SCHEMA, Access.ANSWER)
-        try:
-            answer = await self._call(request, day)
-        finally:
-            self._company.day.release(grant)
+        answer = await self._call(replace(self._request(shortlist, free, talk), max_usd=grant.amount), day, grant)
         if answer.failed:
+            self._cut_by_the_day(answer, grant)
             self.LOG.error("serve: the selector failed: %s", answer.reason)
             return []
         return [replace(item, selection_day=day) for item in Picks(shortlist, answer, self._company.name).items(free)]
 
+    def _request(self, shortlist: Sequence[WorkItem], free: int, talk: Mapping[str, Sequence[str]]) -> AgentRequest:
+        system = Prompts().text("select", {"company": self._company.name, "slots": str(free)})
+        return AgentRequest(Shortlist(shortlist, talk).text(), system, self._company.root, self._company.settings.max_usd, self.SCHEMA, Access.ANSWER)
+
+    def _cut_by_the_day(self, answer: AgentAnswer, grant: Grant) -> None:
+        """Audit 11: the SDK stopped the call at a grant that the day cut below `max_usd`, so the day is spent, also when the SDK
+        stopped a hair under the cap (the same marker as the task path)."""
+        if answer.reason == self.BUDGET_STOP and grant.amount < self._company.settings.max_usd:
+            self._company.day.exhaust(grant.day)
+
     def _granted(self) -> Optional[Grant]:
         """Decision B11: the selector is under the day cap. It never waits (a poll must not stall on calls in flight): with no
-        room, or with the booked spend at the cap, it does not run this poll and the next poll asks again."""
+        room, or with the booked spend at the cap, it does not run this poll, and `Choice` asks again on a later poll."""
         try:
             granted = self._company.offer(self._company.settings.max_usd)
         except DayPause as capped:
@@ -141,12 +151,24 @@ class Selector:
             self.LOG.info("serve: %s: the selector did not run: other calls hold the room left in the day", self._company.name)
         return granted
 
-    async def _call(self, request: AgentRequest, day: str) -> AgentAnswer:
+    async def _call(self, request: AgentRequest, day: str, grant: Grant) -> AgentAnswer:
         """The call, and its cost booked to `day` where it returns, before the reservation of the day goes: a failed call
         or an empty pick spent money too (decision B11). A pick that becomes a task moves the cost to its entry."""
-        answer = await self._agent.ask(request)
-        await self._company.state.add_loose(day, answer.cost_usd)
+        try:
+            answer = await self._timed(request)
+            await self._company.state.add_loose(day, answer.cost_usd)
+        finally:
+            self._company.day.release(grant)
         return answer
+
+    async def _timed(self, request: AgentRequest) -> AgentAnswer:
+        """Audit 9: the selector is awaited inside the poll, so a call that never answers would freeze the polling of the whole
+        company. It is cut after `call_minutes` and counts as a failed call (its cost is not known, so none is booked)."""
+        settings = self._company.settings
+        try:
+            return await asyncio.wait_for(self._agent.ask(request), settings.call_seconds())
+        except asyncio.TimeoutError:
+            return AgentAnswer("", {}, 0.0, failed=True, reason=f"no answer within call_minutes ({settings.call_minutes})")
 
 
 class Shortlist:
@@ -229,9 +251,16 @@ class Choice:
         fingerprint = (str(free), *(item.key for item in shortlist), *asks.fingerprint())
         if fingerprint in self.asked:
             return []
-        self.asked[:] = [fingerprint]
         talk = await asyncio.to_thread(self._talk, shortlist, asks)
-        return await self.selector.pick(ranked, free, talk)
+        return self._remembered(fingerprint, await self.selector.pick(ranked, free, talk))
+
+    def _remembered(self, fingerprint: Tuple[str, ...], picked: Optional[List[WorkItem]]) -> List[WorkItem]:
+        """Audit 5: the fingerprint is kept only once the model was asked. A selector that did not run (no room, a spent day),
+        or that died on a write before it returned, is asked again on a later poll."""
+        if picked is None:
+            return []
+        self.asked[:] = [fingerprint]
+        return picked
 
     def _asks(self) -> ChatAsks:
         """Decision B3 of the autonomous serve: the chat is optional; a refused or unreachable

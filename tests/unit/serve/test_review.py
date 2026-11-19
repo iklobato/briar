@@ -392,7 +392,7 @@ class TestDayPause:
         paused = self.stopped_before_the_replies(setup)
         github = paused.sources.github_side
 
-        assert (github.replies, github.drafts, github.comments[: len(before)]) == ([], [], before)
+        assert (github.replies, github.drafts, github.comments) == ([], [], before)
         assert paused.company.notes[WorkDay().today()] == [self.note(AFTER_THE_TICKET)]
 
     def test_after_the_replies_the_round_is_kept_and_the_entry_waits_for_its_ci(self, opened: Opened) -> None:

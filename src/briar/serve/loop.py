@@ -104,16 +104,20 @@ class CompanyWatch:
 
     async def cycle(self) -> int:
         """One poll: find the work (in a thread: the clients are blocking) and dispatch it.
-        A failed poll (GitHub or Jira down) is logged and tried again next poll: it must not
-        stop the other companies and the tasks that are running."""
-        sources = WorkSources(self._company.logins, self._company.settings.code_host)
-        drift = BaseDrift(self._company, sources, ServeCache(os.environ).root())
-        await BudgetReopen(self._company).apply()
+        A failed poll (GitHub or Jira down, a state write that fails) is logged and tried again next poll: it must not
+        stop the other companies and the tasks that are running. The whole poll is inside the guard: the reopen, the
+        selector with its state write and the report used to sit outside it, and an `OSError` there ended `serve` (audit 7)."""
         try:
-            items: List[WorkItem] = await asyncio.to_thread(WorkFinder(self._company, sources, drift).find)
+            return await self._poll()
         except self.POLL_FAILURES as failure:
             self.LOG.error("serve: %s: the poll failed, trying again next poll: %s", self._company.name, failure)
             return 0
+
+    async def _poll(self) -> int:
+        sources = WorkSources(self._company.logins, self._company.settings.code_host)
+        drift = BaseDrift(self._company, sources, ServeCache(os.environ).root())
+        await BudgetReopen(self._company).apply()
+        items: List[WorkItem] = await asyncio.to_thread(WorkFinder(self._company, sources, drift).find)
         await ReviewReminders(self._company, sources).send()
         capped = self._capped()
         pulls = [item for item in items if item.kind is not WorkKind.TICKET and (item.kind in self.NO_MODEL or not capped)]

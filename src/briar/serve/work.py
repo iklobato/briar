@@ -158,12 +158,14 @@ class ServeCompany:
     async def grant(self, ticket_left: float) -> Grant:
         """The budget of one agent call: its whole `ticket_left` when it fits in the day, minus what the calls in flight
         hold; the day left when no other call is in flight; else it waits for one to end. It raises `DayPause` when the
-        spend booked today reaches the cap (decisions B11, B12, B19)."""
-        return await self.day.grant(self.settings.max_usd_per_day, self.spent_today, ticket_left)
+        spend booked today reaches the cap (decisions B11, B12, B19). The grant carries the day it was made on."""
+        granted = await self.day.grant(self.settings.max_usd_per_day, self.spent_today, ticket_left)
+        return replace(granted, day=WorkDay().today())
 
     def offer(self, ticket_left: float) -> Optional[Grant]:
         """Like `grant`, but never waits: None when other calls hold the room (a poll must not stall on it)."""
-        return self.day.offer(self.settings.max_usd_per_day, self.spent_today, ticket_left)
+        granted = self.day.offer(self.settings.max_usd_per_day, self.spent_today, ticket_left)
+        return replace(granted, day=WorkDay().today()) if granted is not None else None
 
     def capped(self) -> bool:
         """The spend booked today is at `max_usd_per_day` (0 is off): nothing that needs the model may start (decision B13)."""
@@ -439,8 +441,13 @@ class WorkFinder:
         if entry.ci_paused:
             # Decision B13: a round the day cap paused after its replies; new comments (above) win, one round waits for CI too.
             return WorkItem(WorkKind.REVIEW, entry.key, entry.source, entry.repo, entry.title, pr=entry.pr, ci_only=True)
-        unfinished = pull.draft and entry.status is WorkStatus.PR_OPEN
-        return WorkItem(WorkKind.READY, entry.key, entry.source, entry.repo, entry.title, pr=entry.pr) if unfinished else None
+        return WorkItem(WorkKind.READY, entry.key, entry.source, entry.repo, entry.title, pr=entry.pr) if self._unfinished(entry, pull) else None
+
+    def _unfinished(self, entry: WorkEntry, pull: PullState) -> bool:
+        """A draft that briar has to finish: one it opened and never marked ready (`serve` stopped in the CI wait), or one it made
+        at a stop for money. A PR that was ready and is a draft with no such stop was made a draft by a person (decision B6)."""
+        briar_draft = not entry.ready_at or (entry.money_stop is not None and entry.money_stop.drafted)
+        return pull.draft and entry.status is WorkStatus.PR_OPEN and briar_draft
 
 
 class BaseDrift:

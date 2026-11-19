@@ -8,7 +8,7 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Tuple
+from typing import Awaitable, Callable, List, Tuple
 
 import pytest
 
@@ -26,8 +26,9 @@ from tests.unit.serve.test_select import PickingAgent
 TWO_SLOTS = 2
 THREE_SLOTS = 3
 THREE_POLLS = 3
-# The merged PR of `TestDayGate`.
+# The merged and the closed PR of `TestDayGate`.
 MERGED_PR = 13
+CLOSED_PR = 14
 # The US$ a day cap of `TestDailyMoneyLimit`.
 DAY_CAP = 10.0
 # What the gate says once for the day when the booked spend is at the cap.
@@ -146,6 +147,20 @@ class Watching:
         return WatchWork(RecordingRoutine(self._company.state), Choice(Selector(agent, self._company), self._company))
 
 
+class FlakyWrite:
+    """The loose spend write of the selector: it fails with `OSError` the first time, then works."""
+
+    def __init__(self, real: Callable[[str, float], Awaitable[None]]) -> None:
+        self._real = real
+        self._failed = False
+
+    async def __call__(self, day: str, cost: float) -> None:
+        if not self._failed:
+            self._failed = True
+            raise OSError("disk full")
+        await self._real(day, cost)
+
+
 class TestCycle:
     def test_a_failed_poll_is_logged_and_the_next_poll_works(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
         """One Jira or GitHub error must not stop `serve` for every company and task."""
@@ -160,6 +175,21 @@ class TestCycle:
 
         assert asyncio.run(scenario()) == [0, 1]
         assert "serve: acme: the poll failed, trying again next poll: jira (acme): could not reach the source (HTTP 502)" in caplog.text
+
+    def test_a_failed_state_write_is_logged_and_the_next_poll_works(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+        """Audit 7: the state write of the selector sat outside the guard of the poll, so an `OSError` ended `serve` for every company."""
+        jira = FakeJira({"ENG": [Tickets().jira("ENG-1", "High", "2026-01-03")]})
+        monkeypatch.setattr("briar.serve.loop.WorkSources", lambda logins, kind: FakeSources(jira_adapter=jira))
+        company = Companies(tmp_path / "knowledge").company({"jira": {"ENG": {"repos": ["acme/app"]}}})
+        monkeypatch.setattr(company.state, "add_loose", FlakyWrite(company.state.add_loose))
+        slots = TaskSlots(asyncio.Semaphore(TWO_SLOTS), set(), set())
+        watch = CompanyWatch(company, slots, Watching(company).work())
+
+        async def scenario() -> List[int]:
+            return [await watch.cycle(), await watch.cycle()]
+
+        assert asyncio.run(scenario()) == [0, 1]
+        assert "serve: acme: the poll failed, trying again next poll: disk full" in caplog.text
 
     def test_a_ticket_with_a_pr_is_not_started_again_and_keeps_why_it_was_picked(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         jira = FakeJira({"ENG": [Tickets().jira("ENG-1", "High", "2026-01-03")]})
@@ -280,7 +310,8 @@ class TestDayGate:
     def watch(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spent: float) -> Tuple[ServeCompany, KeyRoutine, CompanyWatch, TaskSlots]:
         today = WorkDay().today()
         review = ReviewComment(id="1", author="ann", body="rename this", kind=CommentKind.INLINE, association="MEMBER", updated_at="t1")
-        github = FakeGithub(comments={("acme/app", PR): [review]}, pulls={("acme/app", MERGED_PR): PullState(False, True, False, "main")})
+        pulls = {("acme/app", MERGED_PR): PullState(False, True, False, "main"), ("acme/app", CLOSED_PR): PullState(False, False, False, "main")}
+        github = FakeGithub(comments={("acme/app", PR): [review]}, pulls=pulls)
         jira = FakeJira({"ENG": [Tickets().jira("ENG-7", "High", "2026-01-03")]})
         monkeypatch.setattr("briar.serve.loop.WorkSources", lambda logins, kind: FakeSources(github, jira_adapter=jira))
         company = Companies(tmp_path / "knowledge").company({"jira": {"ENG": {"repos": ["acme/app"]}}, "max_usd_per_day": DAY_CAP})
@@ -289,6 +320,7 @@ class TestDayGate:
             ("ENG-8", WorkStatus.DONE, PR, {}),
             ("ENG-7", WorkStatus.PLANNED, 0, {}),
             ("ENG-6", WorkStatus.DONE, MERGED_PR, {}),
+            ("ENG-5", WorkStatus.DONE, CLOSED_PR, {}),
         ]
         for key, status, pr, spent_by_day in rows:
             entry = WorkEntry(key=key, source=WorkSource.JIRA, repo="acme/app", title=key, status=status, pr=pr, spent_by_day=spent_by_day)
@@ -309,14 +341,15 @@ class TestDayGate:
 
         self.polls(watch, slots, 1)
 
-        assert routine.dispatched == [(WorkKind.MERGED, "ENG-6")]
+        assert sorted(routine.dispatched, key=str) == sorted([(WorkKind.MERGED, "ENG-6"), (WorkKind.CLOSED, "ENG-5")], key=str)
 
     def test_a_poll_under_the_cap_dispatches_the_review_the_resumed_ticket_and_the_merge(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _, routine, watch, slots = self.watch(tmp_path, monkeypatch, DAY_CAP - 1)
 
         self.polls(watch, slots, 1)
 
-        assert sorted(routine.dispatched, key=str) == sorted([(WorkKind.REVIEW, "ENG-8"), (WorkKind.TICKET, "ENG-7"), (WorkKind.MERGED, "ENG-6")], key=str)
+        expected = [(WorkKind.REVIEW, "ENG-8"), (WorkKind.TICKET, "ENG-7"), (WorkKind.MERGED, "ENG-6"), (WorkKind.CLOSED, "ENG-5")]
+        assert sorted(routine.dispatched, key=str) == sorted(expected, key=str)
 
     def test_many_polls_at_the_cap_leave_one_note_for_the_day(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         company, _, watch, slots = self.watch(tmp_path, monkeypatch, DAY_CAP)
@@ -329,20 +362,39 @@ class TestDayGate:
 class TestReopenInTheCycle:
     """Decision B10: every poll brings back the tickets whose cap was raised, before it finds the work."""
 
-    def test_a_poll_brings_back_a_ticket_that_stopped_for_money(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("briar.serve.loop.WorkSources", lambda logins, kind: FakeSources())
-        company = Companies(tmp_path / "knowledge").company({"repos": ["acme/app"], "max_usd": RAISED_USD})
-        stopped = WorkEntry(
+    def stopped(self) -> WorkEntry:
+        return WorkEntry(
             key="ENG-1", source=WorkSource.JIRA, repo="acme/app", title="stopped", status=WorkStatus.BLOCKED, pr=PR,
             spent_by_day={WorkDay().today(): SPENT_AT_STOP}, money_stop=MoneyStop(cap=CAP_AT_STOP, resume_to="pr-open", drafted=True),
         )  # fmt: skip
-        asyncio.run(company.state.record(stopped))
+
+    def test_a_poll_brings_back_a_ticket_that_stopped_for_money(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("briar.serve.loop.WorkSources", lambda logins, kind: FakeSources())
+        company = Companies(tmp_path / "knowledge").company({"repos": ["acme/app"], "max_usd": RAISED_USD})
+        asyncio.run(company.state.record(self.stopped()))
         slots = TaskSlots(asyncio.Semaphore(TWO_SLOTS), set(), set())
         watch = CompanyWatch(company, slots, WatchWork(RecordingRoutine(company.state), Choice(Selector(PickingAgent([]), company), company)))
 
         asyncio.run(watch.cycle())
 
         assert company.state.book().entry("ENG-1").status is WorkStatus.PR_OPEN
+
+    def test_the_reopened_ticket_is_found_and_dispatched_in_the_same_poll(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Mutant m22: a reopen after the finder leaves the ticket for the next poll, because the finder sees it still blocked."""
+        draft = PullState(True, False, False, "main", draft=True)
+        monkeypatch.setattr("briar.serve.loop.WorkSources", lambda logins, kind: FakeSources(FakeGithub(pulls={("acme/app", PR): draft})))
+        company = Companies(tmp_path / "knowledge").company({"repos": ["acme/app"], "max_usd": RAISED_USD})
+        asyncio.run(company.state.record(self.stopped()))
+        routine, slots = KeyRoutine(), TaskSlots(asyncio.Semaphore(TWO_SLOTS), set(), set())
+        watch = CompanyWatch(company, slots, WatchWork(routine, Choice(Selector(PickingAgent([]), company), company)))
+
+        async def scenario() -> None:
+            await watch.cycle()
+            await slots.drain()
+
+        asyncio.run(scenario())
+
+        assert routine.dispatched == [(WorkKind.READY, "ENG-1")]
 
 
 class TestState:

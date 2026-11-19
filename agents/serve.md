@@ -132,7 +132,9 @@ whose `max_usd` is higher than the one it stopped at, goes back to where it was.
 stopped before its PR was ready goes on in the same draft. A review round that ran out of
 money discards what was never verified (it never reaches the PR), makes the PR a draft, says
 why in a comment, and gives the round back (only when no reply was posted yet); when the
-ticket goes on, briar marks the PR ready again, unless a person had left it a draft.
+ticket goes on, briar marks the PR ready again. A draft that a person made after the PR was
+ready is left alone: briar only finishes a draft it opened itself (it never marked ready) or one it
+made at a stop for money.
 
 ### The daily cap
 
@@ -146,16 +148,43 @@ leave. The SDK checks the budget between turns, so one call can pass its grant a
 day can pass the cap by at most one call for each running task.
 
 When the spend booked today reaches the cap, the tasks **pause**. Nothing is written on the
-ticket or the PR, the ticket keeps its status and its worktree, and what was never verified is
-dropped when a PR exists. The tasks go on after 00:00 UTC, or after you raise `max_usd_per_day`
-and restart `briar serve`. While the cap holds, a poll starts nothing that needs the model (a
-merged or closed PR is still recorded) and the daily report says so once. This is not a stop
-like the `max_usd` one: the ticket is not `blocked`.
+ticket or the PR. A ticket keeps its status and its worktree, except a review round that the day
+stopped after it posted its replies: it waits in `pr-open` for its CI (below). When a PR exists
+the worktree goes back to what the origin has: edits, and any commit that was never pushed, are
+dropped and the work is redone. The tasks go on after 00:00 UTC, or after you raise
+`max_usd_per_day` and restart `briar serve`. A call that was granted before 00:00 UTC and is cut
+by its grant closes the day it was granted on, not the next one. While the cap holds, a poll
+starts nothing that needs the model (a merged or closed PR is still recorded) and the daily
+report says so once. This is not a stop like the `max_usd` one: the ticket is not `blocked`.
 
 A review round that the day stopped after it posted its replies only has the CI wait left.
 After the pause briar runs the CI wait (and the CI fix) again, and it does not repeat a reply
 or ask a reviewer again. What the selector spent counts in the day even when no ticket is
-taken; the report shows it on its own line.
+taken; the daily report adds it to its spent line. A selector that did not run because the day
+had no room is asked again on a later poll.
+
+### The CI a round owes
+
+A review round waits for the CI before it clears its marker or marks a PR ready when it follows a
+day pause in the CI wait, or finishes a PR that briar made a draft at a stop for money. It does so
+even when the round changed no code: a reply that needs no change must not mark a PR ready on a
+red CI.
+
+### A worktree that is not on the origin
+
+Before a review round briar makes the worktree of the PR equal to its branch on the origin. A
+reviewer push is fast forwarded. A commit that only the worktree has (a run that stopped before its
+push) was never verified or reviewed, so it is dropped: briar resets the worktree to the origin and
+logs a warning with the number of commits it dropped. The same target is used when a pause or a stop
+drops what was never verified.
+
+### A model call that never answers
+
+`call_minutes` (default 30, at least 1) cuts an agent call, a task step or the selector, that has not
+answered by then. A task is blocked with `the agent did not answer within call_minutes (30)`. A
+selector call counts as failed and the poll goes on. The share of the day it held goes back at once.
+What a cut call cost is not known, so it is not booked: its grant bounds it. The 30 is a placeholder,
+not a measure: set it from your own runs.
 
 ## Use it when
 
@@ -209,6 +238,7 @@ companies:
       max_parallel: 3                 # optional
       max_new_per_day: 5              # optional: new tickets started per UTC day (0, the default, is no limit)
       max_usd_per_day: 10             # optional: hard cap on the US$ spent in a UTC day; at the cap tasks pause (0: no cap)
+      call_minutes: 30                # optional: an agent call with no answer after this many minutes is cut (30 is a placeholder)
       poll_minutes: 5                 # optional
       verify: ["make lint", "make test"]
       verify_by_repo:                 # optional: a repo's own verify commands (others use `verify`)
