@@ -116,7 +116,8 @@ state; briar does not take it again.
 briar stopped: max_loops (5) reached while fixing: the verify commands. Spent US$ 1.20 of 5.0, 6 of 5 fix loops.
 ```
 
-A git, GitHub or Jira failure in the middle of a task stops it the same way.
+A git, GitHub or Jira failure in the middle of a task stops it the same way, except a refused
+login and the limit of your plan, which pause it (see below).
 
 ### When a ticket runs out of money
 
@@ -185,6 +186,48 @@ answered by then. A task is blocked with `the agent did not answer within call_m
 selector call counts as failed and the poll goes on. The share of the day it held goes back at once.
 What a cut call cost is not known, so it is not booked: its grant bounds it. The 30 is a placeholder,
 not a measure: set it from your own runs.
+
+### A login that was refused
+
+A task that fails because a login was refused is not blocked and gets no comment: nothing is
+written on its ticket or its PR, its status stays, and what was never pushed goes back to what
+the origin has. Briar asks the source "who am I", the read-only call of the login check. Only an
+HTTP 401 on that call (an expired browser cookie, a revoked token) says the login is dead. A 403 or
+404 on one repo or ticket, a 5xx and a network error do not, and then the task is blocked or the poll
+is tried again, as before. A failed poll is checked the same way. The login of the model is read
+from what the SDK says (`authentication_failed`, HTTP 401), for an API key and for the OAuth token
+alike. A dead Slack login never stops `serve`: the chat is optional.
+
+A dead login stops `serve` for every company, because every other task would meet the same wall.
+`serve` stops polling, lets the tasks that run finish for up to `call_minutes`, cancels the rest and
+exits with code **3** (`1` is a crash, `130` is Ctrl+C). Renew the login, then start `serve` again.
+The status file says why:
+
+```text
+<knowledge root>/work/<company>.status.json
+{"state": "stopped", "company": "acme", "pid": 4242, "updated_at": "2026-11-19T12:05:30+00:00",
+ "stop": {"source": "jira", "company": "acme", "detail": "HTTP 401: Unauthorized",
+          "fix": "...", "exit_code": 3, "at": "2026-11-19T12:05:30+00:00"}}
+```
+
+The file is written at the end of every poll (`"state": "running"`), so an old `updated_at` means
+`serve` is not running: a kill, a reboot or a crash leave no other trace. It says `stopping` as soon as
+a login is refused and `stopped` when the running tasks are done. Nothing leaves the machine: the file and
+the exit code are the whole notice. A write that fails is logged and never stops `serve`.
+
+### The limit of your plan
+
+When the plan you run on (`CLAUDE_CODE_OAUTH_TOKEN`) hits its usage limit, the tasks pause like at the
+daily cap: nothing is written on the ticket or the PR and the status stays. It is read from what the SDK
+says: a rate limit window that is `rejected`, or the errors `rate_limit` and `billing_error`. That
+signal has not been seen against a real limit yet. While the limit holds, each poll sends one task that
+needs the model (the first PR, else the first resumed ticket, else the selector) to ask the plan again,
+and goes on with merged and closed PRs. A call that works opens the gate again. The daily report gets
+one note for the day. The limit is the plan of the whole process, so every company waits.
+
+The start check logs which login of the model it found (`serve: model login: CLAUDE_CODE_OAUTH_TOKEN`)
+and warns when `ANTHROPIC_API_KEY` is set as well: the key outranks the token, so the run would bill the
+API and not the plan. `briar doctor` warns the same way.
 
 ## Use it when
 
@@ -455,12 +498,17 @@ Stop it with `launchctl bootout gui/$(id -u)/com.usebriar.serve`. Add
 sleeps stops polling until it wakes. On Linux, use a systemd user unit with the same
 command and `Restart=on-failure`.
 
+Exit code 3 means a login was refused: restarting does nothing until you renew it. With systemd, add
+`RestartPreventExitStatus=3` so it does not restart in a loop. `KeepAlive` of launchd and
+`--restart on-failure` of Docker cannot skip one code, so they start `serve` again, and the start
+check fails at once on the same login: cheap, but noisy in the log. Read the status file first.
+
 ## Good to know
 
 - `serve` runs until you stop it (Ctrl+C, exit code 130). Run it under a process
   manager such as systemd.
 - A failed login check, before the first cycle or before a scheduled extract, stops
-  `serve` with exit code 1.
+  `serve` with exit code 1. A login refused in the middle of a run stops it with exit code 3.
 - One `serve` per knowledge folder: two processes on the same folder would write the
   same state file.
 - The PRs briar opened are handled before any ticket, as found. The ticket choice

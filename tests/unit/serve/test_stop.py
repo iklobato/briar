@@ -17,7 +17,7 @@ from briar.extract._tracker import Ticket
 from briar.iac.runbook.models import ServeSettings
 from briar.serve.loop import CompanyWatch, ServeLoop, TaskSlots, WatchWork
 from briar.serve.pause import DeadLogin
-from briar.serve.work import ServeCompany
+from briar.serve.work import ServeCompanies, ServeCompany
 from tests.unit.serve.fakes import Companies, FakeJira, FakeSources
 from tests.unit.serve.test_loop import CountingRoutine, Items, Watching
 
@@ -77,6 +77,13 @@ class Scheduler:
         return None
 
 
+class BrokenScheduler:
+    """An extract scheduler that fails at its first tick."""
+
+    def tick(self) -> None:
+        raise ZeroDivisionError("the schedule is broken")
+
+
 class Folder:
     def company(self, tmp_path: Path) -> ServeCompany:
         return Companies(tmp_path / "knowledge").company({"jira": {"ENG": {"repos": ["acme/app"]}}})
@@ -87,6 +94,19 @@ class Folder:
 
     def loop(self, company: ServeCompany, watch: CompanyWatch) -> ServeLoop:
         return ServeLoop([watch], Scheduler(), company.stop)
+
+
+SERVE_BLOCK = "    serve:\n      model: claude-test\n      max_usd: 5\n      max_loops: 3\n      ci_wait_minutes: 30\n      max_review_rounds: 2\n      repos: [acme/app]\n"
+
+
+class TestSharedBetweenCompanies:
+    def test_the_companies_of_a_folder_share_the_request_to_stop_and_the_plan_gate(self, tmp_path: Path) -> None:
+        """One process and one plan: a login refused for one company must reach every watch, and a limit every company."""
+        (tmp_path / "all.yaml").write_text(f"version: 1\ncompanies:\n  acme:\n{SERVE_BLOCK}  beta:\n{SERVE_BLOCK}")
+
+        acme, beta = ServeCompanies(tmp_path, {}).load()
+
+        assert (acme.stop is beta.stop, acme.gate is beta.gate) == (True, True)
 
 
 class TestPollWithADeadLogin:
@@ -171,6 +191,14 @@ class TestTheStop:
         company.stop.request(Dead().jira())
 
         assert (before, loop.exit_code(), int(ExitCode.LOGIN_REFUSED)) == (ExitCode.OK, ExitCode.LOGIN_REFUSED, LOGIN_EXIT_CODE)
+
+    def test_a_loop_that_crashes_ends_serve_with_its_error(self, tmp_path: Path) -> None:
+        """What `gather` did: an error of the extract tick or of a poll is not swallowed by the stop logic."""
+        company = Folder().company(tmp_path)
+        watch, _ = Folder().watch(company, CountingRoutine(asyncio.Event()))
+
+        with pytest.raises(ZeroDivisionError):
+            asyncio.run(ServeLoop([watch], BrokenScheduler(), company.stop).serve_until_stopped())
 
     def test_the_first_reason_is_the_one_kept(self, tmp_path: Path) -> None:
         company = Folder().company(tmp_path)

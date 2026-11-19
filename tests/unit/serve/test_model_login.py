@@ -55,7 +55,9 @@ class TestFound:
         assert "CLAUDE_CODE_OAUTH_TOKEN" in warning
         assert "unset ANTHROPIC_API_KEY" in warning
 
-    @pytest.mark.parametrize("environ", [Environments().key(), Environments().token(), Environments().blank_key(), {}], ids=["key", "token", "blank-key", "none"])
+    @pytest.mark.parametrize(
+        "environ", [Environments().key(), Environments().token(), Environments().blank_key(), {}], ids=["key", "token", "blank-key", "none"]
+    )
     def test_one_login_or_none_is_no_warning(self, environ: Dict[str, str]) -> None:
         assert ModelLogin(environ).warning() == ""
 

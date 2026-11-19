@@ -54,7 +54,9 @@ class Messages:
         return ResultMessage(subtype="success", duration_ms=1, duration_api_ms=1, is_error=False, num_turns=1, session_id="s", result=text, total_cost_usd=0.0)
 
     def budget(self) -> ResultMessage:
-        return ResultMessage(subtype="error_max_budget_usd", duration_ms=1, duration_api_ms=1, is_error=True, num_turns=1, session_id="s", result="stopped", total_cost_usd=0.0)
+        return ResultMessage(
+            subtype="error_max_budget_usd", duration_ms=1, duration_api_ms=1, is_error=True, num_turns=1, session_id="s", result="stopped", total_cost_usd=0.0
+        )
 
     def limit(self, status: str) -> RateLimitEvent:
         window = RateLimitInfo(status=status, rate_limit_type="five_hour", resets_at=RESETS_AT)  # type: ignore[arg-type]
@@ -84,6 +86,10 @@ class Calls:
     def refused_token(self) -> Call:
         found = [Messages().assistant("authentication_failed"), Messages().failure(INVALID_TOKEN, UNAUTHORIZED)]
         return Call(found, Messages().raised(INVALID_TOKEN), Refusal.LOGIN)
+
+    def assistant_only(self) -> Call:
+        """`authentication_failed` with no HTTP status on the result: still a refused login."""
+        return Call([Messages().assistant("authentication_failed"), Messages().failure("boom")], None, Refusal.LOGIN)
 
     def unauthorized_only(self) -> Call:
         return Call([Messages().failure(INVALID_KEY, UNAUTHORIZED)], None, Refusal.LOGIN)
@@ -118,6 +124,7 @@ class TestRefusalOfTheModel:
         [
             Calls().refused_key(),
             Calls().refused_token(),
+            Calls().assistant_only(),
             Calls().unauthorized_only(),
             Calls().limit_rejected(),
             Calls().limit_error_only(),
@@ -127,7 +134,19 @@ class TestRefusalOfTheModel:
             Calls().budget_stop(),
             Calls().ordinary_failure(),
         ],
-        ids=["key", "oauth-token", "401-only", "limit-rejected", "rate-limit-error", "billing", "warning", "rejected-but-answered", "budget", "server-error"],
+        ids=[
+            "key",
+            "oauth-token",
+            "assistant-only",
+            "401-only",
+            "limit-rejected",
+            "rate-limit-error",
+            "billing",
+            "warning",
+            "rejected-but-answered",
+            "budget",
+            "server-error",
+        ],
     )
     def test_the_answer_names_what_the_sdk_said(self, call: Call, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("claude_agent_sdk.query", Stream(call.messages, call.raised).query)

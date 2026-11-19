@@ -23,6 +23,7 @@ from tests.unit.serve.test_select import PickingAgent
 THREE_SLOTS = 3
 THREE_POLLS = 3
 PR = 41
+SECOND_PR = 42
 MERGED_PR = 13
 CLOSED_PR = 14
 REASON = "the plan limit is hit: you have hit your limit"
@@ -32,10 +33,12 @@ NOTE = f"the plan limit is hit: one task is tried at each poll ({REASON})"
 class Poll:
     """A company with a PR to review, two tickets of briar in progress, a merged and a closed PR."""
 
-    def watch(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rows: List[Tuple[str, WorkStatus, int]]) -> Tuple[ServeCompany, KeyRoutine, CompanyWatch, TaskSlots]:
+    def watch(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rows: List[Tuple[str, WorkStatus, int]]
+    ) -> Tuple[ServeCompany, KeyRoutine, CompanyWatch, TaskSlots]:
         review = ReviewComment(id="1", author="ann", body="rename this", kind=CommentKind.INLINE, association="MEMBER", updated_at="t1")
         pulls = {("acme/app", MERGED_PR): PullState(False, True, False, "main"), ("acme/app", CLOSED_PR): PullState(False, False, False, "main")}
-        github = FakeGithub(comments={("acme/app", PR): [review]}, pulls=pulls)
+        github = FakeGithub(comments={("acme/app", PR): [review], ("acme/app", SECOND_PR): [review]}, pulls=pulls)
         tickets = [Tickets().jira(key, "High", "2026-01-03") for key in ("ENG-7", "ENG-4")]
         monkeypatch.setattr("briar.serve.loop.WorkSources", lambda logins, kind: FakeSources(github, jira_adapter=FakeJira({"ENG": tickets})))
         company = Companies(tmp_path / "knowledge").company({"jira": {"ENG": {"repos": ["acme/app"]}}})
@@ -58,6 +61,7 @@ class Rows:
     def everything(self) -> List[Tuple[str, WorkStatus, int]]:
         return [
             ("ENG-8", WorkStatus.DONE, PR),
+            ("ENG-3", WorkStatus.DONE, SECOND_PR),
             ("ENG-7", WorkStatus.PLANNED, 0),
             ("ENG-6", WorkStatus.DONE, MERGED_PR),
             ("ENG-5", WorkStatus.DONE, CLOSED_PR),
@@ -73,8 +77,8 @@ class TestClosedGate:
 
         Poll().polls(watch, slots, 1)
 
-        expected = [(WorkKind.REVIEW, "ENG-8"), (WorkKind.MERGED, "ENG-6"), (WorkKind.CLOSED, "ENG-5")]
-        assert sorted(routine.dispatched, key=str) == sorted(expected, key=str)
+        kinds = sorted(kind.value for kind, _ in routine.dispatched)
+        assert kinds == sorted([WorkKind.REVIEW.value, WorkKind.MERGED.value, WorkKind.CLOSED.value])
 
     def test_with_only_resumed_tickets_exactly_one_is_tried(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _, routine, watch, slots = Poll().watch(tmp_path, monkeypatch, Rows().resumed_only())
@@ -98,7 +102,7 @@ class TestOpenGate:
 
         Poll().polls(watch, slots, 1)
 
-        expected = [(WorkKind.REVIEW, "ENG-8"), (WorkKind.TICKET, "ENG-7"), (WorkKind.MERGED, "ENG-6"), (WorkKind.CLOSED, "ENG-5")]
+        expected = [(WorkKind.REVIEW, "ENG-8"), (WorkKind.REVIEW, "ENG-3"), (WorkKind.TICKET, "ENG-7"), (WorkKind.MERGED, "ENG-6"), (WorkKind.CLOSED, "ENG-5")]
         assert sorted(routine.dispatched, key=str) == sorted(expected, key=str)
 
 

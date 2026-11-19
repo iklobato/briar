@@ -58,7 +58,14 @@ class ServeStatus:
 
         if dead is None:
             return None
-        return {"source": dead.source, "company": dead.company, "detail": dead.detail, "fix": dead.fix, "exit_code": int(ExitCode.LOGIN_REFUSED), "at": self._now()}
+        return {
+            "source": dead.source,
+            "company": dead.company,
+            "detail": dead.detail,
+            "fix": dead.fix,
+            "exit_code": int(ExitCode.LOGIN_REFUSED),
+            "at": self._now(),
+        }
 
     def _replace(self, record: Dict[str, Any]) -> None:
         """Whole or not at all: a reader never sees half a file."""

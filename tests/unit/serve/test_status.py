@@ -124,7 +124,14 @@ class TestTheStopRecord:
         with time_machine.travel(NOON, tick=False):
             asyncio.run(loop.serve_until_stopped())
 
-        stop = {"source": "jira", "company": "acme", "detail": "HTTP 401: Unauthorized", "fix": "renew the cookie", "exit_code": LOGIN_EXIT_CODE, "at": NOON_TEXT}
+        stop = {
+            "source": "jira",
+            "company": "acme",
+            "detail": "HTTP 401: Unauthorized",
+            "fix": "renew the cookie",
+            "exit_code": LOGIN_EXIT_CODE,
+            "at": NOON_TEXT,
+        }
         assert Status().read(company) == {"state": "stopped", "company": "acme", "pid": os.getpid(), "updated_at": NOON_TEXT, "stop": stop}
 
     def test_the_file_says_stopping_while_the_running_tasks_finish(self, tmp_path: Path, roomy: None) -> None:

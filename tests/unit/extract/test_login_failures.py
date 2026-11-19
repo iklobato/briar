@@ -14,10 +14,11 @@ import pytest
 import requests
 from botocore.exceptions import ClientError, EndpointConnectionError, NoCredentialsError
 from github import GithubException
+from gitlab.exceptions import GitlabError
 
 from briar.auth.check import LoginRejected, SourceUnreachable
 from briar.errors import CliError
-from briar.extract._login_failures import AzureFailures, BotoFailures, GithubFailures, GoogleFailures, LibraryFailures, RequestsFailures, UrllibFailures
+from briar.extract._login_failures import AzureFailures, BotoFailures, GithubFailures, GitlabFailures, GoogleFailures, LibraryFailures, RequestsFailures, UrllibFailures
 
 UNAUTHORIZED = 401
 NOT_FOUND = 404
@@ -121,6 +122,7 @@ class TestTranslation:
 
 
 SERVICE_UNAVAILABLE = 503
+BAD_GATEWAY = 502
 
 
 @dataclass(frozen=True)
@@ -138,6 +140,8 @@ class StatusCases:
             StatusCase(GithubFailures(), GithubException(UNAUTHORIZED, {"message": "Bad credentials"}), UNAUTHORIZED),
             StatusCase(GithubFailures(), GithubException(SERVICE_UNAVAILABLE, {"message": "unavailable"}), SERVICE_UNAVAILABLE),
             StatusCase(RequestsFailures(), Errors().requests_401(), UNAUTHORIZED),
+            StatusCase(GitlabFailures(), GitlabError("Unauthorized", response_code=UNAUTHORIZED), UNAUTHORIZED),
+            StatusCase(GitlabFailures(), GitlabError("Bad gateway", response_code=BAD_GATEWAY), BAD_GATEWAY),
             StatusCase(RequestsFailures(), Errors().requests_with_no_message(), NOT_FOUND),
             StatusCase(RequestsFailures(), requests.TooManyRedirects("Exceeded 30 redirects."), None),
             StatusCase(UrllibFailures(), Errors().http_401(), UNAUTHORIZED),
