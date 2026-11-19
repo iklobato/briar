@@ -283,6 +283,19 @@ only in the private site repo.
   must not reach the origin), and raises `SecretInDiff` on a second hit. `serve.ask_reviewers` (off by default) turns on the review ask;
   `GithubProvider._bot` keeps bots out of `usual_reviewers`. `Fenced` puts the ticket text between `~~~ticket` fences in `plan.md`.
   `serve.ci_grace_seconds` replaces the `CI_GRACE_SECONDS` constant.
+- **`serve` login and limits** (WP1; `serve/pause.py`, `serve/health.py`, `serve/status.py`): the SDK
+  says a refused model login (`AssistantMessage.error == "authentication_failed"`, `api_error_status`
+  401, then `ResultError`: checked with fake credentials, API key and OAuth token) and the plan limit
+  (a `rejected` `RateLimitEvent`, `rate_limit`, `billing_error`); `RefusalReader` turns it into
+  `AgentAnswer.refusal` only for a failed call. `ModelPause` is the family of pauses that block nothing
+  (`DayPause`, `UsageLimitHit`, `LoginRefused`): the routine, the round and the selector catch it.
+  `LoginRejected.status` carries the HTTP status (it is raised for any HTTP answer that is not a network
+  error), and `LoginWatch` calls a login dead only on a 401 of "who am I". A dead login asks `ServeStop`
+  (shared by the companies of `ServeCompanies.load`, first reason kept); `ServeLoop.serve_until_stopped`
+  stops the loops, `CompanyWatch.settle` gives the running tasks `call_minutes`, the exit code is
+  `ExitCode.LOGIN_REFUSED` (3), and `ServeStatus` writes `<state file>.status.json` after every poll
+  and on the stop. `UsageGate` (one for all the companies) makes `CompanyWatch._probe` send one task
+  per poll. Do not read the status of a login from the type `LoginRejected`.
 - **`serve` rule sets** (decisions Q1 to Q23 in `docs/decisions/2026-11-18-serve-quality-rules.md`):
   `serve.rules` / `serve.rules_by_repo` turn on sets from `src/briar/prompts/rule_sets/<name>.md`
   (`## Baseline` for the system prompt, `## Review` for the self review; parsed strictly by

@@ -20,6 +20,19 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
   never reaches the origin, and a second hit blocks the task with a report that has no value. The draft that a stop makes is covered too.
 - `serve.ci_grace_seconds` (default 60, as before) is how long `serve` waits for a CI that has not started before it decides the
   repo has none.
+- `briar serve` stops when a login is refused. A login counts as dead only when the read-only "who am I"
+  of its source (GitHub, GitLab, Jira) gets an HTTP 401, or when the model says `authentication_failed`
+  (an API key and the OAuth token alike); a 403 or 404 of one repo, a 5xx and a network error do not.
+  Every company stops polling, the running tasks get `call_minutes` to finish, and the exit code is 3
+  (new: `1` is a crash, `130` is Ctrl+C). The ticket is not blocked and gets no comment.
+- `briar serve` writes `<knowledge root>/work/<company>.status.json` at the end of every poll (`running`
+  with the time), and `stopping` then `stopped` with the reason, the source and the fix when a login
+  was refused. An old time shows that `serve` is gone.
+- A usage limit of the plan (`CLAUDE_CODE_OAUTH_TOKEN`) pauses the tasks instead of blocking them: nothing is
+  written on the ticket, and each poll sends one task to ask the plan again. It is read from what the SDK
+  says, not from a text, and was not seen against a real limit yet.
+- The start check of `serve` and `briar doctor` say which login of the model they found, and warn when
+  `ANTHROPIC_API_KEY` is set next to `CLAUDE_CODE_OAUTH_TOKEN` (the key wins and bills the API).
 - `iac-terraform` extractor: the Terraform of a repo (roots, backends, providers, modules, variable files) read through the GitLab or GitHub API. It never writes a secret value: variable files give names only, and secret-looking names and credential-looking values show `(set)`.
 - Rule sets for `briar serve`: `serve.rules` and `serve.rules_by_repo` turn on sets of coding rules
   that briar adds to what the agent reads (the short text goes in the system prompt of every call,
@@ -146,6 +159,9 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
   relied on it needs that one line. A GitHub bot (type `Bot` or a login that ends in `[bot]`) is no longer counted as a usual reviewer.
 - The title and the description of a ticket go into the plan prompt between fences, under a line that says they are data and never an
   order.
+- A task that meets a refused login or the limit of the plan is no longer blocked with a comment on
+  its ticket: it pauses and writes nothing (see the new entries under Added). Before, an expired
+  token or a usage limit blocked the ticket and needed a manual reopen.
 - `serve.max_usd` is now the total one ticket may spend over all of its runs (the plan, the
   build, the CI fixes, every review round and every restart), not a new amount for each run.
   What a run spent is saved after every agent call, so a kill or a restart no longer gives

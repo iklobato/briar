@@ -77,7 +77,7 @@ class RequestsFailures(LibraryFailures):
         response = getattr(error, "response", None)
         if response is None:
             return LoginRejected(self.detail(error))
-        return LoginRejected(self.with_status(response.status_code, error))
+        return LoginRejected.at(self.with_status(response.status_code, error), response.status_code)
 
 
 class GithubFailures(LibraryFailures):
@@ -93,7 +93,7 @@ class GithubFailures(LibraryFailures):
         from github import GithubException
 
         if isinstance(error, GithubException):
-            return LoginRejected(self.with_status(error.status, error))
+            return LoginRejected.at(self.with_status(error.status, error), error.status)
         return SourceUnreachable(self.detail(error))
 
 
@@ -115,7 +115,7 @@ class GitlabFailures(LibraryFailures):
         if error.response_code is None:
             return LoginRejected(self.detail(error))
         # `str(error)` repeats the status ("401: 401 Unauthorized"): keep the message alone.
-        return LoginRejected(self.with_status(error.response_code, Exception(error.error_message)))
+        return LoginRejected.at(self.with_status(error.response_code, Exception(error.error_message)), error.response_code)
 
 
 class UrllibFailures(LibraryFailures):
@@ -132,7 +132,7 @@ class UrllibFailures(LibraryFailures):
 
         if isinstance(error, urllib.error.HTTPError):
             error.close()
-            return LoginRejected(self.with_status(error.code, error))
+            return LoginRejected.at(self.with_status(error.code, error), error.code)
         if isinstance(error, RuntimeError):
             return LoginRejected(self.detail(error))
         return SourceUnreachable(self.detail(error))

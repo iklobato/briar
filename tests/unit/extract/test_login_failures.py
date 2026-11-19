@@ -14,10 +14,11 @@ import pytest
 import requests
 from botocore.exceptions import ClientError, EndpointConnectionError, NoCredentialsError
 from github import GithubException
+from gitlab.exceptions import GitlabError
 
 from briar.auth.check import LoginRejected, SourceUnreachable
 from briar.errors import CliError
-from briar.extract._login_failures import AzureFailures, BotoFailures, GithubFailures, GoogleFailures, LibraryFailures, RequestsFailures, UrllibFailures
+from briar.extract._login_failures import AzureFailures, BotoFailures, GithubFailures, GitlabFailures, GoogleFailures, LibraryFailures, RequestsFailures, UrllibFailures
 
 UNAUTHORIZED = 401
 NOT_FOUND = 404
@@ -118,6 +119,64 @@ class TestTranslation:
         calls: List[str] = []
 
         assert (RequestsFailures().read(partial(calls.append, "read")), calls) == (None, ["read"])
+
+
+SERVICE_UNAVAILABLE = 503
+BAD_GATEWAY = 502
+
+
+@dataclass(frozen=True)
+class StatusCase:
+    """A library error and the HTTP status the check error must carry (None: the library gave none)."""
+
+    failures: LibraryFailures
+    error: BaseException
+    status: "int | None"
+
+
+class StatusCases:
+    def all(self) -> List[StatusCase]:
+        return [
+            StatusCase(GithubFailures(), GithubException(UNAUTHORIZED, {"message": "Bad credentials"}), UNAUTHORIZED),
+            StatusCase(GithubFailures(), GithubException(SERVICE_UNAVAILABLE, {"message": "unavailable"}), SERVICE_UNAVAILABLE),
+            StatusCase(RequestsFailures(), Errors().requests_401(), UNAUTHORIZED),
+            StatusCase(GitlabFailures(), GitlabError("Unauthorized", response_code=UNAUTHORIZED), UNAUTHORIZED),
+            StatusCase(GitlabFailures(), GitlabError("Bad gateway", response_code=BAD_GATEWAY), BAD_GATEWAY),
+            StatusCase(RequestsFailures(), Errors().requests_with_no_message(), NOT_FOUND),
+            StatusCase(RequestsFailures(), requests.TooManyRedirects("Exceeded 30 redirects."), None),
+            StatusCase(UrllibFailures(), Errors().http_401(), UNAUTHORIZED),
+            StatusCase(UrllibFailures(), RuntimeError("linear graphql errors: [{'message': 'Authentication required'}]"), None),
+        ]
+
+    def ids(self) -> List[str]:
+        """Plain names, in the order of `all`: building the errors again here would leave `HTTPError` objects that only the garbage
+        collector closes, and Python 3.14 turns that `ResourceWarning` into a failure of whatever test runs next (the integration job)."""
+        return [
+            "github-401",
+            "github-503",
+            "requests-401",
+            "gitlab-401",
+            "gitlab-502",
+            "requests-404",
+            "requests-no-status",
+            "urllib-401",
+            "urllib-runtime-error",
+        ]
+
+
+class TestStatusOfARefusal:
+    """WP1: `LoginRejected` is raised for any HTTP answer that is not a network error (a 503 and a 404 too), so a login can be
+    called dead only by its status: `serve` stops on a 401 and on nothing else."""
+
+    @pytest.mark.parametrize("case", StatusCases().all(), ids=StatusCases().ids())
+    def test_the_refusal_carries_the_http_status_of_the_answer(self, case: StatusCase) -> None:
+        with pytest.raises(LoginRejected) as caught:
+            case.failures.account(Raising(case.error).account)
+
+        assert caught.value.status == case.status
+
+    def test_a_refusal_made_by_briar_has_no_status(self) -> None:
+        assert LoginRejected("missing the Jira permission X").status is None
 
 
 class TestOptionalSdks:

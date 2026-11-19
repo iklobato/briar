@@ -11,10 +11,13 @@ from typing import Callable, List
 import pytest
 
 from briar.serve.loop import ServeLoop
+from briar.serve.pause import DeadLogin
 from briar.serve.work import ServeCompanies, ServeLock
 from tests.unit.fake_logins import Fixes
 
 CLI_ERROR = 1
+# The exit code of a `serve` that a refused login stopped (`ExitCode.LOGIN_REFUSED`).
+LOGIN_REFUSED = 3
 SERVE_BLOCK = "    serve:\n      model: claude-test\n      max_usd: 5\n      max_loops: 3\n      ci_wait_minutes: 30\n      max_review_rounds: 2\n      repos: [acme/app]\n"
 
 
@@ -96,6 +99,18 @@ class TestTheLoop:
         run = cli("serve", str(runbooks.write(SERVE_BLOCK)))
 
         assert (run.code, started) == (0, ["serve_forever"])
+
+    def test_a_refused_login_ends_serve_with_the_exit_code_3(self, cli: Callable[..., SimpleNamespace], runbooks: Runbooks, monkeypatch: pytest.MonkeyPatch) -> None:
+        """WP1, decision P13: the loop ran and asked to stop, so the command exits with `ExitCode.LOGIN_REFUSED`, which a
+        supervisor can tell from a crash (1) and from a clean stop (0)."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "PLACEHOLDER-not-a-secret")
+        monkeypatch.setattr("briar.serve.work.ServeCheck.require", lambda check: None)
+        dead = DeadLogin("jira", "acme", "HTTP 401: Unauthorized", "renew the cookie")
+        monkeypatch.setattr(ServeLoop, "serve_forever", lambda loop: loop.stop().request(dead))
+
+        run = cli("serve", str(runbooks.write(SERVE_BLOCK)))
+
+        assert run.code == LOGIN_REFUSED
 
     def test_a_second_serve_on_the_same_knowledge_stops(self, cli: Callable[..., SimpleNamespace], runbooks: Runbooks, monkeypatch: pytest.MonkeyPatch) -> None:
         """Real run, 2026-11-13: two `serve` on one folder took the same issue; the second

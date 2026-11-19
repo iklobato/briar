@@ -17,6 +17,7 @@ from briar.extract._provider import ReviewComment
 from briar.serve.agent import Access, AgentAnswer, AgentRequest, AgentRunner
 from briar.serve.day import DayPause, Grant
 from briar.serve.git import GitIdentity, RepoCheckout, Shell
+from briar.serve.pause import Refused
 from briar.serve.rules import TaskRules
 from briar.serve.state import WorkSource
 from briar.serve.work import BranchName, ServeCompany, WorkDay, WorkItem, WorkSources
@@ -355,11 +356,20 @@ class AgentSteps:
             # After the booking, so the booked spend plus what is in flight never under counts (decision B12).
             self._context.company.day.release(grant)
         self._budget.add(answer.cost_usd)
+        self._refused(answer)
         self._day_stop(answer, grant, ticket_left)
         self._budget.check(answer)
         if answer.failed:
             raise LimitHit(f"the agent stopped: {answer.reason or 'no reason given'}")
+        self._context.company.gate.clear()
         return answer
+
+    def _refused(self, answer: AgentAnswer) -> None:
+        """WP1: the model refused the call, its login or the plan limit. The cost is booked already; the task pauses and is not
+        blocked (nothing is written on its ticket), and `ServeRoutine` tells `serve` what the pause asks of it."""
+        pause = Refused(self._context.company.name).pause(answer)
+        if pause is not None:
+            raise pause
 
     async def _answered(self, request: AgentRequest) -> AgentAnswer:
         answer = await self._timed(request)

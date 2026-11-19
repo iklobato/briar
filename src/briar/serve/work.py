@@ -28,6 +28,7 @@ from briar.iac.runbook.models import CodeHostKind, JiraProject, ServeSettings
 from briar.serve.day import DayCap, Grant
 from briar.serve.git import RepoCheckout, Shell
 from briar.serve.host import GithubStyle, GitlabStyle, HostStyle
+from briar.serve.pause import ServeStop, UsageGate
 from briar.serve.rules import RuleBook
 from briar.serve.state import WorkBook, WorkEntry, WorkSource, WorkState, WorkStatus
 from briar.storage import make_store
@@ -147,6 +148,10 @@ class ServeCompany:
     notes: Dict[str, List[str]] = field(default_factory=dict, compare=False)
     # The reservations of the agent calls in flight under `max_usd_per_day` (decisions B11, B12); in memory.
     day: DayCap = field(default_factory=DayCap, compare=False)
+    # Closed while the plan limit is hit (decision P21), and the request to stop `serve` for a refused login (P13). `ServeCompanies`
+    # gives every company the same two: one plan and one process.
+    gate: UsageGate = field(default_factory=UsageGate, compare=False)
+    stop: ServeStop = field(default_factory=ServeStop.make, compare=False)
 
     def spent_today(self) -> float:
         """What the tasks and the selector spent today, as the state booked it (decision B5). Once a call was stopped at
@@ -526,6 +531,20 @@ class ModelLogin:
             return ""
         return "no model login: set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN (in the environment or secrets.env)"
 
+    def _set(self) -> List[str]:
+        return [name for name in self.NAMES if self._environ.get(name, "").strip()]
+
+    def found(self) -> str:
+        """The login the SDK will use: `ANTHROPIC_API_KEY` outranks `CLAUDE_CODE_OAUTH_TOKEN` (empty when none is set)."""
+        names = self._set()
+        return names[0] if names else ""
+
+    def warning(self) -> str:
+        """Decision D2: both set means the key wins, and the run bills the API and not the plan the token is for."""
+        if len(self._set()) < len(self.NAMES):
+            return ""
+        return "ANTHROPIC_API_KEY and CLAUDE_CODE_OAUTH_TOKEN are both set: the key wins and bills the API, not the plan; unset ANTHROPIC_API_KEY to use the plan token"
+
 
 class AgentSandbox:
     """V12, V14: what the sandbox of the SDK needs for the bash of the agent: the macOS
@@ -601,9 +620,11 @@ class ServeCheck:
         self._sandbox = sandbox
 
     def require(self) -> None:
-        problems = [problem for problem in (ModelLogin(self._environ).problem(), self._sandbox.problem()) if problem]
+        login = ModelLogin(self._environ)
+        problems = [problem for problem in (login.problem(), self._sandbox.problem()) if problem]
         if problems:
             raise CliError("\n".join(problems))
+        self._told(login)
         lines = self.lines()
         # Decision B3 of the autonomous serve: the chat is optional; its failed line warns.
         for line in lines:
@@ -612,6 +633,12 @@ class ServeCheck:
         blocking = [line for line in lines if line.source not in self.OPTIONAL]
         if not all(line.passed() for line in blocking):
             raise LoginCheckFailed.from_results(lines)
+
+    def _told(self, login: ModelLogin) -> None:
+        """WP1 (D2): which login of the model the run found, and a warning when the key would outrank the plan token."""
+        self.LOG.info("serve: model login: %s", login.found())
+        if login.warning():
+            self.LOG.warning("serve: %s", login.warning())
 
     def lines(self) -> List[CheckResult]:
         """The read and write lines of every company (`doctor --runbooks` shows them, X2)."""
@@ -643,7 +670,8 @@ class ServeCompanies:
         for path in sorted(self._directory.glob("*.yaml")):
             runbook = load_runbook_file(path)
             found += [self._company(path, name, entry) for name, entry in runbook.companies.items() if entry.serve is not None]
-        return found
+        gate, stop = UsageGate(), ServeStop.make()
+        return [replace(company, gate=gate, stop=stop) for company in found]
 
     def _company(self, path: Path, name: str, entry: Any) -> ServeCompany:
         scope = LoginScope(name, str(path), f"companies.{name}.auth")

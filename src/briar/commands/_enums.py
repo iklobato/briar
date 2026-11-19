@@ -15,11 +15,14 @@ class ExitCode(IntEnum):
     - 1  general error — any runtime failure the operator can't fix
          via a flag (network, missing creds, agent crashed, …)
     - 2  usage error (argparse-compatible)
+    - 3  `briar serve` stopped because a login was refused (a dead cookie or token, a revoked model login): renew
+         it and start `serve` again. A supervisor must not restart it in a loop on this code.
     """
 
     OK = 0
     GENERAL_ERROR = 1
     USAGE_ERROR = 2
+    LOGIN_REFUSED = 3
 
 
 class OutputFormat(str, Enum):

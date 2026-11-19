@@ -136,11 +136,13 @@ class ModelLoginCheck:
 
         from briar.serve.work import ModelLogin
 
-        problem = ModelLogin(os.environ).problem()
+        login = ModelLogin(os.environ)
+        problem = login.problem()
         if problem:
             return [Check(self.NAME, WARN, f"{problem}; only `briar serve` needs it")]
-        found = [name for name in ModelLogin.NAMES if os.environ.get(name, "").strip()]
-        return [Check(self.NAME, OK, f"{found[0]} set")]
+        if login.warning():
+            return [Check(self.NAME, WARN, f"{login.found()} set; {login.warning()}")]
+        return [Check(self.NAME, OK, f"{login.found()} set")]
 
 
 class AgentSandboxCheck:

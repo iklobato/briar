@@ -21,6 +21,9 @@ import schedule
 from briar.errors import CliError
 from tests.unit.fake_logins import FakeLogins
 
+# The exit code of a `briar serve` that a refused login stopped.
+LOGIN_REFUSED_CODE = 3
+
 
 class TrackerRegistryTests(unittest.TestCase):
     def test_all_kinds_registered(self) -> None:
@@ -1148,10 +1151,13 @@ class Phase8GodClassSplitsTests(unittest.TestCase):
     def test_exit_code_granular_members_removed(self) -> None:
         """STORE_OPEN_FAILED / CLONE_FAILED / GIT_CONFIG_FAILED /
         AGENT_ERROR (3-6) were never observed by the top-level CLI
-        dispatcher — folded into GENERAL_ERROR."""
+        dispatcher — folded into GENERAL_ERROR. One code is back, 3, with
+        a reader: `briar serve` exits with LOGIN_REFUSED when a refused
+        login stops it, and a supervisor must tell that from a crash (1)."""
         from briar.commands._enums import ExitCode
 
-        self.assertEqual({e.name for e in ExitCode}, {"OK", "GENERAL_ERROR", "USAGE_ERROR"})
+        self.assertEqual({e.name for e in ExitCode}, {"OK", "GENERAL_ERROR", "USAGE_ERROR", "LOGIN_REFUSED"})
+        self.assertEqual(int(ExitCode.LOGIN_REFUSED), LOGIN_REFUSED_CODE)
 
     def test_failure_ctx_records_through_one_object(self) -> None:
         """_FailureCtx bundles the 3 constant per-schedule fields so

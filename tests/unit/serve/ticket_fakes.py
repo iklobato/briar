@@ -13,7 +13,7 @@ import pytest
 from briar.auth.check import LoginRejected
 from briar.extract._provider import BranchPull, CiFailure, CiState, PullRequestDraft, PullState, ThreadReply
 from briar.extract._tracker import Ticket
-from briar.serve.agent import AgentAnswer, AgentRequest
+from briar.serve.agent import AgentAnswer, AgentRequest, Refusal
 from briar.serve.day import DayCap
 from briar.serve.flow import TaskFlow
 from briar.serve.git import Shell
@@ -77,6 +77,7 @@ class Step:
     cost: float = 0.1
     failed: bool = False
     reason: str = ""
+    refusal: Refusal = Refusal.NONE
 
 
 @dataclass(frozen=True)
@@ -91,7 +92,7 @@ class ScriptedAgent:
         step = self.steps.pop(0)
         for name, text in step.writes.items():
             (request.cwd / name).write_text(text)
-        return AgentAnswer("done", step.structured, step.cost, step.failed, step.reason)
+        return AgentAnswer("done", step.structured, step.cost, step.failed, step.reason, step.refusal)
 
 
 class BrokenAgent(ScriptedAgent):
@@ -165,10 +166,18 @@ class FakeGithubSide:
     person_drafts: Set[int] = field(default_factory=set)
     # The PRs briar made a draft and did not mark ready since.
     drafted_now: Set[int] = field(default_factory=set)
+    # What "who am I" raises while it holds one (a refused or an unreachable login), once it was asked `account_lives` times: the
+    # task prep asks it too (the identity of the commits), so a login that dies in the middle of a task lives for one call.
+    account_errors: List[Exception] = field(default_factory=list)
+    account_lives: int = 0
+    account_calls: List[int] = field(default_factory=list)
     login_source: ClassVar[str] = "github"
     NUMBER: ClassVar[int] = 41
 
     def who_am_i(self) -> str:
+        self.account_calls.append(1)
+        if self.account_errors and len(self.account_calls) > self.account_lives:
+            raise self.account_errors[0]
         return "octo"
 
     def resolve_token(self) -> str:
@@ -229,6 +238,14 @@ class FakeTrackerSide:
     refused_moves: List[str] = field(default_factory=list)
     # The description of the ticket the agent reads.
     description: str = "We need feature.txt"
+    # What "who am I" raises while it holds one.
+    account_errors: List[Exception] = field(default_factory=list)
+    login_source: ClassVar[str] = "jira"
+
+    def who_am_i(self) -> str:
+        if self.account_errors:
+            raise self.account_errors[0]
+        return "bot@example.test"
 
     def get_ticket(self, project: str, key: str) -> Ticket:
         return Ticket(
