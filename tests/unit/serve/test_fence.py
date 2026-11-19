@@ -26,7 +26,7 @@ class TestFenced:
     def test_the_text_comes_between_two_fences_with_its_label(self) -> None:
         assert Fenced().text("ticket", "a\nb") == "~~~ticket\na\nb\n~~~"
 
-    @pytest.mark.parametrize("run", ["~~~", "~~~~", "~~~~~~~", "a~~~b"], ids=["three", "four", "seven", "inside"])
+    @pytest.mark.parametrize("run", ["~~~", "~~~~", "~~~~~", "~~~~~~~", "a~~~b"], ids=["three", "four", "five", "seven", "inside"])
     def test_a_run_of_the_fence_inside_the_text_is_broken(self, run: str) -> None:
         lines = Fenced().text("ticket", f"before\n{run}\nafter").splitlines()
 

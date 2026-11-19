@@ -266,7 +266,7 @@ class TestPrompts:
     def test_every_prompt_file_ships_and_fills_in(self, name: str) -> None:
         values = {
             key: f"<{key}>"
-            for key in ("company", "repo", "knowledge", "index", "state", "key", "title", "description", "plan", "verify", "what", "details", "diff", "comments", "earlier", "rules")
+            for key in ("company", "repo", "knowledge", "index", "state", "key", "title", "description", "ticket", "plan", "verify", "what", "details", "diff", "comments", "earlier", "rules")
         }
 
         text = Prompts().text(name, values)
