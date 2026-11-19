@@ -15,6 +15,7 @@ from typing import Any, ClassVar, FrozenSet, List, Mapping, Optional
 
 from briar.errors import CliError
 from briar.extract._provider import CiState, PullRequestDraft
+from briar.serve.clean import SecretGate
 from briar.serve.git import Shell
 from briar.serve.state import MoneyStop, WorkEntry, WorkSource, WorkStatus
 from briar.serve.task import AgentSteps, Budget, LimitHit, Plan, TaskContext
@@ -140,7 +141,11 @@ class TaskFlow:
         return self._budget.summary()
 
     async def push(self) -> None:
+        await self._gate().clean()
         await asyncio.to_thread(self._context.checkout.push, self._context.worktree, self._context.branch, self._context.token)
+
+    def _gate(self) -> SecretGate:
+        return SecretGate(self._context, self._steps, self._budget, self.verified, self.commit)
 
     async def blocked(self, report: str, stop: Optional[MoneyStop] = None) -> None:
         """S23: push what there is, a draft PR, the report on the PR and on the ticket. The
@@ -220,6 +225,8 @@ class TaskFlow:
         self.commit("work so far")
         if not (known and known.pr) and not self.changed():
             return 0
+        if self._gate().hits():
+            raise LimitHit("nothing was pushed or opened: the work so far adds what looks like a secret")
         self._context.checkout.push(self._context.worktree, self._context.branch, self._context.token)
         github = self._context.sources.code_host()
         if known is not None and known.pr:
