@@ -329,6 +329,7 @@ class TestBaseCi:
         found = api.host().failing_jobs_on_base(REPO, "main")
 
         assert found == ["lint", "tests"]
+        assert api.calls() == [(f"{PROJECT}/pipelines", {"ref": "main"}), (f"{PROJECT}/pipelines/{PIPELINE}/jobs", {"scope[]": "failed"})]
 
     def test_a_branch_with_no_pipeline_has_no_red_job(self) -> None:
         assert Host.of({f"{PROJECT}/pipelines": []}).host().failing_jobs_on_base(REPO, "main") == []

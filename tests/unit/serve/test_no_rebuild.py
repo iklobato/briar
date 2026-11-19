@@ -57,6 +57,18 @@ class TestAStopInsideTheBuild:
         assert (raised.entry("ENG-1").status, [request.access for request in agent.requests]) == (WorkStatus.DONE, [Access.EDIT, Access.READ])
 
 
+class TestABuildThatLeftNoWork:
+    def test_an_entry_that_says_built_but_a_branch_with_no_work_is_built_again(self, setups: Setups) -> None:
+        """The cache of worktrees was cleared: the flag is true and the work is gone, so the build runs again."""
+        setup = setups.make({})
+        setup.save(Entries().planned(spent=0.0).model_copy(update={"built": True}))
+        agent = ScriptedAgent([Step(writes=Files().feature()), Plans().approved()])
+
+        setup.work_on(agent, Items().jira())
+
+        assert (setup.entry("ENG-1").status, [request.access for request in agent.requests]) == (WorkStatus.DONE, [Access.EDIT, Access.READ])
+
+
 class TestAPauseRepeatsNoWork:
     def test_a_pause_in_the_self_review_does_not_build_again(self, setups: Setups) -> None:
         resumed = Paused().in_the_review(setups)

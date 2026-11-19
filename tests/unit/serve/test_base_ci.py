@@ -66,6 +66,11 @@ class TestFixOrNot:
 
         assert (done.status(), len(done.agent.requests)) == (WorkStatus.DONE, WITH_THE_FIX)
 
+    def test_the_base_that_is_asked_is_the_base_branch_of_the_task(self, setups: Setups) -> None:
+        done = Ticket().with_failures(setups, ["test"], ["test"])
+
+        assert done.setup.sources.github_side.base_asked == [("acme/app", "main")]
+
     def test_a_failure_with_no_job_names_is_fixed_as_before(self, setups: Setups) -> None:
         """No log was found (`list_ci_failures` gave nothing): there is nothing to compare, so the check never stops a fix."""
         done = Ticket().with_failures(setups, [], ["test"])
