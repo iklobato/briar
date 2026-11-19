@@ -180,6 +180,30 @@ class TestGithubReviewers:
 
         assert found == ["ann", "bob"]
 
+    def test_a_bot_is_never_a_usual_reviewer(self) -> None:
+        """Real run (2026-11-18): the second most frequent reviewer of python-libs was the Copilot bot, which GitHub does not keep as a requested reviewer."""
+        pulls = [{"number": FIRST_PR, "merged_at": "t"}, {"number": SECOND_PR, "merged_at": "t"}]
+        bots = [{"user": {"login": "copilot-pull-request-reviewer[bot]", "type": "Bot"}}, {"user": {"login": "Copilot", "type": "Bot"}}]
+        reviews = {FIRST_PR: [*bots, *bots, {"user": {"login": "ann", "type": "User"}}], SECOND_PR: [*bots, {"user": {"login": "bob", "type": "User"}}]}
+        answers = {"/repos/acme/app/pulls?state=closed&sort=updated&direction=desc": pulls, **{f"/repos/acme/app/pulls/{number}/reviews": rows for number, rows in reviews.items()}}
+
+        with mock.patch("briar.extract._gh.GithubApi.get_paginated", side_effect=lambda path, **kwargs: answers[path]):
+            with mock.patch("briar.extract._providers.github.GithubProvider.who_am_i", return_value="octo"):
+                found = make_provider("github", Logins().github()).usual_reviewers("acme/app", TWO_REVIEWERS + 1)
+
+        assert found == ["ann", "bob"]
+
+    def test_a_login_that_ends_in_bot_is_a_bot_even_with_no_type(self) -> None:
+        pulls = [{"number": FIRST_PR, "merged_at": "t"}]
+        reviews = {FIRST_PR: [{"user": {"login": "dependabot[bot]"}}, {"user": {"login": "ann"}}]}
+        answers = {"/repos/acme/app/pulls?state=closed&sort=updated&direction=desc": pulls, f"/repos/acme/app/pulls/{FIRST_PR}/reviews": reviews[FIRST_PR]}
+
+        with mock.patch("briar.extract._gh.GithubApi.get_paginated", side_effect=lambda path, **kwargs: answers[path]):
+            with mock.patch("briar.extract._providers.github.GithubProvider.who_am_i", return_value="octo"):
+                found = make_provider("github", Logins().github()).usual_reviewers("acme/app", TWO_REVIEWERS)
+
+        assert found == ["ann"]
+
     def test_asking_a_review_requests_the_reviewers(self) -> None:
         client = mock.MagicMock()
 

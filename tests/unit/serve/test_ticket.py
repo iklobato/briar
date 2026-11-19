@@ -342,10 +342,10 @@ class TestStopForMoney:
 
 class TestUsualReviewers:
     """Decision D2 of the autonomous serve: a ready MR asks the usual reviewers of its repo,
-    so it does not wait for the maintainer."""
+    so it does not wait for the maintainer. Since WP2 (P35) only when `ask_reviewers` is on."""
 
     def test_a_ready_pr_asks_the_two_usual_reviewers_of_the_repo(self, setups: Setups) -> None:
-        setup = setups.make({})
+        setup = setups.make({"ask_reviewers": True})
         setup.sources.github_side.usual["acme/app"] = ["ann", "bob", "cy"]
 
         setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()]), Items().jira())
@@ -354,7 +354,7 @@ class TestUsualReviewers:
 
     def test_a_repo_with_no_review_history_asks_nobody_and_says_so(self, setups: Setups, caplog: pytest.LogCaptureFixture) -> None:
         caplog.set_level(logging.INFO, logger="briar.serve.ticket")
-        setup = setups.make({})
+        setup = setups.make({"ask_reviewers": True})
 
         setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()]), Items().jira())
 

@@ -189,6 +189,9 @@ class ServeSettings(_Strict):
     priority_labels: List[str] = Field(default_factory=list)
     # Bot logins whose PR comments briar answers (V1); people need write access.
     review_bots: List[str] = Field(default_factory=list)
+    # A ready PR asks the usual reviewers of the repo to review it (decision D2). Off by default (decision P35 of the production plan): the ask
+    # notifies real colleagues, so the runbook has to say so.
+    ask_reviewers: bool = False
     # The domains the sandboxed bash of the agent may reach (V13); none by default.
     allowed_domains: List[str] = Field(default_factory=list)
     status: StatusNames = Field(default_factory=StatusNames)
