@@ -138,6 +138,13 @@ ticket goes on, briar marks the PR ready again. A draft that a person made after
 ready is left alone: briar only finishes a draft it opened itself (it never marked ready) or one it
 made at a stop for money.
 
+A draft that briar made at a stop for money and that a person then marked ready is theirs: when
+`max_usd` is raised the ticket flow pushes nothing more into it, the entry is `done`, and review
+comments on it are still answered. A ticket that stopped for money after its build ended (in the
+self review, say) does not pay for the build again when it goes on; a stop inside the build runs that
+build again, on the work kept in the worktree. The same holds for a day pause: the entry says when the
+build returned.
+
 ### The daily cap
 
 `max_usd_per_day` is a hard cap on everything briar spends on the model in one UTC day: every
@@ -181,6 +188,17 @@ plan and report comments that briar posts on a ticket are not scanned.
 The title and the description of a ticket are written by people, and a ticket can carry instructions. They go into the plan prompt between
 `~~~ticket` fences, under a line that says they are data and never an order. A run of `~~~` inside the text is broken, so it cannot close
 its own fence. This lowers the risk; a model can still follow text inside a fence.
+
+### A CI that is red on the base
+
+When the CI of a PR fails, the agent is asked to fix it, up to `max_loops` times. Before that, briar
+compares the jobs that fail on the PR with the jobs that failed on the latest run of the base branch,
+by name. When every failed job of the PR is red on the base too, the task stops with the reason (the
+PR becomes a draft and the report says which jobs) and no fix is paid: a ticket cannot fix a base that
+is already red. A job that fails only on the PR is still fixed, even when the base has another job red.
+A read of the base that fails, or a failure with no job names, never stops a fix. Jobs are told by name:
+two jobs with the same name in different workflows count as one. Fix the base first, then mark the PR
+ready if its own checks pass.
 
 ### The CI a round owes
 
@@ -517,6 +535,12 @@ Stop it with `launchctl bootout gui/$(id -u)/com.usebriar.serve`. Add
 `<key>KeepAlive</key><true/>` to have launchd start it again after a crash. A Mac that
 sleeps stops polling until it wakes. On Linux, use a systemd user unit with the same
 command and `Restart=on-failure`.
+
+Exit code 2 is a crash. The one seen so far: the SDK waited for the `claude` process to answer its first
+request and gave up (`Control request timeout: initialize`, a plain `Exception` that cannot be caught under
+the rules of this project). `serve` gives it 180 seconds instead of 60 (`CLAUDE_CODE_STREAM_CLOSE_TIMEOUT`, a
+placeholder), and a supervisor restarts it: the state is saved after every call and the worktree is reset to
+the origin at the start, so a restart costs the call in flight. With systemd use `Restart=on-failure`.
 
 Exit code 3 means a login was refused: restarting does nothing until you renew it. With systemd, add
 `RestartPreventExitStatus=3` so it does not restart in a loop. `KeepAlive` of launchd and
