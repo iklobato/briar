@@ -51,6 +51,11 @@ SMALL_CALL = 0.1
 LARGE_CALL = 0.3
 EXACT_FIT = 0.25
 EXACT_FITS = 2
+# A call that holds 0.9999999999999999 of a cap of 1.0, one whose 1e-17 the float sum loses, and a ticket above the cap.
+WHOLE_CAP = 1.0
+ALMOST_WHOLE = 0.9999999999999999
+VANISHING = 1e-17
+TICKET_OVER_THE_CAP = 5.0
 # What a pick of `max_usd` 5 needs, and a day cap that fits it with room to spare.
 ROOM_FOR_ONE = 6.0
 MARKS = 3
@@ -135,6 +140,15 @@ class TestSelectorStoppedAtTheDayGrant:
         asyncio.run(Selector(StoppedAtGrant(), company).pick([Tickets().plain("ENG-1")], 1, {}))
 
         assert company.capped() is True
+
+    def test_a_selector_stopped_at_its_own_max_usd_leaves_the_day_open(self, tmp_path: Path) -> None:
+        """Mutant n15: the day closes only when the DAY cut the grant below `max_usd`. A stop at the grant of `max_usd` itself is the
+        selector limit, with most of the day left."""
+        company = Companies(tmp_path).company(Runbook().two_repos(ROOM_FOR_TWO))
+
+        asyncio.run(Selector(StoppedAtGrant(), company).pick([Tickets().plain("ENG-1")], 1, {}))
+
+        assert company.capped() is False
 
 
 class CrossesMidnight(ScriptedAgent):
@@ -273,3 +287,14 @@ class TestFloatResidue:
         fits = [cap.offer(RESIDUE_CAP, booked, EXACT_FIT) for _ in range(EXACT_FITS)]
 
         assert all(grant is not None for grant in fits)
+
+    def test_a_call_in_flight_counts_even_when_its_share_is_lost_in_the_float_sum(self) -> None:
+        """Mutant m14: in flight is a count of grants, not `reserved > 0`. A share of 1e-17 next to one of 0.9999999999999999 is lost
+        in the sum, so when the big call ends the reserved amount reads 0 with a call still in flight: a third call must still wait
+        instead of taking the day left."""
+        cap, booked = DayCap(), Booked(NOTHING)
+        big, vanishing = cap.offer(WHOLE_CAP, booked, ALMOST_WHOLE), cap.offer(WHOLE_CAP, booked, VANISHING)
+        assert big is not None and vanishing is not None
+        cap.release(big)
+
+        assert cap.offer(WHOLE_CAP, booked, TICKET_OVER_THE_CAP) is None

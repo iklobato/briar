@@ -301,7 +301,11 @@ class TestAReopenAndALaterStop:
 
     def test_a_ticket_that_runs_again_is_not_rewound_by_the_next_poll(self, tmp_path: Path) -> None:
         company = Companies(tmp_path / "knowledge").company({**Settings().block([]), "max_usd": RAISED_CAP})
-        running = Entries().planned(spent=1.0).model_copy(update={"status": WorkStatus.PR_OPEN, "pr": PR, "money_stop": MoneyStop(cap=STOPPED_AT, resume_to="planned")})
+        running = (
+            Entries()
+            .planned(spent=1.0)
+            .model_copy(update={"status": WorkStatus.PR_OPEN, "pr": PR, "money_stop": MoneyStop(cap=STOPPED_AT, resume_to="planned")})
+        )
         asyncio.run(company.state.record(running))
 
         assert (asyncio.run(BudgetReopen(company).apply()), company.state.book().entry("ENG-1").status) == ([], WorkStatus.PR_OPEN)

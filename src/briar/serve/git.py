@@ -154,7 +154,9 @@ class RepoCheckout:
         if self.head(path) == remote:
             return
         lost = self._git(["rev-list", "--count", f"origin/{branch}..HEAD"], path, "").output.strip()
-        self.LOG.warning("serve: the worktree of %s differs from origin/%s: reset to it, dropping %s commit(s) that are not on the origin", branch, branch, lost)
+        self.LOG.warning(
+            "serve: the worktree of %s differs from origin/%s: reset to it, dropping %s commit(s) that are not on the origin", branch, branch, lost
+        )
         self.discard(path, remote)
 
     def merge(self, path: Path, base: str, identity: GitIdentity) -> List[str]:

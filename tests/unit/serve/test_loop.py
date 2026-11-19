@@ -362,20 +362,39 @@ class TestDayGate:
 class TestReopenInTheCycle:
     """Decision B10: every poll brings back the tickets whose cap was raised, before it finds the work."""
 
-    def test_a_poll_brings_back_a_ticket_that_stopped_for_money(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("briar.serve.loop.WorkSources", lambda logins, kind: FakeSources())
-        company = Companies(tmp_path / "knowledge").company({"repos": ["acme/app"], "max_usd": RAISED_USD})
-        stopped = WorkEntry(
+    def stopped(self) -> WorkEntry:
+        return WorkEntry(
             key="ENG-1", source=WorkSource.JIRA, repo="acme/app", title="stopped", status=WorkStatus.BLOCKED, pr=PR,
             spent_by_day={WorkDay().today(): SPENT_AT_STOP}, money_stop=MoneyStop(cap=CAP_AT_STOP, resume_to="pr-open", drafted=True),
         )  # fmt: skip
-        asyncio.run(company.state.record(stopped))
+
+    def test_a_poll_brings_back_a_ticket_that_stopped_for_money(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("briar.serve.loop.WorkSources", lambda logins, kind: FakeSources())
+        company = Companies(tmp_path / "knowledge").company({"repos": ["acme/app"], "max_usd": RAISED_USD})
+        asyncio.run(company.state.record(self.stopped()))
         slots = TaskSlots(asyncio.Semaphore(TWO_SLOTS), set(), set())
         watch = CompanyWatch(company, slots, WatchWork(RecordingRoutine(company.state), Choice(Selector(PickingAgent([]), company), company)))
 
         asyncio.run(watch.cycle())
 
         assert company.state.book().entry("ENG-1").status is WorkStatus.PR_OPEN
+
+    def test_the_reopened_ticket_is_found_and_dispatched_in_the_same_poll(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Mutant m22: a reopen after the finder leaves the ticket for the next poll, because the finder sees it still blocked."""
+        draft = PullState(True, False, False, "main", draft=True)
+        monkeypatch.setattr("briar.serve.loop.WorkSources", lambda logins, kind: FakeSources(FakeGithub(pulls={("acme/app", PR): draft})))
+        company = Companies(tmp_path / "knowledge").company({"repos": ["acme/app"], "max_usd": RAISED_USD})
+        asyncio.run(company.state.record(self.stopped()))
+        routine, slots = KeyRoutine(), TaskSlots(asyncio.Semaphore(TWO_SLOTS), set(), set())
+        watch = CompanyWatch(company, slots, WatchWork(routine, Choice(Selector(PickingAgent([]), company), company)))
+
+        async def scenario() -> None:
+            await watch.cycle()
+            await slots.drain()
+
+        asyncio.run(scenario())
+
+        assert routine.dispatched == [(WorkKind.READY, "ENG-1")]
 
 
 class TestState:
