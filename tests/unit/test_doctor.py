@@ -69,6 +69,17 @@ class TestOfflineChecks:
         assert checks["github login"].detail == "github (acme): bot@example.test"
         assert worst_status(list(checks.values())) == OK
 
+    def test_a_key_next_to_the_plan_token_is_a_warning(self, project: Project, monkeypatch: pytest.MonkeyPatch) -> None:
+        """WP1, D2: the key outranks the token, so the run would bill the API and not the plan."""
+        monkeypatch.setenv("BRIAR_ACME_GITHUB_TOKEN", FAKE_SECRET)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", FAKE_SECRET)
+        monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", FAKE_SECRET)
+
+        checks = project.write('company = "acme"\n')
+
+        assert checks["model login"].status == WARN
+        assert checks["model login"].detail.startswith("ANTHROPIC_API_KEY set; ANTHROPIC_API_KEY and CLAUDE_CODE_OAUTH_TOKEN are both set")
+
     def test_no_config_and_no_company_warn(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("briar.config.find_config_file", NoConfig().find)
         monkeypatch.setattr("briar.infer.git_remote_slug", lambda cwd=None: None)

@@ -531,6 +531,20 @@ class ModelLogin:
             return ""
         return "no model login: set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN (in the environment or secrets.env)"
 
+    def _set(self) -> List[str]:
+        return [name for name in self.NAMES if self._environ.get(name, "").strip()]
+
+    def found(self) -> str:
+        """The login the SDK will use: `ANTHROPIC_API_KEY` outranks `CLAUDE_CODE_OAUTH_TOKEN` (empty when none is set)."""
+        names = self._set()
+        return names[0] if names else ""
+
+    def warning(self) -> str:
+        """Decision D2: both set means the key wins, and the run bills the API and not the plan the token is for."""
+        if len(self._set()) < len(self.NAMES):
+            return ""
+        return "ANTHROPIC_API_KEY and CLAUDE_CODE_OAUTH_TOKEN are both set: the key wins and bills the API, not the plan; unset ANTHROPIC_API_KEY to use the plan token"
+
 
 class AgentSandbox:
     """V12, V14: what the sandbox of the SDK needs for the bash of the agent: the macOS
@@ -606,9 +620,11 @@ class ServeCheck:
         self._sandbox = sandbox
 
     def require(self) -> None:
-        problems = [problem for problem in (ModelLogin(self._environ).problem(), self._sandbox.problem()) if problem]
+        login = ModelLogin(self._environ)
+        problems = [problem for problem in (login.problem(), self._sandbox.problem()) if problem]
         if problems:
             raise CliError("\n".join(problems))
+        self._told(login)
         lines = self.lines()
         # Decision B3 of the autonomous serve: the chat is optional; its failed line warns.
         for line in lines:
@@ -617,6 +633,12 @@ class ServeCheck:
         blocking = [line for line in lines if line.source not in self.OPTIONAL]
         if not all(line.passed() for line in blocking):
             raise LoginCheckFailed.from_results(lines)
+
+    def _told(self, login: ModelLogin) -> None:
+        """WP1 (D2): which login of the model the run found, and a warning when the key would outrank the plan token."""
+        self.LOG.info("serve: model login: %s", login.found())
+        if login.warning():
+            self.LOG.warning("serve: %s", login.warning())
 
     def lines(self) -> List[CheckResult]:
         """The read and write lines of every company (`doctor --runbooks` shows them, X2)."""

@@ -143,16 +143,33 @@ class CompanyWatch:
         items: List[WorkItem] = await asyncio.to_thread(WorkFinder(self._company, sources, drift).find)
         await ReviewReminders(self._company, sources).send()
         capped = self._capped()
-        pulls = [item for item in items if item.kind is not WorkKind.TICKET and (item.kind in self.NO_MODEL or not capped)]
-        started = sum(self._slots.dispatch(item, self._work.routine) for item in pulls) + (0 if capped else await self._tickets(items))
+        limited = not capped and self._company.gate.closed()
+        pulls = [item for item in items if item.kind is not WorkKind.TICKET and (item.kind in self.NO_MODEL or not (capped or limited))]
+        started = sum(self._slots.dispatch(item, self._work.routine) for item in pulls)
+        started += 0 if capped else await (self._probe(items) if limited else self._tickets(items))
         self.LOG.info("serve: %s: %d found, %d started", self._company.name, len(items), started)
         await asyncio.to_thread(DailyReport(self._company, sources).write)
         return started
 
+    async def _probe(self, items: List[WorkItem]) -> int:
+        """Decisions P21 and P32: the plan limit is hit. ONE task that needs the model goes through, to ask the plan again: the first
+        PR that needs it, else the first resumed ticket, else the selector (its call is the probe; if it answers, the gate opens and
+        what it picks starts). A call that is still refused costs nothing and the task keeps its status."""
+        self._noted(f"the plan limit is hit: one task is tried at each poll ({self._company.gate.reason()})")
+        pulls = [item for item in items if item.kind is not WorkKind.TICKET and item.kind not in self.NO_MODEL]
+        probes = [*pulls, *self._resumed(items)]
+        return self._slots.dispatch(probes[0], self._work.routine) if probes else await self._tickets(items)
+
+    def _resumed(self, items: List[WorkItem]) -> List[WorkItem]:
+        """The tickets briar already started and no task runs: they go on in the repo they started in, with no selector."""
+        book = self._company.state.book()
+        tickets = self._slots.waiting([item for item in items if item.kind is WorkKind.TICKET])
+        return [item.resumed(entry) for item in tickets if (entry := book.entry(item.key)) is not None]
+
     async def _tickets(self, items: List[WorkItem]) -> int:
         book = self._company.state.book()
         tickets = self._slots.waiting([item for item in items if item.kind is WorkKind.TICKET])
-        resumed = [item.resumed(entry) for item in tickets if (entry := book.entry(item.key)) is not None]
+        resumed = self._resumed(items)
         fresh = [item for item in tickets if book.entry(item.key) is None]
         free = min(max(self._company.settings.max_parallel - self._slots.busy() - len(resumed), 0), self._left_today(book, fresh))
         picked = await self._work.choice.choose(fresh, free)
