@@ -12,19 +12,25 @@ import logging
 import os
 from dataclasses import dataclass
 from datetime import date
-from typing import ClassVar, List, Protocol, Set, Tuple, Type
+from typing import TYPE_CHECKING, ClassVar, List, Protocol, Set, Tuple, Type
 
 from briar.errors import CliError
 from briar.iac.runbook.scheduler import RunbookScheduler
 from briar.serve.agent import AgentRunner, BashGuard, ClaudeAgent, SandboxRoom
 from briar.serve.chat import ChatReader
 from briar.serve.git import Shell
+from briar.serve.health import LoginWatch
 from briar.serve.open_work import OpenWork
+from briar.serve.pause import ServeStop
 from briar.serve.select import Choice, Selector
 from briar.serve.task import ServeCache, TaskContext, TaskPrep
 from briar.serve.report import DailyReport
 from briar.serve.state import WorkBook
+from briar.serve.status import ServeStatus
 from briar.serve.work import BaseDrift, BudgetReopen, ReviewReminders, ServeCompany, WorkDay, WorkFinder, WorkItem, WorkKind, WorkSources
+
+if TYPE_CHECKING:
+    from briar.commands._enums import ExitCode
 
 
 class Routine(Protocol):
@@ -106,12 +112,29 @@ class CompanyWatch:
         """One poll: find the work (in a thread: the clients are blocking) and dispatch it.
         A failed poll (GitHub or Jira down, a state write that fails) is logged and tried again next poll: it must not
         stop the other companies and the tasks that are running. The whole poll is inside the guard: the reopen, the
-        selector with its state write and the report used to sit outside it, and an `OSError` there ended `serve` (audit 7)."""
+        selector with its state write and the report used to sit outside it, and an `OSError` there ended `serve` (audit 7).
+        Once `serve` was asked to stop (a refused login, decision P13) no company polls again."""
+        started = await self._cycled()
+        await asyncio.to_thread(ServeStatus(self._company).polled)
+        return started
+
+    async def _cycled(self) -> int:
+        if self._company.stop.asked():
+            return 0
         try:
             return await self._poll()
         except self.POLL_FAILURES as failure:
             self.LOG.error("serve: %s: the poll failed, trying again next poll: %s", self._company.name, failure)
+            await self._confirmed()
             return 0
+
+    async def _confirmed(self) -> None:
+        """A failed poll may be a dead login (WP1, decision D9): ask "who am I" of the code host and Jira. Only a 401 stops `serve`;
+        any other failure is tried again at the next poll, as before."""
+        sources = WorkSources(self._company.logins, self._company.settings.code_host)
+        dead = await asyncio.to_thread(LoginWatch(self._company, sources).dead)
+        if dead is not None and self._company.stop.request(dead):
+            self.LOG.error("serve: %s: %s", self._company.name, dead.line())
 
     async def _poll(self) -> int:
         sources = WorkSources(self._company.logins, self._company.settings.code_host)
@@ -120,16 +143,33 @@ class CompanyWatch:
         items: List[WorkItem] = await asyncio.to_thread(WorkFinder(self._company, sources, drift).find)
         await ReviewReminders(self._company, sources).send()
         capped = self._capped()
-        pulls = [item for item in items if item.kind is not WorkKind.TICKET and (item.kind in self.NO_MODEL or not capped)]
-        started = sum(self._slots.dispatch(item, self._work.routine) for item in pulls) + (0 if capped else await self._tickets(items))
+        limited = not capped and self._company.gate.closed()
+        pulls = [item for item in items if item.kind is not WorkKind.TICKET and (item.kind in self.NO_MODEL or not (capped or limited))]
+        started = sum(self._slots.dispatch(item, self._work.routine) for item in pulls)
+        started += 0 if capped else await (self._probe(items) if limited else self._tickets(items))
         self.LOG.info("serve: %s: %d found, %d started", self._company.name, len(items), started)
         await asyncio.to_thread(DailyReport(self._company, sources).write)
         return started
 
+    async def _probe(self, items: List[WorkItem]) -> int:
+        """Decisions P21 and P32: the plan limit is hit. ONE task that needs the model goes through, to ask the plan again: the first
+        PR that needs it, else the first resumed ticket, else the selector (its call is the probe; if it answers, the gate opens and
+        what it picks starts). A call that is still refused costs nothing and the task keeps its status."""
+        self._noted(f"the plan limit is hit: one task is tried at each poll ({self._company.gate.reason()})")
+        pulls = [item for item in items if item.kind is not WorkKind.TICKET and item.kind not in self.NO_MODEL]
+        probes = [*pulls, *self._resumed(items)]
+        return self._slots.dispatch(probes[0], self._work.routine) if probes else await self._tickets(items)
+
+    def _resumed(self, items: List[WorkItem]) -> List[WorkItem]:
+        """The tickets briar already started and no task runs: they go on in the repo they started in, with no selector."""
+        book = self._company.state.book()
+        tickets = self._slots.waiting([item for item in items if item.kind is WorkKind.TICKET])
+        return [item.resumed(entry) for item in tickets if (entry := book.entry(item.key)) is not None]
+
     async def _tickets(self, items: List[WorkItem]) -> int:
         book = self._company.state.book()
         tickets = self._slots.waiting([item for item in items if item.kind is WorkKind.TICKET])
-        resumed = [item.resumed(entry) for item in tickets if (entry := book.entry(item.key)) is not None]
+        resumed = self._resumed(items)
         fresh = [item for item in tickets if book.entry(item.key) is None]
         free = min(max(self._company.settings.max_parallel - self._slots.busy() - len(resumed), 0), self._left_today(book, fresh))
         picked = await self._work.choice.choose(fresh, free)
@@ -172,22 +212,72 @@ class CompanyWatch:
             await self.cycle()
             await asyncio.sleep(self._company.settings.poll_minutes * self.SECONDS_PER_MINUTE)
 
+    async def settle(self) -> None:
+        """The stop of `serve` (decision P31): the tasks that run get `call_minutes` to finish. What is left after that is
+        cancelled (the timeout cancels the drain, and the drain its tasks); the next start brings it back to the origin (#136)."""
+        dead = self._company.stop.reason()
+        status = ServeStatus(self._company)
+        if dead is not None:
+            await asyncio.to_thread(status.stopping, dead)
+        try:
+            await asyncio.wait_for(self._slots.drain(), self._company.settings.call_seconds())
+        except asyncio.TimeoutError:
+            self.LOG.warning("serve: %s: tasks that did not finish within call_minutes were cancelled", self._company.name)
+        if dead is not None:
+            await asyncio.to_thread(status.stopped, dead)
+
 
 class ServeLoop:
     """Every company watch and the scheduled extracts, in one event loop."""
 
+    LOG: ClassVar[logging.Logger] = logging.getLogger(__name__)
     # Seconds between two looks at the extract schedule (C14: every second).
     TICK_SECONDS = 1.0
 
-    def __init__(self, watches: List[CompanyWatch], scheduler: RunbookScheduler) -> None:
+    def __init__(self, watches: List[CompanyWatch], scheduler: RunbookScheduler, stop: ServeStop) -> None:
         self._watches = watches
         self._scheduler = scheduler
+        self._stop = stop
 
     def serve_forever(self) -> None:
-        asyncio.run(self._main())
+        asyncio.run(self.serve_until_stopped())
 
-    async def _main(self) -> None:
-        await asyncio.gather(self._extracts(), *(watch.watch() for watch in self._watches))
+    def stop(self) -> ServeStop:
+        return self._stop
+
+    def exit_code(self) -> "ExitCode":
+        """3 when `serve` stopped because a login was refused (decision P13), else 0."""
+        from briar.commands._enums import ExitCode
+
+        return ExitCode.LOGIN_REFUSED if self._stop.asked() else ExitCode.OK
+
+    async def serve_until_stopped(self) -> None:
+        """Every watch and the extracts, until the process is stopped or a login is refused. A task of the loops that ends
+        with an error ends `serve`, as `gather` did. On a refused login the loops stop, the running tasks get their time, and
+        this returns: `exit_code` says why."""
+        loops = [asyncio.create_task(self._extracts()), *(asyncio.create_task(watch.watch()) for watch in self._watches)]
+        asked = asyncio.create_task(self._stop.wait())
+        try:
+            await asyncio.wait([asked, *loops], return_when=asyncio.FIRST_COMPLETED)
+            self._crashed(loops)
+        finally:
+            for task in [asked, *loops]:
+                task.cancel()
+            await asyncio.gather(asked, *loops, return_exceptions=True)
+        if self._stop.asked():
+            await self._settled()
+
+    def _crashed(self, loops: List["asyncio.Task[None]"]) -> None:
+        """A loop that ended by itself ended with an error: raise it."""
+        for task in loops:
+            if task.done():
+                task.result()
+
+    async def _settled(self) -> None:
+        dead = self._stop.reason()
+        if dead is not None:
+            self.LOG.error("serve: stopping: %s", dead.line())
+        await asyncio.gather(*(watch.settle() for watch in self._watches))
 
     async def _extracts(self) -> None:
         while True:
@@ -218,7 +308,7 @@ class ServeLoops:
 
     def loop(self) -> ServeLoop:
         watches = [CompanyWatch(company, self._slots(company), WatchWork(self._routine(company), self._choice(company))) for company in self._companies]
-        return ServeLoop(watches, self._scheduler)
+        return ServeLoop(watches, self._scheduler, self._companies[0].stop if self._companies else ServeStop.make())
 
     def _choice(self, company: ServeCompany) -> Choice:
         """The selector call only reads (`Access.READ`), inside the knowledge folder."""

@@ -12,11 +12,12 @@ from typing import Callable, ClassVar, Tuple, Type
 
 from briar.errors import CliError
 from briar.serve.agent import AgentRunner
-from briar.serve.day import DayPause
 from briar.serve.flow import TaskFlow, TicketSide
+from briar.serve.health import LoginWatch
+from briar.serve.pause import LoginRefused, ModelPause
 from briar.serve.review import ReviewRun
 from briar.serve.state import MoneyStop, WorkStatus
-from briar.serve.task import AgentSteps, Budget, BudgetExhausted, TaskContext, TaskPrep
+from briar.serve.task import AgentSteps, Budget, BudgetExhausted, LimitHit, TaskContext, TaskPrep
 from briar.serve.ticket import TicketRun
 from briar.serve.work import ServeCompany, WorkDay, WorkItem, WorkKind
 
@@ -63,15 +64,25 @@ class ServeRoutine:
         """Run the task. A pause of the day cap leaves it as it was (B13); a limit or a failure stops it with its report (S23)."""
         try:
             await self._run(item, parts)
-        except DayPause as pause:
+        except ModelPause as pause:
             await self._paused(item, parts.context, pause)
         except BudgetExhausted as stop:
             await parts.flow.blocked(str(stop), self._money_stop(item))
         except self.EXPECTED as stop:
-            await parts.flow.blocked(str(stop) or type(stop).__name__)
+            await self._failed(item, parts, stop)
         except self.UNEXPECTED as bug:
             self.LOG.exception("serve: task %s failed with an unexpected error", item.ref())
             await parts.flow.blocked(f"{type(bug).__name__}: {bug}")
+
+    async def _failed(self, item: WorkItem, parts: TaskParts, stop: Exception) -> None:
+        """A task failed with an expected error. Before it is blocked (a comment on its ticket), WP1 asks whether a login of the
+        company is dead: with a 401 on "who am I" the task pauses and `serve` stops, since every task would meet the same wall
+        (decisions P13, D9). A limit of the task is its own, so no login is asked about it."""
+        dead = None if isinstance(stop, LimitHit) else await asyncio.to_thread(LoginWatch(self._company, self._prep.sources()).dead)
+        if dead is not None:
+            await self._paused(item, parts.context, LoginRefused.of(dead))
+            return
+        await parts.flow.blocked(str(stop) or type(stop).__name__)
 
     def _told_rules(self, context: TaskContext) -> None:
         """One line per task that has rule sets turned on: the sets in force and the ones left out, so
@@ -81,9 +92,10 @@ class ServeRoutine:
             used, left_out = ", ".join(rules.used) or "none", ", ".join(rules.skipped) or "none"
             self.LOG.info("serve: %s: rules in force: %s; left out: %s", context.item.ref(), used, left_out)
 
-    async def _paused(self, item: WorkItem, context: TaskContext, pause: DayPause) -> None:
-        """Decision B13: the day cap pauses the task. Nothing is written on the ticket or the PR and the status stays as it
-        was; the loop brings the task back when the day has room. With a PR, the worktree goes back to what the origin has:
+    async def _paused(self, item: WorkItem, context: TaskContext, pause: ModelPause) -> None:
+        """Decision B13, and WP1 for a refused login and the plan limit: the task pauses. Nothing is written on the ticket or
+        the PR and the status stays as it was; the loop brings the task back when the day has room (or the plan, or after the
+        login is renewed and `serve` starts again). With a PR, the worktree goes back to what the origin has:
         `TaskFlow.verified` commits BEFORE it verifies, so the head can hold a commit that failed verify and was never
         pushed, and a reviewer push on the branch would then make the next sync diverge (audit 1). A ticket with no PR
         keeps its edits."""
@@ -91,9 +103,10 @@ class ServeRoutine:
         if known is not None and known.pr:
             pushed = await asyncio.to_thread(context.checkout.pushed, context.worktree, context.branch)
             await asyncio.to_thread(context.checkout.discard, context.worktree, pushed)
-        text = f"{item.ref()} paused: {pause}; it goes on tomorrow (UTC) or when the cap is raised"
+        text = pause.note(item.ref())
         if self._company.note(text):
             self.LOG.info("serve: %s: %s", self._company.name, text)
+        pause.settle(self._company)
 
     def _money_stop(self, item: WorkItem) -> MoneyStop:
         """Decision B9: the cap the ticket stopped at, and the status it goes back to when the

@@ -8,12 +8,16 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Callable, List, Optional
+from typing import Callable, ClassVar, List, Optional
+
+from briar.serve.pause import ModelPause
 
 
-class DayPause(Exception):
+class DayPause(ModelPause):
     """The spend booked today reached `max_usd_per_day` (decision B13): the task pauses, it is not blocked.
     Not a `CliError` and not a `BudgetExhausted`: the routine blocks the task on both."""
+
+    RESUME: ClassVar[str] = "it goes on tomorrow (UTC) or when the cap is raised"
 
 
 @dataclass(frozen=True)

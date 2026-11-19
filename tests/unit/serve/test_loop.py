@@ -129,6 +129,10 @@ class FlakyJira:
 
     calls: List[str] = field(default_factory=list)
 
+    def who_am_i(self) -> str:
+        """Like the real adapter: a failed poll asks it, to tell a dead login from an outage (WP1)."""
+        return "bot@example.test"
+
     def assigned(self, project: str, limit: int) -> List[Ticket]:
         self.calls.append(project)
         if len(self.calls) == 1:

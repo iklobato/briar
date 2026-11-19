@@ -41,15 +41,25 @@ class AgentRequest:
     access: Access = Access.EDIT
 
 
+class Refusal(Enum):
+    """Why a failed call is not the fault of its task (WP1): the login of the model was refused, or the plan limit is hit.
+    Both are read from what the SDK says, never from a text."""
+
+    NONE = "none"
+    LOGIN = "login"
+    LIMIT = "limit"
+
+
 @dataclass(frozen=True)
 class AgentAnswer:
-    """What one agent call gave: its text or structured answer, its cost, and whether it failed."""
+    """What one agent call gave: its text or structured answer, its cost, whether it failed, and whether the model refused it."""
 
     text: str
     structured: Mapping[str, Any]
     cost_usd: float
     failed: bool = False
     reason: str = ""
+    refusal: Refusal = Refusal.NONE
 
 
 class AgentRunner(Protocol):
@@ -209,6 +219,52 @@ class SandboxRoom:
     tool_cache: Path
 
 
+@dataclass(frozen=True)
+class Heard:
+    """What one call said, read from the stream of the SDK: its result messages, the errors of the assistant
+    (`AssistantMessage.error`) and the rate limit windows it reported (`RateLimitEvent`)."""
+
+    results: List[Any] = field(default_factory=list)
+    errors: List[str] = field(default_factory=list)
+    windows: List[Any] = field(default_factory=list)
+
+    def take(self, message: Any) -> None:
+        from claude_agent_sdk import AssistantMessage, RateLimitEvent, ResultMessage
+
+        if isinstance(message, ResultMessage):
+            self.results.append(message)
+        if isinstance(message, AssistantMessage) and message.error:
+            self.errors.append(message.error)
+        if isinstance(message, RateLimitEvent):
+            self.windows.append(message.rate_limit_info)
+
+    def last(self) -> Optional[Any]:
+        return self.results[-1] if self.results else None
+
+
+class RefusalReader:
+    """Reads a failed call into a `Refusal`. A refused login is `authentication_failed` or an HTTP 401 (checked 2026-11-19
+    with a fake API key and a fake OAuth token: the same two signals, then `ResultError`). The plan limit is a `rejected`
+    window, or the errors `rate_limit` and `billing_error`; one that was never seen against a real limit."""
+
+    LOGIN_ERRORS: ClassVar[Tuple[str, ...]] = ("authentication_failed",)
+    LIMIT_ERRORS: ClassVar[Tuple[str, ...]] = ("rate_limit", "billing_error")
+    UNAUTHORIZED = 401
+    REJECTED = "rejected"
+
+    def read(self, heard: Heard) -> Refusal:
+        if self._login(heard):
+            return Refusal.LOGIN
+        return Refusal.LIMIT if self._limit(heard) else Refusal.NONE
+
+    def _login(self, heard: Heard) -> bool:
+        statuses = [getattr(final, "api_error_status", None) for final in heard.results]
+        return any(error in self.LOGIN_ERRORS for error in heard.errors) or self.UNAUTHORIZED in statuses
+
+    def _limit(self, heard: Heard) -> bool:
+        return any(error in self.LIMIT_ERRORS for error in heard.errors) or any(window.status == self.REJECTED for window in heard.windows)
+
+
 class ClaudeAgent:
     """`AgentRunner` on the Claude Agent SDK, with the model of the company (S5)."""
 
@@ -232,29 +288,29 @@ class ClaudeAgent:
     async def ask(self, request: AgentRequest) -> AgentAnswer:
         from claude_agent_sdk import ClaudeSDKError
 
-        found: List[Any] = []
+        heard = Heard()
         self._room.tool_cache.mkdir(parents=True, exist_ok=True)
         try:
-            await self._collect(request, found)
+            await self._collect(request, heard)
         except ClaudeSDKError as error:
             # An error result is yielded, then the CLI exits non-zero and the SDK raises
             # (`ResultError`, checked 2026-11-11 with a refused API key).
-            return self._failed(found[-1] if found else None, error)
-        return self._answer(found[-1] if found else None)
+            return self._failed(heard, error)
+        return self._answer(heard)
 
-    async def _collect(self, request: AgentRequest, found: List[Any]) -> None:
-        """Run the query and keep its result messages in `found`."""
-        from claude_agent_sdk import ResultMessage, query
+    async def _collect(self, request: AgentRequest, heard: Heard) -> None:
+        """Run the query and keep what it said in `heard`."""
+        from claude_agent_sdk import query
 
         async for message in query(prompt=request.prompt, options=self._options(request)):
-            if isinstance(message, ResultMessage):
-                found.append(message)
+            heard.take(message)
 
-    def _failed(self, message: Optional[Any], error: Exception) -> AgentAnswer:
+    def _failed(self, heard: Heard, error: Exception) -> AgentAnswer:
+        message = heard.last()
         subtype = getattr(error, "subtype", None)
         reason = subtype if subtype and subtype != "success" else str(error)
         cost = message.total_cost_usd if message is not None else (getattr(error, "data", None) or {}).get("total_cost_usd")
-        return AgentAnswer("", {}, float(cost or 0.0), failed=True, reason=reason)
+        return AgentAnswer("", {}, float(cost or 0.0), failed=True, reason=reason, refusal=RefusalReader().read(heard))
 
     def _options(self, request: AgentRequest) -> Any:
         from claude_agent_sdk import ClaudeAgentOptions
@@ -287,12 +343,14 @@ class ClaudeAgent:
         network = {"allowedDomains": list(self._room.domains), "allowMachLookup": list(self.MACH_LOOKUPS)}
         return {"enabled": True, "autoAllowBashIfSandboxed": False, "allowUnsandboxedCommands": False, "network": network}
 
-    def _answer(self, message: Optional[Any]) -> AgentAnswer:
+    def _answer(self, heard: Heard) -> AgentAnswer:
+        message = heard.last()
         if message is None:
-            return AgentAnswer("", {}, 0.0, failed=True, reason="the agent gave no result")
+            return AgentAnswer("", {}, 0.0, failed=True, reason="the agent gave no result", refusal=RefusalReader().read(heard))
         structured = message.structured_output if isinstance(message.structured_output, dict) else {}
         reason = message.subtype if message.is_error else ""
-        return AgentAnswer(message.result or "", structured, float(message.total_cost_usd or 0.0), message.is_error, reason)
+        refusal = RefusalReader().read(heard) if message.is_error else Refusal.NONE
+        return AgentAnswer(message.result or "", structured, float(message.total_cost_usd or 0.0), message.is_error, reason, refusal)
 
 
-__all__ = ["Access", "AgentAnswer", "AgentRequest", "AgentRunner", "BashGuard", "ClaudeAgent", "SandboxRoom", "ToolGate"]
+__all__ = ["Access", "AgentAnswer", "AgentRequest", "AgentRunner", "BashGuard", "ClaudeAgent", "Heard", "Refusal", "RefusalReader", "SandboxRoom", "ToolGate"]
