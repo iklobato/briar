@@ -50,18 +50,19 @@ class CommandServe(Command):
             raise CliError(f"serve: nothing to serve in {directory}: no company has a `serve:` block or a schedule")
         scheduler.check_logins()
         self._check(companies, directory)
-        self._serve_locked(companies, ServeLoops(companies, scheduler))
-        return 0
+        return self._serve_locked(companies, ServeLoops(companies, scheduler))
 
-    def _serve_locked(self, companies: Sequence["ServeCompany"], loops: "ServeLoops") -> None:
-        """One `serve` per company and knowledge folder (`ServeLock`)."""
+    def _serve_locked(self, companies: Sequence["ServeCompany"], loops: "ServeLoops") -> int:
+        """One `serve` per company and knowledge folder (`ServeLock`). The exit code is 3 when a refused login stopped it (P13)."""
         from briar.serve.work import ServeLock
 
         locks = [ServeLock(company) for company in companies]
         try:
             for lock in locks:
                 lock.take()
-            loops.loop().serve_forever()
+            loop = loops.loop()
+            loop.serve_forever()
+            return int(loop.exit_code())
         finally:
             for lock in locks:
                 lock.release()
