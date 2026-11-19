@@ -539,8 +539,15 @@ command and `Restart=on-failure`.
 Exit code 2 is a crash. The one seen so far: the SDK waited for the `claude` process to answer its first
 request and gave up (`Control request timeout: initialize`, a plain `Exception` that cannot be caught under
 the rules of this project). `serve` gives it 180 seconds instead of 60 (`CLAUDE_CODE_STREAM_CLOSE_TIMEOUT`, a
-placeholder), and a supervisor restarts it: the state is saved after every call and the worktree is reset to
-the origin at the start, so a restart costs the call in flight. With systemd use `Restart=on-failure`.
+placeholder). Run from a terminal, a crash ends the process and prints the error: start it again by
+hand. Nothing is lost: the state is saved after every call and the worktree is reset to the origin at the
+start, so a restart costs the call in flight. To have the terminal start it again by itself after a crash,
+without a service, and stop on a clean exit, a refused login (3) or Ctrl+C (130):
+
+```bash
+while true; do briar serve runbooks; code=$?; [ "$code" -eq 2 ] || break; sleep 10; done
+```
+With systemd use `Restart=on-failure` instead.
 
 Exit code 3 means a login was refused: restarting does nothing until you renew it. With systemd, add
 `RestartPreventExitStatus=3` so it does not restart in a loop. `KeepAlive` of launchd and

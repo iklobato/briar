@@ -303,7 +303,7 @@ only in the private site repo.
   `LimitHit` when every failed job of the PR is in `host.failing_jobs_on_base` (GitHub check runs, GitLab newest pipeline; both fail
   open with `[]`). `serve/day.py` `DUST` is the least money that counts (`Budget.require`, `check`, `DayCap.offer`,
   `ServeCompany.capped`). `ClaudeAgent.START_TIMEOUT_MS` sets the SDK start timeout; the SDK `Exception` on a start timeout is NOT caught
-  (the rules forbid `except Exception`): a supervisor restarts `serve` on exit 2.
+  (the rules forbid `except Exception`): run from a terminal, a crash is restarted by hand or by a shell loop on exit 2 (documented in `agents/serve.md`).
 - **`serve` rule sets** (decisions Q1 to Q23 in `docs/decisions/2026-11-18-serve-quality-rules.md`):
   `serve.rules` / `serve.rules_by_repo` turn on sets from `src/briar/prompts/rule_sets/<name>.md`
   (`## Baseline` for the system prompt, `## Review` for the self review; parsed strictly by
