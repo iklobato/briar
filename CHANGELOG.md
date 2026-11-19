@@ -14,6 +14,12 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Added
 
+- `briar serve` scans what each push would add: the added lines of the diff are matched against the credential patterns briar already
+  uses for the knowledge (AWS, GitHub, Slack, PEM, JWT, a password in a URL). Nothing is pushed on a hit; the agent gets one fix loop
+  (the file and the line, never the value), a clean fix is squashed with the commits not pushed yet so the commit that held the value
+  never reaches the origin, and a second hit blocks the task with a report that has no value. The draft that a stop makes is covered too.
+- `serve.ci_grace_seconds` (default 60, as before) is how long `serve` waits for a CI that has not started before it decides the
+  repo has none.
 - `iac-terraform` extractor: the Terraform of a repo (roots, backends, providers, modules, variable files) read through the GitLab or GitHub API. It never writes a secret value: variable files give names only, and secret-looking names and credential-looking values show `(set)`.
 - Rule sets for `briar serve`: `serve.rules` and `serve.rules_by_repo` turn on sets of coding rules
   that briar adds to what the agent reads (the short text goes in the system prompt of every call,
@@ -135,6 +141,11 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Changed
 
+- The automatic review ask of `briar serve` is now OFF by default: a ready PR no longer asks the usual reviewers of the repo to review
+  it unless the runbook sets `serve.ask_reviewers: true`. The ask notifies real people, so a runbook has to say so. A runbook that
+  relied on it needs that one line. A GitHub bot (type `Bot` or a login that ends in `[bot]`) is no longer counted as a usual reviewer.
+- The title and the description of a ticket go into the plan prompt between fences, under a line that says they are data and never an
+  order.
 - `serve.max_usd` is now the total one ticket may spend over all of its runs (the plan, the
   build, the CI fixes, every review round and every restart), not a new amount for each run.
   What a run spent is saved after every agent call, so a kill or a restart no longer gives

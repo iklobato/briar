@@ -276,6 +276,13 @@ only in the private site repo.
   ran; `Grant.day` is the UTC day a call was granted on (what `exhaust` closes); `CompanyWatch.cycle`
   guards the whole poll; `serve.call_minutes` (default 30, a placeholder) cuts an agent call
   (`ServeSettings.call_seconds`), caught as `asyncio.TimeoutError` (not the builtin on Python 3.10).
+- **`serve` safety** (WP2; `serve/secrets.py`, `serve/clean.py`): `SecretScan` reads the ADDED lines of a diff and matches only the
+  patterns of `SecretGuard` (not its name rule); a hit is a file and a line, never the value. `SecretGate`, called by `TaskFlow.push`
+  (the ticket publish, the CI fix, a review round) and by `TaskFlow._draft` (the draft a stop makes), gives the agent one fix loop,
+  squashes the unpushed commits into one when the fix is clean (`RepoCheckout.unpushed_base`, `rewind`: the commit that held the value
+  must not reach the origin), and raises `SecretInDiff` on a second hit. `serve.ask_reviewers` (off by default) turns on the review ask;
+  `GithubProvider._bot` keeps bots out of `usual_reviewers`. `Fenced` puts the ticket text between `~~~ticket` fences in `plan.md`.
+  `serve.ci_grace_seconds` replaces the `CI_GRACE_SECONDS` constant.
 - **`serve` rule sets** (decisions Q1 to Q23 in `docs/decisions/2026-11-18-serve-quality-rules.md`):
   `serve.rules` / `serve.rules_by_repo` turn on sets from `src/briar/prompts/rule_sets/<name>.md`
   (`## Baseline` for the system prompt, `## Review` for the self review; parsed strictly by

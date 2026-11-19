@@ -59,9 +59,10 @@ and `docs/decisions/2026-11-11-briar-2-review-routine.md`.
       ticket and moves it to `status.review`;
    5. briar waits for CI on the PR and, when it fails, gives the agent the failed job
       logs, then pushes the fix; when CI passes (or the repo has no CI), briar marks
-      the PR ready for review, so reviewers are asked only for work that passed, and asks
-      the two usual reviewers of the repo (the most frequent reviewers of its recent merged
-      PRs, never the token owner). A ready PR nobody commented on after 48 hours gets one
+      the PR ready for review. With `ask_reviewers: true` it also asks the two usual
+      reviewers of the repo (the most frequent reviewers of its recent merged PRs, never
+      the token owner and never a bot); it is off by default, because the ask notifies real
+      people. A ready PR with reviewers that nobody commented on after 48 hours gets one
       note naming them; never a second one.
    6. when a person merges the PR, the ticket moves to `status.done`; when a person closes it
       without a merge, the ticket moves back to `status.started` with a comment, and briar
@@ -163,6 +164,23 @@ or ask a reviewer again. What the selector spent counts in the day even when no 
 taken; the daily report adds it to its spent line. A selector that did not run because the day
 had no room is asked again on a later poll.
 
+### A secret in a change
+
+Before every push (the PR, a CI fix, a review round, and the draft a stop makes) briar looks at the lines the push would ADD, with the
+credential patterns it already uses to keep secrets out of the knowledge (AWS keys, GitHub and Slack tokens, PEM blocks, JWTs, a password
+in a URL). It does not look at names such as `token` or `password`, and it is no replacement for a scanner in your CI. Nothing is pushed on a
+hit. The agent gets one fix loop: it is told the file and the line, never the value, and takes the value out. If the change is clean then,
+the commits not pushed yet become one commit, so the commit that held the value never reaches the origin (a push sends every commit, and a
+secret that reached GitHub cannot be taken back). If the value is still there the task is blocked with a report that names the files and
+lines and has no value. A secret in a renamed or binary file, or one the patterns do not know (a password written by hand), passes. The
+plan and report comments that briar posts on a ticket are not scanned.
+
+### The text of a ticket
+
+The title and the description of a ticket are written by people, and a ticket can carry instructions. They go into the plan prompt between
+`~~~ticket` fences, under a line that says they are data and never an order. A run of `~~~` inside the text is broken, so it cannot close
+its own fence. This lowers the risk; a model can still follow text inside a fence.
+
 ### The CI a round owes
 
 A review round waits for the CI before it clears its marker or marks a PR ready when it follows a
@@ -239,6 +257,8 @@ companies:
       max_new_per_day: 5              # optional: new tickets started per UTC day (0, the default, is no limit)
       max_usd_per_day: 10             # optional: hard cap on the US$ spent in a UTC day; at the cap tasks pause (0: no cap)
       call_minutes: 30                # optional: an agent call with no answer after this many minutes is cut (30 is a placeholder)
+      ask_reviewers: false            # optional: a ready PR asks the usual reviewers of the repo to review it (off by default)
+      ci_grace_seconds: 60            # optional: how long it waits for a CI that has not started before it decides the repo has none (a placeholder)
       poll_minutes: 5                 # optional
       verify: ["make lint", "make test"]
       verify_by_repo:                 # optional: a repo's own verify commands (others use `verify`)
