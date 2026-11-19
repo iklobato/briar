@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from briar.errors import CliError
 from briar.extract._provider import CommentKind, ReviewComment, ThreadReply
-from briar.serve.day import DayPause
+from briar.serve.pause import ModelPause
 from briar.serve.flow import TaskFlow
 from briar.serve.state import MoneyStop, WorkEntry, WorkStatus
 from briar.serve.task import AgentSteps, Answers, BudgetExhausted, LimitHit, Plan, TaskContext
@@ -85,7 +85,7 @@ class ReviewRun:
             await (self._waited() if resumed else self._round(start))
         except BudgetExhausted as stop:
             await self._out_of_money(stop)
-        except DayPause:
+        except ModelPause:
             await self._paused()
             raise
 
@@ -96,7 +96,8 @@ class ReviewRun:
         await self._done({})
 
     async def _paused(self) -> None:
-        """Decision B13: the day cap pauses the round (the routine writes the note). What was never verified goes back to
+        """Decision B13, and WP1: a pause (the day cap, a refused login, the plan limit) pauses the round (the routine writes
+        the note and tells `serve` what the pause asks of it). What was never verified goes back to
         what the origin has. Before the replies the round is given back and the status comes back; after them, only the CI
         wait is left, so the entry says so and the finder emits it again when the day has room."""
         await self._back_to_the_origin()

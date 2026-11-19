@@ -24,7 +24,17 @@ class CheckState(Enum):
 
 class LoginRejected(AuthError):
     """The source refused the login or the read (401, 403, 404, an expired login, a
-    resource it cannot see). The message never holds a secret."""
+    resource it cannot see). The message never holds a secret. `status` is the HTTP status of the
+    answer when there was one (the adapters of `_login_failures` set it): any HTTP answer that is
+    not a network error lands here, a 503 too, so only a 401 says the login itself is dead."""
+
+    status: Optional[int] = None
+
+    @classmethod
+    def at(cls, message: str, status: Optional[int]) -> "LoginRejected":
+        refused = cls(message)
+        refused.status = status
+        return refused
 
 
 class SourceUnreachable(AuthError):

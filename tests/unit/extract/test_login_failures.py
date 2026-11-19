@@ -120,6 +120,49 @@ class TestTranslation:
         assert (RequestsFailures().read(partial(calls.append, "read")), calls) == (None, ["read"])
 
 
+SERVICE_UNAVAILABLE = 503
+
+
+@dataclass(frozen=True)
+class StatusCase:
+    """A library error and the HTTP status the check error must carry (None: the library gave none)."""
+
+    failures: LibraryFailures
+    error: BaseException
+    status: "int | None"
+
+
+class StatusCases:
+    def all(self) -> List[StatusCase]:
+        return [
+            StatusCase(GithubFailures(), GithubException(UNAUTHORIZED, {"message": "Bad credentials"}), UNAUTHORIZED),
+            StatusCase(GithubFailures(), GithubException(SERVICE_UNAVAILABLE, {"message": "unavailable"}), SERVICE_UNAVAILABLE),
+            StatusCase(RequestsFailures(), Errors().requests_401(), UNAUTHORIZED),
+            StatusCase(RequestsFailures(), Errors().requests_with_no_message(), NOT_FOUND),
+            StatusCase(RequestsFailures(), requests.TooManyRedirects("Exceeded 30 redirects."), None),
+            StatusCase(UrllibFailures(), Errors().http_401(), UNAUTHORIZED),
+            StatusCase(UrllibFailures(), RuntimeError("linear graphql errors: [{'message': 'Authentication required'}]"), None),
+        ]
+
+    def ids(self) -> List[str]:
+        return [f"{type(case.failures).__name__}-{type(case.error).__name__}-{case.status}" for case in self.all()]
+
+
+class TestStatusOfARefusal:
+    """WP1: `LoginRejected` is raised for any HTTP answer that is not a network error (a 503 and a 404 too), so a login can be
+    called dead only by its status: `serve` stops on a 401 and on nothing else."""
+
+    @pytest.mark.parametrize("case", StatusCases().all(), ids=StatusCases().ids())
+    def test_the_refusal_carries_the_http_status_of_the_answer(self, case: StatusCase) -> None:
+        with pytest.raises(LoginRejected) as caught:
+            case.failures.account(Raising(case.error).account)
+
+        assert caught.value.status == case.status
+
+    def test_a_refusal_made_by_briar_has_no_status(self) -> None:
+        assert LoginRejected("missing the Jira permission X").status is None
+
+
 class TestOptionalSdks:
     """The GCP and Azure SDKs are extras. With one missing, the call fails before any
     request (`_credentials` raises a `CliError` that says what to install): that error

@@ -28,6 +28,7 @@ from briar.iac.runbook.models import CodeHostKind, JiraProject, ServeSettings
 from briar.serve.day import DayCap, Grant
 from briar.serve.git import RepoCheckout, Shell
 from briar.serve.host import GithubStyle, GitlabStyle, HostStyle
+from briar.serve.pause import ServeStop, UsageGate
 from briar.serve.rules import RuleBook
 from briar.serve.state import WorkBook, WorkEntry, WorkSource, WorkState, WorkStatus
 from briar.storage import make_store
@@ -147,6 +148,10 @@ class ServeCompany:
     notes: Dict[str, List[str]] = field(default_factory=dict, compare=False)
     # The reservations of the agent calls in flight under `max_usd_per_day` (decisions B11, B12); in memory.
     day: DayCap = field(default_factory=DayCap, compare=False)
+    # Closed while the plan limit is hit (decision P21), and the request to stop `serve` for a refused login (P13). `ServeCompanies`
+    # gives every company the same two: one plan and one process.
+    gate: UsageGate = field(default_factory=UsageGate, compare=False)
+    stop: ServeStop = field(default_factory=ServeStop.make, compare=False)
 
     def spent_today(self) -> float:
         """What the tasks and the selector spent today, as the state booked it (decision B5). Once a call was stopped at
@@ -643,7 +648,8 @@ class ServeCompanies:
         for path in sorted(self._directory.glob("*.yaml")):
             runbook = load_runbook_file(path)
             found += [self._company(path, name, entry) for name, entry in runbook.companies.items() if entry.serve is not None]
-        return found
+        gate, stop = UsageGate(), ServeStop.make()
+        return [replace(company, gate=gate, stop=stop) for company in found]
 
     def _company(self, path: Path, name: str, entry: Any) -> ServeCompany:
         scope = LoginScope(name, str(path), f"companies.{name}.auth")

@@ -17,6 +17,7 @@ from briar.iac.runbook.models import ServeSettings
 from briar.serve.agent import Access, AgentAnswer, AgentRequest, AgentRunner
 from briar.serve.chat import ChatAsks, ChatReader
 from briar.serve.day import DayPause, Grant
+from briar.serve.pause import Refused
 from briar.serve.task import Prompts
 from briar.serve.work import ServeCompany, WorkDay, WorkItem
 
@@ -123,11 +124,24 @@ class Selector:
             return None
         day = WorkDay().today()
         answer = await self._call(replace(self._request(shortlist, free, talk), max_usd=grant.amount), day, grant)
+        if self._refused(answer):
+            return None
         if answer.failed:
             self._cut_by_the_day(answer, grant)
             self.LOG.error("serve: the selector failed: %s", answer.reason)
             return []
+        self._company.gate.clear()
         return [replace(item, selection_day=day) for item in Picks(shortlist, answer, self._company.name).items(free)]
+
+    def _refused(self, answer: AgentAnswer) -> bool:
+        """WP1: the model refused the call, its login or the plan limit. That is not a failed call: nothing is remembered, so
+        the selector is asked again on a later poll, and `serve` is told what the pause asks of it (stop, or close the gate)."""
+        pause = Refused(self._company.name).pause(answer)
+        if pause is None:
+            return False
+        self.LOG.info("serve: %s: the selector did not run: %s", self._company.name, pause)
+        pause.settle(self._company)
+        return True
 
     def _request(self, shortlist: Sequence[WorkItem], free: int, talk: Mapping[str, Sequence[str]]) -> AgentRequest:
         system = Prompts().text("select", {"company": self._company.name, "slots": str(free)})
