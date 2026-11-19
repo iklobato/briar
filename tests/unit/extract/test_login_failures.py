@@ -149,7 +149,19 @@ class StatusCases:
         ]
 
     def ids(self) -> List[str]:
-        return [f"{type(case.failures).__name__}-{type(case.error).__name__}-{case.status}" for case in self.all()]
+        """Plain names, in the order of `all`: building the errors again here would leave `HTTPError` objects that only the garbage
+        collector closes, and Python 3.14 turns that `ResourceWarning` into a failure of whatever test runs next (the integration job)."""
+        return [
+            "github-401",
+            "github-503",
+            "requests-401",
+            "gitlab-401",
+            "gitlab-502",
+            "requests-404",
+            "requests-no-status",
+            "urllib-401",
+            "urllib-runtime-error",
+        ]
 
 
 class TestStatusOfARefusal:
