@@ -13,6 +13,11 @@ from typing import Callable, ClassVar, List, Optional
 from briar.serve.pause import ModelPause
 
 
+# The least US$ that counts as money left (finding 16 of the audit): ten bookings of 0.1 add up to 0.9999999999999999, and a check of
+# `left <= 0` saw room for a call with a grant of about 1e-16, which the SDK stops at its first turn. A thousandth of a millionth of a dollar.
+DUST = 1e-9
+
+
 class DayPause(ModelPause):
     """The spend booked today reached `max_usd_per_day` (decision B13): the task pauses, it is not blocked.
     Not a `CliError` and not a `BudgetExhausted`: the routine blocks the task on both."""
@@ -53,7 +58,7 @@ class DayCap:
         if cap <= 0:
             return Grant(ticket_left, 0.0)
         left = cap - booked()
-        if left <= 0:
+        if left <= DUST:
             raise DayPause(f"the daily cap max_usd_per_day of US$ {cap:g} is reached")
         if left - self._reserved >= ticket_left:
             return self._take(ticket_left)

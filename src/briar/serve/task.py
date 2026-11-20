@@ -15,7 +15,7 @@ from typing import Any, ClassVar, List, Mapping, Sequence, Tuple
 from briar.errors import CliError
 from briar.extract._provider import ReviewComment
 from briar.serve.agent import Access, AgentAnswer, AgentRequest, AgentRunner
-from briar.serve.day import DayPause, Grant
+from briar.serve.day import DUST, DayPause, Grant
 from briar.serve.git import GitIdentity, RepoCheckout, Shell
 from briar.serve.pause import Refused
 from briar.serve.rules import TaskRules
@@ -45,8 +45,8 @@ class Budget:
         return self.max_usd - self.spent[0]
 
     def require(self) -> None:
-        """No call with nothing left: the SDK would get a `max_budget_usd` of zero."""
-        if self.left_usd() <= 0:
+        """No call with nothing left: the SDK would get a `max_budget_usd` of zero (or of a hair above it: `DUST`)."""
+        if self.left_usd() <= DUST:
             raise BudgetExhausted(self._report())
 
     def add(self, cost: float) -> None:
@@ -54,7 +54,7 @@ class Budget:
 
     def check(self, answer: AgentAnswer) -> None:
         """The SDK stop `error_max_budget_usd` is the ticket cap here; `AgentSteps._ask` tells the day cap first (decision B13)."""
-        if answer.reason == "error_max_budget_usd" or self.left_usd() <= 0:
+        if answer.reason == "error_max_budget_usd" or self.left_usd() <= DUST:
             raise BudgetExhausted(self._report())
 
     def spend(self, answer: AgentAnswer) -> None:

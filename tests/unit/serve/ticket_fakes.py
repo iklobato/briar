@@ -160,6 +160,10 @@ class FakeGithubSide:
     replies: List[ThreadReply] = field(default_factory=list)
     # A PR refusal of GitHub, raised by every `open_pull` while set.
     refusals: List[str] = field(default_factory=list)
+    # The jobs that fail on the PR, and the jobs that fail on the latest run of the base branch.
+    failed_jobs: List[str] = field(default_factory=lambda: ["test"])
+    base_failing: List[str] = field(default_factory=list)
+    base_asked: List[Tuple[str, str]] = field(default_factory=list)
     # The PRs that already exist for a branch (`branch_pull`).
     branch_pulls: Dict[str, BranchPull] = field(default_factory=dict)
     # The PRs a person left as a draft.
@@ -223,7 +227,11 @@ class FakeGithubSide:
         return self.ci.pop(0) if len(self.ci) > 1 else self.ci[0]
 
     def list_ci_failures(self, repo: str, number: int) -> List[CiFailure]:
-        return [CiFailure(workflow="test", job="test", step="pytest", log_tail="1 failed: test_feature", url="https://ci.example.test/1")]
+        return [CiFailure(workflow=job, job=job, step="pytest", log_tail="1 failed: test_feature", url="https://ci.example.test/1") for job in self.failed_jobs]
+
+    def failing_jobs_on_base(self, repo: str, branch: str) -> List[str]:
+        self.base_asked.append((repo, branch))
+        return list(self.base_failing)
 
 
 @dataclass(frozen=True)

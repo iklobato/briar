@@ -205,6 +205,9 @@ class GitlabHost:
     def list_ci_failures(self, repo: str, number: int) -> List[CiFailure]:
         return self._reader.list_ci_failures(repo, number)
 
+    def failing_jobs_on_base(self, repo: str, branch: str) -> List[str]:
+        return self._reader.failing_jobs_on_base(repo, branch)
+
     def pull_state(self, repo: str, number: int) -> PullState:
         found = self._merge_request(repo, number)
         state = str(found.get("state") or "")

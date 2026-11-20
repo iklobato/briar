@@ -74,6 +74,9 @@ class WorkEntry(BaseModel):
     # Set when the day cap paused the CI wait of a review round after its replies were posted (decision B13,
     # PR B): nothing else brings that round back, so the finder emits it again until it is done.
     ci_paused: bool = False
+    # Set when the build call of the task returned (audit 10): a task that comes back after a pause or a stop does not pay for the build
+    # again. A stop inside the build leaves it unset, so that build runs again on the kept work.
+    built: bool = False
 
     # A ticket in one of these is not taken again; one found or planned when `serve`
     # stopped is taken again and picks up its worktree.

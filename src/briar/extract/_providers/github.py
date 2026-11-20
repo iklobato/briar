@@ -493,6 +493,15 @@ class GithubProvider(RepositoryProvider):
             )
         return out
 
+    @swallow_errors(default=[], message="github failing_jobs_on_base")
+    def failing_jobs_on_base(self, repo: str, branch: str) -> List[str]:
+        """The names of the jobs that failed (or timed out) on the head of `branch`: a CI that is red there is not the fault of a
+        ticket (decision P40). A read that fails gives `[]`, so nothing is stopped on a guess."""
+        _validate_repo(repo)
+        envelope = self._api().get_json(f"/repos/{repo}/commits/{branch}/check-runs?per_page=100")
+        runs = envelope.get("check_runs", []) if isinstance(envelope, dict) else []
+        return [str(run.get("name") or "") for run in runs if (run.get("conclusion") or "").lower() in ("failure", "timed_out")]
+
     def _tail_check_run_log(self, repo: str, run_id: Any) -> str:
         if not run_id:
             return ""

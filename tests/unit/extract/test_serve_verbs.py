@@ -213,6 +213,30 @@ class TestGithubReviewers:
         assert client.get_repo.return_value.get_pull.return_value.create_review_request.call_args.kwargs == {"reviewers": ["ann"]}
 
 
+class TestGithubBaseCi:
+    """WP3, decision P40: the jobs that failed on the latest run of the base branch, by name."""
+
+    RUNS = {
+        "check_runs": [
+            {"name": "lint", "conclusion": "failure"},
+            {"name": "tests", "conclusion": "success"},
+            {"name": "slow", "conclusion": "timed_out"},
+            {"name": "other", "conclusion": "cancelled"},
+            {"name": "queued", "conclusion": None},
+        ]
+    }
+
+    def test_the_failed_and_timed_out_jobs_of_the_base_head(self) -> None:
+        with mock.patch("briar.extract._gh.GithubApi.get_json", return_value=self.RUNS) as read:
+            found = make_provider("github", Logins().github()).failing_jobs_on_base("acme/app", "main")
+
+        assert (found, read.call_args.args) == (["lint", "slow"], ("/repos/acme/app/commits/main/check-runs?per_page=100",))
+
+    def test_a_read_that_fails_says_nothing_so_no_fix_is_stopped_on_a_guess(self) -> None:
+        with mock.patch("briar.extract._gh.GithubApi.get_json", side_effect=RuntimeError("boom")):
+            assert make_provider("github", Logins().github()).failing_jobs_on_base("acme/app", "main") == []
+
+
 class TestGithubOwnRepos:
     def test_the_repos_of_the_recent_prs_of_the_token_owner(self) -> None:
         """Decision R10 of the autonomous serve."""

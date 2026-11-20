@@ -154,6 +154,13 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Changed
 
+- A PR that briar made a draft at a stop for money and that a person then marked ready is no longer pushed into when `max_usd` is
+  raised: the entry is `done` and review comments are still answered. A ticket that comes back after a pause or a stop that came
+  after its build ended no longer pays for the build again (the entry has a new field, `built`).
+- When the CI of a PR fails and every failed job is red on the latest run of the base branch too, the fix loop is not started: the task
+  stops with the reason, by job name. Before it spent up to `max_loops` fix calls on a base that was already red.
+- Money left below US$ 1e-9 counts as none (ten bookings of 0.1 are 0.9999999999999999, and a call was made with a grant of 1e-16).
+- `sed` is allowed to the agent by default. The SDK gets 180 seconds, not 60, to hear from the `claude` process at start.
 - The automatic review ask of `briar serve` is now OFF by default: a ready PR no longer asks the usual reviewers of the repo to review
   it unless the runbook sets `serve.ask_reviewers: true`. The ask notifies real people, so a runbook has to say so. A runbook that
   relied on it needs that one line. A GitHub bot (type `Bot` or a login that ends in `[bot]`) is no longer counted as a usual reviewer.

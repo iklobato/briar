@@ -35,6 +35,7 @@ ACTIVE_DAYS = 90
 TWO = 2
 OWNER_ID = 99
 FORBIDDEN, NOT_FOUND = 403, 404
+PIPELINE, SERVER_ERROR = 5, 500
 
 
 class Host:
@@ -317,3 +318,21 @@ class TestIdentity:
 
     def test_the_main_email_when_no_commit_email(self) -> None:
         assert Host.of({"/user": {"username": "octo", "commit_email": None, "email": "o@acme.test"}}).host().commit_email() == "o@acme.test"
+
+
+class TestBaseCi:
+    """WP3, decision P40: the jobs that failed in the latest pipeline of the base branch, by name."""
+
+    def test_the_failed_jobs_of_the_newest_pipeline_of_the_branch(self) -> None:
+        api = Host.of({f"{PROJECT}/pipelines": [{"id": PIPELINE}], f"{PROJECT}/pipelines/{PIPELINE}/jobs": [{"name": "lint"}, {"name": "tests"}]})
+
+        found = api.host().failing_jobs_on_base(REPO, "main")
+
+        assert found == ["lint", "tests"]
+        assert api.calls() == [(f"{PROJECT}/pipelines", {"ref": "main"}), (f"{PROJECT}/pipelines/{PIPELINE}/jobs", {"scope[]": "failed"})]
+
+    def test_a_branch_with_no_pipeline_has_no_red_job(self) -> None:
+        assert Host.of({f"{PROJECT}/pipelines": []}).host().failing_jobs_on_base(REPO, "main") == []
+
+    def test_a_read_that_fails_says_nothing(self) -> None:
+        assert Host.of({f"{PROJECT}/pipelines": GitlabHttpError("boom", SERVER_ERROR)}).host().failing_jobs_on_base(REPO, "main") == []

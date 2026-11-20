@@ -72,7 +72,7 @@ class BashGuard:
 
     DEFAULT_VERBS: ClassVar[Tuple[str, ...]] = (
         "git", "ls", "cat", "head", "tail", "grep", "rg", "find", "wc", "pwd", "echo", "cd", "python", "python3",
-        "pytest", "ruff", "black", "mypy", "npm", "node", "make", "tee", "sort", "uniq",
+        "pytest", "ruff", "black", "mypy", "npm", "node", "make", "tee", "sort", "uniq", "sed",
     )  # fmt: skip
     FORBIDDEN: ClassVar[Tuple[str, ...]] = (
         "rm -rf", "sudo", "su ", "ssh ", "scp ", "curl", "wget", "shutdown", "reboot", "chmod 777", "mkfs", "dd if=",
@@ -271,6 +271,9 @@ class ClaudeAgent:
     # uv (and any Rust tool on `reqwest`) reads the macOS network settings at start and
     # panics ("Attempted to create a NULL object") when the sandbox blocks this lookup.
     MACH_LOOKUPS: ClassVar[Tuple[str, ...]] = ("com.apple.SystemConfiguration.configd",)
+    # Milliseconds the SDK waits for the CLI to answer its first request (default and floor 60 s). On 2026-11-19 the CLI did not answer in
+    # time once and the SDK raised a plain `Exception` that ended `serve`: the rules forbid catching it, so the wait is longer. A placeholder.
+    START_TIMEOUT_MS: ClassVar[int] = 180_000
 
     # With no list the CLI sends all its tools and the skill and agent lists: about 39k input
     # tokens per call, even when `ToolGate` refuses every one of them (validation run, 2026-11-12).
@@ -335,7 +338,8 @@ class ClaudeAgent:
 
     def _tool_cache(self) -> Dict[str, Any]:
         """The cache folder of the tools of bash, writable in the sandbox (`add_dirs`)."""
-        return {"env": {"XDG_CACHE_HOME": str(self._room.tool_cache)}, "add_dirs": [str(self._room.tool_cache)]}
+        env = {"XDG_CACHE_HOME": str(self._room.tool_cache), "CLAUDE_CODE_STREAM_CLOSE_TIMEOUT": str(self.START_TIMEOUT_MS)}
+        return {"env": env, "add_dirs": [str(self._room.tool_cache)]}
 
     def _sandbox(self) -> Dict[str, Any]:
         """V12, V13: bash runs sandboxed with no way out of it, and each command still goes

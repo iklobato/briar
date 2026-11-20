@@ -81,19 +81,27 @@ class Routes:
         self._server = server
 
     def table(self) -> List[Tuple[str, str, Handler]]:
+        return [*self._merge_requests(), *self._repository()]
+
+    def _merge_requests(self) -> List[Tuple[str, str, Handler]]:
         mrs = MergeRequests(self._server)
-        repo = RepoReads(self._server)
         return [
-            ("GET", r"/user", repo.user),
-            ("GET", r"/personal_access_tokens/self", repo.token),
             ("GET", self.MR, mrs.one),
             ("PUT", self.MR, mrs.retitle),
             ("POST", self.MR + r"/notes", mrs.note),
             ("LIST", self.MR + r"/discussions", mrs.discussions),
             ("LIST", self.MR + r"/pipelines", mrs.pipelines),
             ("LIST", self.PROJECT + r"/pipelines/\d+/jobs", mrs.failed_jobs),
+            ("LIST", self.PROJECT + r"/pipelines", mrs.base_pipelines),
             ("POST", self.PROJECT + r"/merge_requests", mrs.create),
             ("LIST", self.PROJECT + r"/merge_requests", mrs.listed),
+        ]
+
+    def _repository(self) -> List[Tuple[str, str, Handler]]:
+        repo = RepoReads(self._server)
+        return [
+            ("GET", r"/user", repo.user),
+            ("GET", r"/personal_access_tokens/self", repo.token),
             ("GET", self.PROJECT + r"/repository/branches/(?P<branch>.+)", repo.branch),
             ("GET", self.PROJECT + r"/repository/commits/(?P<sha>.+)", repo.commit),
             ("GET", self.PROJECT + r"/repository/files/.+", repo.file),
@@ -138,6 +146,10 @@ class MergeRequests:
 
     def pipelines(self, matched: re.Match[str], query: Dict[str, Any]) -> List[Dict[str, Any]]:
         return [{"id": len(self._server.heads)}]
+
+    def base_pipelines(self, matched: re.Match[str], query: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """The newest pipeline of the base branch: none, so the base is not red."""
+        return []
 
     def failed_jobs(self, matched: re.Match[str], query: Dict[str, Any]) -> List[Dict[str, Any]]:
         return [{"id": 1, "name": "tests", "stage": "test", "web_url": "https://gitlab.example.test/jobs/1"}]

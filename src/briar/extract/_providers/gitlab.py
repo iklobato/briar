@@ -323,6 +323,16 @@ class GitlabProvider(RepositoryProvider):
         jobs = self._rest.pages(f"{project}/pipelines/{pipelines[0]['id']}/jobs", {"scope[]": "failed"})
         return [self._failure(project, job) for job in jobs]
 
+    @swallow_errors(default=[], message="gitlab failing_jobs_on_base")
+    def failing_jobs_on_base(self, repo: str, branch: str) -> List[str]:
+        """The names of the jobs that failed in the newest pipeline of `branch` (decision P40)."""
+        project = self._project(repo)
+        pipelines = self._rest.pages(f"{project}/pipelines", {"ref": branch}, 1)
+        if not pipelines:
+            return []
+        jobs = self._rest.pages(f"{project}/pipelines/{pipelines[0]['id']}/jobs", {"scope[]": "failed"})
+        return [str(job.get("name") or "") for job in jobs]
+
     # ---- repository --------------------------------------------------------
 
     @swallow_errors(default=[], message="gitlab list_recent_commits")

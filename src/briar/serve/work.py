@@ -25,7 +25,7 @@ from briar.errors import CliError
 from briar.extract._provider import CommentKind, PullState, ReviewComment
 from briar.extract._tracker import Ticket
 from briar.iac.runbook.models import CodeHostKind, JiraProject, ServeSettings
-from briar.serve.day import DayCap, Grant
+from briar.serve.day import DUST, DayCap, Grant
 from briar.serve.git import RepoCheckout, Shell
 from briar.serve.host import GithubStyle, GitlabStyle, HostStyle
 from briar.serve.pause import ServeStop, UsageGate
@@ -175,7 +175,7 @@ class ServeCompany:
     def capped(self) -> bool:
         """The spend booked today is at `max_usd_per_day` (0 is off): nothing that needs the model may start (decision B13)."""
         cap = self.settings.max_usd_per_day
-        return bool(cap) and self.spent_today() >= cap
+        return bool(cap) and self.spent_today() >= cap - DUST
 
     def note(self, text: str) -> bool:
         """Put `text` in the daily report once for the day; False when it is there already (every poll repeats it)."""
