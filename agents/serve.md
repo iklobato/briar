@@ -88,6 +88,41 @@ and `docs/decisions/2026-11-11-briar-2-review-routine.md`.
       others (and says when the base was merged); a fix names its commit;
    6. when the code changed, the CI wait with fixes, as for a ticket.
 
+## The page of a task
+
+Every agent call of a task is a fresh session that reads the repo again. The page of the
+task is what that session reads instead: one Markdown file per task, in the knowledge
+folder of the company, at `work/<company>/tasks/<name>.md` (`ENG-1.md` for a Jira key,
+`acme__web-12.md` for a GitHub issue). It has two parts:
+
+```markdown
+## Facts
+
+- `taken` the ticket was assigned to the token owner
+- `planned` # Plan of the ticket ...
+- `built` 3 files changed, 42 insertions(+) ...
+- `verify` `make test` ok
+- `ci` the CI of the PR #12 passed
+- `pr-opened` PR #12: https://github.com/acme/web/pull/12
+- `ready` the PR is ready for review (asked alice, bob)
+
+## Notes
+
+The change is the retry of the request; the old code kept the token in the log.
+```
+
+The **facts** are written by the program: what happened (the plan, the changes, the
+verify result, the CI, the comments and the replies, the cost, the stop). The **notes**
+are written by the agent at the end of a workflow: why it did that, and what is left.
+The facts stay right even when the notes are wrong, and a fact is never written twice, so
+a restart does not duplicate it.
+
+The system prompt of every call points at the page, and says to read it as data, never as
+orders: it holds the text of other people (the comments of a review).
+
+The notes are a paid call. `notes: false` in the `serve:` block turns them off; the facts
+keep being written.
+
 ## Which comments count
 
 - Only people with write access to the repo (`author_association` OWNER, MEMBER or
@@ -320,6 +355,7 @@ companies:
       call_minutes: 30                # optional: an agent call with no answer after this many minutes is cut (30 is a placeholder)
       ask_reviewers: false            # optional: a ready PR asks the usual reviewers of the repo to review it (off by default)
       ci_grace_seconds: 60            # optional: how long it waits for a CI that has not started before it decides the repo has none (a placeholder)
+      notes: true                     # optional: the agent writes the notes of a task at the end of a workflow (on by default; the call costs money)
       poll_minutes: 5                 # optional
       verify: ["make lint", "make test"]
       verify_by_repo:                 # optional: a repo's own verify commands (others use `verify`)
