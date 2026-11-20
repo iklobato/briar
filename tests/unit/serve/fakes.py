@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Mapping, Sequence, Set, Tuple
+from typing import Any, ClassVar, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
 from briar.auth.check import LoginRejected
 from briar.extract._provider import PullState, ReviewComment
@@ -182,15 +182,20 @@ class FakeSources:
 class Companies:
     """A company `acme` with a `serve:` block and a knowledge store in `root`."""
 
-    REQUIRED: Mapping[str, Any] = {"model": "claude-test", "max_usd": 5.0, "max_loops": 3, "ci_wait_minutes": 30, "max_review_rounds": 2}
+    # The Notes of a task are a paid call of the end of a workflow; the fake leaves them off, so the
+    # scripted agents of the tests keep the steps they have. The tests of the Notes turn them on.
+    REQUIRED: Mapping[str, Any] = {"model": "claude-test", "max_usd": 5.0, "max_loops": 3, "ci_wait_minutes": 30, "max_review_rounds": 2, "notes": False}
 
     def __init__(self, root: Path) -> None:
         self._root = root
 
-    def settings(self, extra: Dict[str, Any]) -> ServeSettings:
-        return ServeSettings.model_validate({**self.REQUIRED, **extra})
+    def settings(self, extra: Dict[str, Any], without: Sequence[str] = ()) -> ServeSettings:
+        """The `serve:` block of the company. A key in `without` is left out, so the default of
+        the model is the one that is tested."""
+        given = {**self.REQUIRED, **extra}
+        return ServeSettings.model_validate({name: value for name, value in given.items() if name not in without})
 
-    def company(self, extra: Dict[str, Any]) -> ServeCompany:
-        state = WorkState(make_store("file", file_root=self._root), "acme", asyncio.Lock())
-        settings = self.settings(extra)
+    def company(self, extra: Dict[str, Any], store: Optional[Any] = None, without: Sequence[str] = ()) -> ServeCompany:
+        state = WorkState(store if store is not None else make_store("file", file_root=self._root), "acme", asyncio.Lock())
+        settings = self.settings(extra, without)
         return ServeCompany("acme", settings, FakeLogins().logins(), state, self._root, RuleBook.of(settings))

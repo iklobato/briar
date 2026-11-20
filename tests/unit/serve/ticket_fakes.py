@@ -175,6 +175,8 @@ class FakeGithubSide:
     account_errors: List[Exception] = field(default_factory=list)
     account_lives: int = 0
     account_calls: List[int] = field(default_factory=list)
+    # The token of the code host (a secret: the page of a task must never hold it).
+    token: str = "PLACEHOLDER-not-a-secret"
     login_source: ClassVar[str] = "github"
     NUMBER: ClassVar[int] = 41
 
@@ -185,7 +187,7 @@ class FakeGithubSide:
         return "octo"
 
     def resolve_token(self) -> str:
-        return "PLACEHOLDER-not-a-secret"
+        return self.token
 
     def default_branch(self, repo: str) -> str:
         return "main"
@@ -341,11 +343,20 @@ class Setups:
         self._tmp_path = tmp_path
         self._monkeypatch = monkeypatch
 
-    def make(self, extra: Dict[str, Any]) -> Setup:
+    def make(self, extra: Dict[str, Any], store: Optional[Any] = None, without: Sequence[str] = ()) -> Setup:
+        """A setup with a company of the fakes. A key in `without` is left out of the `serve:`
+        block, so the default of the model is the one that is tested."""
         origin = LocalOrigin(self._tmp_path)
         base = f"file://{origin.create()}"
         self._monkeypatch.setattr(TaskFlow, "CI_POLL_SECONDS", 0)
-        company = Companies(self._tmp_path / "knowledge").company({**Settings().block(["test -f feature.txt"]), **extra})
+        company = Companies(self._tmp_path / "knowledge").company({**Settings().block(["test -f feature.txt"]), **extra}, store, without)
+        return Setup(company, RoutineSources(base), origin, self._tmp_path / "cache")
+
+    def loaded(self, company: ServeCompany) -> Setup:
+        """The same setup, with the company the loader of the runbooks made."""
+        origin = LocalOrigin(self._tmp_path)
+        base = f"file://{origin.create()}"
+        self._monkeypatch.setattr(TaskFlow, "CI_POLL_SECONDS", 0)
         return Setup(company, RoutineSources(base), origin, self._tmp_path / "cache")
 
 
