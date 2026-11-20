@@ -14,6 +14,7 @@ from briar.errors import CliError
 from briar.serve.agent import AgentRunner
 from briar.serve.flow import TaskFlow, TicketSide
 from briar.serve.health import LoginWatch
+from briar.serve.page import TaskFacts
 from briar.serve.pause import LoginRefused, ModelPause
 from briar.serve.review import ReviewRun
 from briar.serve.state import MoneyStop, WorkStatus
@@ -136,6 +137,7 @@ class ServeRoutine:
         if known is None:
             return
         await self._company.state.record(known.model_copy(update={"status": status}))
+        await TaskFacts.of(self._company, item).add_safe(status.value, f"the PR of the task was {status.value}", status.value)
         self.LOG.info("serve: %s is %s %s", item.ref(), status.value, self._prep.sources().style().pull_url(item.repo, item.pr))
         await asyncio.to_thread(self._board_after, item, status)
 

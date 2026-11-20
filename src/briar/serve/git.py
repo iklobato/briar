@@ -220,6 +220,14 @@ class RepoCheckout:
         """`git diff <revisions>`: `origin/main...HEAD` for a ticket, `<sha>..HEAD` for a round."""
         return self._git(["diff", revisions], path, "").output
 
+    def changed_files(self, path: Path, revisions: str) -> str:
+        """The files the change touches, one per line."""
+        return self._git(["diff", "--name-only", revisions], path, "").output.strip()
+
+    def diff_stat(self, path: Path, revisions: str) -> str:
+        """The stat of the change: the files and how much each one changed."""
+        return self._git(["diff", "--stat", revisions], path, "").output.strip()
+
     def unpushed_base(self, path: Path, branch: str, base: str) -> str:
         """The commit a push of `branch` builds on: its head on the origin, or the point where it left `origin/<base>` when the origin
         has no such branch yet. `<this>..HEAD` is what the push adds."""

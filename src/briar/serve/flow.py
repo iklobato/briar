@@ -19,7 +19,7 @@ from briar.serve.base_ci import BaseCi
 from briar.serve.clean import SecretGate
 from briar.serve.git import Shell
 from briar.serve.state import MoneyStop, WorkEntry, WorkSource, WorkStatus
-from briar.serve.task import AgentSteps, Budget, LimitHit, Plan, TaskContext
+from briar.serve.task import AgentSteps, Budget, LimitHit, Plan, Review, TaskContext
 from briar.serve.work import Marker, WorkItem, WorkSources
 
 
@@ -92,6 +92,8 @@ class TaskFlow:
         self._context = context
         self._steps = steps
         self._budget = budget
+        # What the last run of the verify commands said (the fact of the page).
+        self._last_results = "no verify commands set"
 
     async def verified(self, what: str) -> None:
         """Commit, run the verify commands, and fix until they pass (S20)."""
@@ -104,6 +106,14 @@ class TaskFlow:
             await self._steps.fix("the verify commands fail", failures)
             await asyncio.to_thread(self.commit, "fix the verify commands")
             failures = await asyncio.to_thread(self._verify_failures)
+        await self._context.facts.add("verify", self._verify_fact(), f"{await self._head()}:{self._budget.loops[0]}")
+
+    def _verify_fact(self) -> str:
+        """The verify commands and what they said."""
+        return self._last_results
+
+    async def _head(self) -> str:
+        return await asyncio.to_thread(self._context.checkout.head, self._context.worktree)
 
     async def ci(self, number: int) -> None:
         """Wait for CI on the PR and have the agent fix a failed run (S20, S23)."""
@@ -113,8 +123,10 @@ class TaskFlow:
         while True:
             state = await asyncio.to_thread(self._context.sources.code_host().ci_state, self._context.item.repo, number)
             if state is CiState.PASSED or (state is CiState.NONE and time.monotonic() - started > self._context.company.settings.ci_grace_seconds):
+                await self._context.facts.add("ci", f"the CI of the PR #{number} passed", f"{await self._head()}:{self._budget.loops[0]}")
                 return
             if state is CiState.FAILED:
+                await self._context.facts.add("ci", f"the CI of the PR #{number} failed", f"{await self._head()}:{self._budget.loops[0]}")
                 await self._fix_ci(number)
             if time.monotonic() > deadline:
                 raise LimitHit(f"CI did not pass within ci_wait_minutes ({minutes})")
@@ -136,6 +148,13 @@ class TaskFlow:
             # A real run flip-flopped (add a line, drop it, add it): each round sees the asks before it.
             asked.extend(review.findings)
             review = await self._steps.review(plan, await asyncio.to_thread(self._context.checkout.changes, self._context.worktree, revisions), asked)
+        await self._context.facts.add("self-review", self._review_fact(review), f"{await self._head()}:{self._budget.loops[0]}")
+
+    def _review_fact(self, review: "Review") -> str:
+        """The verdict of the self review and what it asked."""
+        if review.approved:
+            return "the self review approved the change"
+        return f"the self review asked for: {'; '.join(review.findings)}"
 
     def spent(self) -> str:
         return self._budget.summary()
@@ -167,6 +186,7 @@ class TaskFlow:
         except CliError as failure:
             text = f"{text} The ticket comment failed: {failure}."
         await self.record(WorkStatus.BLOCKED, {"pr": number, "report": text, "money_stop": stop})
+        await self._context.facts.add_safe("stopped", text, f"{await self._head()}:{self._budget.loops[0]}")
 
     async def record(self, status: WorkStatus, changes: Mapping[str, Any]) -> None:
         """Write the entry of the task with `status` and `changes`, keeping what the state
@@ -270,6 +290,7 @@ class TaskFlow:
         found = [(command, shell.line(command, copy)) for command in self._context.company.settings.verify_for(self._context.item.repo)]
         checkout.drop_copy(worktree, copy)
         results = ", ".join(f"`{command}` {'ok' if done.ok() else f'exit {done.code}'}" for command, done in found) or "no verify commands set"
+        self._last_results = results
         self.LOG.info("serve: %s verify on %s: %s", self._context.item.ref(), revision, results)
         return "\n\n".join(f"`{command}` failed (exit {done.code}):\n{done.output[-self.OUTPUT_TAIL :]}" for command, done in found if not done.ok())
 

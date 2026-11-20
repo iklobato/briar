@@ -88,6 +88,14 @@ class ReviewRun:
         except ModelPause:
             await self._paused()
             raise
+        await self._context.facts.add_safe("cost", self._flow.spent(), f"round-{start}")
+        await self._notes(start)
+
+    async def _notes(self, start: str) -> None:
+        """The Notes of the task, at the end of the round (decision W4)."""
+        if not self._context.company.settings.notes:
+            return
+        await self._steps.notes_of(self._context.facts, f"round-{start}")
 
     async def _waited(self) -> None:
         """Decision B13: the CI wait and the CI fix of a round the day cap paused after its replies. No reply is posted again
@@ -116,6 +124,10 @@ class ReviewRun:
     async def _round(self, start: str) -> None:
         item = self._context.item
         merged = await self._merged() if item.conflict else []
+        if item.conflict:
+            await self._context.facts.add("conflict", f"the PR was in conflict with its base ({', '.join(merged)})", start)
+        for comment in item.comments:
+            await self._context.facts.add("comment", f"{comment.kind.value} comment by {comment.author}: {comment.body}", comment.key())
         answers = await self._steps.answer(item.comments) if item.comments else Answers({})
         await asyncio.to_thread(self._flow.commit, "answer the review")
         head = await self._head()
@@ -125,17 +137,29 @@ class ReviewRun:
         commit = head[: self.SHORT_SHA] if head != start else ""
         await asyncio.to_thread(ReviewReplies(self._context, answers, commit).post, merged)
         self._replied = True
-        await self._finished(start, head)
+        await self._finished(start, head, answers)
 
-    async def _finished(self, start: str, head: str) -> None:
+    async def _finished(self, start: str, head: str, answers: Answers) -> None:
+        """The end of the round. The Facts of the replies come after the comments are recorded as
+        answered: a Fact written between the posts and the record would leave the comments
+        unanswered in the state, and they would be answered twice."""
         saved = {"answered": self._answered()}
         if head == start and not self._owes_ci:
             await self._done(saved)
+            await self._replied_facts(answers)
             return
         # Saved before the CI wait: a stop there must not answer the same comments again.
         await self._flow.record(WorkStatus.PR_OPEN, saved)
+        await self._replied_facts(answers)
         await self._flow.ci(self._context.item.pr)
         await self._done({})
+
+    async def _replied_facts(self, answers: Answers) -> None:
+        """The Facts of the replies of the round, one per comment and one for the round."""
+        item = self._context.item
+        for comment in item.comments:
+            await self._context.facts.add_safe("reply", answers.of(comment).reply, comment.key())
+        await self._context.facts.add_safe("round", f"the round answered {len(item.comments)} comment(s)", str(self._round_number()))
 
     async def _done(self, changes: Mapping[str, Any]) -> None:
         """The round is over. A PR briar made a draft for a stop for money is marked ready first (B6)."""
@@ -160,6 +184,11 @@ class ReviewRun:
         await asyncio.to_thread(host.comment, item.repo, item.pr, Marker().mark(text))
         money = MoneyStop(cap=context.company.settings.max_usd, resume_to=WorkStatus.PR_OPEN.value, drafted=drafted)
         await self._flow.record(WorkStatus.BLOCKED, {"report": text, "rounds": self._rounds_kept(), "money_stop": money})
+
+    def _round_number(self) -> int:
+        """The number of this round: the rounds the state counted, plus one."""
+        known = self._context.company.state.book().entry(self._context.item.key)
+        return (known.rounds if known is not None else 0) + 1
 
     def _rounds_kept(self) -> int:
         known = self._context.company.state.book().entry(self._context.item.key)

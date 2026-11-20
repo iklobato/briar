@@ -17,7 +17,7 @@ from dataclasses import dataclass, field, replace
 from enum import Enum
 from functools import partial
 from pathlib import Path
-from typing import Any, Callable, ClassVar, Dict, FrozenSet, List, Mapping, Optional, Sequence, Set, Tuple
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Dict, FrozenSet, List, Mapping, Optional, Sequence, Set, Tuple
 
 from briar.auth.check import CheckResult, CheckState, LoginCheck, LoginCheckFailed, LoginTarget, SourceUnreachable
 from briar.auth.logins import CompanyLogins, LoginScope
@@ -28,6 +28,10 @@ from briar.iac.runbook.models import CodeHostKind, JiraProject, ServeSettings
 from briar.serve.day import DUST, DayCap, Grant
 from briar.serve.git import RepoCheckout, Shell
 from briar.serve.host import GithubStyle, GitlabStyle, HostStyle
+from briar.storage import KnowledgeStore
+
+if TYPE_CHECKING:
+    from briar.serve.page import TaskPages
 from briar.serve.pause import ServeStop, UsageGate
 from briar.serve.rules import RuleBook
 from briar.serve.state import WorkBook, WorkEntry, WorkSource, WorkState, WorkStatus
@@ -194,6 +198,24 @@ class ServeCompany:
 
     def state_file(self) -> Path:
         return self.root / "work" / f"{self.name}.md"
+
+    def page_file(self, key: str) -> str:
+        """The page of a task, in the knowledge folder: `work/<company>/tasks/<name>.md`. The name is
+        one file name (a Jira key stays, a GitHub key becomes `acme__app-7`), so two repos with the
+        same number do not collide (decisions W2 and W3)."""
+        from briar.serve.page import PageName
+
+        return str(self.root / "work" / self.name / "tasks" / f"{PageName().of(key)}.md")
+
+    def pages(self) -> "TaskPages":
+        """The pages of the tasks of this company, through the knowledge store."""
+        from briar.serve.page import TaskPages
+
+        return TaskPages(self)
+
+    def knowledge(self) -> KnowledgeStore:
+        """The store of the knowledge of this company (the state lives in it too)."""
+        return self.state.store()
 
 
 class ServeLock:
@@ -373,6 +395,10 @@ class BudgetReopen:
                 continue
             await self._company.state.record(entry.model_copy(update={"status": status}))
             note = f"{entry.key}: max_usd is now {self._company.settings.max_usd}, so the ticket goes on"
+            from briar.serve.page import TaskFacts
+
+            item = WorkItem(WorkKind.TICKET, entry.key, entry.source, entry.repo, entry.title)
+            await TaskFacts.of(self._company, item).add_safe("reopened", note, "reopened")
             self.LOG.info("serve: %s: %s", self._company.name, note)
             self._company.notes.setdefault(WorkDay().today(), []).append(note)
             reopened.append(entry.key)
