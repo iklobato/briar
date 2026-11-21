@@ -88,8 +88,9 @@ class ReviewRun:
         except ModelPause:
             await self._paused()
             raise
-        await self._context.facts.add_safe("cost", self._flow.spent(), f"round-{start}")
         await self._notes(start)
+        # After the Notes: they are a paid call of the ticket too.
+        await self._context.facts.add_safe("cost", self._flow.cost(), f"round-{start}")
 
     async def _notes(self, start: str) -> None:
         """The Notes of the task, at the end of the round (decision W4)."""
@@ -186,9 +187,9 @@ class ReviewRun:
         await self._flow.record(WorkStatus.BLOCKED, {"report": text, "rounds": self._rounds_kept(), "money_stop": money})
 
     def _round_number(self) -> int:
-        """The number of this round: the rounds the state counted, plus one."""
+        """The number of this round: the rounds the state counted, this one included (`_start` counts it before the round)."""
         known = self._context.company.state.book().entry(self._context.item.key)
-        return (known.rounds if known is not None else 0) + 1
+        return known.rounds if known is not None else 1
 
     def _rounds_kept(self) -> int:
         known = self._context.company.state.book().entry(self._context.item.key)

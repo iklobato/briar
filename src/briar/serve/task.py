@@ -71,7 +71,11 @@ class Budget:
             raise LimitHit(f"max_loops ({self.max_loops}) reached while fixing: {why}")
 
     def summary(self) -> str:
-        return f"US$ {self.spent[0]:.2f} of {self.max_usd}, {self.loops[0]} of {self.max_loops} fix loops"
+        return f"{self.money()}, {self.loops[0]} of {self.max_loops} fix loops"
+
+    def money(self) -> str:
+        """What the ticket spent, all its runs included, against its cap. The fix loops are of this run only, so they stay out."""
+        return f"US$ {self.spent[0]:.2f} of {self.max_usd}"
 
 
 @dataclass(frozen=True)

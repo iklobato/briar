@@ -159,6 +159,10 @@ class TaskFlow:
     def spent(self) -> str:
         return self._budget.summary()
 
+    def cost(self) -> str:
+        """The text of the `cost` Fact: the money of the ticket so far, with no fix loops (they count one run only)."""
+        return f"{self._budget.money()} spent by the task so far"
+
     async def push(self) -> None:
         await self._gate().clean()
         await asyncio.to_thread(self._context.checkout.push, self._context.worktree, self._context.branch, self._context.token)

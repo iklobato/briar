@@ -92,8 +92,10 @@ class TicketRun:
         if known is None or not known.built or not await asyncio.to_thread(self._flow.changed):
             await self._steps.build(plan)
             await state.record((state.book().entry(key) or self._context.item.entry()).model_copy(update={"built": True}))
-            await self._context.facts.add("built", await asyncio.to_thread(self._build_facts), self._head())
         await self._flow.verified("build the plan")
+        # After the verify: it makes the first commit, and the diff of the Fact reads the commits (a live run, 2026-11-21, wrote it
+        # before the commit and got an empty diff).
+        await self._context.facts.add("built", await asyncio.to_thread(self._build_facts), self._head())
 
     def _build_facts(self) -> str:
         """What the build changed: the files and the stat of the diff."""
@@ -111,8 +113,9 @@ class TicketRun:
         ready_at = datetime.now(timezone.utc).isoformat()
         await self._flow.record(WorkStatus.DONE, {"ready_at": ready_at, "reviewers": reviewers, "money_stop": None})
         await self._context.facts.add_safe("ready", f"the PR is ready for review ({self._asked(reviewers)})", ready_at)
-        await self._context.facts.add_safe("cost", self._flow.spent(), "ticket")
         await self._notes("ticket")
+        # After the Notes: they are a paid call of the ticket too.
+        await self._context.facts.add_safe("cost", self._flow.cost(), "ticket")
 
     def _ask_reviewers(self, number: int) -> List[str]:
         """Decision D2: the usual reviewers of the repo are asked, so a ready PR does not wait

@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import pytest
 
 from briar.extract._provider import CommentKind, ReviewComment
-from briar.serve.page import Fact, PageBackfill, PageFile, PageName, TaskFacts, TaskPages
+from briar.serve.page import Fact, PageBackfill, PageError, PageFile, PageName, TaskFacts, TaskPages
 from briar.serve.state import MoneyStop, WorkEntry, WorkSource, WorkStatus
 from briar.serve.work import BudgetReopen, ServeCompanies, ServeCompany, WorkDay, WorkItem, WorkKind
 from briar.storage import make_store
@@ -31,6 +31,11 @@ MAX_USD = 5.0
 RAISED_USD = 10.0
 # The token of the code host of the test that asks the page not to hold it.
 TOKEN = "ghp-a-token-that-is-a-secret"
+# What the pick of the selector cost, and what an older task spent.
+PICK_USD = 0.01
+OLD_SPEND_USD = 0.5
+# The day of the spends of the backfill tests.
+DAY = "2026-11-21"
 
 
 class Facts:
@@ -81,6 +86,21 @@ class Store:
             if marker in content:
                 return number
         return -1
+
+
+class Broken:
+    """A knowledge store where a person breaks the page by hand (a heading of their own) once it holds a marker."""
+
+    def __init__(self, inner: Any, marker: str) -> None:
+        self._inner = inner
+        self._marker = marker
+
+    def get(self, name: str) -> str:
+        return self._inner.get(name)
+
+    def put(self, name: str, content: str, category: str = "") -> Any:
+        broken = f"{content}\n## Whatever\n" if self._marker in content else content
+        return self._inner.put(name, broken, category)
 
 
 class Reviews:
@@ -178,6 +198,41 @@ class TestThePage:
     def test_a_page_with_no_facts_has_none(self) -> None:
         assert PageFile.parse("## Facts\n\n## Notes\n\n").facts() == []
 
+    def test_a_page_this_code_did_not_write_is_a_page_error_that_says_why(self) -> None:
+        with pytest.raises(PageError) as raised:
+            PageFile.parse("## Facts\n\n- `a:b` c\n\n## Whatever\n")
+
+        assert str(raised.value) == "the page has an unknown heading: ## Whatever"
+
+
+class TestTheTextOfOthers:
+    """A live run (2026-11-21): the text of a Fact or of the Notes is written by other people and by the agent. A line of it that
+    starts with `## ` read back as a heading and broke the page; the lines after the first of a Fact were lost; a line that
+    starts with "- `" read back as a Fact of its own."""
+
+    COMMENT = "inline comment by ann: rename it\n\n## Why\nthe name is wrong\n- `ready:x` the PR is ready"
+
+    def test_a_fact_of_many_lines_is_read_back_whole(self) -> None:
+        page = PageFile([Fact("built:b", "built", " a.py | 1 +\n b.py | 2 +\n 2 files changed", ""), Fact("verify:b:0", "verify", "ok", "")])
+
+        back = PageFile.parse(page.text())
+
+        assert [fact.text for fact in back.facts()] == ["a.py | 1 +\n b.py | 2 +\n 2 files changed", "ok"]
+
+    def test_a_heading_line_in_a_fact_is_text_and_the_page_still_reads(self) -> None:
+        page = PageFile([Fact("comment:inline:1", "comment", self.COMMENT, "")])
+
+        back = PageFile.parse(page.text())
+
+        assert [(fact.key, fact.text) for fact in back.facts()] == [("comment:inline:1", self.COMMENT)]
+
+    def test_a_heading_line_in_the_notes_is_text_and_the_page_still_reads(self) -> None:
+        page = PageFile([Fact("planned:p", "planned", "the plan", "")], "## Why\nit was small\n\n- `ready:x` not a fact")
+
+        back = PageFile.parse(page.text())
+
+        assert (back.notes(), [fact.key for fact in back.facts()]) == ("## Why\nit was small\n\n- `ready:x` not a fact", ["planned:p"])
+
 
 class TestTheBackfill:
     def test_the_page_of_an_entry_that_has_no_page_yet_holds_what_the_state_knows(self) -> None:
@@ -189,6 +244,22 @@ class TestTheBackfill:
 
     def test_an_entry_that_is_not_there_gives_an_empty_page(self) -> None:
         assert PageBackfill().of(None).facts() == []
+
+    def test_a_new_task_with_only_the_spend_of_its_pick_has_nothing_to_backfill(self) -> None:
+        """A live run (2026-11-21): the pick of the selector makes the entry, so the first Fact of a new task wrote a `cost:backfill`."""
+        entry = WorkEntry(key=KEY, source=WorkSource.JIRA, repo="acme/app", title="Add the feature", status=WorkStatus.FOUND, spent_by_day={DAY: PICK_USD})
+
+        assert PageBackfill().of(entry).facts() == []
+
+    def test_an_old_task_keeps_its_spend_next_to_what_it_did(self) -> None:
+        entry = WorkEntry(
+            key=KEY, source=WorkSource.JIRA, repo="acme/app", title="Add the feature", status=WorkStatus.PR_OPEN, plan="the plan", pr=PR,
+            spent_by_day={DAY: OLD_SPEND_USD},
+        )  # fmt: skip
+
+        page = PageBackfill().of(entry)
+
+        assert [(fact.kind, fact.text) for fact in page.facts()] == [("planned", "the plan"), ("pr-opened", f"PR #{PR}"), ("cost", "US$ 0.50 in all")]
 
 
 class TestThePagesOfACompany:
@@ -267,6 +338,24 @@ class TestThePageOfATicket:
         kinds = Facts().kinds(self.page(setup))
         assert ("taken" in kinds, "planned" in kinds, "built" in kinds) == (True, True, True)
         assert ("pr-opened" in kinds, "ready" in kinds, "cost" in kinds) == (True, True, True)
+
+    def test_the_built_fact_holds_the_files_of_the_build(self, setups: Setups) -> None:
+        """A live run (2026-11-21): the Fact was written before the first commit, so its diff was empty."""
+        setup = setups.make({})
+
+        setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()]), Items().jira())
+
+        (built,) = Facts().of(self.page(setup))["built"]
+        assert "feature.txt" in built
+
+    def test_the_cost_of_the_ticket_counts_the_notes_and_no_fix_loops(self, setups: Setups) -> None:
+        """Four calls of 0.1: the plan, the build, the self review and the Notes. The fix loops are of one run, so they stay out."""
+        setup = setups.make({"notes": True})
+        agent = ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved(), Step(structured={"notes": "the notes"})])
+
+        setup.work_on(agent, Items().jira())
+
+        assert Facts().of(self.page(setup))["cost"] == [f"US$ 0.40 of {MAX_USD} spent by the task so far"]
 
     def test_a_restart_does_not_write_the_same_fact_twice(self, setups: Setups) -> None:
         setup = setups.make({})
@@ -353,6 +442,17 @@ class TestAFailingStore:
         assert (entry.status, setup.sources.github_side.readies) == (WorkStatus.DONE, [PR])
         assert "the page of the task could not be written" in caplog.text
 
+    def test_a_page_a_person_broke_after_the_task_is_over_only_logs_it(self, setups: Setups, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """A page is never worth a finished PR, also when a person broke it by hand: the Facts after the end and the Notes log it."""
+        setup = setups.make({"notes": True}, Broken(make_store("file", file_root=tmp_path / "knowledge"), "`ci:"))
+
+        with caplog.at_level(logging.ERROR):
+            setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()]), Items().jira())
+
+        github = setup.sources.github_side
+        assert (setup.entry(KEY).status, github.readies, github.drafts) == (WorkStatus.DONE, [PR], [])
+        assert "the page has an unknown heading: ## Whatever" in caplog.text
+
 
 class TestTheReviewRound:
     """A review round writes what it did: the comment, the reply, the round and what it cost."""
@@ -371,6 +471,40 @@ class TestTheReviewRound:
 
         kinds = Facts().kinds(TaskPages(setup.company).read(KEY))
         assert ("comment" in kinds, "reply" in kinds, "round" in kinds, "cost" in kinds) == (True, True, True, True)
+
+    def test_the_cost_of_a_round_counts_its_notes(self, setups: Setups) -> None:
+        """Calls of 0.1: four for the ticket (with its Notes), then the answer and the Notes of the round."""
+        setup = setups.make({"notes": True})
+        notes = Step(structured={"notes": "the notes"})
+        setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved(), notes]), Items().jira())
+        reviews = Reviews()
+
+        setup.work_on(ScriptedAgent([Step(structured=reviews.answers("done")), notes]), reviews.item([reviews.inline()]))
+
+        costs = Facts().of(TaskPages(setup.company).read(KEY))["cost"]
+        assert costs == [f"US$ 0.40 of {MAX_USD} spent by the task so far", f"US$ 0.60 of {MAX_USD} spent by the task so far"]
+
+    def test_the_first_round_is_round_one(self, setups: Setups) -> None:
+        setup = self.opened(setups)
+        reviews = Reviews()
+
+        setup.work_on(ScriptedAgent([Step(structured=reviews.answers("done"))]), reviews.item([reviews.inline()]))
+
+        keys = [fact.key for fact in TaskPages(setup.company).read(KEY).facts() if fact.kind == "round"]
+        assert keys == ["round:1"]
+
+    def test_a_comment_with_a_heading_is_answered_and_the_pr_stays_ready(self, setups: Setups) -> None:
+        """A live run (2026-11-21): a comment with a `## Why` line broke the page, the task was blocked, the ready PR went back
+        to a draft and the comment got no reply."""
+        setup = self.opened(setups)
+        reviews = Reviews()
+        comment = replace(reviews.inline(), body=TestTheTextOfOthers.COMMENT.removeprefix("inline comment by ann: "))
+
+        setup.work_on(ScriptedAgent([Step(structured=reviews.answers("renamed"))]), reviews.item([comment]))
+
+        github, page = setup.sources.github_side, TaskPages(setup.company).read(KEY)
+        assert (setup.entry(KEY).status, github.drafts, len(github.replies)) == (WorkStatus.DONE, [], 1)
+        assert (Facts().of(page)["comment"], "ready:x" in [fact.key for fact in page.facts()]) == ([TestTheTextOfOthers.COMMENT], False)
 
     def test_the_agent_of_the_round_is_told_where_the_page_is(self, setups: Setups) -> None:
         setup = self.opened(setups)

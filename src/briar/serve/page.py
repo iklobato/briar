@@ -15,9 +15,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Awaitable, ClassVar, List, Optional, Sequence
+from typing import TYPE_CHECKING, Awaitable, ClassVar, List, Optional, Sequence, Set
 
 from briar.serve.state import WorkEntry
 from briar.serve.work import ServeCompany, WorkItem
@@ -29,6 +29,14 @@ if TYPE_CHECKING:
 FACTS_HEADING = "## Facts"
 NOTES_HEADING = "## Notes"
 HEADINGS = (FACTS_HEADING, NOTES_HEADING)
+# Every line of free text after the first line of a Fact, and every line of the Notes, is written
+# with this indent: a comment of a reviewer with a `## ` line or a "- `" line (a live run,
+# 2026-11-21) can then never read back as a heading or as a Fact of its own.
+INDENT = "  "
+
+
+class PageError(ValueError):
+    """The text is not a page this code wrote: an unknown heading, a heading twice, a Fact with no key."""
 
 
 class PageName:
@@ -55,7 +63,13 @@ class Fact:
     time: str
 
     def line(self) -> str:
-        return f"- `{self.key}` {self.text}"
+        """The Fact as page text: its first line after the key, the others indented."""
+        first, *rest = self.text.splitlines() or [""]
+        return "\n".join([f"- `{self.key}` {first}", *(f"{INDENT}{part}" for part in rest)])
+
+    def more(self, line: str) -> "Fact":
+        """The Fact with one more line of text (an indented line of the page)."""
+        return replace(self, text=f"{self.text}\n{line}")
 
     @classmethod
     def of(cls, kind: str, text: str, key: str, when: str = "") -> "Fact":
@@ -90,39 +104,54 @@ class PageFile:
     def text(self) -> str:
         lines = [FACTS_HEADING, ""]
         lines += [fact.line() for fact in self._facts]
-        lines += ["", NOTES_HEADING, "", self._notes, ""]
-        return "\n".join(lines)
+        lines += ["", NOTES_HEADING, ""]
+        lines += [f"{INDENT}{part}" if part else "" for part in self._notes.splitlines()]
+        return "\n".join([*lines, ""])
 
     @classmethod
     def parse(cls, text: str) -> "PageFile":
         """The page in `text`. A heading that is not one of the two, or one of them twice, is an
-        error: a page written by hand is not a page this code may overwrite."""
+        error: a page written by hand is not a page this code may overwrite. Free text is always
+        indented (`INDENT`), so a line at the start of the line is a heading or a Fact."""
         facts: List[Fact] = []
-        notes = ""
+        notes: List[str] = []
         where = ""
-        seen = set()
+        seen: Set[str] = set()
         for line in text.splitlines():
             if line.startswith("## "):
-                if line not in HEADINGS:
-                    raise ValueError(f"the page has an unknown heading: {line}")
-                if line in seen:
-                    raise ValueError(f"the page has the heading twice: {line}")
-                seen.add(line)
-                where = line
+                where = cls._heading(line, seen)
                 continue
             if where == NOTES_HEADING:
-                notes += f"{line}\n"
+                notes.append(line.removeprefix(INDENT))
                 continue
-            if where == FACTS_HEADING and line.startswith("- `"):
-                facts.append(cls._fact(line))
-        return cls(facts, notes.strip())
+            if where == FACTS_HEADING:
+                cls._facts_line(facts, line)
+        return cls(facts, "\n".join(notes).strip())
+
+    @classmethod
+    def _heading(cls, line: str, seen: Set[str]) -> str:
+        if line not in HEADINGS:
+            raise PageError(f"the page has an unknown heading: {line}")
+        if line in seen:
+            raise PageError(f"the page has the heading twice: {line}")
+        seen.add(line)
+        return line
+
+    @classmethod
+    def _facts_line(cls, facts: List[Fact], line: str) -> None:
+        """A line under the Facts: a new Fact, or one more line of the last one (indented)."""
+        if line.startswith("- `"):
+            facts.append(cls._fact(line))
+            return
+        if line.startswith(INDENT) and facts:
+            facts[-1] = facts[-1].more(line[len(INDENT) :])
 
     @classmethod
     def _fact(cls, line: str) -> Fact:
         """A line of a Fact: `- `<key>` <text>`."""
         end = line.find("`", 3)
         if end < 0:
-            raise ValueError(f"the page has a Fact without a key: {line}")
+            raise PageError(f"the page has a Fact without a key: {line}")
         key = line[3:end]
         text = line[end + 1 :].strip()
         return Fact(key, key.split(":", 1)[0], text, "")
@@ -159,8 +188,17 @@ class PageBackfill:
     task before the page was there."""
 
     def of(self, entry: Optional[WorkEntry]) -> PageFile:
+        """The Facts of the entry. An entry with only a spend is a new task (the pick of the
+        selector made it, a live run 2026-11-21): it has nothing to backfill."""
         if entry is None:
             return PageFile()
+        facts = self._history(entry)
+        if facts and entry.spent_by_day:
+            facts.append(Fact.of("cost", self._spend(entry), "backfill"))
+        return PageFile(facts)
+
+    def _history(self, entry: WorkEntry) -> List[Fact]:
+        """What the task did before the page was there: the plan, the PR, the rounds, the answers, the report."""
         facts: List[Fact] = []
         if entry.plan:
             facts.append(Fact.of("planned", entry.plan, "backfill"))
@@ -169,11 +207,9 @@ class PageBackfill:
         if entry.rounds:
             facts.append(Fact.of("rounds", f"the task had {entry.rounds} round(s)", "backfill"))
         facts += self._answered(entry)
-        if entry.spent_by_day:
-            facts.append(Fact.of("cost", self._spend(entry), "backfill"))
         if entry.report:
             facts.append(Fact.of("report", entry.report, "backfill"))
-        return PageFile(facts)
+        return facts
 
     def _answered(self, entry: WorkEntry) -> List[Fact]:
         """The review comments the task answered before the page was there."""
@@ -215,11 +251,12 @@ class TaskFacts:
         await self._safe(asyncio.to_thread(self._company.pages().set_notes, self._item.key, text))
 
     async def _safe(self, work: Awaitable[None]) -> None:
-        """A write of the page of a task that reached its end: a failure of the store is logged
-        and nothing else happens (the Facts that matter are re-derived from the entry)."""
+        """A write of the page of a task that reached its end: a failure of the store, or a page
+        a person broke by hand, is logged and nothing else happens (the Facts that matter are
+        re-derived from the entry)."""
         try:
             await work
-        except OSError as failure:
+        except (OSError, PageError) as failure:
             self.LOG.error("serve: the page of the task could not be written: %s", failure)
 
     def page(self) -> PageFile:
@@ -261,6 +298,10 @@ class TaskNotes:
         except LimitHit as stop:
             await self._facts.add_safe("notes-skipped", str(stop), key)
             return
+        except PageError as failure:
+            # The call comes after the end of the task: a page a person broke never drafts a ready PR.
+            TaskFacts.LOG.error("serve: the page of the task could not be read: %s", failure)
+            return
         await self._facts.notes(notes[: self.LIMIT])
 
     def _text(self) -> str:
@@ -273,6 +314,7 @@ class TaskNotes:
 __all__ = [
     "Fact",
     "PageBackfill",
+    "PageError",
     "PageFile",
     "PageName",
     "TaskFacts",
