@@ -213,13 +213,24 @@ class GithubProvider(RepositoryProvider):
 
     def _ci_state(self, repo: str, number: int) -> CiState:
         target = self._api().client().get_repo(repo)
-        sha = target.get_pull(number).head.sha
+        sha = self._pushed_head(target, target.get_pull(number))
         commit = target.get_commit(sha)
         # A queued Actions run has no check run yet: read the workflow runs too, or a fast
         # check of another app that passed first reads as "CI passed".
         checks = [*commit.get_check_runs(), *target.get_workflow_runs(head_sha=sha)]
         statuses = [status.state for status in commit.get_combined_status().statuses]
         return CiStates().of([(run.status, run.conclusion) for run in checks], statuses)
+
+    def _pushed_head(self, target: Any, pull: Any) -> str:
+        """The head of the head branch, not the head the PR gives: right after a push the PR still gives the commit
+        before for some seconds, whose CI passed (live runs, 2026-11-21); the branch moves at once, as on GitLab. A
+        branch GitHub deleted (a person merged the PR during the CI wait) answers 404: the PR still gives its last head."""
+        from github import UnknownObjectException
+
+        try:
+            return str(target.get_branch(pull.head.ref).commit.sha)
+        except UnknownObjectException:
+            return str(pull.head.sha)
 
     def active_repos(self, days: int) -> List[str]:
         """Every repo the token can push to with a push in the last `days` days (decision C2 of

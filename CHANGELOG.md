@@ -283,6 +283,7 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Fixed
 
+- `briar serve` on GitHub waits for the CI of the commit it just pushed. For some seconds after a push GitHub still gives the old head of the PR, whose CI had passed, so a review round or a ticket could be marked done before its new CI ran (three review rounds of two live runs did). The CI is now read on the head of the head branch, which moves at once, as the GitLab code already did.
 - `briar serve`, after the spend caps (an audit of them found these):
   - A pause or a stop on a PR now goes back to what the origin has. Before it kept the head, which can hold a commit that failed verify and was never pushed; a reviewer push then made the next sync diverge and the task failed on every poll with no note. A worktree that differs from the origin is reset to it with a warning that counts the dropped commits.
   - A draft that a person made after the PR was ready is no longer marked ready by briar (it finishes only a draft it opened or one it made at a stop for money).
