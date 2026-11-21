@@ -60,6 +60,7 @@ class Blocks:
             "knowledge": "k.md",
             "index": "i.md",
             "state": "s.md",
+            "page": "p.md",
             "key": "ENG-1",
             "title": "t",
             "plan": "p",

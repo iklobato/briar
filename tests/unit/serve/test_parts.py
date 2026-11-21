@@ -294,17 +294,19 @@ class TestBudget:
 
 
 class TestPrompts:
-    @pytest.mark.parametrize("name", ["system", "plan", "build", "fix", "review", "comments"])
+    @pytest.mark.parametrize("name", ["system", "plan", "build", "fix", "review", "comments", "notes"])
     def test_every_prompt_file_ships_and_fills_in(self, name: str) -> None:
         values = {
             key: f"<{key}>"
-            for key in ("company", "repo", "knowledge", "index", "state", "key", "title", "description", "ticket", "plan", "verify", "what", "details", "diff", "comments", "earlier", "rules")
+            for key in ("company", "repo", "knowledge", "index", "state", "page", "key", "title", "description", "ticket", "plan", "verify", "what", "details", "diff", "comments", "earlier", "facts", "rules")
         }
 
         text = Prompts().text(name, values)
 
         assert ("{" in text, "}" in text) == (False, False)
-        assert ("<key>" in text) is (name != "system")
+        assert ("<key>" in text) is (name not in ("system", "notes"))
         assert ("<index>" in text) is (name == "system")
+        # The Notes prompt gets the facts of the task (decision W4).
+        assert ("<facts>" in text) is (name == "notes")
         # The rule sets (decision Q4) reach the system prompt of every call and the self-review prompt.
         assert ("<rules>" in text) is (name in ("system", "review"))

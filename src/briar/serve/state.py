@@ -138,6 +138,10 @@ class WorkState:
         self._company = company
         self._lock = lock
 
+    def store(self) -> KnowledgeStore:
+        """The store of the knowledge of the company (the state is one blob of it)."""
+        return self._store
+
     def blob_name(self) -> str:
         return f"work:{self._company}"
 

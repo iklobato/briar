@@ -14,6 +14,16 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
 
 ### Added
 
+- Every task of `briar serve` has a page in the knowledge of its company, at
+  `work/<company>/tasks/<name>.md`: the memory of the task, which every fresh agent call
+  of it reads instead of the repo. The program writes the facts (the plan, the changes,
+  the verify result, the CI, the comments and the replies, the cost, the stop) and the
+  agent writes the notes at the end of a workflow (why it did that, and what is left). A
+  fact is never written twice, so a restart does not duplicate it. The notes are a paid
+  call, off by default: `serve.notes: true` turns them on, and the facts are written
+  either way (a measure found they made small review rounds dearer). The free
+  text of a fact and of the notes is indented, so a review comment with a `## ` line
+  stays text, and a page a person broke by hand never turns a ready PR back into a draft.
 - `briar serve` scans what each push would add: the added lines of the diff are matched against the credential patterns briar already
   uses for the knowledge (AWS, GitHub, Slack, PEM, JWT, a password in a URL). Nothing is pushed on a hit; the agent gets one fix loop
   (the file and the line, never the value), a clean fix is squashed with the commits not pushed yet so the commit that held the value

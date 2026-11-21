@@ -11,6 +11,7 @@ ticket gets the report too (`TaskFlow.blocked`)."""
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from datetime import datetime, timezone
 from typing import ClassVar, List, Optional
@@ -37,11 +38,13 @@ class TicketRun:
     async def work(self) -> None:
         if await self._adopted():
             return
+        await self._context.facts.add("taken", self._reason(), "taken")
         plan = self._posted_plan() or await self._steps.plan()
         if await self._kept_quiet(plan):
             return
         await asyncio.to_thread(self._announce, plan)
         await self._flow.record(WorkStatus.PLANNED, {"plan": plan.markdown()})
+        await self._context.facts.add("planned", plan.markdown(), self._plan_key(plan))
         await self._built(plan)
         if not await asyncio.to_thread(self._flow.changed):
             # A real run (2026-11-13): an operations ticket got an empty MR.
@@ -51,8 +54,33 @@ class TicketRun:
         number = await asyncio.to_thread(self._open, plan)
         # Recorded before the ticket comment: a failed comment must not lose the PR.
         await self._flow.record(WorkStatus.PR_OPEN, {"pr": number})
+        await self._context.facts.add("pr-opened", f"PR #{number}: {self._link(number)}", str(number))
         await asyncio.to_thread(self._published, number)
         await self.finish(number)
+
+    async def _notes(self, key: str) -> None:
+        """The Notes of the task, at the end of the workflow (decision W4)."""
+        if not self._context.company.settings.notes:
+            return
+        await self._steps.notes_of(self._context.facts, key)
+
+    def _head(self) -> str:
+        """The head of the branch in the worktree."""
+        return self._context.checkout.head(self._context.worktree)
+
+    def _reason(self) -> str:
+        """Why the selector took this task (or that it was found)."""
+        return self._context.item.reason or "the task was found, not chosen"
+
+    def _plan_key(self, plan: Plan) -> str:
+        """The key of the Fact of a plan: the same plan is written once."""
+        return hashlib.sha256(plan.markdown().encode("utf-8")).hexdigest()[:12]
+
+    def _link(self, number: int) -> str:
+        return self._context.sources.style().pull_url(self._context.item.repo, number)
+
+    def _asked(self, reviewers: List[str]) -> str:
+        return f"asked {', '.join(reviewers)}" if reviewers else "nobody was asked to review"
 
     async def _built(self, plan: Plan) -> None:
         """The build and its verify. Audit 10: the entry says when the build call returned, so a task that comes back after a pause in
@@ -65,6 +93,16 @@ class TicketRun:
             await self._steps.build(plan)
             await state.record((state.book().entry(key) or self._context.item.entry()).model_copy(update={"built": True}))
         await self._flow.verified("build the plan")
+        # After the verify: it makes the first commit, and the diff of the Fact reads the commits (a live run, 2026-11-21, wrote it
+        # before the commit and got an empty diff).
+        await self._context.facts.add("built", await asyncio.to_thread(self._build_facts), self._head())
+
+    def _build_facts(self) -> str:
+        """What the build changed: the files and the stat of the diff."""
+        context = self._context
+        files = context.checkout.changed_files(context.worktree, f"origin/{context.base}...HEAD")
+        stat = context.checkout.diff_stat(context.worktree, f"origin/{context.base}...HEAD")
+        return f"{stat}\n{files}" if files else stat
 
     async def finish(self, number: int) -> None:
         """Wait for CI on the draft PR, then mark it ready; also run for a PR left a draft
@@ -72,7 +110,14 @@ class TicketRun:
         await self._flow.ci(number)
         await asyncio.to_thread(self._context.sources.code_host().make_ready, self._context.item.repo, number)
         reviewers = await asyncio.to_thread(self._ask_reviewers, number)
-        await self._flow.record(WorkStatus.DONE, {"ready_at": datetime.now(timezone.utc).isoformat(), "reviewers": reviewers, "money_stop": None})
+        ready_at = datetime.now(timezone.utc).isoformat()
+        await self._flow.record(WorkStatus.DONE, {"ready_at": ready_at, "reviewers": reviewers, "money_stop": None})
+        await self._context.facts.add_safe("ready", f"the PR is ready for review ({self._asked(reviewers)})", ready_at)
+        try:
+            await self._notes("ticket")
+        finally:
+            # After the Notes: they are a paid call of the ticket too.
+            await self._context.facts.add_safe("cost", self._flow.cost(), "ticket")
 
     def _ask_reviewers(self, number: int) -> List[str]:
         """Decision D2: the usual reviewers of the repo are asked, so a ready PR does not wait
@@ -135,6 +180,7 @@ class TicketRun:
             return False
         report = f"the plan needs no code change in {self._context.item.repo}; nothing was posted on the ticket"
         await self._flow.record(WorkStatus.BLOCKED, {"plan": plan.markdown(), "report": report})
+        await self._context.facts.add_safe("stopped", report, "no-code")
         return True
 
     def _posted_plan(self) -> Optional[Plan]:

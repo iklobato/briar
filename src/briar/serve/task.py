@@ -17,6 +17,7 @@ from briar.extract._provider import ReviewComment
 from briar.serve.agent import Access, AgentAnswer, AgentRequest, AgentRunner
 from briar.serve.day import DUST, DayPause, Grant
 from briar.serve.git import GitIdentity, RepoCheckout, Shell
+from briar.serve.page import TaskFacts
 from briar.serve.pause import Refused
 from briar.serve.rules import TaskRules
 from briar.serve.state import WorkSource
@@ -70,7 +71,11 @@ class Budget:
             raise LimitHit(f"max_loops ({self.max_loops}) reached while fixing: {why}")
 
     def summary(self) -> str:
-        return f"US$ {self.spent[0]:.2f} of {self.max_usd}, {self.loops[0]} of {self.max_loops} fix loops"
+        return f"{self.money()}, {self.loops[0]} of {self.max_loops} fix loops"
+
+    def money(self) -> str:
+        """What the ticket spent, all its runs included, against its cap. The fix loops are of this run only, so they stay out."""
+        return f"US$ {self.spent[0]:.2f} of {self.max_usd}"
 
 
 @dataclass(frozen=True)
@@ -88,6 +93,9 @@ class TaskContext:
     identity: GitIdentity
     token: str
     sources: WorkSources
+    # The observer the code calls when it knows something new about the task (decisions W3 and W4):
+    # the page of the task is the memory of the task.
+    facts: "TaskFacts"
 
 
 class ServeCache:
@@ -148,7 +156,8 @@ class TaskPrep:
         worktree = checkout.worktree(refs.branch, refs.start, self._cache / "worktrees" / company.name / refs.branch.replace("/", "__"))
         title = company.settings.title.format_map({"key": item.ref(), "title": item.title, "number": item.number()})
         identity = style.identity()
-        return TaskContext(item, company, worktree, checkout, refs.base, refs.branch, title, self._describe(item), identity, token, self._sources)
+        facts = TaskFacts(company, item)
+        return TaskContext(item, company, worktree, checkout, refs.base, refs.branch, title, self._describe(item), identity, token, self._sources, facts)
 
     def _describe(self, item: WorkItem) -> str:
         """The ticket text; "" when the tracker cannot give it (its `get_ticket` logs why)."""
@@ -233,6 +242,18 @@ class CommentAnswer:
 
 
 @dataclass(frozen=True)
+class Notes:
+    """What the agent writes in the page of the task at the end of a workflow (decision W4): the
+    Notes, one text. The code writes the Facts; the Notes are the agent's."""
+
+    SCHEMA: ClassVar[Mapping[str, Any]] = {
+        "type": "object",
+        "properties": {"notes": {"type": "string"}},
+        "required": ["notes"],
+    }
+
+
+@dataclass(frozen=True)
 class Answers:
     """The answer of the agent for every comment of a round, by `ReviewComment.key()`; a
     comment it skipped still gets a reply (S22: every comment gets one)."""
@@ -312,6 +333,21 @@ class AgentSteps:
         listed = "\n\n".join(self._listed(comment) for comment in comments)
         prompt = Prompts().text("comments", {**self._fields(), "comments": listed, "verify": self._verify()})
         return Answers.from_answer(await self._ask(prompt, Answers.SCHEMA, Access.EDIT))
+
+    async def notes(self, facts: str) -> str:
+        """The Notes of the task (decisions W3 and W4): the agent writes what it thinks and what is
+        left, at the end of a workflow. One call, no tools; it is paid from the ticket cap."""
+        prompt = Prompts().text("notes", {**self._fields(), "facts": facts})
+        answer = await self._ask(prompt, Notes.SCHEMA, Access.ANSWER)
+        return str(answer.structured.get("notes", "")).strip()
+
+    async def notes_of(self, facts: "TaskFacts", key: str) -> None:
+        """The Notes of the task, at the end of a workflow (decision W4). It is outside the blocks of
+        the routines on purpose: a paid call that is only a note must never turn a ready PR back into
+        a draft. A call the money cap stops is a Fact, not a stop."""
+        from briar.serve.page import TaskNotes
+
+        await TaskNotes(self, facts).write(key)
 
     async def review(self, plan: Plan, diff: str, asked: Sequence[str]) -> Review:
         earlier = "\n".join(f"- {finding}" for finding in asked) or "- (none: this is the first round)"
@@ -403,6 +439,7 @@ class AgentSteps:
             "knowledge": self._known(company.knowledge_file()),
             "index": self._known(company.index_file()),
             "state": self._known(company.state_file()),
+            "page": self._known(Path(company.page_file(self._context.item.key))),
             "rules": self._rules().baseline_block(),
         }
 
@@ -414,6 +451,7 @@ __all__ = [
     "BudgetExhausted",
     "CommentAnswer",
     "LimitHit",
+    "Notes",
     "Plan",
     "Prompts",
     "Review",
