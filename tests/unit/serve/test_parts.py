@@ -6,11 +6,13 @@ from __future__ import annotations
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from http import HTTPStatus
 from pathlib import Path
 from types import SimpleNamespace
 from typing import ClassVar, Dict, List, Optional
 
 import pytest
+from github import UnknownObjectException
 
 from briar.extract._provider import CiState
 from briar.extract._providers.github import CiStates, GithubProvider
@@ -151,6 +153,15 @@ class TestCiStates:
         assert GithubProvider().ci_state("acme/app", PR_NUMBER) is CiState.NONE
         assert repo.asked_head_shas == [PUSHED]
 
+    def test_a_head_branch_github_deleted_reads_the_ci_of_the_last_head_of_the_pr(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A person merged the PR during the CI wait and GitHub deleted its branch: the branch answers 404, and the task
+        must not be blocked (a draft and a "briar stopped" comment on a merged PR). The PR still gives its last head."""
+        repo = FakeRepo(check_runs=[FakeRun("completed", "success")], workflow_runs=[FakeRun("completed", "success")], branch_head="")
+        monkeypatch.setattr(GithubProvider, "_api", lambda provider: FakeApi(repo))
+
+        assert GithubProvider().ci_state("acme/app", PR_NUMBER) is CiState.PASSED
+        assert repo.asked_head_shas == [FakeRepo.HEAD]
+
 
 class PushedBranch:
     """A clone with `briar/ENG-1` pushed (it changes README.md), then a commit on `main`."""
@@ -193,7 +204,10 @@ class FakeRepo:
         return SimpleNamespace(head=SimpleNamespace(sha=self.HEAD, ref=self.BRANCH))
 
     def get_branch(self, name: str) -> SimpleNamespace:
-        return SimpleNamespace(commit=SimpleNamespace(sha=self.branch_head if name == self.BRANCH else ""))
+        """A branch that is not there (an empty `branch_head`, or another name) answers 404, as GitHub does."""
+        if name != self.BRANCH or not self.branch_head:
+            raise UnknownObjectException(HTTPStatus.NOT_FOUND, {"message": "Branch not found"}, {})
+        return SimpleNamespace(commit=SimpleNamespace(sha=self.branch_head))
 
     def get_commit(self, sha: str) -> SimpleNamespace:
         runs = self.check_runs if sha == self.HEAD else []
