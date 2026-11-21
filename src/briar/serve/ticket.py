@@ -113,9 +113,11 @@ class TicketRun:
         ready_at = datetime.now(timezone.utc).isoformat()
         await self._flow.record(WorkStatus.DONE, {"ready_at": ready_at, "reviewers": reviewers, "money_stop": None})
         await self._context.facts.add_safe("ready", f"the PR is ready for review ({self._asked(reviewers)})", ready_at)
-        await self._notes("ticket")
-        # After the Notes: they are a paid call of the ticket too.
-        await self._context.facts.add_safe("cost", self._flow.cost(), "ticket")
+        try:
+            await self._notes("ticket")
+        finally:
+            # After the Notes: they are a paid call of the ticket too.
+            await self._context.facts.add_safe("cost", self._flow.cost(), "ticket")
 
     def _ask_reviewers(self, number: int) -> List[str]:
         """Decision D2: the usual reviewers of the repo are asked, so a ready PR does not wait
@@ -178,6 +180,7 @@ class TicketRun:
             return False
         report = f"the plan needs no code change in {self._context.item.repo}; nothing was posted on the ticket"
         await self._flow.record(WorkStatus.BLOCKED, {"plan": plan.markdown(), "report": report})
+        await self._context.facts.add_safe("stopped", report, "no-code")
         return True
 
     def _posted_plan(self) -> Optional[Plan]:

@@ -14,7 +14,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import pytest
 
-from briar.extract._provider import CommentKind, ReviewComment
+from briar.extract._provider import CiState, CommentKind, ReviewComment
+from briar.serve.agent import AgentAnswer, AgentRequest
 from briar.serve.page import Fact, PageBackfill, PageError, PageFile, PageName, TaskFacts, TaskPages
 from briar.serve.state import MoneyStop, WorkEntry, WorkSource, WorkStatus
 from briar.serve.work import BudgetReopen, ServeCompanies, ServeCompany, WorkDay, WorkItem, WorkKind
@@ -36,6 +37,8 @@ PICK_USD = 0.01
 OLD_SPEND_USD = 0.5
 # The day of the spends of the backfill tests.
 DAY = "2026-11-21"
+# The spend of a ticket of three calls of 0.1, then after each of two rounds of one call.
+COSTS = (0.3, 0.4, 0.5)
 
 
 class Facts:
@@ -526,7 +529,7 @@ class TestTheReviewRound:
 
         setup.work_on(agent, reviews.item([reviews.inline()]))
 
-        answered, replied = store.index_of('"inline:1"'), store.index_of("`reply:inline:1`")
+        answered, replied = store.index_of('"inline:1"'), store.index_of("`reply:inline:1@t1`")
         assert (answered, replied) != (-1, -1)
         assert answered < replied
 
@@ -645,3 +648,102 @@ class TestTheRealPath:
         setup.work_on(agent, reviews.item([reviews.inline()]))
 
         assert setup.company.page_file(KEY) in agent.requests[0].system_prompt
+
+
+class NotesFail(ScriptedAgent):
+    """Plays its steps, then fails the next call (the Notes) the way a full disk fails the booking of its spend."""
+
+    async def ask(self, request: AgentRequest) -> AgentAnswer:
+        if not self.steps:
+            raise OSError("No space left on device")
+        return await super().ask(request)
+
+
+class TestTheReviewOfThePage:
+    """What a review of the PR found (2026-11-21), each one written to fail on the code before its fix."""
+
+    def ticket(self, setup: Setup) -> None:
+        setup.work_on(ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved()]), Items().jira())
+
+    def answers(self, reply: str, comment: str = "1") -> Step:
+        return Step(structured={"answers": [{"id": f"inline:{comment}", "changed": False, "reply": reply}]})
+
+    def test_a_page_a_person_broke_does_not_stop_the_next_review_round(self, setups: Setups, tmp_path: Path) -> None:
+        setup = setups.make({}, Broken(make_store("file", file_root=tmp_path / "knowledge"), "`cost:ticket`"))
+        self.ticket(setup)
+        reviews = Reviews()
+
+        setup.work_on(ScriptedAgent([self.answers("done")]), reviews.item([reviews.inline()]))
+
+        github = setup.sources.github_side
+        assert (setup.entry(KEY).status, github.drafts, len(github.replies)) == (WorkStatus.DONE, [], 1)
+
+    def test_a_page_that_is_not_utf8_still_moves_the_merged_ticket_to_done(self, setups: Setups) -> None:
+        setup = setups.make({"status": {"started": "In Progress", "review": "In Review", "done": "Done"}})
+        self.ticket(setup)
+        Path(setup.company.page_file(KEY)).write_bytes(b"## Facts\n\n- `taken:taken` caf\xe9\n")
+
+        setup.work_on(ScriptedAgent([]), WorkItem(WorkKind.MERGED, KEY, WorkSource.JIRA, "acme/app", "Add the feature", pr=PR))
+
+        assert (setup.entry(KEY).status, (KEY, "Done") in setup.sources.tracker_side.moves) == (WorkStatus.MERGED, True)
+
+    def test_an_edited_comment_writes_the_new_comment_and_the_new_reply(self, setups: Setups) -> None:
+        """briar answers a comment again when its author edits it, so the page must hold the edit too."""
+        setup = setups.make({})
+        self.ticket(setup)
+        reviews = Reviews()
+        first = reviews.inline()
+
+        setup.work_on(ScriptedAgent([self.answers("first reply")]), reviews.item([first]))
+        setup.work_on(ScriptedAgent([self.answers("second reply")]), reviews.item([replace(first, body="now rename it", updated_at="t2")]))
+
+        found = Facts().of(TaskPages(setup.company).read(KEY))
+        assert found["comment"] == ["inline comment by ann: say why in feature.txt", "inline comment by ann: now rename it"]
+        assert found["reply"] == ["first reply", "second reply"]
+
+    def test_two_rounds_that_change_no_code_keep_both_costs(self, setups: Setups) -> None:
+        """Both rounds start at the same head: a cost keyed on the head kept only the first one."""
+        setup = setups.make({})
+        self.ticket(setup)
+        reviews = Reviews()
+        second = replace(reviews.inline(), id="2", thread="2", body="and another")
+
+        setup.work_on(ScriptedAgent([self.answers("r1")]), reviews.item([reviews.inline()]))
+        setup.work_on(ScriptedAgent([self.answers("r2", "2")]), reviews.item([second]))
+
+        assert Facts().of(TaskPages(setup.company).read(KEY))["cost"] == [f"US$ {cost:.2f} of {MAX_USD} spent by the task so far" for cost in COSTS]
+
+    def test_a_pr_with_no_ci_is_not_written_as_a_ci_that_passed(self, setups: Setups) -> None:
+        setup = setups.make({"ci_grace_seconds": 0})
+        setup = replace(setup, sources=replace(setup.sources, github_side=replace(setup.sources.github_side, ci=[CiState.NONE])))
+
+        self.ticket(setup)
+
+        assert Facts().of(TaskPages(setup.company).read(KEY))["ci"] == [f"no CI ran on the PR #{PR} (none started within ci_grace_seconds)"]
+
+    def test_a_ticket_that_needs_no_code_writes_why_it_stopped(self, setups: Setups) -> None:
+        setup = setups.make({})
+
+        setup.work_on(ScriptedAgent([Plans().no_code()]), Items().jira())
+
+        found = Facts().of(TaskPages(setup.company).read(KEY))
+        assert found["stopped"] == ["the plan needs no code change in acme/app; nothing was posted on the ticket"]
+
+    def test_a_round_stopped_for_money_writes_why_it_stopped(self, setups: Setups) -> None:
+        setup = setups.make({"max_usd": NOTES_CAP})
+        self.ticket(setup)
+        reviews = Reviews()
+
+        setup.work_on(ScriptedAgent([self.answers("done")]), reviews.item([reviews.inline()]))
+
+        (stopped,) = Facts().of(TaskPages(setup.company).read(KEY))["stopped"]
+        assert (setup.entry(KEY).status, stopped.startswith("briar stopped: the task spent its max_usd of 0.35.")) == (WorkStatus.BLOCKED, True)
+
+    def test_a_failed_notes_call_leaves_the_task_done_and_the_pr_ready(self, setups: Setups) -> None:
+        setup = setups.make({"notes": True})
+
+        setup.work_on(NotesFail([Plans().plan(), Step(writes=Files().feature()), Plans().approved()]), Items().jira())
+
+        github = setup.sources.github_side
+        assert (setup.entry(KEY).status, github.readies, github.drafts) == (WorkStatus.DONE, [PR], [])
+        assert Facts().of(TaskPages(setup.company).read(KEY))["cost"] == [f"US$ 0.30 of {MAX_USD} spent by the task so far"]

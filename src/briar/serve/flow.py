@@ -123,7 +123,7 @@ class TaskFlow:
         while True:
             state = await asyncio.to_thread(self._context.sources.code_host().ci_state, self._context.item.repo, number)
             if state is CiState.PASSED or (state is CiState.NONE and time.monotonic() - started > self._context.company.settings.ci_grace_seconds):
-                await self._context.facts.add("ci", f"the CI of the PR #{number} passed", f"{await self._head()}:{self._budget.loops[0]}")
+                await self._context.facts.add("ci", self._ci_fact(state, number), f"{await self._head()}:{self._budget.loops[0]}")
                 return
             if state is CiState.FAILED:
                 await self._context.facts.add("ci", f"the CI of the PR #{number} failed", f"{await self._head()}:{self._budget.loops[0]}")
@@ -131,6 +131,12 @@ class TaskFlow:
             if time.monotonic() > deadline:
                 raise LimitHit(f"CI did not pass within ci_wait_minutes ({minutes})")
             await asyncio.sleep(self.CI_POLL_SECONDS)
+
+    def _ci_fact(self, state: CiState, number: int) -> str:
+        """The text of the `ci` Fact when the wait ends well: a PR with no CI at all did not pass one (a review, 2026-11-21)."""
+        if state is CiState.NONE:
+            return f"no CI ran on the PR #{number} (none started within ci_grace_seconds)"
+        return f"the CI of the PR #{number} passed"
 
     async def reviewed(self, plan: Plan, revisions: str) -> None:
         """The self-review of the change in `revisions` against `plan`, fixed until it

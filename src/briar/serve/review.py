@@ -9,6 +9,7 @@ answered comments. A round that changes nothing only replies."""
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from briar.errors import CliError
@@ -88,15 +89,19 @@ class ReviewRun:
         except ModelPause:
             await self._paused()
             raise
-        await self._notes(start)
-        # After the Notes: they are a paid call of the ticket too.
-        await self._context.facts.add_safe("cost", self._flow.cost(), f"round-{start}")
+        # One run of the routine is one event: two rounds that change no code start at the same head (a review, 2026-11-21).
+        label = f"round-{datetime.now(timezone.utc).isoformat()}"
+        try:
+            await self._notes(label)
+        finally:
+            # After the Notes: they are a paid call of the ticket too.
+            await self._context.facts.add_safe("cost", self._flow.cost(), label)
 
-    async def _notes(self, start: str) -> None:
+    async def _notes(self, label: str) -> None:
         """The Notes of the task, at the end of the round (decision W4)."""
         if not self._context.company.settings.notes:
             return
-        await self._steps.notes_of(self._context.facts, f"round-{start}")
+        await self._steps.notes_of(self._context.facts, label)
 
     async def _waited(self) -> None:
         """Decision B13: the CI wait and the CI fix of a round the day cap paused after its replies. No reply is posted again
@@ -128,7 +133,7 @@ class ReviewRun:
         if item.conflict:
             await self._context.facts.add("conflict", f"the PR was in conflict with its base ({', '.join(merged)})", start)
         for comment in item.comments:
-            await self._context.facts.add("comment", f"{comment.kind.value} comment by {comment.author}: {comment.body}", comment.key())
+            await self._context.facts.add("comment", f"{comment.kind.value} comment by {comment.author}: {comment.body}", self._fact_key(comment))
         answers = await self._steps.answer(item.comments) if item.comments else Answers({})
         await asyncio.to_thread(self._flow.commit, "answer the review")
         head = await self._head()
@@ -159,7 +164,7 @@ class ReviewRun:
         """The Facts of the replies of the round, one per comment and one for the round."""
         item = self._context.item
         for comment in item.comments:
-            await self._context.facts.add_safe("reply", answers.of(comment).reply, comment.key())
+            await self._context.facts.add_safe("reply", answers.of(comment).reply, self._fact_key(comment))
         await self._context.facts.add_safe("round", f"the round answered {len(item.comments)} comment(s)", str(self._round_number()))
 
     async def _done(self, changes: Mapping[str, Any]) -> None:
@@ -185,6 +190,12 @@ class ReviewRun:
         await asyncio.to_thread(host.comment, item.repo, item.pr, Marker().mark(text))
         money = MoneyStop(cap=context.company.settings.max_usd, resume_to=WorkStatus.PR_OPEN.value, drafted=drafted)
         await self._flow.record(WorkStatus.BLOCKED, {"report": text, "rounds": self._rounds_kept(), "money_stop": money})
+        await context.facts.add_safe("stopped", text, f"money-{datetime.now(timezone.utc).isoformat()}")
+
+    def _fact_key(self, comment: ReviewComment) -> str:
+        """The key of the Facts of a comment and of its reply: an edit of the comment is answered again (`ReviewFilter._fresh`),
+        so the edit is a Fact of its own (a review, 2026-11-21)."""
+        return f"{comment.key()}@{comment.updated_at}"
 
     def _round_number(self) -> int:
         """The number of this round: the rounds the state counted, this one included (`_start` counts it before the round)."""

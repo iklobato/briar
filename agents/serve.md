@@ -364,7 +364,7 @@ companies:
       call_minutes: 30                # optional: an agent call with no answer after this many minutes is cut (30 is a placeholder)
       ask_reviewers: false            # optional: a ready PR asks the usual reviewers of the repo to review it (off by default)
       ci_grace_seconds: 60            # optional: how long it waits for a CI that has not started before it decides the repo has none (a placeholder)
-      notes: true                     # optional: the agent writes the notes of a task at the end of a workflow (on by default; the call costs money)
+      notes: false                    # optional: the agent writes the notes of a task at the end of a workflow (off by default; the call costs money)
       poll_minutes: 5                 # optional
       verify: ["make lint", "make test"]
       verify_by_repo:                 # optional: a repo's own verify commands (others use `verify`)

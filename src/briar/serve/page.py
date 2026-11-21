@@ -169,7 +169,7 @@ class TaskPages:
         return self._company.page_file(key)
 
     def read(self, key: str) -> PageFile:
-        return PageFile.parse(self._company.knowledge().get(self.path(key)))
+        return PageFile.parse(self._text(key))
 
     def write(self, key: str, page: PageFile) -> None:
         self._company.knowledge().put(self.path(key), page.text())
@@ -180,7 +180,14 @@ class TaskPages:
         self.write(key, PageFile(page.facts(), notes))
 
     def exists(self, key: str) -> bool:
-        return bool(self._company.knowledge().get(self.path(key)))
+        return bool(self._text(key))
+
+    def _text(self, key: str) -> str:
+        """The text of the page. A page a person saved in another encoding is not a page this code wrote (a review, 2026-11-21)."""
+        try:
+            return self._company.knowledge().get(self.path(key))
+        except UnicodeError as failure:
+            raise PageError(f"the page is not UTF-8 text: {failure}") from failure
 
 
 class PageBackfill:
@@ -238,8 +245,13 @@ class TaskFacts:
 
     async def add(self, kind: str, text: str, key: str = "") -> None:
         """A Fact of the task. A failure of the store is a failure of the task: the caller is
-        before the end of the task, where the state is not saved yet."""
-        await asyncio.to_thread(self._add, kind, text, key)
+        before the end of the task, where the state is not saved yet. A page a person broke by
+        hand is left as it is and logged: the next review round of a ready PR must not draft it
+        (a review, 2026-11-21)."""
+        try:
+            await asyncio.to_thread(self._add, kind, text, key)
+        except PageError as failure:
+            self.LOG.error("serve: the page of the task is left as it is: %s", failure)
 
     async def add_safe(self, kind: str, text: str, key: str = "") -> None:
         """A Fact of a task that already reached its end. A failure of the store only logs: a
@@ -298,9 +310,10 @@ class TaskNotes:
         except LimitHit as stop:
             await self._facts.add_safe("notes-skipped", str(stop), key)
             return
-        except PageError as failure:
-            # The call comes after the end of the task: a page a person broke never drafts a ready PR.
-            TaskFacts.LOG.error("serve: the page of the task could not be read: %s", failure)
+        except (OSError, PageError) as failure:
+            # The call comes after the end of the task: a page a person broke, or a store that fails to book the spend of the
+            # call, never drafts a ready PR.
+            TaskFacts.LOG.error("serve: the notes of the task could not be written: %s", failure)
             return
         await self._facts.notes(notes[: self.LIMIT])
 
