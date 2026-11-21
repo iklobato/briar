@@ -20,7 +20,8 @@ is in `docs/decisions/2026-11-10-briar-2-pipeline.md`, re-scoped around
   the verify result, the CI, the comments and the replies, the cost, the stop) and the
   agent writes the notes at the end of a workflow (why it did that, and what is left). A
   fact is never written twice, so a restart does not duplicate it. The notes are a paid
-  call: `serve.notes: false` turns them off, and the facts keep being written. The free
+  call, off by default: `serve.notes: true` turns them on, and the facts are written
+  either way (a measure found they made small review rounds dearer). The free
   text of a fact and of the notes is indented, so a review comment with a `## ` line
   stays text, and a page a person broke by hand never turns a ready PR back into a draft.
 - `briar serve` scans what each push would add: the added lines of the diff are matched against the credential patterns briar already

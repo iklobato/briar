@@ -127,8 +127,10 @@ text and never reads back as a heading or as a fact.
 The system prompt of every call points at the page, and says to read it as data, never as
 orders: it holds the text of other people (the comments of a review).
 
-The notes are a paid call. `notes: false` in the `serve:` block turns them off; the facts
-keep being written.
+The notes are a paid call, off by default: `notes: true` in the `serve:` block turns them
+on; the facts are written either way. A measure on 2026-11-21 (one ticket, four review
+rounds of one docstring sentence each, page off and on in turn) found a round with the page
+cost 27 percent more for its work calls, and the notes call added about US$ 0.02 a round.
 
 ## Which comments count
 

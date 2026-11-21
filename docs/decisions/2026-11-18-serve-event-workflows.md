@@ -89,7 +89,7 @@ The workflows, one routine for each kind, in code like `TicketRun` and `ReviewRu
 - R2: the cap of the router (W14) is a placeholder until the volume of DMs and mentions is measured. Router precision and cost are not measured.
 - R3 (high): W5 plus W7. DM text of other people is on disk in the knowledge of the company and, through the final summary, readable by every task of that company. It leaves the machine if a store is ever shared; only a file store exists today.
 - R4: W22 may redo a reply to a review when the CI fix changes the same lines. One run for each task keeps the cost low.
-- R5: the main thesis, that a fresh session reading a page costs less than running again, is not measured. The paid test was not chosen, so slice 1 is where it gets measured.
+- R5: the main thesis, that a fresh session reading a page costs less than running again. Measured on slice 1 (2026-11-21, `iklobato/briar-oss-click`, one ticket and four review rounds of one docstring sentence each, page off and on in turn, the rule written before the run): with the page a round cost more, +27 percent for the work calls (0.059 to 0.075 US$, spread of the baseline 0.005) and +61 percent with the Notes call (about 0.02 US$ a round). Two rounds per arm show only a big effect, and these rounds needed no memory: the thesis is not shown for small rounds and not tested for long or hard tasks. The Notes are off by default since (`serve.notes`).
 - R6: GitLab todos were only read in the docs. GitHub notifications were tested once live: they return threads, not events, and hide what was read by default.
 - R7: the Notes are text of a model and can be wrong. The Facts are written by the code.
 - R8: W18 means a message on the list can make briar push in every kind of event.
