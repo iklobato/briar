@@ -604,7 +604,7 @@ class TestTheToken:
 
 
 class TestTheRealPath:
-    """The real path: a runbook with no `notes` key (the default is on) and the loader of the runbooks."""
+    """The real path: a runbook with no `notes` key (the default is off, after the measure of R5) and the loader of the runbooks."""
 
     RUNBOOK = (
         "version: 1\ncompanies:\n  acme:\n    knowledge:\n      store: file\n      root: {root}\n"
@@ -626,7 +626,15 @@ class TestTheRealPath:
 
         page = Path(setup.company.page_file(KEY))
         assert (page.exists(), page.parts[-4:]) == (True, ("work", "acme", "tasks", "ENG-1.md"))
-        assert TaskPages(setup.company).read(KEY).notes() == "the notes"
+
+    def test_a_runbook_with_no_notes_key_makes_no_notes_call(self, setups: Setups, tmp_path: Path) -> None:
+        setup = setups.loaded(self.company(tmp_path))
+        agent = ScriptedAgent([Plans().plan(), Step(writes=Files().feature()), Plans().approved(), Step(structured={"notes": "the notes"})])
+
+        setup.work_on(agent, Items().jira())
+
+        notes_calls = [request for request in agent.requests if request.schema.get("properties", {}).get("notes")]
+        assert (notes_calls, TaskPages(setup.company).read(KEY).notes()) == ([], "")
 
     def test_the_round_of_a_real_runbook_names_the_page_in_the_prompt_of_the_agent(self, setups: Setups, tmp_path: Path) -> None:
         setup = setups.loaded(self.company(tmp_path))

@@ -170,9 +170,10 @@ class ServeSettings(_Strict):
     # blocked with that report (a selector call counts as failed). A call that never answers would otherwise
     # keep its share of the day for ever. 30 is a placeholder: no run measured the time of one call.
     call_minutes: int = Field(default=30, ge=1)
-    # Whether the agent writes the Notes of a task at the end of a workflow (decision W4). The call
-    # costs money, so it can be turned off; on by default.
-    notes: bool = True
+    # Whether the agent writes the Notes of a task at the end of a workflow (decision W4). Off by
+    # default: the measure of R5 (2026-11-21) found the call costs about US$ 0.02 a round and the
+    # page made small review rounds dearer, not cheaper. The Facts are written either way.
+    notes: bool = False
     # GitHub repos to work in: an open issue there assigned to the token owner is a ticket.
     repos: List[str] = Field(default_factory=list)
     # Jira project key -> the repos its tickets may be built in (spec 008 N5, N7).
