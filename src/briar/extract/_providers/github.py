@@ -213,7 +213,9 @@ class GithubProvider(RepositoryProvider):
 
     def _ci_state(self, repo: str, number: int) -> CiState:
         target = self._api().client().get_repo(repo)
-        sha = target.get_pull(number).head.sha
+        # The head of the head branch, not the head the PR gives: right after a push the PR still gives the commit
+        # before for some seconds, whose CI passed (live runs, 2026-11-21); the branch moves at once, as on GitLab.
+        sha = target.get_branch(target.get_pull(number).head.ref).commit.sha
         commit = target.get_commit(sha)
         # A queued Actions run has no check run yet: read the workflow runs too, or a fast
         # check of another app that passed first reads as "CI passed".

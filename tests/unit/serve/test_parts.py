@@ -24,6 +24,8 @@ MAX_USD = 1.0
 HALF_USD = MAX_USD / 2
 EXIT_CODE = 3
 PR_NUMBER = 11
+# The commit briar just pushed: the head branch is there, the PR still gives the head before it.
+PUSHED = "def456"
 # Tasks of one repo that start at the same moment.
 TASKS = 4
 
@@ -140,6 +142,15 @@ class TestCiStates:
         assert GithubProvider().ci_state("acme/app", PR_NUMBER) is CiState.PENDING
         assert repo.asked_head_shas == [FakeRepo.HEAD]
 
+    def test_the_ci_of_the_pushed_head_counts_and_not_the_old_head_the_pr_still_gives(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Real runs (2026-11-21): for about 5 s after a push, GitHub still gave the old head of the PR, whose CI had
+        passed, and three review rounds were marked done before the CI of their new head ran. The head branch moves at once."""
+        repo = FakeRepo(check_runs=[FakeRun("completed", "success")], workflow_runs=[FakeRun("completed", "success")], branch_head=PUSHED)
+        monkeypatch.setattr(GithubProvider, "_api", lambda provider: FakeApi(repo))
+
+        assert GithubProvider().ci_state("acme/app", PR_NUMBER) is CiState.NONE
+        assert repo.asked_head_shas == [PUSHED]
+
 
 class PushedBranch:
     """A clone with `briar/ENG-1` pushed (it changes README.md), then a commit on `main`."""
@@ -170,20 +181,27 @@ class FakeRun:
 class FakeRepo:
     """The PyGithub repository calls of `ci_state`."""
 
+    # The head the PR gives, and the runs of that commit; the head branch can already be at another commit (a push).
     HEAD: ClassVar[str] = "abc123"
+    BRANCH: ClassVar[str] = "briar/ENG-1"
     check_runs: List[FakeRun] = field(default_factory=list)
     workflow_runs: List[FakeRun] = field(default_factory=list)
+    branch_head: str = HEAD
     asked_head_shas: List[str] = field(default_factory=list)
 
     def get_pull(self, number: int) -> SimpleNamespace:
-        return SimpleNamespace(head=SimpleNamespace(sha=self.HEAD))
+        return SimpleNamespace(head=SimpleNamespace(sha=self.HEAD, ref=self.BRANCH))
+
+    def get_branch(self, name: str) -> SimpleNamespace:
+        return SimpleNamespace(commit=SimpleNamespace(sha=self.branch_head if name == self.BRANCH else ""))
 
     def get_commit(self, sha: str) -> SimpleNamespace:
-        return SimpleNamespace(get_check_runs=lambda: self.check_runs, get_combined_status=lambda: SimpleNamespace(statuses=[]))
+        runs = self.check_runs if sha == self.HEAD else []
+        return SimpleNamespace(get_check_runs=lambda: runs, get_combined_status=lambda: SimpleNamespace(statuses=[]))
 
     def get_workflow_runs(self, head_sha: str) -> List[FakeRun]:
         self.asked_head_shas.append(head_sha)
-        return self.workflow_runs
+        return self.workflow_runs if head_sha == self.HEAD else []
 
 
 @dataclass(frozen=True)
