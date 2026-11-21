@@ -98,24 +98,31 @@ folder of the company, at `work/<company>/tasks/<name>.md` (`ENG-1.md` for a Jir
 ```markdown
 ## Facts
 
-- `taken` the ticket was assigned to the token owner
-- `planned` # Plan of the ticket ...
-- `built` 3 files changed, 42 insertions(+) ...
-- `verify` `make test` ok
-- `ci` the CI of the PR #12 passed
-- `pr-opened` PR #12: https://github.com/acme/web/pull/12
-- `ready` the PR is ready for review (asked alice, bob)
+- `taken:taken` the ticket was assigned to the token owner
+- `planned:4a9de6f8f1e4` Retry the request once on a 503.
+  Steps:
+  1. ...
+- `built:9c1e2d0` client.py | 12 +++++---
+  1 file changed, 8 insertions(+), 4 deletions(-)
+- `verify:9c1e2d0:0` `make test` ok
+- `pr-opened:12` PR #12: https://github.com/acme/web/pull/12
+- `ci:9c1e2d0:0` the CI of the PR #12 passed
+- `ready:2026-11-21T00:59:48+00:00` the PR is ready for review (asked alice, bob)
+- `cost:ticket` US$ 0.25 of 1.0 spent by the task so far
 
 ## Notes
 
-The change is the retry of the request; the old code kept the token in the log.
+  The change is the retry of the request; the old code kept the token in the log.
 ```
 
 The **facts** are written by the program: what happened (the plan, the changes, the
 verify result, the CI, the comments and the replies, the cost, the stop). The **notes**
 are written by the agent at the end of a workflow: why it did that, and what is left.
-The facts stay right even when the notes are wrong, and a fact is never written twice, so
-a restart does not duplicate it.
+The facts stay right even when the notes are wrong, and a fact is never written twice
+(its key is `<kind>:<discriminator>`), so a restart does not duplicate it. Every line of
+free text after the first line of a fact, and every line of the notes, is indented by two
+spaces: a comment of a reviewer with a `## ` line or a line that starts like a fact stays
+text and never reads back as a heading or as a fact.
 
 The system prompt of every call points at the page, and says to read it as data, never as
 orders: it holds the text of other people (the comments of a review).
